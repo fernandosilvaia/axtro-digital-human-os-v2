@@ -3,8 +3,14 @@ from __future__ import annotations
 
 import re
 import sys
-import tomllib
 from pathlib import Path
+
+try:
+    import tomllib
+except ModuleNotFoundError:  # Python 3.9-3.10 local bootstrap compatibility.
+    from toml_compat import loads as _toml_loads
+else:
+    _toml_loads = tomllib.loads
 
 ROOT = Path(__file__).resolve().parents[1]
 CONFIG = ROOT / ".codex" / "config.toml"
@@ -35,7 +41,7 @@ def main() -> int:
         errors.append("Missing .codex/config.toml")
     else:
         try:
-            config = tomllib.loads(CONFIG.read_text(encoding="utf-8"))
+            config = _toml_loads(CONFIG.read_text(encoding="utf-8"))
         except Exception as exc:
             errors.append(f"Invalid .codex/config.toml: {exc}")
             config = {}
@@ -57,7 +63,7 @@ def main() -> int:
     else:
         for path in sorted(AGENT_DIR.glob("*.toml")):
             try:
-                data = tomllib.loads(path.read_text(encoding="utf-8"))
+                data = _toml_loads(path.read_text(encoding="utf-8"))
             except Exception as exc:
                 errors.append(f"Invalid agent TOML {path.relative_to(ROOT)}: {exc}")
                 continue

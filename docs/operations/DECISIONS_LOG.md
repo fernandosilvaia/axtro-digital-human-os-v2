@@ -14,3 +14,4 @@
 | D-V2-010 | 2026-07-14 | UUIDv7 gerado pela aplicação | ordenação temporal sem depender da versão do Postgres | média |
 | D-V2-011 | 2026-07-14 | Vector sem dimensão no walking skeleton, sem ANN | manter provider bake-off e evitar índice incorreto precoce | média |
 | D-V2-012 | 2026-07-14 | M0-M2 podem usar fakes sem credenciais | permitir desenvolvimento imediato e determinístico | alta |
+| D-V2-013 | 2026-07-14 | Compilador TypeScript e tipos de Node são dependências somente de desenvolvimento, fixadas no lockfile | manter lint, typecheck e build reproduzíveis sem introduzir SDK de provider ou dependência de produção | alta |

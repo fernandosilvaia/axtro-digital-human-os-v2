@@ -1,0 +1,30 @@
+version = 1
+revision = 3
+requires-python = ">=3.9, <3.14"
+
+[manifest]
+members = [
+    "axtro-contracts-py",
+    "axtro-digital-human-os-v2",
+    "axtro-realtime-worker",
+]
+
+[[package]]
+name = "axtro-contracts-py"
+version = "0.1.0"
+source = { virtual = "packages/contracts-py" }
+
+[[package]]
+name = "axtro-digital-human-os-v2"
+version = "0.1.0"
+source = { virtual = "." }
+
+[package.metadata]
+
+[package.metadata.requires-dev]
+dev = []
+
+[[package]]
+name = "axtro-realtime-worker"
+version = "0.1.0"
+source = { virtual = "apps/realtime-worker" }

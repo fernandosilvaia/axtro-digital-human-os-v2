@@ -1,0 +1,17 @@
+{
+  "name": "axtro-digital-human-os-v2",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "packageManager": "pnpm@11.9.0",
+  "scripts": {
+    "lint": "node scripts/lint.mjs",
+    "typecheck": "tsc --build --pretty false --force",
+    "test": "pnpm run build && node scripts/test.mjs",
+    "build": "tsc --build --pretty false --force"
+  },
+  "devDependencies": {
+    "@types/node": "24.10.1",
+    "typescript": "5.9.3"
+  }
+}

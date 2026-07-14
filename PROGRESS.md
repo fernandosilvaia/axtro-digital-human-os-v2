@@ -2,9 +2,9 @@
 
 **Estado atual:** implementação de M0 em andamento  
 **Marco atual:** M0  
-**Tarefa atual:** M0-01  
-**Última evidência verde:** 6 de 7 validadores arquiteturais verdes em 2026-07-14  
-**Bloqueadores internos:** validação de setup incompatível com o Python 3.9 local, correção em andamento  
+**Tarefa atual:** M0-02  
+**Última evidência verde:** M0-01 com bootstrap, testes e validadores verdes em 2026-07-14  
+**Bloqueadores internos:** nenhum para M0-02; Postgres com pgvector ainda será necessário para M0-07 e M0-08  
 **Pendências externas:** consultar `PENDENCIAS_EXTERNAS.md`  
 
 ## Regras de atualização
@@ -18,8 +18,8 @@
 
 | ID | Marco | Status | Título | Dependências | Evidência |
 |---|---|---|---|---|---|
-| `M0-01` | M0 | in_progress | Bootstrap modular monorepo | nenhuma | validação inicial registrada; bootstrap em andamento |
-| `M0-02` | M0 | pending | Install repository and documentation gates | `M0-01` | pending |
+| `M0-01` | M0 | done | Bootstrap modular monorepo | nenhuma | `pnpm install`, `uv sync`, lint, typecheck, test, build e 7 validadores verdes |
+| `M0-02` | M0 | in_progress | Install repository and documentation gates | `M0-01` | CI e gates de rastreabilidade em andamento |
 | `M0-03` | M0 | pending | Generate TypeScript and Python contract types | `M0-01`, `M0-02` | pending |
 | `M0-04` | M0 | pending | Implement domain identifiers and value objects | `M0-03` | pending |
 | `M0-05` | M0 | pending | Implement interaction state and pure reducers | `M0-04` | pending |
@@ -79,6 +79,15 @@
 - Validação inicial executada: `python3 scripts/validate_all.py`.
 - Resultado inicial: documentação, contratos, especificações, contrato de banco, inventário de migrations e secret scan verdes. `validate_codex_setup.py` falhou porque o interpretador local é Python 3.9.6 e não expõe `tomllib`; a correção preservará a validação do TOML e será coberta por teste.
 - Git foi inicializado na branch dedicada `codex/m0-m1-foundation`; nenhuma branch principal foi criada ou alterada.
+
+### 2026-07-14, M0-01 concluído e M0-02 iniciado
+
+- Criados workspaces pnpm e uv, package boundaries iniciais para domínio, contratos, configuração, segurança, banco, eventos, observabilidade, providers, policy, tools e custos, mais o esqueleto do Control Plane API e do worker realtime.
+- Adicionados scripts canônicos `lint`, `typecheck`, `test` e `build`, checks de boundary sem SDK de provider no domínio, e testes Python para o parser TOML de compatibilidade.
+- `validate_codex_setup.py` agora preserva a validação de TOML em Python 3.9-3.10 sem dependência externa e usa `tomllib` nativo em Python 3.11+.
+- Dependências somente de desenvolvimento registradas: `typescript@5.9.3` e `@types/node@24.10.1`; sem SDK de provider nem dependência de produção.
+- Evidências verdes: `env UV_CACHE_DIR=.uv-cache uv sync`, `pnpm install`, `pnpm lint`, `pnpm typecheck`, `pnpm test`, `pnpm build` e `python3 scripts/validate_all.py`.
+- Próxima tarefa marcada antes de qualquer alteração: M0-02, CI de runtime, meta-gates negativos e rastreabilidade P0.
 
 ### 2026-07-14, baseline arquitetural
 

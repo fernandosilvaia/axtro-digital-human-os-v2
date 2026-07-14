@@ -1,0 +1,6 @@
+[project]
+name = "axtro-realtime-worker"
+version = "0.1.0"
+description = "Realtime Interaction Plane worker"
+requires-python = ">=3.9,<3.14"
+dependencies = []

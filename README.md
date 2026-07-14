@@ -114,6 +114,18 @@ python3 scripts/secret_scan.py
 
 `legacy/v1` é apenas histórico. Nenhuma decisão nova deve ser baseada nele quando houver conflito com a V2.
 
+## Bootstrap local
+
+```bash
+UV_CACHE_DIR="$PWD/.uv-cache" uv sync
+pnpm install
+pnpm lint
+pnpm typecheck
+pnpm test
+pnpm build
+python3 scripts/validate_all.py
+```
+
 
 ## Evidência da migração
 

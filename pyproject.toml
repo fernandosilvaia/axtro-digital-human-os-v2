@@ -1,0 +1,15 @@
+[project]
+name = "axtro-digital-human-os-v2"
+version = "0.1.0"
+description = "Local development workspace for Axtro Digital Human OS V2"
+requires-python = ">=3.9,<3.14"
+dependencies = []
+
+[dependency-groups]
+dev = []
+
+[tool.uv.workspace]
+members = ["apps/realtime-worker", "packages/contracts-py"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests/python"]

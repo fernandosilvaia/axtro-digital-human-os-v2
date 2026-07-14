@@ -1,0 +1,18 @@
+{
+  "files": [],
+  "references": [
+    { "path": "./apps/api" },
+    { "path": "./packages/contracts-ts" },
+    { "path": "./packages/domain" },
+    { "path": "./packages/config" },
+    { "path": "./packages/security" },
+    { "path": "./packages/database" },
+    { "path": "./packages/events" },
+    { "path": "./packages/observability" },
+    { "path": "./packages/provider-contracts" },
+    { "path": "./packages/provider-fakes" },
+    { "path": "./packages/policy" },
+    { "path": "./packages/tool-runtime" },
+    { "path": "./packages/costing" }
+  ]
+}

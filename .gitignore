@@ -9,6 +9,8 @@
 
 # JavaScript
 node_modules/
+.pnpm-store/
+.uv-cache/
 .next/
 dist/
 build/
@@ -23,6 +25,7 @@ __pycache__/
 .mypy_cache/
 .ruff_cache/
 *.py[cod]
+*.tsbuildinfo
 
 # Local runtime and provider artifacts
 artifacts/local/
