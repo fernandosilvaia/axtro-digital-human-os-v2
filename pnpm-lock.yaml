@@ -17,7 +17,14 @@ importers:
 
   apps/api: {}
 
-  packages/config: {}
+  packages/config:
+    dependencies:
+      '@axtro/contracts-ts':
+        specifier: workspace:*
+        version: link:../contracts-ts
+      '@axtro/security':
+        specifier: workspace:*
+        version: link:../security
 
   packages/contracts-ts: {}
 
@@ -48,7 +55,11 @@ importers:
 
   packages/provider-fakes: {}
 
-  packages/security: {}
+  packages/security:
+    dependencies:
+      '@axtro/domain':
+        specifier: workspace:*
+        version: link:../domain
 
   packages/tool-runtime: {}
 

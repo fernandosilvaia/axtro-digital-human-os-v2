@@ -358,6 +358,11 @@ components:
     UuidV7:
       type: string
       pattern: '^[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$'
+    SecretHandle:
+      type: string
+      description: Opaque broker reference. Credential values are not accepted.
+      maxLength: 500
+      pattern: '^(?!.*(?:sk-|gh[pousr]_|xox[baprs]-|akia|-----begin))secret://[a-z0-9][a-z0-9._/-]{0,480}$'
     Problem:
       type: object
       additionalProperties: false
@@ -476,9 +481,7 @@ components:
           type: string
           enum: [realtime_model, stt, tts, avatar, meeting, telephony, database, observability]
         secret_handle:
-          type: string
-          minLength: 1
-          maxLength: 500
+          $ref: '#/components/schemas/SecretHandle'
         region:
           type: string
           minLength: 2

@@ -86,7 +86,7 @@ ficam fora do caminho crítico de áudio para áudio.
 ```text
 apps/                 aplicações e workers a implementar
 packages/             domínio, contratos, segurança, providers e UI
-contracts/            31 JSON Schemas + OpenAPI + AsyncAPI + exemplos
+contracts/            32 JSON Schemas + OpenAPI + AsyncAPI + exemplos
 backlog/              task graph executável e workstreams
 database/             schema de referência, migrations e matriz RLS
 docs/                 produto, arquitetura, segurança, operações e playbooks

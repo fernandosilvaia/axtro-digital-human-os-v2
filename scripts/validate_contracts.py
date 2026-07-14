@@ -12,7 +12,7 @@ ROOT = Path(__file__).resolve().parents[1]
 SCHEMAS = ROOT / "contracts" / "schemas"
 VALID = ROOT / "contracts" / "examples" / "valid"
 INVALID = ROOT / "contracts" / "examples" / "invalid"
-EXPECTED_COUNT = 31
+EXPECTED_COUNT = 32
 
 
 def load_json(path: Path) -> Any:

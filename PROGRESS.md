@@ -2,9 +2,9 @@
 
 **Estado atual:** implementação de M0 em andamento  
 **Marco atual:** M0  
-**Tarefa atual:** M0-06
-**Última evidência verde:** M0-05 com reducers determinísticos, replay e gates verdes em 2026-07-14
-**Bloqueadores internos:** nenhum para M0-06; Postgres com pgvector ainda será necessário para M0-07 e M0-08
+**Tarefa atual:** M0-07
+**Última evidência verde:** M0-06 com configuração fail-closed, handles opacos e gates verdes em 2026-07-14
+**Bloqueadores internos:** nenhum; M0-07 requer somente PostgreSQL local com pgvector, sem banco remoto
 **Pendências externas:** consultar `PENDENCIAS_EXTERNAS.md`  
 
 ## Regras de atualização
@@ -23,8 +23,8 @@
 | `M0-03` | M0 | done | Generate TypeScript and Python contract types | `M0-01`, `M0-02` | 31 schemas gerados em TS/Python, metadata e check de drift verdes |
 | `M0-04` | M0 | done | Implement domain identifiers and value objects | `M0-03` | UUIDv7 determinístico, fronteiras estritas, contextos imutáveis e serialização verificados |
 | `M0-05` | M0 | done | Implement interaction state and pure reducers | `M0-04` | reducers puros, versionamento estrito, hash canônico, replay e extensão de vendas opcional verificados |
-| `M0-06` | M0 | in_progress | Implement typed configuration and secret handles | `M0-01` | configuração fail-closed e redaction em andamento |
-| `M0-07` | M0 | pending | Install database migration runner | `M0-01`, `M0-04` | pending |
+| `M0-06` | M0 | done | Implement typed configuration and secret handles | `M0-01` | config schema tipado, startup fail-closed, handles opacos, broker fake scoped e redaction verificados |
+| `M0-07` | M0 | in_progress | Install database migration runner | `M0-01`, `M0-04` | descoberta local e runner numerado serão implementados sem conexão remota |
 | `M0-08` | M0 | pending | Implement RLS and cross-tenant negative test suite | `M0-07` | pending |
 | `M0-09` | M0 | pending | Implement authentication and tenant context middleware | `M0-06`, `M0-08` | pending |
 | `M0-10` | M0 | pending | Add OpenTelemetry and structured logging | `M0-01`, `M0-06` | pending |
@@ -127,6 +127,16 @@
 - A revisão de segurança também levou à revalidação estrutural de snapshot reidratado antes de cada transição. `derived_hypothesis` é proibida como fato confirmado. A lineage persistida de `evidence_id` ainda depende da futura timeline ou repositório de evidências e está registrada como R17.
 - Evidências verdes: `env CI=true pnpm install --frozen-lockfile`, `pnpm lint`, `pnpm typecheck`, `pnpm build`, `pnpm test` (16 testes Node e 9 Python), `env UV_CACHE_DIR=.uv-cache uv run pytest` (9 testes) e `python3 scripts/validate_all.py` (8 checks).
 - Próxima tarefa marcada antes de qualquer alteração: M0-06, configuração tipada, secret handles, redaction e matriz fail-closed.
+
+### 2026-07-14, M0-06 concluído e M0-07 iniciado
+
+- Adicionado contrato `runtime_configuration` com 32 schemas e exemplos válidos e inválidos, tipos TypeScript e Python regenerados, e `SecretHandle` alinhado também no OpenAPI de provider connection.
+- `loadRuntimeConfig` é puro, imutável e fail-closed. Exige ambiente, serviço, modo `fake` e broker handle, recusa valores de configuração malformados, provider real, aliases de credencial conhecidos e startup antes da validação. `.env.example` contém somente referências sintéticas.
+- Implementados handles opacos, redaction estruturada sem executar getters ou serializadores hostis, erros públicos seguros e fake broker determinístico. O broker é construído com o contexto do servidor, vincula tenant e provider, exige scope específico por purpose e nunca materializa credencial, usa rede ou expõe handle no lease ID.
+- A metadata de modelo não recebe handle. Somente a configuração do adapter confiável contém a referência opaca. A autenticação que cria `TenantContext` a partir de claims verificadas permanece obrigatória para M0-09.
+- Testes novos cobrem matriz de configuração, aliases de segredo, inputs hostis, redaction de objetos, erros e ciclos, isolamento de tenant, provider, purpose e scope, ausência de rede e contrato de handles. Revisão de segurança independente concluída sem achados remanescentes.
+- Evidências verdes: `env CI=true pnpm install --frozen-lockfile`, `pnpm contracts:check`, `pnpm lint`, `pnpm typecheck`, `pnpm build`, `pnpm test` (25 testes Node e 10 Python unittest), `env UV_CACHE_DIR=.uv-cache uv run pytest` (10 testes) e `python3 scripts/validate_all.py` (8 checks).
+- Próxima tarefa marcada antes de qualquer alteração: M0-07, runner de migrations numeradas contra PostgreSQL local com pgvector, sem conexão remota.
 
 ### 2026-07-14, baseline arquitetural
 

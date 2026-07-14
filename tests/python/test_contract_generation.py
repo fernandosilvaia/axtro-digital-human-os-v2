@@ -13,6 +13,7 @@ ROOT = Path(__file__).resolve().parents[2]
 GENERATOR = ROOT / "scripts" / "generate_contract_types.py"
 SCHEMAS = ROOT / "contracts" / "schemas"
 INVALID = ROOT / "contracts" / "examples" / "invalid"
+VALID = ROOT / "contracts" / "examples" / "valid"
 
 
 class ContractGenerationTests(unittest.TestCase):
@@ -39,7 +40,7 @@ class ContractGenerationTests(unittest.TestCase):
             self.assertEqual(0, second.returncode, second.stdout + second.stderr)
             self.assertEqual(first_ts, generated_ts.read_bytes())
             self.assertEqual(first_py, generated_py.read_bytes())
-            self.assertEqual(31, generated_ts.read_text(encoding="utf-8").count('"source_schema"'))
+            self.assertEqual(32, generated_ts.read_text(encoding="utf-8").count('"source_schema"'))
             self.assertIn("schema_version", generated_py.read_text(encoding="utf-8"))
 
     def test_every_invalid_example_is_rejected_by_its_source_schema(self) -> None:
@@ -51,7 +52,16 @@ class ContractGenerationTests(unittest.TestCase):
             errors = list(Draft202012Validator(schema).iter_errors(example))
             self.assertTrue(errors, f"{example_path.relative_to(ROOT)} unexpectedly passed")
             rejected += 1
-        self.assertEqual(31, rejected)
+        self.assertEqual(32, rejected)
+
+    def test_runtime_configuration_contract_rejects_live_mode_and_secret_like_handles(self) -> None:
+        schema_path = SCHEMAS / "runtime_configuration.schema.json"
+        schema = json.loads(schema_path.read_text(encoding="utf-8"))
+        valid = json.loads((VALID / "runtime_configuration.json").read_text(encoding="utf-8"))
+        validator = Draft202012Validator(schema)
+        for key, value in (("provider_mode", "live"), ("secret_broker_handle", "secret://local/sk-handle")):
+            candidate = {**valid, key: value}
+            self.assertTrue(list(validator.iter_errors(candidate)), f"{key}={value} unexpectedly passed")
 
 
 if __name__ == "__main__":

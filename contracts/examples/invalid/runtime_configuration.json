@@ -1,0 +1,11 @@
+{
+  "schema_version": "2.0.0",
+  "environment": "development",
+  "service_name": "api",
+  "provider_mode": "fake",
+  "secret_broker_handle": "secret://local/sk-handle",
+  "port": 3000,
+  "request_timeout_ms": 10000,
+  "dev_auth_enabled": false,
+  "log_level": "info"
+}

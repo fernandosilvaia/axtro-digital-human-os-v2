@@ -1,0 +1,58 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://schemas.axtro.ai/v2/runtime_configuration.schema.json",
+  "title": "Runtime Configuration",
+  "description": "Fail-closed local runtime configuration. Credentials are represented only by an opaque broker handle.",
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "schema_version": {
+      "type": "string",
+      "const": "2.0.0"
+    },
+    "environment": {
+      "type": "string",
+      "enum": ["development", "test", "staging", "canary", "production"]
+    },
+    "service_name": {
+      "type": "string",
+      "enum": ["api", "realtime-worker", "axtro-supervisor", "meeting-bot-worker", "workflow-worker"]
+    },
+    "provider_mode": {
+      "type": "string",
+      "const": "fake"
+    },
+    "secret_broker_handle": {
+      "type": "string",
+      "pattern": "^(?!.*(?:sk-|gh[pousr]_|xox[baprs]-|akia|-----begin))secret://[a-z0-9][a-z0-9._/-]{0,480}$"
+    },
+    "port": {
+      "type": "integer",
+      "minimum": 1,
+      "maximum": 65535
+    },
+    "request_timeout_ms": {
+      "type": "integer",
+      "minimum": 100,
+      "maximum": 120000
+    },
+    "dev_auth_enabled": {
+      "type": "boolean"
+    },
+    "log_level": {
+      "type": "string",
+      "enum": ["debug", "info", "warn", "error"]
+    }
+  },
+  "required": [
+    "schema_version",
+    "environment",
+    "service_name",
+    "provider_mode",
+    "secret_broker_handle",
+    "port",
+    "request_timeout_ms",
+    "dev_auth_enabled",
+    "log_level"
+  ]
+}

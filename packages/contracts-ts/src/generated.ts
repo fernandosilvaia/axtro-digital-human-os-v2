@@ -1,7 +1,7 @@
 /*
  * GENERATED FILE. DO NOT EDIT.
  * generator: scripts/generate_contract_types.py@1.0.0
- * source: 31 JSON Schema Draft 2020-12 documents under contracts/schemas/
+ * source: 32 JSON Schema Draft 2020-12 documents under contracts/schemas/
  */
 
 export const CONTRACT_GENERATOR_VERSION = "1.0.0" as const;
@@ -395,6 +395,19 @@ export interface RoleState {
   updated_at: string;
 }
 
+/** Source: contracts/schemas/runtime_configuration.schema.json; schema: https://schemas.axtro.ai/v2/runtime_configuration.schema.json; version: 2.0.0. */
+export interface RuntimeConfiguration {
+  schema_version: "2.0.0";
+  environment: "development" | "test" | "staging" | "canary" | "production";
+  service_name: "api" | "realtime-worker" | "axtro-supervisor" | "meeting-bot-worker" | "workflow-worker";
+  provider_mode: "fake";
+  secret_broker_handle: string;
+  port: number;
+  request_timeout_ms: number;
+  dev_auth_enabled: boolean;
+  log_level: "debug" | "info" | "warn" | "error";
+}
+
 /** Source: contracts/schemas/sales_state.schema.json; schema: https://schemas.axtro.ai/v2/sales_state.schema.json; version: 2.0.0. */
 export interface SalesState {
   schema_version: "2.0.0";
@@ -731,6 +744,12 @@ export const CONTRACT_METADATA = {
     "schema_version": "2.0.0",
     "source_hash": "67f83b4138742728d88cdef4db3ef851175ae1ebd0ab7a2bfa2181346b3a65ba",
     "source_schema": "contracts/schemas/role_state.schema.json"
+  },
+  "RuntimeConfiguration": {
+    "schema_id": "https://schemas.axtro.ai/v2/runtime_configuration.schema.json",
+    "schema_version": "2.0.0",
+    "source_hash": "206376a0bcacadeea2b928436d008d574d6f13bca41a4835af57a0d701cc3898",
+    "source_schema": "contracts/schemas/runtime_configuration.schema.json"
   },
   "SalesState": {
     "schema_id": "https://schemas.axtro.ai/v2/sales_state.schema.json",

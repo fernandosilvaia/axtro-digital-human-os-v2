@@ -324,6 +324,18 @@ class RoleState(TypedDict):
     next_best_action: dict[str, object]
     updated_at: str
 
+# Source: contracts/schemas/runtime_configuration.schema.json; schema: https://schemas.axtro.ai/v2/runtime_configuration.schema.json; version: 2.0.0.
+class RuntimeConfiguration(TypedDict):
+    schema_version: Literal['2.0.0']
+    environment: Literal['development', 'test', 'staging', 'canary', 'production']
+    service_name: Literal['api', 'realtime-worker', 'axtro-supervisor', 'meeting-bot-worker', 'workflow-worker']
+    provider_mode: Literal['fake']
+    secret_broker_handle: str
+    port: int
+    request_timeout_ms: int
+    dev_auth_enabled: bool
+    log_level: Literal['debug', 'info', 'warn', 'error']
+
 # Source: contracts/schemas/sales_state.schema.json; schema: https://schemas.axtro.ai/v2/sales_state.schema.json; version: 2.0.0.
 class SalesState(TypedDict):
     schema_version: Literal['2.0.0']
@@ -607,6 +619,12 @@ CONTRACT_METADATA: dict[str, dict[str, str]] = {
     "source_hash": "67f83b4138742728d88cdef4db3ef851175ae1ebd0ab7a2bfa2181346b3a65ba",
     "source_schema": "contracts/schemas/role_state.schema.json"
   },
+  "RuntimeConfiguration": {
+    "schema_id": "https://schemas.axtro.ai/v2/runtime_configuration.schema.json",
+    "schema_version": "2.0.0",
+    "source_hash": "206376a0bcacadeea2b928436d008d574d6f13bca41a4835af57a0d701cc3898",
+    "source_schema": "contracts/schemas/runtime_configuration.schema.json"
+  },
   "SalesState": {
     "schema_id": "https://schemas.axtro.ai/v2/sales_state.schema.json",
     "schema_version": "2.0.0",
@@ -698,6 +716,7 @@ __all__ = [
     'ProviderCapability',
     'RolePackManifest',
     'RoleState',
+    'RuntimeConfiguration',
     'SalesState',
     'SceneDirective',
     'SceneManifest',
