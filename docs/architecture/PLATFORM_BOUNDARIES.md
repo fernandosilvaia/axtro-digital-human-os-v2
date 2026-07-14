@@ -29,7 +29,8 @@ Provider adapters ------------|
 - `packages/domain`: entidades, state machines, reducers e invariantes sem I/O.
 - `packages/contracts`: schemas e tipos gerados.
 - `packages/provider-contracts`: interfaces de STT, TTS, avatar, meeting, LLM e storage.
-- `packages/security`: policy evaluation, data classification e auth context.
+- `packages/auth`: verificação de identidade, grants explícitos de tenant e contexto transacional.
+- `packages/security`: policy evaluation, data classification e referências de segredo.
 - `packages/observability`: nomes de spans, metrics e correlation.
 - `packages/ui`: componentes sem regra de domínio.
 

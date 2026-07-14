@@ -185,19 +185,19 @@ function assertServiceIdentityIsolation(runtimeUrl) {
 function assertPoolContextReset(runtimeUrl) {
   const result = runSql(runtimeUrl, psqlPath, `
     BEGIN;
-    SET LOCAL app.tenant_id = '${fixture.tenantAlpha}';
+    SELECT set_config('app.tenant_id', '${fixture.tenantAlpha}', true);
     SELECT count(*) FROM sessions WHERE tenant_id = '${fixture.tenantAlpha}';
     COMMIT;
     SELECT CASE WHEN app.current_tenant_id() IS NULL THEN 'reset' ELSE 'leaked' END;
     SELECT count(*) FROM sessions WHERE tenant_id = '${fixture.tenantAlpha}';
     BEGIN;
-    SET LOCAL app.tenant_id = '${fixture.tenantBeta}';
+    SELECT set_config('app.tenant_id', '${fixture.tenantBeta}', true);
     SELECT count(*) FROM sessions WHERE tenant_id = '${fixture.tenantAlpha}';
     ROLLBACK;
     SELECT CASE WHEN app.current_tenant_id() IS NULL THEN 'reset' ELSE 'leaked' END;
   `);
   assertSucceeded(result, "transaction-local tenant context reset");
-  assert.deepEqual(result.stdout.trim().split("\n"), ["3", "reset", "0", "0", "reset"]);
+  assert.deepEqual(result.stdout.trim().split("\n"), [fixture.tenantAlpha, "3", "reset", "0", fixture.tenantBeta, "0", "reset"]);
 }
 
 function assertCrossTenantWritesAreDenied(runtimeUrl, adminUrl) {

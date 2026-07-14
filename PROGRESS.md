@@ -2,8 +2,8 @@
 
 **Estado atual:** implementação de M0 em andamento  
 **Marco atual:** M0  
-**Tarefa atual:** M0-08 concluída
-**Última evidência verde:** M0-08 com isolamento RLS local, integridade relacional e gates verdes em 2026-07-14
+**Tarefa atual:** M0-10
+**Última evidência verde:** M0-09 com autenticação de desenvolvimento, autorização de tenant e contexto transacional validados em 2026-07-14
 **Bloqueadores internos:** nenhum
 **Pendências externas:** consultar `PENDENCIAS_EXTERNAS.md`  
 
@@ -26,8 +26,8 @@
 | `M0-06` | M0 | done | Implement typed configuration and secret handles | `M0-01` | config schema tipado, startup fail-closed, handles opacos, broker fake scoped e redaction verificados |
 | `M0-07` | M0 | done | Install database migration runner | `M0-01`, `M0-04` | runner local numerado, receipts SHA-256, drift estrutural e integração PostgreSQL 17 com pgvector verdes |
 | `M0-08` | M0 | done | Implement RLS and cross-tenant negative test suite | `M0-07` | role local sem superusuário prova RLS em 35 tabelas, contexto ausente, reset transacional, FKs tenant e sessão, append-only e namespaces de cache e objetos |
-| `M0-09` | M0 | pending | Implement authentication and tenant context middleware | `M0-06`, `M0-08` | pending |
-| `M0-10` | M0 | pending | Add OpenTelemetry and structured logging | `M0-01`, `M0-06` | pending |
+| `M0-09` | M0 | done | Implement authentication and tenant context middleware | `M0-06`, `M0-08` | registry fake somente development/test, grants mínimos server-side, seletor service-only, contexto `set_config(..., true)` e matriz de abuso validados |
+| `M0-10` | M0 | in_progress | Add OpenTelemetry and structured logging | `M0-01`, `M0-06` | telemetria e logging estruturado em implementação |
 | `M0-11` | M0 | pending | Implement provider ports and capability registry | `M0-03`, `M0-04` | pending |
 | `M0-12` | M0 | pending | Implement deterministic provider fakes | `M0-11` | pending |
 | `M0-13` | M0 | pending | Implement transactional outbox repository | `M0-05`, `M0-07`, `M0-10` | pending |
@@ -157,6 +157,17 @@
 - Revisões independentes de segurança e testes concluídas sem bloqueadores. A autorização de qual tenant uma identidade pode selecionar permanece deliberadamente para M0-09, sem ser declarada como concluída nesta tarefa.
 - Evidências verdes: `pnpm lint`, `pnpm typecheck`, `pnpm build`, `pnpm test` (33 Node e 10 Python unittest), `pnpm contracts:check`, `UV_CACHE_DIR=.uv-cache uv run pytest` (10), `pnpm db:test`, `pnpm db:rls` e `python3 scripts/validate_all.py` (8 checks).
 - Próxima tarefa marcada antes de qualquer alteração: M0-09, middleware de autenticação e contexto de tenant autorizado.
+
+### 2026-07-14, M0-09 concluído e M0-10 iniciado
+
+- Criado `@axtro/auth` e o middleware framework-neutral da API. O bearer de desenvolvimento é um identificador opaco para uma registry determinística injetada no startup, nunca uma credencial real, e o fake só pode ser construído em `development` ou `test` com `dev_auth_enabled=true`.
+- A registry aceita somente os grants mínimos M0: scopes `session:read`, `session:write`, `provider:use` e `tool:use`, e finalidades `essential_processing`, `provider_auth` e `tool_auth`. Claims, ator, escopos e finalidades chegam somente da identidade verificada server-side.
+- `X-Tenant-Id` é seletor exclusivo de service identity, precisa coincidir com grant explícito e nunca concede autoridade. Users com o mesmo grant são rejeitados até existir contrato claim-based próprio. O contrato OpenAPI, a arquitetura de tenancy e a arquitetura de segurança foram alinhados a essa fronteira.
+- O contexto autorizado é imutável e só é aceito por helpers autenticados. Antes de qualquer handler, `withAuthorizedTenantTransaction` aplica `SELECT set_config('app.tenant_id', $1, true)` parametrizado no escopo da transação. Falha ao configurar o contexto impede o handler, e nenhum header bruto chega ao handler.
+- Testes cobrem matriz de auth, configuração fora de development/test, header duplicado, confused deputy, user selector, grants admin ou bypass, contexto forjado, falha de contexto SQL e rollback. A suíte RLS local agora prova a semântica exata de `set_config(..., true)` após `COMMIT` e `ROLLBACK`.
+- Revisões independentes de testes e segurança aprovaram o patch sem bloqueadores. A decisão reversível D-V2-023 registra o fake, a allowlist e o limite service-only.
+- Evidências verdes: `pnpm lint`, `pnpm typecheck`, `pnpm contracts:check`, `pnpm build`, `pnpm test` (40 testes Node e 10 Python unittest), `UV_CACHE_DIR=.uv-cache uv run pytest` (10), `pnpm db:test`, `pnpm db:rls` e `python3 scripts/validate_all.py` (8 checks).
+- Próxima tarefa marcada antes de qualquer alteração: M0-10, telemetria OpenTelemetry e logging estruturado sem PII.
 
 ### 2026-07-14, baseline arquitetural
 

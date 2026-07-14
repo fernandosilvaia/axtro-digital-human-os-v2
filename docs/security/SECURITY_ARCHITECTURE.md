@@ -30,6 +30,8 @@
 - MFA obrigatório para admins.
 - Impersonation administrativa somente com motivo, duração e audit trail.
 
+Enquanto OIDC não é integrado, M0 usa somente uma registry determinística de desenvolvimento, injetada no startup e protegida por `dev_auth_enabled`. Ela é proibida em staging, canary e produção, não materializa credenciais reais, aceita somente grants M0 mínimos e não transforma `X-Tenant-Id` em autoridade.
+
 ## Authorization
 
 Camadas:
@@ -39,6 +41,8 @@ Camadas:
 4. agent and skill grants;
 5. tool-specific policy;
 6. resource ownership and current state.
+
+O bearer verificado produz actor, tipo, grants, escopos e finalidades server-side. `X-Tenant-Id` apenas seleciona um grant já presente para service identities. M0 rejeita o seletor para users, até existir um contrato claim-based específico. O middleware rejeita tenants não concedidos antes de abrir uma transação ou chamar um serviço.
 
 ## Data protection
 

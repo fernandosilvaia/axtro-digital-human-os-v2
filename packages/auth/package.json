@@ -1,5 +1,5 @@
 {
-  "name": "@axtro/api",
+  "name": "@axtro/auth",
   "version": "0.1.0",
   "private": true,
   "type": "module",
@@ -10,7 +10,6 @@
     }
   },
   "dependencies": {
-    "@axtro/auth": "workspace:*",
     "@axtro/config": "workspace:*",
     "@axtro/domain": "workspace:*"
   }

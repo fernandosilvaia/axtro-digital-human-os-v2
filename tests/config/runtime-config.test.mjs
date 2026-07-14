@@ -69,6 +69,8 @@ test("configuration errors expose field names and codes but never raw values", (
     ["port range", validEnvironment({ AXTRO_PORT: "65536" }), "AXTRO_PORT", "out_of_range"],
     ["timeout range", validEnvironment({ AXTRO_REQUEST_TIMEOUT_MS: "99" }), "AXTRO_REQUEST_TIMEOUT_MS", "out_of_range"],
     ["invalid boolean", validEnvironment({ AXTRO_DEV_AUTH_ENABLED: "yes" }), "AXTRO_DEV_AUTH_ENABLED", "invalid"],
+    ["dev auth in staging", validEnvironment({ AXTRO_ENV: "staging" }), "AXTRO_DEV_AUTH_ENABLED", "not_allowed"],
+    ["dev auth in canary", validEnvironment({ AXTRO_ENV: "canary" }), "AXTRO_DEV_AUTH_ENABLED", "not_allowed"],
     ["dev auth in production", validEnvironment({ AXTRO_ENV: "production" }), "AXTRO_DEV_AUTH_ENABLED", "not_allowed"],
     ["unknown input", validEnvironment({ AXTRO_UNDOCUMENTED: "value" }), "AXTRO_UNDOCUMENTED", "unexpected"],
     ["raw credential input", validEnvironment({ AXTRO_OPENAI_API_KEY: credentialCanary }), "AXTRO_OPENAI_API_KEY", "not_allowed"],

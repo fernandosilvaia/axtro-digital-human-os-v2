@@ -311,7 +311,7 @@ components:
       name: X-Tenant-Id
       in: header
       required: true
-      description: Tenant context must also be present and authorized in the bearer identity.
+      description: Service-identity tenant selector. It must match an explicit tenant grant in the verified bearer identity. User identities cannot select tenant context with this header until a separate claim-based contract exists.
       schema:
         $ref: '#/components/schemas/UuidV7'
     IdempotencyKey:
