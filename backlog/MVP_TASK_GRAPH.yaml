@@ -1,0 +1,610 @@
+version: 1
+as_of: 2026-07-14
+execution_rule: A task may start only when all dependencies are green and its owned files are not being edited by another worktree.
+milestones:
+  M0:
+    name: Foundation
+    exit_gate: M0-18
+  M1:
+    name: Walking Skeleton
+    exit_gate: M1-11
+  M2:
+    name: Human Presence Spike
+    exit_gate: M2-13
+  M3:
+    name: Sales Closer Alpha
+    exit_gate: M3-10
+tasks:
+  - id: M0-01
+    milestone: M0
+    title: Bootstrap modular monorepo
+    lane: platform
+    dependencies: []
+    objective: Create pnpm and uv workspaces, canonical scripts, local environment and package boundaries from SYSTEM_ARCHITECTURE.
+    primary_files: [package.json, pnpm-workspace.yaml, pyproject.toml, apps/, packages/]
+    acceptance:
+      - pnpm install and uv sync complete from a clean checkout
+      - root scripts expose lint, typecheck, test and build
+      - no provider SDK is imported into domain packages
+    tests: [clean bootstrap, workspace boundary check]
+  - id: M0-02
+    milestone: M0
+    title: Install repository and documentation gates
+    lane: devex
+    dependencies: [M0-01]
+    objective: Wire documentation, contract, spec and secret validation into local scripts and CI.
+    primary_files: [.github/workflows/, scripts/, package.json]
+    acceptance:
+      - all existing Python validators run in CI
+      - CI fails for a broken schema, link or secret fixture
+    tests: [negative CI fixture, clean CI run]
+  - id: M0-03
+    milestone: M0
+    title: Generate TypeScript and Python contract types
+    lane: contracts
+    dependencies: [M0-01, M0-02]
+    objective: Generate deterministic types from the 31 JSON Schemas without hand-edited copies.
+    primary_files: [contracts/, packages/contracts-ts/, packages/contracts-py/]
+    acceptance:
+      - generation is deterministic
+      - generated files include source schema and version metadata
+      - CI detects drift
+    tests: [snapshot generation, invalid example rejection]
+  - id: M0-04
+    milestone: M0
+    title: Implement domain identifiers and value objects
+    lane: domain
+    dependencies: [M0-03]
+    objective: Implement UUIDv7, tenant context, trace context, schema version and classification primitives.
+    primary_files: [packages/domain/]
+    acceptance:
+      - non-v7 IDs are rejected at boundaries
+      - tenant and trace context are explicit parameters
+    tests: [UUIDv7 property tests, serialization round trip]
+  - id: M0-05
+    milestone: M0
+    title: Implement interaction state and pure reducers
+    lane: domain
+    dependencies: [M0-04]
+    objective: Represent session, conversation, role and sales extension states with deterministic reducers.
+    primary_files: [packages/domain/, packages/events/]
+    acceptance:
+      - same event sequence yields same state hash
+      - unknown or out-of-order aggregate versions are rejected
+      - sales state is optional to the kernel
+    tests: [reducer fixtures, replay property test, incompatible version test]
+  - id: M0-06
+    milestone: M0
+    title: Implement typed configuration and secret handles
+    lane: security
+    dependencies: [M0-01]
+    objective: Validate environment configuration and ensure models receive secret handles, never secret values.
+    primary_files: [packages/config/, packages/security/]
+    acceptance:
+      - startup fails closed on invalid configuration
+      - secret values are redacted from structured logs and exceptions
+    tests: [config matrix, redaction test]
+  - id: M0-07
+    milestone: M0
+    title: Install database migration runner
+    lane: data
+    dependencies: [M0-01, M0-04]
+    objective: Apply numbered reference migrations against local PostgreSQL with pgvector.
+    primary_files: [database/, packages/database/]
+    acceptance:
+      - migrations apply from zero
+      - schema drift command exists
+      - application supplies UUIDv7 IDs
+    tests: [clean migration, upgrade migration, UUIDv7 rejection]
+  - id: M0-08
+    milestone: M0
+    title: Implement RLS and cross-tenant negative test suite
+    lane: security
+    dependencies: [M0-07]
+    objective: Prove tenant isolation for reads, writes, foreign keys, caches and object keys.
+    primary_files: [packages/database/, tests/security/]
+    acceptance:
+      - Tenant B cannot read or mutate Tenant A data
+      - missing tenant context fails closed
+      - composite foreign keys reject cross-tenant references
+    tests: [RLS matrix, service identity isolation, append-only mutation]
+  - id: M0-09
+    milestone: M0
+    title: Implement authentication and tenant context middleware
+    lane: api
+    dependencies: [M0-06, M0-08]
+    objective: Map authenticated identity to authorized tenant context. Header alone is never authority.
+    primary_files: [apps/api/, packages/auth/]
+    acceptance:
+      - development auth is explicitly non-production
+      - tenant context is set transaction-locally
+      - unauthorized requested tenant is rejected
+    tests: [auth matrix, confused deputy test]
+  - id: M0-10
+    milestone: M0
+    title: Add OpenTelemetry and structured logging
+    lane: observability
+    dependencies: [M0-01, M0-06]
+    objective: Propagate trace, tenant, session and correlation identifiers with PII redaction.
+    primary_files: [packages/observability/, apps/]
+    acceptance:
+      - spans cross API, worker and fake provider boundaries
+      - logs omit secret and restricted payload values
+    tests: [trace propagation, log redaction]
+  - id: M0-11
+    milestone: M0
+    title: Implement provider ports and capability registry
+    lane: providers
+    dependencies: [M0-03, M0-04]
+    objective: Define ports for channel, realtime model, STT, TTS, avatar, meeting, telephony, tools and storage.
+    primary_files: [packages/provider-contracts/, packages/model-gateway/, packages/voice-gateway/, packages/avatar-gateway/, packages/meeting-gateway/]
+    acceptance:
+      - domain does not import provider SDKs
+      - capabilities, timeout, cancellation and health are normalized
+    tests: [contract tests, provider swap test]
+  - id: M0-12
+    milestone: M0
+    title: Implement deterministic provider fakes
+    lane: providers
+    dependencies: [M0-11]
+    objective: Make all M0-M2 flows executable without credentials, including latency and failure injection.
+    primary_files: [packages/provider-fakes/]
+    acceptance:
+      - fake outputs are seedable and reproducible
+      - failures, delay, cancellation and partial responses are configurable
+    tests: [seed determinism, cancellation, timeout, failure injection]
+  - id: M0-13
+    milestone: M0
+    title: Implement transactional outbox repository
+    lane: data
+    dependencies: [M0-05, M0-07, M0-10]
+    objective: Commit aggregate update and event outbox atomically with idempotent relay semantics.
+    primary_files: [packages/events/, packages/database/]
+    acceptance:
+      - aggregate and outbox commit in one transaction
+      - relay retry does not duplicate consumer effect
+    tests: [transaction rollback, relay retry, ordering per aggregate]
+  - id: M0-14
+    milestone: M0
+    title: Implement Action Runtime skeleton
+    lane: actions
+    dependencies: [M0-03, M0-08, M0-12]
+    objective: Validate ActionIntent, obtain PolicyDecision and emit a receipt through a fake read-only tool.
+    primary_files: [packages/tool-runtime/, packages/policy/]
+    acceptance:
+      - model text cannot call adapter directly
+      - unknown execution status blocks blind retry
+      - only succeeded receipt confirms an effect
+    tests: [allow, deny, approval, idempotency, unknown effect]
+  - id: M0-15
+    milestone: M0
+    title: Add application security baseline
+    lane: security
+    dependencies: [M0-02, M0-06, M0-09]
+    objective: Add dependency scanning, secure headers, input limits, egress policy interface and abuse controls.
+    primary_files: [.github/workflows/, packages/security/, apps/api/]
+    acceptance:
+      - high severity dependency findings block release
+      - endpoint size, rate and timeout limits are explicit
+      - outbound destinations are allowlisted by adapter
+    tests: [oversized input, rate limit, forbidden egress]
+  - id: M0-16
+    milestone: M0
+    title: Implement cost event ledger
+    lane: economics
+    dependencies: [M0-03, M0-07, M0-11]
+    objective: Attribute estimated and measured provider costs to tenant, session and service.
+    primary_files: [packages/costing/, packages/database/]
+    acceptance:
+      - cost events reconcile quantity times unit price
+      - estimated and measured values remain distinguishable
+    tests: [rounding, aggregation, cross-tenant isolation]
+  - id: M0-17
+    milestone: M0
+    title: Create development fixtures and tenant-zero seed
+    lane: devex
+    dependencies: [M0-08, M0-12, M0-14]
+    objective: Seed two isolated tenants, one Sales Closer pack and fake providers for deterministic demos.
+    primary_files: [database/seeds/, tests/fixtures/]
+    acceptance:
+      - seed is repeatable
+      - no real credentials or PII are included
+      - tenant-alpha and tenant-beta are isolated
+    tests: [seed twice, secret scan, tenant isolation]
+  - id: M0-18
+    milestone: M0
+    title: M0 release gate
+    lane: release
+    dependencies: [M0-02, M0-03, M0-05, M0-08, M0-09, M0-10, M0-12, M0-13, M0-14, M0-15, M0-16, M0-17]
+    objective: Produce evidence that the foundation is reproducible, secure by default and ready for the Walking Skeleton.
+    primary_files: [PROGRESS.md, artifacts/m0/]
+    acceptance:
+      - all M0 tests and validators are green
+      - evidence bundle contains commands, results and known limitations
+      - last green commit is recorded
+    tests: [full clean pipeline]
+
+  - id: M1-01
+    milestone: M1
+    title: Implement session lifecycle API
+    lane: api
+    dependencies: [M0-18]
+    objective: Implement create, get, activate, complete and timeline endpoints from OpenAPI.
+    primary_files: [apps/api/, packages/session-application/]
+    acceptance:
+      - optimistic state version is enforced
+      - API matches generated OpenAPI tests
+    tests: [contract tests, lifecycle conflicts, tenant isolation]
+  - id: M1-02
+    milestone: M1
+    title: Implement Session Actor and mailbox
+    lane: realtime
+    dependencies: [M1-01]
+    objective: Serialize commands per session without global ordering or daemon dependence.
+    primary_files: [apps/realtime-worker/, packages/session-runtime/]
+    acceptance:
+      - one command mutates a session at a time
+      - duplicate command is idempotent
+      - actor can rehydrate from snapshot and timeline
+    tests: [concurrency, duplicate delivery, crash recovery]
+  - id: M1-03
+    milestone: M1
+    title: Implement textual turn driver
+    lane: realtime
+    dependencies: [M1-02, M0-12]
+    objective: Submit deterministic participant turns and produce Presenter responses through the Fast Lane fake.
+    primary_files: [apps/realtime-worker/, packages/turns/]
+    acceptance:
+      - turn commits update conversation state and timeline
+      - active presenter is checked before response
+    tests: [three-turn fixture, floor conflict, interruption marker]
+  - id: M1-04
+    milestone: M1
+    title: Implement context composer
+    lane: cognitive
+    dependencies: [M1-03]
+    objective: Compose bounded context from confirmed state, expiring suggestions and approved knowledge only.
+    primary_files: [packages/context-composer/]
+    acceptance:
+      - token or byte budget is enforced
+      - hypotheses are labeled as uncertain
+      - stale suggestions are excluded
+    tests: [budget, TTL, provenance ordering]
+  - id: M1-05
+    milestone: M1
+    title: Complete fake Action Runtime flow
+    lane: actions
+    dependencies: [M1-03, M0-14]
+    objective: Turn an explicit catalog question into intent, policy, fake execution and receipt.
+    primary_files: [packages/tool-runtime/, packages/policy/, packages/provider-fakes/]
+    acceptance:
+      - response cites receipt result, not model memory
+      - repeated request returns prior effect
+    tests: [happy path, denial, timeout unknown, retry reconciliation]
+  - id: M1-06
+    milestone: M1
+    title: Implement timeline, snapshots and replay verifier
+    lane: data
+    dependencies: [M1-02, M0-13]
+    objective: Persist append-only events and prove replay reproduces the authoritative state hash.
+    primary_files: [packages/session-runtime/, packages/events/]
+    acceptance:
+      - snapshot is only a cache
+      - replay from zero and snapshot plus tail produce same hash
+    tests: [replay equivalence, missing version, tamper detection]
+  - id: M1-07
+    milestone: M1
+    title: Implement outbox relay and idempotent consumers
+    lane: events
+    dependencies: [M0-13, M1-06]
+    objective: Relay session events and process them at least once without duplicate effects.
+    primary_files: [apps/event-relay/, packages/events/]
+    acceptance:
+      - retry and crash boundaries are tested
+      - dead-letter state is observable
+    tests: [crash before ack, crash after effect, poison event]
+  - id: M1-08
+    milestone: M1
+    title: Implement fake post-call workflow
+    lane: workflows
+    dependencies: [M1-07]
+    objective: Consume session completion, generate deterministic summary and evaluation, and persist workflow status.
+    primary_files: [apps/workflow-worker/, packages/workflows/]
+    acceptance:
+      - workflow resumes after restart
+      - command idempotency prevents duplicate follow-up
+    tests: [resume, retry, cancellation]
+  - id: M1-09
+    milestone: M1
+    title: Build minimal operations console
+    lane: frontend
+    dependencies: [M1-01, M1-06]
+    objective: Display tenant-safe session state, ordered timeline, action receipts and cost totals.
+    primary_files: [apps/web/, packages/ui/]
+    acceptance:
+      - deep link does not expose another tenant
+      - receipt and hypothesis labels are visually distinct
+    tests: [component tests, tenant route denial, accessibility smoke]
+  - id: M1-10
+    milestone: M1
+    title: Walking Skeleton E2E and failure suite
+    lane: quality
+    dependencies: [M1-04, M1-05, M1-06, M1-07, M1-08, M1-09]
+    objective: Automate the complete M1 demo and required failure injections.
+    primary_files: [tests/e2e/, artifacts/m1/]
+    acceptance:
+      - demo runs from one command
+      - evidence includes timeline JSON and replay hash
+      - cross-tenant, outbox retry and unknown tool effect are covered
+    tests: [walking skeleton, failure matrix]
+  - id: M1-11
+    milestone: M1
+    title: M1 release gate
+    lane: release
+    dependencies: [M1-10]
+    objective: Review evidence and freeze the Walking Skeleton baseline before audio work.
+    primary_files: [PROGRESS.md, artifacts/m1/]
+    acceptance:
+      - full pipeline is green
+      - no P0 security or tenancy finding is open
+      - baseline cost per fake session is recorded
+    tests: [clean M1 pipeline]
+
+  - id: M2-01
+    milestone: M2
+    title: Implement channel adapter and native-room transport boundary
+    lane: realtime
+    dependencies: [M1-11, M0-11]
+    objective: Connect a native-room transport behind the normalized ChannelPort, using fake or local transport first.
+    primary_files: [packages/meeting-gateway/, apps/meeting-room/]
+    acceptance:
+      - transport can be swapped without changing session domain
+      - join, leave, publish, subscribe and disconnect events are normalized
+    tests: [transport contract, reconnect, participant lifecycle]
+  - id: M2-02
+    milestone: M2
+    title: Build Turn Coordinator harness
+    lane: realtime
+    dependencies: [M2-01]
+    objective: Model candidate end of turn, semantic commit, barge-in, cancellation and false interruption recovery.
+    primary_files: [packages/turn-coordinator/, tests/realtime/]
+    acceptance:
+      - speech output cancellation propagates to model, TTS and avatar
+      - late media from cancelled generation is discarded
+    tests: [barge-in p95 harness, false interruption, simultaneous speech]
+  - id: M2-03
+    milestone: M2
+    title: Implement modular STT, LLM and TTS path
+    lane: voice
+    dependencies: [M2-02, M0-12]
+    objective: Run the full modular speech path behind provider ports with fakes and optional approved credentials.
+    primary_files: [packages/voice-gateway/, packages/model-gateway/, apps/realtime-worker/]
+    acceptance:
+      - first-audio latency is measured by component
+      - exact-capture mode handles numbers and email confirmation
+    tests: [streaming, cancellation, exact capture, provider timeout]
+  - id: M2-04
+    milestone: M2
+    title: Implement speech-to-speech experiment adapter
+    lane: voice
+    dependencies: [M2-02, M0-11]
+    objective: Add an S2S adapter behind a feature flag without bypassing tools, policies or session state.
+    primary_files: [packages/model-gateway/, apps/realtime-worker/]
+    acceptance:
+      - server-side tool and policy controls remain authoritative
+      - session duration and reconnect boundary are explicit
+    tests: [mode switch, cancellation, session renewal, fallback]
+  - id: M2-05
+    milestone: M2
+    title: Implement Behavior and Presence Director
+    lane: presence
+    dependencies: [M2-02, M0-03]
+    objective: Convert dialogue state into bounded posture, gaze, gesture, voice style and pause directives.
+    primary_files: [packages/behavior-director/]
+    acceptance:
+      - directives are deterministic for a given state and seed
+      - repetition limits and expiry prevent uncanny loops
+    tests: [state matrix, repetition guard, expired directive]
+  - id: M2-06
+    milestone: M2
+    title: Implement avatar port, fake and cancellation semantics
+    lane: presence
+    dependencies: [M2-01, M2-05, M0-12]
+    objective: Publish avatar media as a replaceable secondary participant and degrade to voice safely.
+    primary_files: [packages/avatar-gateway/, packages/provider-fakes/]
+    acceptance:
+      - avatar failure never blocks audio
+      - cancelled speech produces no late lip-sync segment
+    tests: [failure fallback, cancellation, warm-up timeout]
+  - id: M2-07
+    milestone: M2
+    title: Implement Scene and Presentation Director
+    lane: frontend
+    dependencies: [M2-01, M0-03]
+    objective: Render allowlisted scene manifests and receipt-backed bindings only.
+    primary_files: [packages/scene-director/, apps/meeting-room/]
+    acceptance:
+      - arbitrary URL or DOM automation is rejected
+      - restricted bindings require policy and consent checks
+    tests: [approved scene, invalid manifest, untrusted binding]
+  - id: M2-08
+    milestone: M2
+    title: Implement silent Specialist Fabric
+    lane: cognitive
+    dependencies: [M1-04, M0-12]
+    objective: Run time-bounded specialists that return structured, expiring results without speaking to the customer.
+    primary_files: [packages/specialist-fabric/]
+    acceptance:
+      - One Mouth Rule is mechanically enforced
+      - slow specialist never blocks the Presenter response
+    tests: [deadline, expiry, invalid result, no presenter permission]
+  - id: M2-09
+    milestone: M2
+    title: Implement perception signal bus and quality state
+    lane: perception
+    dependencies: [M2-02, M0-03]
+    objective: Emit evidence-backed, consent-scoped signals and derived hypotheses without hidden mind-reading claims.
+    primary_files: [packages/perception/]
+    acceptance:
+      - every hypothesis has evidence, confidence and TTL
+      - prohibited consent scope cannot be consumed
+    tests: [TTL, purpose check, unsupported inference rejection]
+  - id: M2-10
+    milestone: M2
+    title: Implement degradation and recovery controller
+    lane: reliability
+    dependencies: [M2-03, M2-04, M2-06, M2-07]
+    objective: Execute the capability degradation matrix and recover without duplicate Presenter output.
+    primary_files: [packages/session-runtime/, packages/provider-contracts/]
+    acceptance:
+      - avatar to voice-only and S2S to modular fallbacks work
+      - recovery is visible in session health and timeline
+    tests: [provider outage matrix, reconnect, duplicate suppression]
+  - id: M2-11
+    milestone: M2
+    title: Instrument realtime latency, quality and cost
+    lane: observability
+    dependencies: [M2-03, M2-06, M2-07, M0-16]
+    objective: Measure end of turn, model, TTS, avatar, publish, cancellation and connected-minute costs.
+    primary_files: [packages/observability/, packages/costing/, apps/realtime-worker/]
+    acceptance:
+      - p50 and p95 are available per component
+      - estimated and provider-reported costs reconcile by session
+    tests: [span completeness, cost reconciliation]
+  - id: M2-12
+    milestone: M2
+    title: Run mandatory ten-minute Human Presence scenario
+    lane: quality
+    dependencies: [M2-05, M2-08, M2-09, M2-10, M2-11]
+    objective: Execute the documented scenario with fakes and every approved real provider available.
+    primary_files: [tests/realtime/, artifacts/m2/]
+    acceptance:
+      - no deadlock for ten minutes
+      - barge-in and avatar failure evidence are captured
+      - report separates measured facts from subjective review
+    tests: [mandatory scenario, failure injection]
+  - id: M2-13
+    milestone: M2
+    title: M2 architecture and provider decision gate
+    lane: release
+    dependencies: [M2-12]
+    objective: Decide continue, tune or replace each provider while preserving the adapters.
+    primary_files: [artifacts/m2/, docs/operations/CURRENT_PROVIDER_MATRIX.md, PROGRESS.md]
+    acceptance:
+      - no provider is promoted without benchmark evidence
+      - unresolved quality or legal blockers are explicit
+      - M3 scope is re-estimated using measured cost
+    tests: [full M2 pipeline]
+
+  - id: M3-01
+    milestone: M3
+    title: Implement Sales Closer Role Pack
+    lane: product
+    dependencies: [M2-13]
+    objective: Install sales methodology, state extension, milestones and policies without coupling the kernel to sales.
+    primary_files: [packages/role-packs/sales-closer/]
+    acceptance:
+      - pack can be enabled or removed per tenant
+      - generic session tests pass without the pack
+    tests: [manifest, state extension, install/uninstall]
+  - id: M3-02
+    milestone: M3
+    title: Implement authorized knowledge ingestion and RAG
+    lane: knowledge
+    dependencies: [M3-01, M0-08]
+    objective: Ingest approved sources with versions, permissions, citations, lexical and vector retrieval.
+    primary_files: [packages/knowledge-engine/, apps/ingestion-worker/]
+    acceptance:
+      - retrieval filters tenant, role, source status and validity
+      - retrieved content is treated as untrusted data
+    tests: [cross-tenant retrieval, stale source, prompt injection corpus]
+  - id: M3-03
+    milestone: M3
+    title: Add CRM-lite read adapter
+    lane: integrations
+    dependencies: [M3-01, M0-14]
+    objective: Read approved lead and opportunity context through a tenant-scoped adapter.
+    primary_files: [packages/tool-adapters/crm-lite/]
+    acceptance:
+      - no write capability is included in first slice
+      - PII purpose and scope are audited
+    tests: [read scope, PII denial, provider timeout]
+  - id: M3-04
+    milestone: M3
+    title: Add calendar proposal in dry-run
+    lane: integrations
+    dependencies: [M3-01, M0-14]
+    objective: Propose available slots and require explicit confirmation before any external write.
+    primary_files: [packages/tool-adapters/calendar/]
+    acceptance:
+      - default mode is dry-run
+      - timezone and conflict checks are explicit
+    tests: [timezone, conflict, approval, idempotency]
+  - id: M3-05
+    milestone: M3
+    title: Add proposal generation in dry-run
+    lane: integrations
+    dependencies: [M3-01, M0-14]
+    objective: Generate a preview from confirmed inputs and approved templates without sending it.
+    primary_files: [packages/tool-adapters/proposal/]
+    acceptance:
+      - numbers come from receipts or approved catalog
+      - preview visibly indicates dry-run
+    tests: [missing input, stale catalog, unauthorized discount]
+  - id: M3-06
+    milestone: M3
+    title: Implement warm human handoff
+    lane: handoff
+    dependencies: [M3-01, M2-10]
+    objective: Transfer presenter floor atomically with a complete context packet and no double speech.
+    primary_files: [packages/handoff/, apps/meeting-room/]
+    acceptance:
+      - active_presenter_id changes once per accepted transfer
+      - human receives summary, objections, receipts and open actions
+    tests: [accept, timeout, rollback, simultaneous request]
+  - id: M3-07
+    milestone: M3
+    title: Implement sandbox follow-up workflow
+    lane: workflows
+    dependencies: [M1-08, M3-01]
+    objective: Draft follow-up and tasks without sending externally unless a separate approval path is enabled.
+    primary_files: [packages/workflows/, packages/tool-adapters/]
+    acceptance:
+      - draft is tied to session evidence
+      - no send happens in sandbox
+    tests: [draft, retry, duplicate completion]
+  - id: M3-08
+    milestone: M3
+    title: Implement evaluation harness and golden conversations
+    lane: quality
+    dependencies: [M3-01, M3-02, M3-06]
+    objective: Score factuality, policy, discovery, brevity, naturalness and handoff using reproducible scenarios.
+    primary_files: [packages/evaluation/, tests/golden/]
+    acceptance:
+      - critical policy violations fail the release regardless of average score
+      - evaluator version and evidence are recorded
+    tests: [golden set, adversarial voice injection, multilingual scenarios]
+  - id: M3-09
+    milestone: M3
+    title: Expand console for opportunity and call review
+    lane: frontend
+    dependencies: [M3-02, M3-03, M3-05, M3-08]
+    objective: Review calls, citations, hypotheses, tool receipts, handoffs, costs and evaluator findings.
+    primary_files: [apps/web/, packages/ui/]
+    acceptance:
+      - operators can distinguish facts, hypotheses and model suggestions
+      - sensitive content honors permissions and retention
+    tests: [permissions, accessibility, redaction]
+  - id: M3-10
+    milestone: M3
+    title: Internal Sales Closer Alpha pilot gate
+    lane: release
+    dependencies: [M3-04, M3-05, M3-06, M3-07, M3-08, M3-09]
+    objective: Run internal tenant-zero calls, measure quality and cost, and decide whether to proceed to customer beta.
+    primary_files: [artifacts/m3/, PROGRESS.md]
+    acceptance:
+      - at least 20 internal calls are reviewed
+      - no critical policy or tenancy violation is open
+      - provider cost and quality are measured by channel
+      - customer beta requires a separate approval
+    tests: [internal pilot report, release checklist]

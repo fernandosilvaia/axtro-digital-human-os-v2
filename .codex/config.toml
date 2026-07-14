@@ -1,0 +1,15 @@
+# Project-scoped Codex defaults. Codex loads this file only after the project is trusted.
+approval_policy = "on-request"
+sandbox_mode = "workspace-write"
+approvals_reviewer = "user"
+
+# Keep network disabled inside the workspace sandbox by default.
+# Dependency installation or external access must request approval.
+[sandbox_workspace_write]
+network_access = false
+
+[agents]
+max_threads = 6
+max_depth = 1
+job_max_runtime_seconds = 1800
+interrupt_message = true

@@ -1,0 +1,16 @@
+{
+  "schema_version": "2.0.0",
+  "signal_id": "018f1e2d-3c4b-7a05-8c9d-001122334459",
+  "session_id": "018f1e2d-3c4b-7a02-8c9d-001122334456",
+  "tenant_id": "018f1e2d-3c4b-7a01-8c9d-001122334455",
+  "modality": "interaction",
+  "signal_type": "repeated_clarification_request",
+  "observed_value_json": "{\"count\":2}",
+  "source": "turn-coordinator",
+  "confidence": 0.98,
+  "evidence_ref": "turns:2,3",
+  "occurred_at": "2026-07-14T20:00:00Z",
+  "expires_at": "2026-07-14T21:00:00Z",
+  "consent_scope": "essential_processing",
+  "allowed_use": "turn_taking"
+}

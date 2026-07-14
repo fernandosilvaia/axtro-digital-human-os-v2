@@ -1,0 +1,106 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://schemas.axtro.ai/v2/deployment_promotion.schema.json",
+  "title": "Deployment Promotion",
+  "description": "Auditable promotion or rollback decision for a tested component version.",
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "schema_version": {
+      "type": "string",
+      "const": "2.0.0"
+    },
+    "promotion_id": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$"
+    },
+    "experiment_id": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$"
+    },
+    "tenant_id": {
+      "type": [
+        "string",
+        "null"
+      ],
+      "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$"
+    },
+    "component": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 200
+    },
+    "from_version": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 100
+    },
+    "to_version": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 100
+    },
+    "environment": {
+      "type": "string",
+      "enum": [
+        "development",
+        "staging",
+        "canary",
+        "production"
+      ]
+    },
+    "rollout_percentage": {
+      "type": "number",
+      "minimum": 0,
+      "maximum": 100
+    },
+    "decision": {
+      "type": "string",
+      "enum": [
+        "promote",
+        "hold",
+        "rollback",
+        "reject"
+      ]
+    },
+    "decision_reasons": {
+      "type": "array",
+      "items": {
+        "type": "string",
+        "minLength": 1,
+        "maxLength": 1000
+      },
+      "minItems": 1,
+      "maxItems": 100
+    },
+    "rollback_plan": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 5000
+    },
+    "approved_by": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$"
+    },
+    "promoted_at": {
+      "type": "string",
+      "format": "date-time"
+    }
+  },
+  "required": [
+    "schema_version",
+    "promotion_id",
+    "experiment_id",
+    "tenant_id",
+    "component",
+    "from_version",
+    "to_version",
+    "environment",
+    "rollout_percentage",
+    "decision",
+    "decision_reasons",
+    "rollback_plan",
+    "approved_by",
+    "promoted_at"
+  ]
+}

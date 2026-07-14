@@ -1,0 +1,23 @@
+{
+  "schema_version": "2.0.0",
+  "result_id": "018f1e2d-3c4b-7a06-8c9d-00112233445a",
+  "request_id": "018f1e2d-3c4b-7a05-8c9d-001122334459",
+  "session_id": "018f1e2d-3c4b-7a02-8c9d-001122334456",
+  "tenant_id": "018f1e2d-3c4b-7a01-8c9d-001122334455",
+  "status": "completed",
+  "answer": "O plano Enterprise inclui SSO, sujeito à proposta confirmada.",
+  "claims": [
+    {
+      "statement": "SSO está disponível no plano Enterprise.",
+      "confidence": 1.0,
+      "source_refs": [
+        "catalog:v7"
+      ]
+    }
+  ],
+  "recommended_actions": [
+    "Consultar preço por receipt"
+  ],
+  "completed_at": "2026-07-14T20:05:00Z",
+  "expires_at": "2026-07-14T21:00:00Z"
+}

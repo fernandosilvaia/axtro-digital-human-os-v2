@@ -1,0 +1,168 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://schemas.axtro.ai/v2/session_health_state.schema.json",
+  "title": "Session Health State",
+  "description": "Real-time technical health and degradation state for one session.",
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "schema_version": {
+      "type": "string",
+      "const": "2.0.0"
+    },
+    "session_id": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$"
+    },
+    "tenant_id": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$"
+    },
+    "overall_status": {
+      "type": "string",
+      "enum": [
+        "healthy",
+        "degraded",
+        "critical",
+        "terminated"
+      ]
+    },
+    "degradation_level": {
+      "type": "string",
+      "enum": [
+        "none",
+        "minor",
+        "major",
+        "voice_only",
+        "text_only",
+        "terminated"
+      ]
+    },
+    "metrics": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "end_of_turn_to_first_audio_ms": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "interrupt_stop_ms": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "jitter_ms": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "packet_loss_percent": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 100
+        },
+        "tool_p95_ms": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "estimated_cost_usd": {
+          "type": "number",
+          "minimum": 0
+        }
+      },
+      "required": [
+        "end_of_turn_to_first_audio_ms",
+        "interrupt_stop_ms",
+        "jitter_ms",
+        "packet_loss_percent",
+        "tool_p95_ms",
+        "estimated_cost_usd"
+      ]
+    },
+    "provider_statuses": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "provider_id": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 120
+          },
+          "component": {
+            "type": "string",
+            "enum": [
+              "realtime_model",
+              "stt",
+              "tts",
+              "avatar",
+              "meeting",
+              "telephony",
+              "database",
+              "cache",
+              "tool"
+            ]
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "healthy",
+              "degraded",
+              "unavailable",
+              "unknown"
+            ]
+          },
+          "latency_ms": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "last_error_code": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "maxLength": 120
+          },
+          "checked_at": {
+            "type": "string",
+            "format": "date-time"
+          }
+        },
+        "required": [
+          "provider_id",
+          "component",
+          "status",
+          "latency_ms",
+          "last_error_code",
+          "checked_at"
+        ]
+      },
+      "minItems": 0,
+      "maxItems": 50
+    },
+    "active_incidents": {
+      "type": "array",
+      "items": {
+        "type": "string",
+        "minLength": 1,
+        "maxLength": 500
+      },
+      "minItems": 0,
+      "maxItems": 100
+    },
+    "updated_at": {
+      "type": "string",
+      "format": "date-time"
+    }
+  },
+  "required": [
+    "schema_version",
+    "session_id",
+    "tenant_id",
+    "overall_status",
+    "degradation_level",
+    "metrics",
+    "provider_statuses",
+    "active_incidents",
+    "updated_at"
+  ]
+}

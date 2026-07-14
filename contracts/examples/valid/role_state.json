@@ -1,0 +1,28 @@
+{
+  "schema_version": "2.0.0",
+  "session_id": "018f1e2d-3c4b-7a02-8c9d-001122334456",
+  "tenant_id": "018f1e2d-3c4b-7a01-8c9d-001122334455",
+  "role_pack_id": "sales-closer",
+  "role_pack_version": "0.1.0",
+  "objective": "Qualificar e definir próximo passo apropriado.",
+  "stage": "discovery",
+  "milestones": [
+    {
+      "code": "problem_understood",
+      "status": "completed",
+      "evidence_refs": [
+        "018f1e2d-3c4b-7a05-8c9d-001122334459"
+      ]
+    }
+  ],
+  "missing_fields": [
+    "decision_timeline"
+  ],
+  "next_best_action": {
+    "action_code": "ask_timeline",
+    "reason": "Prazo ainda não confirmado.",
+    "confidence": 0.91,
+    "expires_at": "2026-07-14T21:00:00Z"
+  },
+  "updated_at": "2026-07-14T20:05:00Z"
+}

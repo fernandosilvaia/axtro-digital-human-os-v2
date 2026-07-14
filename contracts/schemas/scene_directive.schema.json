@@ -1,0 +1,76 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://schemas.axtro.ai/v2/scene_directive.schema.json",
+  "title": "Scene Directive",
+  "description": "Validated command to render or update an approved scene.",
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "schema_version": {
+      "type": "string",
+      "const": "2.0.0"
+    },
+    "directive_id": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$"
+    },
+    "session_id": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$"
+    },
+    "tenant_id": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$"
+    },
+    "scene_id": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 200
+    },
+    "command": {
+      "type": "string",
+      "enum": [
+        "open",
+        "update",
+        "focus",
+        "close"
+      ]
+    },
+    "bindings_json": {
+      "type": "string",
+      "minLength": 2,
+      "maxLength": 100000,
+      "contentMediaType": "application/json"
+    },
+    "requested_by": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$"
+    },
+    "priority": {
+      "type": "integer",
+      "minimum": 0,
+      "maximum": 100
+    },
+    "issued_at": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "expires_at": {
+      "type": "string",
+      "format": "date-time"
+    }
+  },
+  "required": [
+    "schema_version",
+    "directive_id",
+    "session_id",
+    "tenant_id",
+    "scene_id",
+    "command",
+    "bindings_json",
+    "requested_by",
+    "priority",
+    "issued_at",
+    "expires_at"
+  ]
+}

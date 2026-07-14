@@ -1,0 +1,116 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://schemas.axtro.ai/v2/consent_evidence.schema.json",
+  "title": "Consent Evidence",
+  "description": "Purpose-specific proof of consent, denial or revocation.",
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "schema_version": {
+      "type": "string",
+      "const": "2.0.0"
+    },
+    "consent_id": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$"
+    },
+    "session_id": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$"
+    },
+    "tenant_id": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$"
+    },
+    "subject_ref": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 300
+    },
+    "consent_type": {
+      "type": "string",
+      "enum": [
+        "essential_processing",
+        "recording",
+        "behavioral_analysis",
+        "emotion_inference",
+        "biometric_identity",
+        "marketing_contact",
+        "data_retention"
+      ]
+    },
+    "purpose": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 1000
+    },
+    "status": {
+      "type": "string",
+      "enum": [
+        "granted",
+        "denied",
+        "revoked",
+        "expired"
+      ]
+    },
+    "method": {
+      "type": "string",
+      "enum": [
+        "spoken",
+        "click",
+        "written",
+        "signed",
+        "system_import"
+      ]
+    },
+    "disclosure_version": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 100
+    },
+    "jurisdiction": {
+      "type": "string",
+      "minLength": 2,
+      "maxLength": 120
+    },
+    "evidence_hash": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{64}$"
+    },
+    "captured_at": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "expires_at": {
+      "type": [
+        "string",
+        "null"
+      ],
+      "format": "date-time"
+    },
+    "revoked_at": {
+      "type": [
+        "string",
+        "null"
+      ],
+      "format": "date-time"
+    }
+  },
+  "required": [
+    "schema_version",
+    "consent_id",
+    "session_id",
+    "tenant_id",
+    "subject_ref",
+    "consent_type",
+    "purpose",
+    "status",
+    "method",
+    "disclosure_version",
+    "jurisdiction",
+    "evidence_hash",
+    "captured_at",
+    "expires_at",
+    "revoked_at"
+  ]
+}

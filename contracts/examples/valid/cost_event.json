@@ -1,0 +1,15 @@
+{
+  "schema_version": "2.0.0",
+  "cost_event_id": "018f1e2d-3c4b-7a05-8c9d-001122334459",
+  "tenant_id": "018f1e2d-3c4b-7a01-8c9d-001122334455",
+  "session_id": "018f1e2d-3c4b-7a02-8c9d-001122334456",
+  "provider_id": "fake-realtime",
+  "service": "speech_to_speech",
+  "unit_type": "minute",
+  "quantity": 10,
+  "unit_cost_usd": 0.034,
+  "amount_usd": 0.34,
+  "currency": "USD",
+  "source": "estimated",
+  "occurred_at": "2026-07-14T20:00:00Z"
+}

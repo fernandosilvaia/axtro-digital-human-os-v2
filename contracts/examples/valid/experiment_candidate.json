@@ -1,0 +1,18 @@
+{
+  "schema_version": "2.0.0",
+  "experiment_id": "018f1e2d-3c4b-7a05-8c9d-001122334459",
+  "scope_type": "role_pack",
+  "tenant_id": null,
+  "component": "turn_policy",
+  "hypothesis": "Pausa adaptativa reduz interrupções ignoradas.",
+  "baseline_version": "1.0.0",
+  "candidate_version": "1.1.0",
+  "target_metrics": [
+    "ignored_interruptions"
+  ],
+  "guardrails": [
+    "no latency p95 regression above 100ms"
+  ],
+  "status": "shadow",
+  "created_at": "2026-07-14T20:00:00Z"
+}

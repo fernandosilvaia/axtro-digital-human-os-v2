@@ -1,0 +1,139 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://schemas.axtro.ai/v2/conversation_state.schema.json",
+  "title": "Conversation State",
+  "description": "Structured short-term conversation memory and repair state.",
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "schema_version": {
+      "type": "string",
+      "const": "2.0.0"
+    },
+    "session_id": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$"
+    },
+    "tenant_id": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$"
+    },
+    "turn_index": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "active_topic": {
+      "type": [
+        "string",
+        "null"
+      ],
+      "maxLength": 300
+    },
+    "language": {
+      "type": "string",
+      "pattern": "^[a-z]{2}(-[A-Z]{2})?$"
+    },
+    "open_questions": {
+      "type": "array",
+      "items": {
+        "type": "string",
+        "minLength": 1,
+        "maxLength": 500
+      },
+      "minItems": 0,
+      "maxItems": 50
+    },
+    "confirmed_facts": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "evidence_id": {
+            "type": "string",
+            "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$"
+          },
+          "kind": {
+            "type": "string",
+            "enum": [
+              "explicit_user_statement",
+              "tool_verified",
+              "knowledge_source",
+              "derived_hypothesis",
+              "operator_input",
+              "system_observation"
+            ]
+          },
+          "summary": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 500
+          },
+          "source_ref": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 500
+          },
+          "confidence": {
+            "type": "number",
+            "minimum": 0,
+            "maximum": 1
+          },
+          "observed_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "expires_at": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date-time"
+          }
+        },
+        "required": [
+          "evidence_id",
+          "kind",
+          "summary",
+          "source_ref",
+          "confidence",
+          "observed_at",
+          "expires_at"
+        ]
+      },
+      "minItems": 0,
+      "maxItems": 200
+    },
+    "repair_state": {
+      "type": "string",
+      "enum": [
+        "none",
+        "clarifying",
+        "recovering_interruption",
+        "recovering_tool_failure",
+        "recovering_connection"
+      ]
+    },
+    "incremental_summary": {
+      "type": "string",
+      "maxLength": 10000
+    },
+    "updated_at": {
+      "type": "string",
+      "format": "date-time"
+    }
+  },
+  "required": [
+    "schema_version",
+    "session_id",
+    "tenant_id",
+    "turn_index",
+    "active_topic",
+    "language",
+    "open_questions",
+    "confirmed_facts",
+    "repair_state",
+    "incremental_summary",
+    "updated_at"
+  ]
+}

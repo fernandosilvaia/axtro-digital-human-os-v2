@@ -1,0 +1,105 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://schemas.axtro.ai/v2/experiment_candidate.schema.json",
+  "title": "Experiment Candidate",
+  "description": "Governed candidate change for simulation, shadow, canary and experiment stages.",
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "schema_version": {
+      "type": "string",
+      "const": "2.0.0"
+    },
+    "experiment_id": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$"
+    },
+    "scope_type": {
+      "type": "string",
+      "enum": [
+        "global",
+        "tenant",
+        "role_pack",
+        "agent"
+      ]
+    },
+    "tenant_id": {
+      "type": [
+        "string",
+        "null"
+      ],
+      "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$"
+    },
+    "component": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 200
+    },
+    "hypothesis": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 3000
+    },
+    "baseline_version": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 100
+    },
+    "candidate_version": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 100
+    },
+    "target_metrics": {
+      "type": "array",
+      "items": {
+        "type": "string",
+        "minLength": 1,
+        "maxLength": 200
+      },
+      "minItems": 1,
+      "maxItems": 50
+    },
+    "guardrails": {
+      "type": "array",
+      "items": {
+        "type": "string",
+        "minLength": 1,
+        "maxLength": 500
+      },
+      "minItems": 1,
+      "maxItems": 100
+    },
+    "status": {
+      "type": "string",
+      "enum": [
+        "draft",
+        "simulating",
+        "shadow",
+        "canary",
+        "running",
+        "paused",
+        "completed",
+        "rejected"
+      ]
+    },
+    "created_at": {
+      "type": "string",
+      "format": "date-time"
+    }
+  },
+  "required": [
+    "schema_version",
+    "experiment_id",
+    "scope_type",
+    "tenant_id",
+    "component",
+    "hypothesis",
+    "baseline_version",
+    "candidate_version",
+    "target_metrics",
+    "guardrails",
+    "status",
+    "created_at"
+  ]
+}

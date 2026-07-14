@@ -1,0 +1,141 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://schemas.axtro.ai/v2/scene_manifest.schema.json",
+  "title": "Scene Manifest",
+  "description": "Allowlisted scene definition used by the Scene Director.",
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "schema_version": {
+      "type": "string",
+      "const": "2.0.0"
+    },
+    "scene_id": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 200
+    },
+    "tenant_id": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$"
+    },
+    "name": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 200
+    },
+    "version": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 50
+    },
+    "scene_type": {
+      "type": "string",
+      "enum": [
+        "avatar_full",
+        "avatar_with_slides",
+        "comparison",
+        "calculator",
+        "proposal",
+        "web_demo",
+        "handoff",
+        "error"
+      ]
+    },
+    "allowed_components": {
+      "type": "array",
+      "items": {
+        "type": "string",
+        "minLength": 1,
+        "maxLength": 160
+      },
+      "minItems": 1,
+      "maxItems": 100
+    },
+    "data_bindings": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "name": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 120
+          },
+          "classification": {
+            "type": "string",
+            "enum": [
+              "public",
+              "internal",
+              "confidential",
+              "restricted"
+            ]
+          },
+          "source": {
+            "type": "string",
+            "enum": [
+              "static",
+              "session_state",
+              "tool_receipt",
+              "approved_document"
+            ]
+          }
+        },
+        "required": [
+          "name",
+          "classification",
+          "source"
+        ]
+      },
+      "minItems": 0,
+      "maxItems": 100
+    },
+    "allowed_roles": {
+      "type": "array",
+      "items": {
+        "type": "string",
+        "minLength": 1,
+        "maxLength": 120
+      },
+      "minItems": 1,
+      "maxItems": 50
+    },
+    "max_duration_seconds": {
+      "type": "integer",
+      "minimum": 1,
+      "maximum": 3600
+    },
+    "requires_consent": {
+      "type": "boolean"
+    },
+    "checksum": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{64}$"
+    },
+    "status": {
+      "type": "string",
+      "enum": [
+        "draft",
+        "active",
+        "deprecated",
+        "disabled"
+      ]
+    }
+  },
+  "required": [
+    "schema_version",
+    "scene_id",
+    "tenant_id",
+    "name",
+    "version",
+    "scene_type",
+    "allowed_components",
+    "data_bindings",
+    "allowed_roles",
+    "max_duration_seconds",
+    "requires_consent",
+    "checksum",
+    "status"
+  ]
+}

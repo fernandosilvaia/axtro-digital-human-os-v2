@@ -1,0 +1,26 @@
+{
+  "schema_version": "2.0.0",
+  "scene_id": "plan-comparison",
+  "tenant_id": "018f1e2d-3c4b-7a01-8c9d-001122334455",
+  "name": "Comparação de planos",
+  "version": "1.0.0",
+  "scene_type": "comparison",
+  "allowed_components": [
+    "avatar_pip",
+    "comparison_table"
+  ],
+  "data_bindings": [
+    {
+      "name": "plans",
+      "classification": "internal",
+      "source": "tool_receipt"
+    }
+  ],
+  "allowed_roles": [
+    "sales-closer"
+  ],
+  "max_duration_seconds": 600,
+  "requires_consent": false,
+  "checksum": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+  "status": "active"
+}

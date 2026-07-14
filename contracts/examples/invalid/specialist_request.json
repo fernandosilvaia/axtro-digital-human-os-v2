@@ -1,0 +1,12 @@
+{
+  "request_id": "018f1e2d-3c4b-7a05-8c9d-001122334459",
+  "session_id": "018f1e2d-3c4b-7a02-8c9d-001122334456",
+  "tenant_id": "018f1e2d-3c4b-7a01-8c9d-001122334455",
+  "specialist_type": "pricing",
+  "question": "Qual plano atende 20 usuários com SSO?",
+  "context_json": "{\"seat_count\":20}",
+  "required_output_schema_ref": "https://schemas.axtro.ai/v2/specialist_result.schema.json",
+  "priority": "high",
+  "deadline_at": "2026-07-14T21:00:00Z",
+  "requested_at": "2026-07-14T20:00:00Z"
+}

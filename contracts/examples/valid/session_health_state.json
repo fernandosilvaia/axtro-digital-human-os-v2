@@ -1,0 +1,27 @@
+{
+  "schema_version": "2.0.0",
+  "session_id": "018f1e2d-3c4b-7a02-8c9d-001122334456",
+  "tenant_id": "018f1e2d-3c4b-7a01-8c9d-001122334455",
+  "overall_status": "healthy",
+  "degradation_level": "none",
+  "metrics": {
+    "end_of_turn_to_first_audio_ms": 620,
+    "interrupt_stop_ms": 180,
+    "jitter_ms": 12,
+    "packet_loss_percent": 0.3,
+    "tool_p95_ms": 430,
+    "estimated_cost_usd": 0.71
+  },
+  "provider_statuses": [
+    {
+      "provider_id": "fake-realtime",
+      "component": "realtime_model",
+      "status": "healthy",
+      "latency_ms": 320,
+      "last_error_code": null,
+      "checked_at": "2026-07-14T20:05:00Z"
+    }
+  ],
+  "active_incidents": [],
+  "updated_at": "2026-07-14T20:05:00Z"
+}

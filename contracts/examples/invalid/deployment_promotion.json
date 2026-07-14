@@ -1,0 +1,17 @@
+{
+  "promotion_id": "018f1e2d-3c4b-7a06-8c9d-00112233445a",
+  "experiment_id": "018f1e2d-3c4b-7a05-8c9d-001122334459",
+  "tenant_id": null,
+  "component": "turn_policy",
+  "from_version": "1.0.0",
+  "to_version": "1.1.0",
+  "environment": "canary",
+  "rollout_percentage": 5,
+  "decision": "promote",
+  "decision_reasons": [
+    "Guardrails verdes em shadow."
+  ],
+  "rollback_plan": "Retornar version pin para 1.0.0.",
+  "approved_by": "018f1e2d-3c4b-7a03-8c9d-001122334457",
+  "promoted_at": "2026-07-14T20:05:00Z"
+}

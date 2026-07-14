@@ -1,0 +1,22 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://axtro.ai/schemas/briefing/1.0.0",
+  "title": "PrecallBriefing",
+  "type": "object",
+  "required": ["schema_version","tenant_id","session_id","strategy","policies","authorized_tools","generated_by","generated_at"],
+  "additionalProperties": false,
+  "properties": {
+    "schema_version": {"const": "1.0.0"},
+    "tenant_id": {"type":"string","format":"uuid"},
+    "session_id": {"type":"string","format":"uuid"},
+    "lead_snapshot": {"type":"object","properties":{"segment":{"type":["string","null"]},"lead_type":{"enum":["hot","warm","cold_open","cold_closed",null]},"facts":{"type":"array","items":{"type":"object","required":["text","confidence","source"],"properties":{"text":{"type":"string"},"confidence":{"enum":["confirmed","inferred"]},"source":{"type":"string"}}}}}},
+    "chosen_agent_version_id": {"type":["string","null"]},
+    "strategy": {"type":"object","required":["methodology"],"properties":{"methodology":{"type":"string"},"emphases":{"type":"array","items":{"type":"string"}},"opening_hook":{"type":["string","null"]}}},
+    "suggested_materials": {"type":"array","items":{"type":"string"}},
+    "likely_objections": {"type":"array","items":{"type":"object","properties":{"type":{"type":"string"},"suggested_response_ref":{"type":"string"}}}},
+    "authorized_tools": {"type":"array","items":{"type":"string"}},
+    "policies": {"type":"object","properties":{"max_discount_pct":{"type":"number"},"approval_above":{"type":["number","null"]},"handoff_rules":{"type":"object"}}},
+    "generated_by": {"enum":["axtro_agent","local_default"]},
+    "generated_at": {"type":"string","format":"date-time"}
+  }
+}

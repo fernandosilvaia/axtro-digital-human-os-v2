@@ -1,0 +1,18 @@
+{
+  "schema_version": "2.0.0",
+  "event_id": "018f1e2d-3c4b-7a05-8c9d-001122334459",
+  "event_type": "session.created",
+  "event_version": 1,
+  "aggregate_type": "session",
+  "aggregate_id": "018f1e2d-3c4b-7a02-8c9d-001122334456",
+  "aggregate_version": 1,
+  "tenant_id": "018f1e2d-3c4b-7a01-8c9d-001122334455",
+  "session_id": "018f1e2d-3c4b-7a02-8c9d-001122334456",
+  "producer": "api",
+  "trace_id": "0123456789abcdef0123456789abcdef",
+  "correlation_id": "018f1e2d-3c4b-7a06-8c9d-00112233445a",
+  "causation_id": null,
+  "data_classification": "internal",
+  "payload_json": "{\"status\":\"preparing\"}",
+  "occurred_at": "2026-07-14T20:00:00Z"
+}

@@ -1,0 +1,23 @@
+# Gates reproduzíveis da arquitetura
+
+Rode a suíte completa a partir da raiz:
+
+```bash
+python3 scripts/validate_all.py
+```
+
+Checks individuais:
+
+```bash
+python3 scripts/docs_qa.py
+python3 scripts/validate_contracts.py
+python3 scripts/validate_specs.py
+python3 scripts/validate_database_contract.py
+python3 scripts/validate_codex_setup.py
+python3 scripts/validate_migration_inventory.py
+python3 scripts/secret_scan.py
+```
+
+Eles validam documentação, task graph, 31 schemas e exemplos, OpenAPI/AsyncAPI, invariantes do banco, configuração nativa do Codex, inventário da V1 e padrões comuns de segredo.
+
+O Codex deve preservar esses gates e ampliar a CI com lint, typecheck, unit, integration, E2E, migration apply/rollback, RLS negativo, replay, chaos e security tests conforme o código aparecer.

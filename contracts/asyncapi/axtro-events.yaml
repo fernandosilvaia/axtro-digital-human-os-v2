@@ -1,0 +1,95 @@
+asyncapi: 3.0.0
+info:
+  title: Axtro Digital Human OS Events
+  version: 0.1.0
+  description: Domain events and workflow commands for the transactional outbox and event relay.
+defaultContentType: application/json
+servers:
+  development:
+    host: localhost:6379
+    protocol: redis
+    description: Development transport. Production transport is selected by ADR without changing message contracts.
+channels:
+  domainEvents:
+    address: axtro.v2.events.{tenantId}.{aggregateType}
+    parameters:
+      tenantId:
+        description: Authorized tenant UUIDv7
+      aggregateType:
+        description: Aggregate category such as session or workflow
+    messages:
+      eventEnvelope:
+        $ref: '#/components/messages/EventEnvelope'
+  workflowCommands:
+    address: axtro.v2.commands.{tenantId}.workflow
+    parameters:
+      tenantId:
+        description: Authorized tenant UUIDv7
+    messages:
+      workflowCommand:
+        $ref: '#/components/messages/WorkflowCommand'
+  workflowStatus:
+    address: axtro.v2.status.{tenantId}.workflow
+    parameters:
+      tenantId:
+        description: Authorized tenant UUIDv7
+    messages:
+      workflowStatus:
+        $ref: '#/components/messages/WorkflowStatus'
+operations:
+  publishDomainEvent:
+    action: send
+    channel:
+      $ref: '#/channels/domainEvents'
+    messages:
+      - $ref: '#/channels/domainEvents/messages/eventEnvelope'
+  consumeDomainEvent:
+    action: receive
+    channel:
+      $ref: '#/channels/domainEvents'
+    messages:
+      - $ref: '#/channels/domainEvents/messages/eventEnvelope'
+  requestWorkflow:
+    action: send
+    channel:
+      $ref: '#/channels/workflowCommands'
+    messages:
+      - $ref: '#/channels/workflowCommands/messages/workflowCommand'
+  consumeWorkflowCommand:
+    action: receive
+    channel:
+      $ref: '#/channels/workflowCommands'
+    messages:
+      - $ref: '#/channels/workflowCommands/messages/workflowCommand'
+  publishWorkflowStatus:
+    action: send
+    channel:
+      $ref: '#/channels/workflowStatus'
+    messages:
+      - $ref: '#/channels/workflowStatus/messages/workflowStatus'
+components:
+  messages:
+    EventEnvelope:
+      name: EventEnvelope
+      title: Versioned domain event
+      contentType: application/json
+      payload:
+        $ref: '../schemas/event_envelope.schema.json'
+      correlationId:
+        location: $message.payload#/correlation_id
+    WorkflowCommand:
+      name: WorkflowCommand
+      title: Durable workflow command
+      contentType: application/json
+      payload:
+        $ref: '../schemas/workflow_command.schema.json'
+      correlationId:
+        location: $message.payload#/command_id
+    WorkflowStatus:
+      name: WorkflowStatus
+      title: Durable workflow status update
+      contentType: application/json
+      payload:
+        $ref: '../schemas/workflow_status.schema.json'
+      correlationId:
+        location: $message.payload#/command_id

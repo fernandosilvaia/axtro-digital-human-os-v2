@@ -1,0 +1,22 @@
+{
+  "schema_version": "2.0.0",
+  "skill_pack_id": "catalog-read",
+  "name": "Catalog Read",
+  "version": "0.1.0",
+  "description": "Consulta catálogo autorizado sem efeitos colaterais.",
+  "capabilities": [
+    "read_catalog"
+  ],
+  "tool_contract_ids": [
+    "catalog.lookup"
+  ],
+  "input_schema_ref": "https://schemas.axtro.ai/tools/catalog-lookup-input.schema.json",
+  "output_schema_ref": "https://schemas.axtro.ai/tools/catalog-lookup-output.schema.json",
+  "risk_class": "read_tenant",
+  "supported_role_types": [
+    "sales",
+    "support"
+  ],
+  "status": "active",
+  "checksum": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+}

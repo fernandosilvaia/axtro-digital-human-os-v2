@@ -1,0 +1,23 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://axtro.ai/schemas/handoff_packet/1.0.0",
+  "title": "HandoffPacket",
+  "type": "object",
+  "required": ["schema_version","tenant_id","session_id","reason","summary","funnel_stage","generated_at"],
+  "additionalProperties": false,
+  "properties": {
+    "schema_version": {"const": "1.0.0"},
+    "tenant_id": {"type":"string","format":"uuid"},
+    "session_id": {"type":"string","format":"uuid"},
+    "lead": {"type":"object","properties":{"name":{"type":["string","null"]},"company":{"type":["string","null"]},"role":{"type":["string","null"]},"permitted_fields":{"type":"object"}}},
+    "reason": {"type":"string"},
+    "summary": {"type":"string","maxLength":1200},
+    "funnel_stage": {"type":"string"},
+    "silva_score": {"type":"object"},
+    "objections": {"type":"array","items":{"type":"object"}},
+    "materials_shown": {"type":"array","items":{"type":"string"}},
+    "actions_taken": {"type":"array","items":{"type":"string"}},
+    "recommended_next_action": {"type":"string"},
+    "generated_at": {"type":"string","format":"date-time"}
+  }
+}

@@ -1,0 +1,14 @@
+{
+  "schema_version": "2.0.0",
+  "execution_id": "018f1e2d-3c4b-7a07-8c9d-00112233445b",
+  "intent_id": "018f1e2d-3c4b-7a05-8c9d-001122334459",
+  "tenant_id": "018f1e2d-3c4b-7a01-8c9d-001122334455",
+  "status": "succeeded",
+  "provider_id": "fake-catalog",
+  "attempt": 1,
+  "result_json": "{\"price_usd\":499}",
+  "error": null,
+  "effect_hash": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+  "started_at": "2026-07-14T20:00:00Z",
+  "completed_at": "2026-07-14T20:05:00Z"
+}

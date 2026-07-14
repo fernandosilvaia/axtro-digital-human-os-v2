@@ -1,0 +1,25 @@
+{
+  "schema_version": "2.0.0",
+  "session_id": "018f1e2d-3c4b-7a02-8c9d-001122334456",
+  "tenant_id": "018f1e2d-3c4b-7a01-8c9d-001122334455",
+  "turn_index": 3,
+  "active_topic": "necessidade principal",
+  "language": "pt-BR",
+  "open_questions": [
+    "Qual é o prazo desejado?"
+  ],
+  "confirmed_facts": [
+    {
+      "evidence_id": "018f1e2d-3c4b-7a05-8c9d-001122334459",
+      "kind": "explicit_user_statement",
+      "summary": "Cliente busca reduzir tempo de resposta.",
+      "source_ref": "turn:2",
+      "confidence": 1.0,
+      "observed_at": "2026-07-14T20:00:00Z",
+      "expires_at": null
+    }
+  ],
+  "repair_state": "none",
+  "incremental_summary": "Cliente explicou o problema e confirmou urgência.",
+  "updated_at": "2026-07-14T20:05:00Z"
+}

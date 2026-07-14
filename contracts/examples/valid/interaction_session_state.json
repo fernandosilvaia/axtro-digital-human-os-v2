@@ -1,0 +1,27 @@
+{
+  "schema_version": "2.0.0",
+  "session_id": "018f1e2d-3c4b-7a02-8c9d-001122334456",
+  "tenant_id": "018f1e2d-3c4b-7a01-8c9d-001122334455",
+  "agent_id": "018f1e2d-3c4b-7a03-8c9d-001122334457",
+  "status": "active",
+  "active_presenter_id": "018f1e2d-3c4b-7a04-8c9d-001122334458",
+  "channel": {
+    "type": "native_room",
+    "external_session_ref": null,
+    "region": "us-east"
+  },
+  "state_version": 4,
+  "consent_status": "granted",
+  "disclosure_status": "acknowledged",
+  "capabilities": {
+    "audio": true,
+    "video": true,
+    "avatar": true,
+    "screen_share": true,
+    "tools": true,
+    "handoff": true
+  },
+  "degradation_level": "none",
+  "started_at": "2026-07-14T20:00:00Z",
+  "updated_at": "2026-07-14T20:05:00Z"
+}

@@ -1,0 +1,25 @@
+{
+  "role_pack_id": "sales-closer",
+  "name": "Sales Closer",
+  "version": "0.1.0",
+  "role_type": "sales",
+  "description": "Role pack consultivo para descoberta, demonstração e próximo passo.",
+  "state_schema_ref": "https://schemas.axtro.ai/v2/sales_state.schema.json",
+  "allowed_skill_pack_ids": [
+    "catalog-read",
+    "calendar-propose"
+  ],
+  "required_disclosures": [
+    "ai_identity"
+  ],
+  "default_policies": [
+    "no-deception",
+    "receipt-before-claim"
+  ],
+  "supported_languages": [
+    "pt-BR",
+    "en-US"
+  ],
+  "status": "active",
+  "checksum": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+}

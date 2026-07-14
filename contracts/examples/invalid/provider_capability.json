@@ -1,0 +1,21 @@
+{
+  "provider_id": "provider-candidate-a",
+  "provider_type": "avatar",
+  "capability": "realtime_avatar",
+  "version": "2026-07",
+  "supported_regions": [
+    "us-east"
+  ],
+  "languages": [
+    "pt-BR",
+    "en-US"
+  ],
+  "max_session_minutes": 60,
+  "supports_streaming": true,
+  "supports_barge_in": true,
+  "supports_data_residency": false,
+  "latency_class": "low",
+  "cost_model_ref": "spreadsheets/UNIT_ECONOMICS_V2.xlsx",
+  "status": "candidate",
+  "evaluated_at": "2026-07-14T20:00:00Z"
+}

@@ -1,0 +1,20 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://axtro.ai/schemas/event_envelope/1.0.0",
+  "title": "EventEnvelope",
+  "type": "object",
+  "required": ["event_id","event_type","schema_version","occurred_at","tenant_id","trace_id","actor","data"],
+  "additionalProperties": false,
+  "properties": {
+    "event_id": {"type": "string", "format": "uuid"},
+    "event_type": {"type": "string", "pattern": "^[a-z_]+\\.[a-z_]+$"},
+    "schema_version": {"type": "string", "pattern": "^\\d+\\.\\d+\\.\\d+$"},
+    "occurred_at": {"type": "string", "format": "date-time"},
+    "tenant_id": {"type": "string", "format": "uuid"},
+    "session_id": {"type": ["string","null"], "format": "uuid"},
+    "trace_id": {"type": "string"},
+    "actor": {"type": "object", "required": ["type"], "properties": {"type": {"enum": ["realtime","supervisor","api","bot","system","console"]}, "id": {"type": ["string","null"]}}},
+    "correlation": {"type": "object", "properties": {"lead_id": {"type":["string","null"]}, "opportunity_id": {"type":["string","null"]}, "agent_id": {"type":["string","null"]}}},
+    "data": {"type": "object"}
+  }
+}

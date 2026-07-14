@@ -1,0 +1,502 @@
+openapi: 3.1.0
+info:
+  title: Axtro Digital Human OS API
+  version: 0.1.0
+  description: Control-plane and session APIs for the M0-M3 implementation scope.
+servers:
+  - url: https://api.axtro.example/v1
+    description: Placeholder. Replace per environment.
+security:
+  - bearerAuth: []
+tags:
+  - name: Sessions
+  - name: Actions
+  - name: Handoffs
+  - name: Role Packs
+  - name: Providers
+  - name: Usage
+paths:
+  /sessions:
+    post:
+      tags: [Sessions]
+      operationId: createSession
+      summary: Create a prepared interaction session
+      parameters:
+        - $ref: '#/components/parameters/IdempotencyKey'
+        - $ref: '#/components/parameters/TenantId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateSessionRequest'
+      responses:
+        '201':
+          description: Session created
+          headers:
+            X-Trace-Id:
+              $ref: '#/components/headers/TraceId'
+          content:
+            application/json:
+              schema:
+                $ref: '../schemas/interaction_session_state.schema.json'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '422':
+          $ref: '#/components/responses/ValidationError'
+  /sessions/{session_id}:
+    get:
+      tags: [Sessions]
+      operationId: getSession
+      summary: Retrieve authoritative session state
+      parameters:
+        - $ref: '#/components/parameters/SessionId'
+        - $ref: '#/components/parameters/TenantId'
+      responses:
+        '200':
+          description: Current session state
+          content:
+            application/json:
+              schema:
+                $ref: '../schemas/interaction_session_state.schema.json'
+        '404':
+          $ref: '#/components/responses/NotFound'
+  /sessions/{session_id}/activate:
+    post:
+      tags: [Sessions]
+      operationId: activateSession
+      summary: Activate a prepared session and acquire the presenter floor
+      parameters:
+        - $ref: '#/components/parameters/SessionId'
+        - $ref: '#/components/parameters/TenantId'
+        - $ref: '#/components/parameters/IdempotencyKey'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ActivateSessionRequest'
+      responses:
+        '200':
+          description: Session activated
+          content:
+            application/json:
+              schema:
+                $ref: '../schemas/interaction_session_state.schema.json'
+        '409':
+          $ref: '#/components/responses/Conflict'
+  /sessions/{session_id}/turns:
+    post:
+      tags: [Sessions]
+      operationId: submitTurn
+      summary: Submit a textual turn to the Walking Skeleton driver
+      description: M1 development endpoint. Realtime transports use the same internal command contract.
+      parameters:
+        - $ref: '#/components/parameters/SessionId'
+        - $ref: '#/components/parameters/TenantId'
+        - $ref: '#/components/parameters/IdempotencyKey'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/SubmitTurnRequest'
+      responses:
+        '202':
+          description: Turn accepted for the session actor
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AcceptedCommand'
+        '409':
+          $ref: '#/components/responses/Conflict'
+  /sessions/{session_id}/action-intents:
+    post:
+      tags: [Actions]
+      operationId: createActionIntent
+      summary: Propose a governed external action
+      parameters:
+        - $ref: '#/components/parameters/SessionId'
+        - $ref: '#/components/parameters/TenantId'
+        - $ref: '#/components/parameters/IdempotencyKey'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '../schemas/action_intent.schema.json'
+      responses:
+        '202':
+          description: Intent accepted for policy evaluation
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AcceptedCommand'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '422':
+          $ref: '#/components/responses/ValidationError'
+  /sessions/{session_id}/handoffs:
+    post:
+      tags: [Handoffs]
+      operationId: requestHandoff
+      summary: Request an atomic presenter handoff
+      parameters:
+        - $ref: '#/components/parameters/SessionId'
+        - $ref: '#/components/parameters/TenantId'
+        - $ref: '#/components/parameters/IdempotencyKey'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '../schemas/handoff_packet.schema.json'
+      responses:
+        '202':
+          description: Handoff queued
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AcceptedCommand'
+        '409':
+          $ref: '#/components/responses/Conflict'
+  /sessions/{session_id}/complete:
+    post:
+      tags: [Sessions]
+      operationId: completeSession
+      summary: Complete a session and enqueue post-call workflows
+      parameters:
+        - $ref: '#/components/parameters/SessionId'
+        - $ref: '#/components/parameters/TenantId'
+        - $ref: '#/components/parameters/IdempotencyKey'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CompleteSessionRequest'
+      responses:
+        '200':
+          description: Session completed
+          content:
+            application/json:
+              schema:
+                $ref: '../schemas/interaction_session_state.schema.json'
+        '409':
+          $ref: '#/components/responses/Conflict'
+  /sessions/{session_id}/timeline:
+    get:
+      tags: [Sessions]
+      operationId: listSessionTimeline
+      summary: List append-only session events in aggregate order
+      parameters:
+        - $ref: '#/components/parameters/SessionId'
+        - $ref: '#/components/parameters/TenantId'
+        - name: after_version
+          in: query
+          required: false
+          schema:
+            type: integer
+            minimum: 0
+      responses:
+        '200':
+          description: Ordered session event page
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                required: [items, next_after_version]
+                properties:
+                  items:
+                    type: array
+                    items:
+                      $ref: '../schemas/event_envelope.schema.json'
+                  next_after_version:
+                    type: [integer, 'null']
+                    minimum: 0
+  /role-pack-installations:
+    post:
+      tags: [Role Packs]
+      operationId: installRolePack
+      summary: Install a versioned role pack for a tenant
+      parameters:
+        - $ref: '#/components/parameters/TenantId'
+        - $ref: '#/components/parameters/IdempotencyKey'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '../schemas/role_pack_manifest.schema.json'
+      responses:
+        '201':
+          description: Role pack installed
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/InstallationResponse'
+        '409':
+          $ref: '#/components/responses/Conflict'
+  /provider-connections:
+    post:
+      tags: [Providers]
+      operationId: createProviderConnection
+      summary: Register a secret handle and non-secret provider configuration
+      parameters:
+        - $ref: '#/components/parameters/TenantId'
+        - $ref: '#/components/parameters/IdempotencyKey'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateProviderConnectionRequest'
+      responses:
+        '201':
+          description: Provider connection registered
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ProviderConnectionResponse'
+        '422':
+          $ref: '#/components/responses/ValidationError'
+  /usage/cost-events:
+    get:
+      tags: [Usage]
+      operationId: listCostEvents
+      summary: List cost events for a bounded period
+      parameters:
+        - $ref: '#/components/parameters/TenantId'
+        - name: from
+          in: query
+          required: true
+          schema:
+            type: string
+            format: date-time
+        - name: to
+          in: query
+          required: true
+          schema:
+            type: string
+            format: date-time
+      responses:
+        '200':
+          description: Cost event page
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                required: [items]
+                properties:
+                  items:
+                    type: array
+                    items:
+                      $ref: '../schemas/cost_event.schema.json'
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+  parameters:
+    SessionId:
+      name: session_id
+      in: path
+      required: true
+      schema:
+        $ref: '#/components/schemas/UuidV7'
+    TenantId:
+      name: X-Tenant-Id
+      in: header
+      required: true
+      description: Tenant context must also be present and authorized in the bearer identity.
+      schema:
+        $ref: '#/components/schemas/UuidV7'
+    IdempotencyKey:
+      name: Idempotency-Key
+      in: header
+      required: true
+      schema:
+        type: string
+        minLength: 16
+        maxLength: 200
+  headers:
+    TraceId:
+      description: Distributed trace identifier
+      schema:
+        type: string
+        minLength: 16
+        maxLength: 64
+  responses:
+    NotFound:
+      description: Resource not found within the authorized tenant
+      content:
+        application/problem+json:
+          schema:
+            $ref: '#/components/schemas/Problem'
+    Forbidden:
+      description: Request not authorized
+      content:
+        application/problem+json:
+          schema:
+            $ref: '#/components/schemas/Problem'
+    Conflict:
+      description: Aggregate version, floor ownership or idempotency conflict
+      content:
+        application/problem+json:
+          schema:
+            $ref: '#/components/schemas/Problem'
+    ValidationError:
+      description: Request failed contract validation
+      content:
+        application/problem+json:
+          schema:
+            $ref: '#/components/schemas/Problem'
+  schemas:
+    UuidV7:
+      type: string
+      pattern: '^[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$'
+    Problem:
+      type: object
+      additionalProperties: false
+      required: [type, title, status, detail, trace_id]
+      properties:
+        type:
+          type: string
+          format: uri-reference
+        title:
+          type: string
+        status:
+          type: integer
+          minimum: 400
+          maximum: 599
+        detail:
+          type: string
+        trace_id:
+          type: string
+          minLength: 16
+          maxLength: 64
+    CreateSessionRequest:
+      type: object
+      additionalProperties: false
+      required: [agent_id, role_pack_id, role_pack_version, channel, language]
+      properties:
+        agent_id:
+          $ref: '#/components/schemas/UuidV7'
+        role_pack_id:
+          type: string
+          minLength: 1
+          maxLength: 200
+        role_pack_version:
+          type: string
+          minLength: 1
+          maxLength: 50
+        channel:
+          type: string
+          enum: [native_room, telephone, google_meet, zoom, teams, web_widget, api]
+        language:
+          type: string
+          pattern: '^[a-z]{2}(-[A-Z]{2})?$'
+    ActivateSessionRequest:
+      type: object
+      additionalProperties: false
+      required: [presenter_id, expected_state_version]
+      properties:
+        presenter_id:
+          $ref: '#/components/schemas/UuidV7'
+        expected_state_version:
+          type: integer
+          minimum: 0
+    SubmitTurnRequest:
+      type: object
+      additionalProperties: false
+      required: [speaker_participant_id, text, language, client_turn_id]
+      properties:
+        speaker_participant_id:
+          $ref: '#/components/schemas/UuidV7'
+        text:
+          type: string
+          minLength: 1
+          maxLength: 20000
+        language:
+          type: string
+          pattern: '^[a-z]{2}(-[A-Z]{2})?$'
+        client_turn_id:
+          type: string
+          minLength: 8
+          maxLength: 200
+    CompleteSessionRequest:
+      type: object
+      additionalProperties: false
+      required: [reason, expected_state_version]
+      properties:
+        reason:
+          type: string
+          minLength: 1
+          maxLength: 500
+        expected_state_version:
+          type: integer
+          minimum: 0
+    AcceptedCommand:
+      type: object
+      additionalProperties: false
+      required: [command_id, status, trace_id]
+      properties:
+        command_id:
+          $ref: '#/components/schemas/UuidV7'
+        status:
+          type: string
+          enum: [accepted]
+        trace_id:
+          type: string
+          minLength: 16
+          maxLength: 64
+    InstallationResponse:
+      type: object
+      additionalProperties: false
+      required: [installation_id, status]
+      properties:
+        installation_id:
+          $ref: '#/components/schemas/UuidV7'
+        status:
+          type: string
+          enum: [active]
+    CreateProviderConnectionRequest:
+      type: object
+      additionalProperties: false
+      required: [provider_id, provider_type, secret_handle, region, configuration_json]
+      properties:
+        provider_id:
+          type: string
+          minLength: 1
+          maxLength: 120
+        provider_type:
+          type: string
+          enum: [realtime_model, stt, tts, avatar, meeting, telephony, database, observability]
+        secret_handle:
+          type: string
+          minLength: 1
+          maxLength: 500
+        region:
+          type: string
+          minLength: 2
+          maxLength: 80
+        configuration_json:
+          type: string
+          contentMediaType: application/json
+          minLength: 2
+          maxLength: 50000
+    ProviderConnectionResponse:
+      type: object
+      additionalProperties: false
+      required: [connection_id, provider_id, status]
+      properties:
+        connection_id:
+          $ref: '#/components/schemas/UuidV7'
+        provider_id:
+          type: string
+        status:
+          type: string
+          enum: [pending_validation, active, disabled]

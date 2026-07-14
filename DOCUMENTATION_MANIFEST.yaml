@@ -1,0 +1,43 @@
+version: 2
+as_of: '2026-07-14'
+status: READY_FOR_M0_M2_IMPLEMENTATION
+normative_roots:
+- ARCHITECTURE_CONSTITUTION.md
+- contracts/
+- docs/product/PRODUCT_REQUIREMENTS.md
+- docs/adr/
+non_normative_roots:
+- legacy/v1/
+- legacy/fable-v2-partial/
+required_gates:
+  contracts_count: 31
+  valid_example_per_schema: true
+  invalid_example_per_schema: true
+  openapi_version: 3.1.0
+  asyncapi_version: 3.0.0
+  migrations_count: 6
+  task_count: 52
+  legacy_v1_files: 62
+  custom_agents: 8
+  repository_skills: 4
+  broken_local_references: 0
+  secret_scan: true
+  workbook_formula_errors: 0
+  provider_sources_dated: true
+validation_entrypoint: python3 scripts/validate_all.py
+implementation_readiness:
+  ready_for:
+  - M0
+  - M1
+  - M2
+  not_claimed:
+  - production
+  - legal_certification
+  - provider_quality
+  - security_certification
+evidence:
+  validation: docs/operations/VALIDATION_EVIDENCE.md
+  provider_verification: docs/operations/PROVIDER_CAPABILITY_VERIFICATION_2026-07-14.md
+  source_register: docs/sources/SOURCE_REGISTER.md
+  unit_economics: spreadsheets/UNIT_ECONOMICS_V2.xlsx
+  final_audit: FINAL_AUDIT_REPORT.md

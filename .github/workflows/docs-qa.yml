@@ -1,0 +1,36 @@
+name: Architecture and Contract QA
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  validate-architecture-package:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+          cache: pip
+      - name: Install validators
+        run: python -m pip install --disable-pip-version-check jsonschema==4.26.0 PyYAML==6.0.2
+      - name: Validate documentation
+        run: python3 scripts/docs_qa.py
+      - name: Validate JSON contracts
+        run: python3 scripts/validate_contracts.py
+      - name: Validate OpenAPI and AsyncAPI structure
+        run: python3 scripts/validate_specs.py
+      - name: Validate database invariants
+        run: python3 scripts/validate_database_contract.py
+      - name: Validate Codex project setup
+        run: python3 scripts/validate_codex_setup.py
+      - name: Validate migration inventory
+        run: python3 scripts/validate_migration_inventory.py
+      - name: Scan for common secret patterns
+        run: python3 scripts/secret_scan.py

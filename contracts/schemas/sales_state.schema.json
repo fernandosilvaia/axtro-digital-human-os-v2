@@ -1,0 +1,187 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://schemas.axtro.ai/v2/sales_state.schema.json",
+  "title": "Sales State",
+  "description": "Sales-specific extension installed by the Sales Closer Role Pack.",
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "schema_version": {
+      "type": "string",
+      "const": "2.0.0"
+    },
+    "session_id": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$"
+    },
+    "tenant_id": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$"
+    },
+    "funnel_stage": {
+      "type": "string",
+      "enum": [
+        "opening",
+        "discovery",
+        "qualification",
+        "solution_fit",
+        "demonstration",
+        "objection_handling",
+        "proposal",
+        "commitment",
+        "follow_up",
+        "closed_won",
+        "closed_lost"
+      ]
+    },
+    "methodology": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 120
+    },
+    "qualification": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "dimension": {
+            "type": "string",
+            "enum": [
+              "budget",
+              "authority",
+              "need",
+              "timing",
+              "impact",
+              "decision_process"
+            ]
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "unknown",
+              "partial",
+              "confirmed",
+              "not_applicable"
+            ]
+          },
+          "value_summary": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "maxLength": 500
+          },
+          "evidence_refs": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$"
+            },
+            "minItems": 0,
+            "maxItems": 20
+          }
+        },
+        "required": [
+          "dimension",
+          "status",
+          "value_summary",
+          "evidence_refs"
+        ]
+      },
+      "minItems": 0,
+      "maxItems": 20
+    },
+    "objections": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "objection_id": {
+            "type": "string",
+            "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$"
+          },
+          "category": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 120
+          },
+          "summary": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 500
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "open",
+              "exploring",
+              "addressed",
+              "unresolved"
+            ]
+          },
+          "evidence_refs": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$"
+            },
+            "minItems": 0,
+            "maxItems": 20
+          }
+        },
+        "required": [
+          "objection_id",
+          "category",
+          "summary",
+          "status",
+          "evidence_refs"
+        ]
+      },
+      "minItems": 0,
+      "maxItems": 50
+    },
+    "proposal_status": {
+      "type": "string",
+      "enum": [
+        "not_started",
+        "drafting",
+        "presented",
+        "revising",
+        "accepted",
+        "rejected",
+        "expired"
+      ]
+    },
+    "conversion_probability": {
+      "type": "number",
+      "minimum": 0,
+      "maximum": 1
+    },
+    "next_step": {
+      "type": [
+        "string",
+        "null"
+      ],
+      "maxLength": 1000
+    },
+    "updated_at": {
+      "type": "string",
+      "format": "date-time"
+    }
+  },
+  "required": [
+    "schema_version",
+    "session_id",
+    "tenant_id",
+    "funnel_stage",
+    "methodology",
+    "qualification",
+    "objections",
+    "proposal_status",
+    "conversion_probability",
+    "next_step",
+    "updated_at"
+  ]
+}

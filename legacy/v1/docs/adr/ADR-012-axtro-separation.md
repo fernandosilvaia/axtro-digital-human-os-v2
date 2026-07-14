@@ -1,0 +1,6 @@
+# ADR-012 — Axtro Agent estritamente fora do caminho crítico (padrão broker, canais assíncronos)
+**Status:** Aceito · 2026-07-13
+**Contexto:** O daemon Hermes do fundador orquestra melhoria contínua 24/7, mas é experimental e não pode nem adicionar latência nem virar ponto único de falha da conversa; também não pode acumular credenciais de tenants.
+**Decisão:** Integração exclusivamente por: (pré) briefings escritos em store lido no início da sessão; (durante) sugestões via data channel LiveKit com TTL de 2 turnos, que o worker pode ignorar; (pós) consumo de eventos e jobs idempotentes via API (padrão broker — daemon nunca possui credenciais de providers de tenant, pede execução à API com seu próprio escopo). Daemon offline ⇒ políticas locais assumem; zero chamadas síncronas do worker para o daemon.
+**Alternativas rejeitadas:** Daemon no loop da conversa "para decisões melhores" (latência+SPOF+risco de segurança); daemon com acesso direto ao banco (fura RLS e auditoria); não integrar (perde a tese do produto).
+**Consequências:** + resiliência comprovável (teste B1.11: matar daemon sem efeito); superfície de risco contida. − sugestões chegam com ~1 turno de defasagem (aceito por design).

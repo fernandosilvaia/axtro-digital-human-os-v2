@@ -1,0 +1,22 @@
+{
+  "schema_version": "2.0.0",
+  "handoff_id": "018f1e2d-3c4b-7a05-8c9d-001122334459",
+  "session_id": "018f1e2d-3c4b-7a02-8c9d-001122334456",
+  "tenant_id": "018f1e2d-3c4b-7a01-8c9d-001122334455",
+  "from_presenter_id": "018f1e2d-3c4b-7a04-8c9d-001122334458",
+  "target_type": "team_queue",
+  "target_id": null,
+  "reason_code": "customer_requested_human",
+  "priority": "high",
+  "summary": "Cliente pediu especialista humano para negociar condição comercial.",
+  "customer_context_json": "{\"name\":\"Cliente Teste\"}",
+  "role_state_snapshot_json": "{\"stage\":\"proposal\"}",
+  "actions_completed": [
+    "Plano apresentado"
+  ],
+  "open_actions": [
+    "Negociar condição"
+  ],
+  "requested_at": "2026-07-14T20:00:00Z",
+  "expires_at": "2026-07-14T21:00:00Z"
+}

@@ -1,0 +1,77 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://schemas.axtro.ai/v2/specialist_request.schema.json",
+  "title": "Specialist Request",
+  "description": "Time-bounded internal request to a silent specialist lane.",
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "schema_version": {
+      "type": "string",
+      "const": "2.0.0"
+    },
+    "request_id": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$"
+    },
+    "session_id": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$"
+    },
+    "tenant_id": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$"
+    },
+    "specialist_type": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 160
+    },
+    "question": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 5000
+    },
+    "context_json": {
+      "type": "string",
+      "minLength": 2,
+      "maxLength": 200000,
+      "contentMediaType": "application/json"
+    },
+    "required_output_schema_ref": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 500
+    },
+    "priority": {
+      "type": "string",
+      "enum": [
+        "low",
+        "normal",
+        "high",
+        "urgent"
+      ]
+    },
+    "deadline_at": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "requested_at": {
+      "type": "string",
+      "format": "date-time"
+    }
+  },
+  "required": [
+    "schema_version",
+    "request_id",
+    "session_id",
+    "tenant_id",
+    "specialist_type",
+    "question",
+    "context_json",
+    "required_output_schema_ref",
+    "priority",
+    "deadline_at",
+    "requested_at"
+  ]
+}

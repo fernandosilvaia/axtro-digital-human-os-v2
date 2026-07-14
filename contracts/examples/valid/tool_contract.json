@@ -1,0 +1,20 @@
+{
+  "schema_version": "2.0.0",
+  "contract_id": "catalog.lookup",
+  "version": "1.0.0",
+  "tool_name": "catalog_lookup",
+  "tenant_scope": "tenant_installation",
+  "risk_class": "read_tenant",
+  "input_schema_ref": "https://schemas.axtro.ai/tools/catalog-lookup-input.schema.json",
+  "output_schema_ref": "https://schemas.axtro.ai/tools/catalog-lookup-output.schema.json",
+  "timeout_ms": 1500,
+  "idempotency_required": false,
+  "human_approval": "never",
+  "allowed_actors": [
+    "presenter",
+    "workflow"
+  ],
+  "data_classification": "internal",
+  "side_effects": "none",
+  "status": "active"
+}

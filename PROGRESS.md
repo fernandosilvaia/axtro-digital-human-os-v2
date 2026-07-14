@@ -1,0 +1,91 @@
+# Progresso de implementação
+
+**Estado atual:** implementação de M0 em andamento  
+**Marco atual:** M0  
+**Tarefa atual:** M0-01  
+**Última evidência verde:** 6 de 7 validadores arquiteturais verdes em 2026-07-14  
+**Bloqueadores internos:** validação de setup incompatível com o Python 3.9 local, correção em andamento  
+**Pendências externas:** consultar `PENDENCIAS_EXTERNAS.md`  
+
+## Regras de atualização
+
+- Atualize a tarefa para `in_progress` antes de editar.
+- Registre comandos, testes, arquivos e decisões ao concluí-la.
+- Use somente `done` quando todos os critérios de aceite e testes do task graph passarem.
+- Use `blocked` somente para dependência realmente irreversível; M0-M2 devem usar fakes quando faltarem credenciais.
+
+## Task ledger
+
+| ID | Marco | Status | Título | Dependências | Evidência |
+|---|---|---|---|---|---|
+| `M0-01` | M0 | in_progress | Bootstrap modular monorepo | nenhuma | validação inicial registrada; bootstrap em andamento |
+| `M0-02` | M0 | pending | Install repository and documentation gates | `M0-01` | pending |
+| `M0-03` | M0 | pending | Generate TypeScript and Python contract types | `M0-01`, `M0-02` | pending |
+| `M0-04` | M0 | pending | Implement domain identifiers and value objects | `M0-03` | pending |
+| `M0-05` | M0 | pending | Implement interaction state and pure reducers | `M0-04` | pending |
+| `M0-06` | M0 | pending | Implement typed configuration and secret handles | `M0-01` | pending |
+| `M0-07` | M0 | pending | Install database migration runner | `M0-01`, `M0-04` | pending |
+| `M0-08` | M0 | pending | Implement RLS and cross-tenant negative test suite | `M0-07` | pending |
+| `M0-09` | M0 | pending | Implement authentication and tenant context middleware | `M0-06`, `M0-08` | pending |
+| `M0-10` | M0 | pending | Add OpenTelemetry and structured logging | `M0-01`, `M0-06` | pending |
+| `M0-11` | M0 | pending | Implement provider ports and capability registry | `M0-03`, `M0-04` | pending |
+| `M0-12` | M0 | pending | Implement deterministic provider fakes | `M0-11` | pending |
+| `M0-13` | M0 | pending | Implement transactional outbox repository | `M0-05`, `M0-07`, `M0-10` | pending |
+| `M0-14` | M0 | pending | Implement Action Runtime skeleton | `M0-03`, `M0-08`, `M0-12` | pending |
+| `M0-15` | M0 | pending | Add application security baseline | `M0-02`, `M0-06`, `M0-09` | pending |
+| `M0-16` | M0 | pending | Implement cost event ledger | `M0-03`, `M0-07`, `M0-11` | pending |
+| `M0-17` | M0 | pending | Create development fixtures and tenant-zero seed | `M0-08`, `M0-12`, `M0-14` | pending |
+| `M0-18` | M0 | pending | M0 release gate | `M0-02`, `M0-03`, `M0-05`, `M0-08`, `M0-09`, `M0-10`, `M0-12`, `M0-13`, `M0-14`, `M0-15`, `M0-16`, `M0-17` | pending |
+| `M1-01` | M1 | pending | Implement session lifecycle API | `M0-18` | pending |
+| `M1-02` | M1 | pending | Implement Session Actor and mailbox | `M1-01` | pending |
+| `M1-03` | M1 | pending | Implement textual turn driver | `M1-02`, `M0-12` | pending |
+| `M1-04` | M1 | pending | Implement context composer | `M1-03` | pending |
+| `M1-05` | M1 | pending | Complete fake Action Runtime flow | `M1-03`, `M0-14` | pending |
+| `M1-06` | M1 | pending | Implement timeline, snapshots and replay verifier | `M1-02`, `M0-13` | pending |
+| `M1-07` | M1 | pending | Implement outbox relay and idempotent consumers | `M0-13`, `M1-06` | pending |
+| `M1-08` | M1 | pending | Implement fake post-call workflow | `M1-07` | pending |
+| `M1-09` | M1 | pending | Build minimal operations console | `M1-01`, `M1-06` | pending |
+| `M1-10` | M1 | pending | Walking Skeleton E2E and failure suite | `M1-04`, `M1-05`, `M1-06`, `M1-07`, `M1-08`, `M1-09` | pending |
+| `M1-11` | M1 | pending | M1 release gate | `M1-10` | pending |
+| `M2-01` | M2 | pending | Implement channel adapter and native-room transport boundary | `M1-11`, `M0-11` | pending |
+| `M2-02` | M2 | pending | Build Turn Coordinator harness | `M2-01` | pending |
+| `M2-03` | M2 | pending | Implement modular STT, LLM and TTS path | `M2-02`, `M0-12` | pending |
+| `M2-04` | M2 | pending | Implement speech-to-speech experiment adapter | `M2-02`, `M0-11` | pending |
+| `M2-05` | M2 | pending | Implement Behavior and Presence Director | `M2-02`, `M0-03` | pending |
+| `M2-06` | M2 | pending | Implement avatar port, fake and cancellation semantics | `M2-01`, `M2-05`, `M0-12` | pending |
+| `M2-07` | M2 | pending | Implement Scene and Presentation Director | `M2-01`, `M0-03` | pending |
+| `M2-08` | M2 | pending | Implement silent Specialist Fabric | `M1-04`, `M0-12` | pending |
+| `M2-09` | M2 | pending | Implement perception signal bus and quality state | `M2-02`, `M0-03` | pending |
+| `M2-10` | M2 | pending | Implement degradation and recovery controller | `M2-03`, `M2-04`, `M2-06`, `M2-07` | pending |
+| `M2-11` | M2 | pending | Instrument realtime latency, quality and cost | `M2-03`, `M2-06`, `M2-07`, `M0-16` | pending |
+| `M2-12` | M2 | pending | Run mandatory ten-minute Human Presence scenario | `M2-05`, `M2-08`, `M2-09`, `M2-10`, `M2-11` | pending |
+| `M2-13` | M2 | pending | M2 architecture and provider decision gate | `M2-12` | pending |
+| `M3-01` | M3 | pending | Implement Sales Closer Role Pack | `M2-13` | pending |
+| `M3-02` | M3 | pending | Implement authorized knowledge ingestion and RAG | `M3-01`, `M0-08` | pending |
+| `M3-03` | M3 | pending | Add CRM-lite read adapter | `M3-01`, `M0-14` | pending |
+| `M3-04` | M3 | pending | Add calendar proposal in dry-run | `M3-01`, `M0-14` | pending |
+| `M3-05` | M3 | pending | Add proposal generation in dry-run | `M3-01`, `M0-14` | pending |
+| `M3-06` | M3 | pending | Implement warm human handoff | `M3-01`, `M2-10` | pending |
+| `M3-07` | M3 | pending | Implement sandbox follow-up workflow | `M1-08`, `M3-01` | pending |
+| `M3-08` | M3 | pending | Implement evaluation harness and golden conversations | `M3-01`, `M3-02`, `M3-06` | pending |
+| `M3-09` | M3 | pending | Expand console for opportunity and call review | `M3-02`, `M3-03`, `M3-05`, `M3-08` | pending |
+| `M3-10` | M3 | pending | Internal Sales Closer Alpha pilot gate | `M3-04`, `M3-05`, `M3-06`, `M3-07`, `M3-08`, `M3-09` | pending |
+
+## Log de execução
+
+### 2026-07-14, M0-01 iniciado
+
+- Leitura obrigatória concluída: Constituição, instruções do repositório, README, playbooks, Definition of Done, task graph, progresso, ADRs relevantes e instruções locais.
+- Validação inicial executada: `python3 scripts/validate_all.py`.
+- Resultado inicial: documentação, contratos, especificações, contrato de banco, inventário de migrations e secret scan verdes. `validate_codex_setup.py` falhou porque o interpretador local é Python 3.9.6 e não expõe `tomllib`; a correção preservará a validação do TOML e será coberta por teste.
+- Git foi inicializado na branch dedicada `codex/m0-m1-foundation`; nenhuma branch principal foi criada ou alterada.
+
+### 2026-07-14, baseline arquitetural
+
+- 31 schemas estritos e 62 exemplos de contrato preparados.
+- OpenAPI, AsyncAPI, SQL, RLS, task graph, unit economics e configuração Codex preparados.
+- Código de aplicação ainda não iniciado.
+
+## Próxima ação
+
+Executar `python3 scripts/validate_all.py`, registrar o resultado e iniciar `M0-01`.

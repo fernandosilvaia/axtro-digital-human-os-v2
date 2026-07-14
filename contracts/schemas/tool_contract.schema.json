@@ -1,0 +1,129 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://schemas.axtro.ai/v2/tool_contract.schema.json",
+  "title": "Tool Contract",
+  "description": "Governed executable contract for an external capability.",
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "schema_version": {
+      "type": "string",
+      "const": "2.0.0"
+    },
+    "contract_id": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 200
+    },
+    "version": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 50
+    },
+    "tool_name": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 200
+    },
+    "tenant_scope": {
+      "type": "string",
+      "enum": [
+        "global_catalog",
+        "tenant_installation",
+        "session_grant"
+      ]
+    },
+    "risk_class": {
+      "type": "string",
+      "enum": [
+        "read_public",
+        "read_tenant",
+        "read_pii",
+        "write_low",
+        "write_high",
+        "financial",
+        "irreversible"
+      ]
+    },
+    "input_schema_ref": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 500
+    },
+    "output_schema_ref": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 500
+    },
+    "timeout_ms": {
+      "type": "integer",
+      "minimum": 100,
+      "maximum": 120000
+    },
+    "idempotency_required": {
+      "type": "boolean"
+    },
+    "human_approval": {
+      "type": "string",
+      "enum": [
+        "never",
+        "policy_based",
+        "always"
+      ]
+    },
+    "allowed_actors": {
+      "type": "array",
+      "items": {
+        "type": "string",
+        "minLength": 1,
+        "maxLength": 120
+      },
+      "minItems": 1,
+      "maxItems": 50
+    },
+    "data_classification": {
+      "type": "string",
+      "enum": [
+        "public",
+        "internal",
+        "confidential",
+        "restricted"
+      ]
+    },
+    "side_effects": {
+      "type": "string",
+      "enum": [
+        "none",
+        "reversible",
+        "compensatable",
+        "irreversible"
+      ]
+    },
+    "status": {
+      "type": "string",
+      "enum": [
+        "draft",
+        "active",
+        "deprecated",
+        "disabled"
+      ]
+    }
+  },
+  "required": [
+    "schema_version",
+    "contract_id",
+    "version",
+    "tool_name",
+    "tenant_scope",
+    "risk_class",
+    "input_schema_ref",
+    "output_schema_ref",
+    "timeout_ms",
+    "idempotency_required",
+    "human_approval",
+    "allowed_actors",
+    "data_classification",
+    "side_effects",
+    "status"
+  ]
+}

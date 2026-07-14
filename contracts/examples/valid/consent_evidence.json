@@ -1,0 +1,17 @@
+{
+  "schema_version": "2.0.0",
+  "consent_id": "018f1e2d-3c4b-7a05-8c9d-001122334459",
+  "session_id": "018f1e2d-3c4b-7a02-8c9d-001122334456",
+  "tenant_id": "018f1e2d-3c4b-7a01-8c9d-001122334455",
+  "subject_ref": "participant:primary",
+  "consent_type": "recording",
+  "purpose": "Gravar a sessão para qualidade.",
+  "status": "granted",
+  "method": "spoken",
+  "disclosure_version": "recording-pt-BR@1",
+  "jurisdiction": "US-FL",
+  "evidence_hash": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+  "captured_at": "2026-07-14T20:00:00Z",
+  "expires_at": null,
+  "revoked_at": null
+}

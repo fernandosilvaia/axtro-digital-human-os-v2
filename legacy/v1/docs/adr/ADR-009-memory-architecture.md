@@ -1,0 +1,6 @@
+# ADR-009 — Memória: 7 tipos isolados sobre Postgres+pgvector, sem vector DB dedicado
+**Status:** Aceito · 2026-07-13
+**Contexto:** O agente precisa de: (1) working memory da sessão, (2) memória de lead, (3) memória de conta/empresa, (4) conhecimento do tenant (RAG), (5) memória de metodologia, (6) memória de resultados/aprendizado, (7) memória do Axtro Agent. Misturar tipos gera vazamento de contexto e recuperação ruim.
+**Decisão:** 7 stores lógicos com contratos de leitura/escrita distintos (MEMORY_ARCHITECTURE.md), todos em Postgres+pgvector com partição por tenant; working memory em Redis (TTL); consolidação pós-call escreve de (1) para (2)/(3)/(6) via jobs auditáveis; nenhum store é lido em runtime sem policy de fase (o motor decide o que entra no contexto por fase do funil).
+**Alternativas rejeitadas:** Vector DB dedicado (Pinecone/Qdrant) — mais um sistema para operar sem ganho no nosso volume; "uma memória única" (recuperação suja, risco de PII em lugar errado); frameworks de memória prontos (mem0 etc.) — opacidade na fronteira de confiança.
+**Consequências:** + isolamento, auditabilidade, backup único. − pgvector exige tuning de índices (HNSW) conforme volume; reavaliar dedicado se >50M vetores/tenant.

@@ -1,0 +1,14 @@
+{
+  "schema_version": "2.0.0",
+  "disclosure_id": "018f1e2d-3c4b-7a05-8c9d-001122334459",
+  "session_id": "018f1e2d-3c4b-7a02-8c9d-001122334456",
+  "tenant_id": "018f1e2d-3c4b-7a01-8c9d-001122334455",
+  "disclosure_type": "ai_identity",
+  "version": "ai-identity-pt-BR@1",
+  "content_hash": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+  "delivery_channel": "spoken",
+  "language": "pt-BR",
+  "delivered_at": "2026-07-14T20:00:00Z",
+  "acknowledged": true,
+  "acknowledged_at": "2026-07-14T20:00:00Z"
+}

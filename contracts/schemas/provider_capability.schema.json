@@ -1,0 +1,120 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://schemas.axtro.ai/v2/provider_capability.schema.json",
+  "title": "Provider Capability",
+  "description": "Normalized capability record used for provider routing and bake-offs.",
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "schema_version": {
+      "type": "string",
+      "const": "2.0.0"
+    },
+    "provider_id": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 120
+    },
+    "provider_type": {
+      "type": "string",
+      "enum": [
+        "realtime_model",
+        "stt",
+        "tts",
+        "avatar",
+        "meeting",
+        "telephony",
+        "database",
+        "observability"
+      ]
+    },
+    "capability": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 200
+    },
+    "version": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 100
+    },
+    "supported_regions": {
+      "type": "array",
+      "items": {
+        "type": "string",
+        "minLength": 2,
+        "maxLength": 80
+      },
+      "minItems": 1,
+      "maxItems": 100
+    },
+    "languages": {
+      "type": "array",
+      "items": {
+        "type": "string",
+        "pattern": "^[a-z]{2}(-[A-Z]{2})?$"
+      },
+      "minItems": 1,
+      "maxItems": 200
+    },
+    "max_session_minutes": {
+      "type": "integer",
+      "minimum": 1,
+      "maximum": 1440
+    },
+    "supports_streaming": {
+      "type": "boolean"
+    },
+    "supports_barge_in": {
+      "type": "boolean"
+    },
+    "supports_data_residency": {
+      "type": "boolean"
+    },
+    "latency_class": {
+      "type": "string",
+      "enum": [
+        "ultra_low",
+        "low",
+        "medium",
+        "batch"
+      ]
+    },
+    "cost_model_ref": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 500
+    },
+    "status": {
+      "type": "string",
+      "enum": [
+        "candidate",
+        "approved",
+        "fallback",
+        "deprecated",
+        "disabled"
+      ]
+    },
+    "evaluated_at": {
+      "type": "string",
+      "format": "date-time"
+    }
+  },
+  "required": [
+    "schema_version",
+    "provider_id",
+    "provider_type",
+    "capability",
+    "version",
+    "supported_regions",
+    "languages",
+    "max_session_minutes",
+    "supports_streaming",
+    "supports_barge_in",
+    "supports_data_residency",
+    "latency_class",
+    "cost_model_ref",
+    "status",
+    "evaluated_at"
+  ]
+}

@@ -1,0 +1,33 @@
+# Migration Plan
+
+## Runner decision
+
+M0 must choose one migration runner already compatible with the selected TypeScript or Python database layer. The SQL files in this directory remain the normative database contract. A runner may wrap them, but must not silently reinterpret constraints.
+
+## Order
+
+1. `0001_extensions_and_domains.sql`
+2. `0002_control_plane.sql`
+3. `0003_interaction_and_actions.sql`
+4. `0004_knowledge_governance.sql`
+5. `0005_rls_and_immutability.sql`
+6. `0006_reference_seeds.sql`
+
+## Rules
+
+- Domain IDs are generated as UUIDv7 in application code. There is no v4 default.
+- Every tenant transaction executes with `SET LOCAL app.tenant_id` from the authenticated identity, never from an untrusted header alone.
+- Service operations still set tenant context and do not bypass RLS by default.
+- Global catalogs are not tenant tables. Writes are restricted to migration or explicitly privileged administrative identities.
+- Destructive schema changes use expand, migrate, verify, contract.
+- Migrations must be tested from zero and from the previous release snapshot.
+
+## M0 evidence
+
+- clean apply on PostgreSQL with pgvector;
+- rollback or documented irreversible boundary;
+- two-tenant negative tests for read, insert, update and delete;
+- append-only mutation rejection;
+- UUIDv7 rejection test;
+- cross-tenant composite FK rejection;
+- schema drift check in CI.

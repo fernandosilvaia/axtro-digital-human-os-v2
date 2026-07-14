@@ -1,0 +1,63 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://axtro.ai/schemas/sales_session_state/1.0.0",
+  "title": "SalesSessionState",
+  "type": "object",
+  "required": ["schema_version","tenant_id","session_id","agent_id","methodology","funnel_stage","state_rev","updated_at","compliance"],
+  "additionalProperties": false,
+  "properties": {
+    "schema_version": {"const": "1.0.0"},
+    "tenant_id": {"type": "string", "format": "uuid"},
+    "session_id": {"type": "string", "format": "uuid"},
+    "agent_id": {"type": "string", "format": "uuid"},
+    "lead_id": {"type": ["string","null"], "format": "uuid"},
+    "opportunity_id": {"type": ["string","null"], "format": "uuid"},
+    "methodology": {"enum": ["metodo_silva","spin","bant","meddic","challenger","sandler","consultative","custom"]},
+    "funnel_stage": {"enum": ["opening","discovery","qualification","presentation","anchoring_price","objection_handling","closing","scheduling","wrapup","postcall"]},
+    "current_objective": {"type": "string", "maxLength": 200},
+    "collected": {
+      "type": "object", "additionalProperties": false,
+      "properties": {
+        "situation": {"type": ["string","null"]},
+        "intent": {"type": ["string","null"]},
+        "leadership": {"type": ["string","null"]},
+        "value": {"type": ["string","null"]},
+        "agenda": {"type": ["string","null"]},
+        "pains": {"type": "array", "items": {"type": "string"}},
+        "competitors": {"type": "array", "items": {"type": "string"}},
+        "decision_process": {"type": ["string","null"]}
+      }
+    },
+    "missing": {"type": "array", "items": {"type": "string"}},
+    "silva_score": {
+      "type": "object", "additionalProperties": false,
+      "properties": {"S": {"type":"integer","minimum":0,"maximum":2},"I": {"type":"integer","minimum":0,"maximum":2},"L": {"type":"integer","minimum":0,"maximum":2},"V": {"type":"integer","minimum":0,"maximum":2},"A": {"type":"integer","minimum":0,"maximum":2}}
+    },
+    "interest_level": {"type": "integer", "minimum": 0, "maximum": 100},
+    "buying_intent": {"enum": ["cold","curious","evaluating","ready","committed"]},
+    "objections": {"type": "array", "items": {
+      "type": "object", "required": ["type","status"], "additionalProperties": false,
+      "properties": {
+        "type": {"enum": ["price","trust","timing","authority","need","competitor","other"]},
+        "text": {"type": "string"},
+        "status": {"enum": ["raised","handled","unresolved"]},
+        "handled_with": {"type": ["string","null"]}
+      }}},
+    "primary_objection": {"type": ["string","null"]},
+    "urgency": {"enum": ["immediate","30d","90d","none","unknown"]},
+    "authority": {"enum": ["sole","committee","needs_approval","unknown"]},
+    "budget_range": {"type": ["string","null"]},
+    "need": {"type": ["string","null"]},
+    "timeline": {"type": ["string","null"]},
+    "sentiment": {"type": "object", "properties": {"current": {"enum":["positive","neutral","negative"]}, "trend": {"enum":["improving","stable","declining"]}}},
+    "next_best_action": {"type": "string", "maxLength": 300},
+    "conversion_probability": {"type": "number", "minimum": 0, "maximum": 1},
+    "limits": {"type": "object", "properties": {"max_discount_pct": {"type":"number"}, "approval_above": {"type":["number","null"]}}},
+    "handoff": {"type": "object", "properties": {"required": {"type":"boolean"}, "reasons": {"type":"array","items":{"type":"string"}}}},
+    "materials_shown": {"type": "array", "items": {"type": "string"}},
+    "tools_executed": {"type": "array", "items": {"type": "string"}},
+    "compliance": {"type": "object", "required": ["ai_disclosed"], "properties": {"ai_disclosed": {"type":"boolean"}, "recording_consent": {"type":["boolean","null"]}}},
+    "state_rev": {"type": "integer", "minimum": 0},
+    "updated_at": {"type": "string", "format": "date-time"}
+  }
+}

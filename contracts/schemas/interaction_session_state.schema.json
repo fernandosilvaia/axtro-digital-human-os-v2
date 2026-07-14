@@ -1,0 +1,172 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://schemas.axtro.ai/v2/interaction_session_state.schema.json",
+  "title": "Interaction Session State",
+  "description": "Authoritative lifecycle and presenter state for one interaction session.",
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "schema_version": {
+      "type": "string",
+      "const": "2.0.0"
+    },
+    "session_id": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$"
+    },
+    "tenant_id": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$"
+    },
+    "agent_id": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$"
+    },
+    "status": {
+      "type": "string",
+      "enum": [
+        "preparing",
+        "ready",
+        "active",
+        "handoff_pending",
+        "completed",
+        "failed"
+      ]
+    },
+    "active_presenter_id": {
+      "type": [
+        "string",
+        "null"
+      ],
+      "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$"
+    },
+    "channel": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "type": {
+          "type": "string",
+          "enum": [
+            "native_room",
+            "telephone",
+            "google_meet",
+            "zoom",
+            "teams",
+            "web_widget",
+            "api"
+          ]
+        },
+        "external_session_ref": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "maxLength": 500
+        },
+        "region": {
+          "type": "string",
+          "minLength": 2,
+          "maxLength": 80
+        }
+      },
+      "required": [
+        "type",
+        "external_session_ref",
+        "region"
+      ]
+    },
+    "state_version": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "consent_status": {
+      "type": "string",
+      "enum": [
+        "not_required",
+        "pending",
+        "granted",
+        "denied",
+        "revoked"
+      ]
+    },
+    "disclosure_status": {
+      "type": "string",
+      "enum": [
+        "pending",
+        "delivered",
+        "acknowledged",
+        "failed"
+      ]
+    },
+    "capabilities": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "audio": {
+          "type": "boolean"
+        },
+        "video": {
+          "type": "boolean"
+        },
+        "avatar": {
+          "type": "boolean"
+        },
+        "screen_share": {
+          "type": "boolean"
+        },
+        "tools": {
+          "type": "boolean"
+        },
+        "handoff": {
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "audio",
+        "video",
+        "avatar",
+        "screen_share",
+        "tools",
+        "handoff"
+      ]
+    },
+    "degradation_level": {
+      "type": "string",
+      "enum": [
+        "none",
+        "minor",
+        "major",
+        "voice_only",
+        "text_only",
+        "terminated"
+      ]
+    },
+    "started_at": {
+      "type": [
+        "string",
+        "null"
+      ],
+      "format": "date-time"
+    },
+    "updated_at": {
+      "type": "string",
+      "format": "date-time"
+    }
+  },
+  "required": [
+    "schema_version",
+    "session_id",
+    "tenant_id",
+    "agent_id",
+    "status",
+    "active_presenter_id",
+    "channel",
+    "state_version",
+    "consent_status",
+    "disclosure_status",
+    "capabilities",
+    "degradation_level",
+    "started_at",
+    "updated_at"
+  ]
+}

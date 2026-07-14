@@ -1,0 +1,26 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://axtro.ai/schemas/tool_contract/1.0.0",
+  "title": "ToolContract",
+  "type": "object",
+  "required": ["name","version","risk_class","input_schema","output_schema","timeout_ms","idempotency","tenant_scoped","audit","allowed_actors"],
+  "additionalProperties": false,
+  "properties": {
+    "name": {"type": "string", "pattern": "^[a-z][a-z0-9_]*\\.[a-z][a-z0-9_]*$"},
+    "version": {"type": "string", "pattern": "^\\d+\\.\\d+\\.\\d+$"},
+    "description": {"type": "string"},
+    "risk_class": {"enum": ["read_low","read_pii","write_low","write_medium","write_high_financial","irreversible"]},
+    "input_schema": {"type": "object"},
+    "output_schema": {"type": "object"},
+    "timeout_ms": {"type": "integer", "minimum": 100, "maximum": 60000},
+    "idempotency": {"enum": ["required","optional","none"]},
+    "retry": {"type": "object", "properties": {"max": {"type":"integer","maximum":3}, "backoff": {"enum":["none","exp"]}}},
+    "dry_run_supported": {"type": "boolean", "default": false},
+    "requires_confirmation": {"enum": ["none","verbal","human_approval","verbal_and_human"]},
+    "rollback": {"type": "object", "properties": {"kind": {"enum":["none","compensating"]}, "tool": {"type":["string","null"]}}},
+    "limits": {"type": "object", "properties": {"financial_max": {"type":["number","null"]}, "per_session_max": {"type":["integer","null"]}, "per_day_max": {"type":["integer","null"]}}},
+    "tenant_scoped": {"const": true},
+    "audit": {"enum": ["full","redacted"]},
+    "allowed_actors": {"type": "array", "items": {"enum": ["realtime","supervisor","console"]}, "minItems": 1}
+  }
+}
