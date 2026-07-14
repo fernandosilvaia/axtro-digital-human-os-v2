@@ -136,8 +136,8 @@ def main() -> int:
     if manifest_path.exists():
         manifest = load_yaml(manifest_path)
         gates = manifest.get("required_gates", {})
-        if gates.get("contracts_count") != 31:
-            errors.append("Manifest contracts_count must be 31")
+        if gates.get("contracts_count") != 33:
+            errors.append("Manifest contracts_count must be 33")
         if gates.get("openapi_version") != "3.1.0" or gates.get("asyncapi_version") != "3.0.0":
             errors.append("Manifest API versions are incorrect")
 

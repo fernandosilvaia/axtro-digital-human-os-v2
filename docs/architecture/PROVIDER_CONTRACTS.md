@@ -7,7 +7,7 @@ Every adapter implements:
 - `capabilities()`;
 - `estimate_cost()`;
 - timeouts and cancellation;
-- trace propagation;
+- trace propagation only across trusted internal adapter boundaries;
 - redacted error mapping;
 - close/cleanup;
 - fake implementation.
@@ -33,10 +33,24 @@ Breakers are per provider, region and capability, not global. Half-open probes n
 
 `provider_capability` is datestamped and runtime-verifiable. Marketing claims are not capability evidence. Staging probes update health, not permanent architecture decisions.
 
+M0 consumes `provider_capability` as canonical dated evidence and `provider_registry_entry` as the runtime-safe binding to one port. A registry entry carries one or more canonical capability records for the same `provider_id` and `port_kind`, plus default timeout, cancellation support, health status, circuit state and explicit fallback IDs. The schema references the canonical capability contract rather than creating a second source of truth.
+
+The catalog is inspection and explicit-resolution only. A caller names the provider and port, may evaluate a closed requirement for capability, region, language, streaming, barge-in, data residency, session duration, latency class and cancellation, then resolves that same provider. It never promotes a candidate, chooses a default, or changes to a fallback automatically. Candidate capability records are executable only as local `fake` entries in M0, never as a production promotion.
+
+Runtime resolution fails closed for a disabled or deprecated matching capability, `unavailable` or `unknown` health, or a circuit that is not `closed`. `get_entry`, `get_capabilities` and `fallback_for` remain inspection helpers. A future health manager owns half-open probes and breaker state by provider, region and capability. M0 only normalizes its static fake configuration.
+
+The registry validates capability declarations at bootstrap and wraps every exposed adapter method. It supplies the entry default timeout through `create_control`, derives an adapter abort signal from caller cancellation and deadline expiry, normalizes health, cost estimates and result shapes, and discards late results. Raw adapter instances are bootstrap inputs only, not runtime dependencies.
+
+Provider wire requests never receive tenant, session, correlation, secret handle, header or arbitrary metadata. A strict `traceparent` may cross only a trusted internal adapter boundary, never becoming a default external provider header. Credential binding remains server-side in the secret broker and is intentionally outside these ports.
+
+Storage uses a process-local sealed scope and reference capability. The authenticated application boundary maps a tenant-owned object key to that opaque reference and retains the mapping. The provider contract never receives the raw key or tenant ID. Registry validation rejects a reference from another scope before an adapter runs. The scope and reference have no enumerable tenant or object-key value.
+
+The ToolPort is declared but disabled until M0-14. There is no public factory for an authorization artifact, and M0-11 never invokes a tool adapter. M0-14 must own the complete `ActionIntent` to `PolicyDecision` to idempotent execution to `ToolExecutionReceipt` funnel. A syntactically valid intent or allow decision is never authority.
+
 ## Session duration and renewal
 
 `max_session_minutes` is a runtime constraint, not the duration of the business interaction. Adapters with finite sessions must emit pre-expiry health events. The Session Runtime owns renewal, provider-session epochs and fallback. A provider adapter cannot reset domain state or replay tools during reconnection.
 
 ## Cost metering
 
-Every adapter reports the billing quantity and unit it can observe. The Cost Ledger may combine provider-reported usage with a datestamped rate card. Estimated and invoiced costs remain distinct until reconciliation.
+Every adapter reports the billing quantity and unit it can observe. `ProviderCostUnit` is exactly the generated `CostEvent.unit_type` union, including `megabyte`, `seat` and `flat`; no implicit byte conversion is allowed. M0-16 will define any byte or storage-duration conversion before ledger persistence. The Cost Ledger may combine provider-reported usage with a datestamped rate card. Estimated and invoiced costs remain distinct until reconciliation.

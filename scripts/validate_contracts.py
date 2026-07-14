@@ -7,12 +7,13 @@ from pathlib import Path
 from typing import Any
 
 from jsonschema import Draft202012Validator
+from referencing import Registry, Resource
 
 ROOT = Path(__file__).resolve().parents[1]
 SCHEMAS = ROOT / "contracts" / "schemas"
 VALID = ROOT / "contracts" / "examples" / "valid"
 INVALID = ROOT / "contracts" / "examples" / "invalid"
-EXPECTED_COUNT = 32
+EXPECTED_COUNT = 33
 
 
 def load_json(path: Path) -> Any:
@@ -36,6 +37,15 @@ def walk_closed_objects(node: Any, pointer: str = "$") -> list[str]:
     return errors
 
 
+def build_registry(documents: dict[Path, Any]) -> Registry:
+    resources: list[tuple[str, Resource[Any]]] = []
+    for path, document in documents.items():
+        schema_id = document.get("$id") if isinstance(document, dict) else None
+        if isinstance(schema_id, str) and schema_id:
+            resources.append((schema_id, Resource.from_contents(document)))
+    return Registry().with_resources(resources)
+
+
 def main() -> int:
     errors: list[str] = []
     schema_files = sorted(SCHEMAS.glob("*.schema.json"))
@@ -50,11 +60,19 @@ def main() -> int:
     if schema_names != invalid_names:
         errors.append(f"Invalid example mismatch. Missing={sorted(schema_names-invalid_names)}, extra={sorted(invalid_names-schema_names)}")
 
+    documents: dict[Path, Any] = {}
+    for path in schema_files:
+        try:
+            documents[path] = load_json(path)
+        except AssertionError as exc:
+            errors.append(str(exc))
+
+    registry = build_registry(documents)
     ids: set[str] = set()
     for path in schema_files:
         name = path.name.removesuffix(".schema.json")
         try:
-            document = load_json(path)
+            document = documents[path]
             Draft202012Validator.check_schema(document)
         except Exception as exc:
             errors.append(f"{path.relative_to(ROOT)}: invalid Draft 2020-12 schema: {exc}")
@@ -73,7 +91,7 @@ def main() -> int:
         for closed_error in walk_closed_objects(document):
             errors.append(f"{path.relative_to(ROOT)} {closed_error}")
 
-        validator = Draft202012Validator(document)
+        validator = Draft202012Validator(document, registry=registry)
         valid_path = VALID / f"{name}.json"
         invalid_path = INVALID / f"{name}.json"
         if valid_path.exists():

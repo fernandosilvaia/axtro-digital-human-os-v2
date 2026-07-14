@@ -39,6 +39,12 @@ importers:
         specifier: workspace:*
         version: link:../domain
 
+  packages/avatar-gateway:
+    dependencies:
+      '@axtro/provider-contracts':
+        specifier: workspace:*
+        version: link:../provider-contracts
+
   packages/config:
     dependencies:
       '@axtro/contracts-ts':
@@ -73,6 +79,18 @@ importers:
         specifier: workspace:*
         version: link:../domain
 
+  packages/meeting-gateway:
+    dependencies:
+      '@axtro/provider-contracts':
+        specifier: workspace:*
+        version: link:../provider-contracts
+
+  packages/model-gateway:
+    dependencies:
+      '@axtro/provider-contracts':
+        specifier: workspace:*
+        version: link:../provider-contracts
+
   packages/observability:
     dependencies:
       '@axtro/domain':
@@ -84,7 +102,11 @@ importers:
 
   packages/policy: {}
 
-  packages/provider-contracts: {}
+  packages/provider-contracts:
+    dependencies:
+      '@axtro/contracts-ts':
+        specifier: workspace:*
+        version: link:../contracts-ts
 
   packages/provider-fakes: {}
 
@@ -95,6 +117,12 @@ importers:
         version: link:../domain
 
   packages/tool-runtime: {}
+
+  packages/voice-gateway:
+    dependencies:
+      '@axtro/provider-contracts':
+        specifier: workspace:*
+        version: link:../provider-contracts
 
 packages:
 

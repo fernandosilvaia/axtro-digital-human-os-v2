@@ -280,7 +280,7 @@ class PreCallBriefing(TypedDict):
 class ProviderCapability(TypedDict):
     schema_version: Literal['2.0.0']
     provider_id: str
-    provider_type: Literal['realtime_model', 'stt', 'tts', 'avatar', 'meeting', 'telephony', 'database', 'observability']
+    provider_type: Literal['realtime_model', 'stt', 'tts', 'avatar', 'meeting', 'telephony', 'database', 'observability', 'channel', 'tool', 'storage']
     capability: str
     version: str
     supported_regions: list[str]
@@ -293,6 +293,18 @@ class ProviderCapability(TypedDict):
     cost_model_ref: str
     status: Literal['candidate', 'approved', 'fallback', 'deprecated', 'disabled']
     evaluated_at: str
+
+# Source: contracts/schemas/provider_registry_entry.schema.json; schema: https://schemas.axtro.ai/v2/provider_registry_entry.schema.json; version: 2.0.0.
+class ProviderRegistryEntry(TypedDict):
+    schema_version: Literal['2.0.0']
+    port_kind: Literal['channel', 'realtime_model', 'stt', 'tts', 'avatar', 'meeting', 'telephony', 'tool', 'storage']
+    provider_mode: Literal['fake']
+    provider_capabilities: list[ProviderCapability]
+    default_timeout_ms: int
+    supports_cancellation: bool
+    health_status: Literal['healthy', 'degraded', 'unavailable', 'unknown']
+    circuit_state: Literal['closed', 'open', 'half_open']
+    fallback_provider_ids: list[str]
 
 # Source: contracts/schemas/role_pack_manifest.schema.json; schema: https://schemas.axtro.ai/v2/role_pack_manifest.schema.json; version: 2.0.0.
 class RolePackManifest(TypedDict):
@@ -604,8 +616,14 @@ CONTRACT_METADATA: dict[str, dict[str, str]] = {
   "ProviderCapability": {
     "schema_id": "https://schemas.axtro.ai/v2/provider_capability.schema.json",
     "schema_version": "2.0.0",
-    "source_hash": "8d729c19d645ec9b5227b719d742160ed0f778d2e79362fb41111b01c396a997",
+    "source_hash": "34b35d929e7f5bfb368350217d510533da5f3072ddae227b6ab166e3c81ac7b7",
     "source_schema": "contracts/schemas/provider_capability.schema.json"
+  },
+  "ProviderRegistryEntry": {
+    "schema_id": "https://schemas.axtro.ai/v2/provider_registry_entry.schema.json",
+    "schema_version": "2.0.0",
+    "source_hash": "a5df686e2152d90c9a4ec42da7b88492223eb6e5a6c02a14304f3bfe48c9c1ce",
+    "source_schema": "contracts/schemas/provider_registry_entry.schema.json"
   },
   "RolePackManifest": {
     "schema_id": "https://schemas.axtro.ai/v2/role_pack_manifest.schema.json",
@@ -714,6 +732,7 @@ __all__ = [
     'PolicyDecision',
     'PreCallBriefing',
     'ProviderCapability',
+    'ProviderRegistryEntry',
     'RolePackManifest',
     'RoleState',
     'RuntimeConfiguration',

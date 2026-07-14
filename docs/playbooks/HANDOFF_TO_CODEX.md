@@ -7,8 +7,8 @@ Implementar o Axtro Digital Human OS V2 a partir desta pasta, começando por M0 
 ## Estado recebido
 
 - Constituição e arquitetura V2;
-- 31 contratos JSON Schema Draft 2020-12;
-- 31 exemplos válidos e 31 inválidos;
+- 33 contratos JSON Schema Draft 2020-12;
+- 33 exemplos válidos e 33 inválidos;
 - OpenAPI 3.1 e AsyncAPI 3;
 - sete migrations SQL de referência, RLS e deletion graph;
 - task graph com 52 tarefas M0-M3;

@@ -25,7 +25,10 @@
         "meeting",
         "telephony",
         "database",
-        "observability"
+        "observability",
+        "channel",
+        "tool",
+        "storage"
       ]
     },
     "capability": {

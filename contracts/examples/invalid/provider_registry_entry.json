@@ -1,0 +1,29 @@
+{
+  "schema_version": "2.0.0",
+  "port_kind": "avatar",
+  "provider_mode": "real",
+  "provider_capabilities": [
+    {
+      "schema_version": "2.0.0",
+      "provider_id": "https://provider.invalid",
+      "provider_type": "avatar",
+      "capability": "realtime_avatar",
+      "version": "2026-07",
+      "supported_regions": ["us-east"],
+      "languages": ["pt-BR"],
+      "max_session_minutes": 60,
+      "supports_streaming": true,
+      "supports_barge_in": true,
+      "supports_data_residency": false,
+      "latency_class": "low",
+      "cost_model_ref": "https://provider.invalid/costs",
+      "status": "candidate",
+      "evaluated_at": "2026-07-14T20:00:00Z"
+    }
+  ],
+  "default_timeout_ms": 5000,
+  "supports_cancellation": true,
+  "health_status": "healthy",
+  "circuit_state": "closed",
+  "fallback_provider_ids": []
+}

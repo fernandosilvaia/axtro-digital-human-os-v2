@@ -1,0 +1,35 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://schemas.axtro.ai/v2/provider_registry_entry.schema.json",
+  "title": "Provider Registry Entry",
+  "description": "Code-owned normalized registry entry that binds one provider-neutral port to dated canonical provider capability evidence.",
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "schema_version": { "type": "string", "const": "2.0.0" },
+    "port_kind": {
+      "type": "string",
+      "enum": ["channel", "realtime_model", "stt", "tts", "avatar", "meeting", "telephony", "tool", "storage"]
+    },
+    "provider_mode": { "type": "string", "const": "fake" },
+    "provider_capabilities": {
+      "type": "array",
+      "items": { "$ref": "https://schemas.axtro.ai/v2/provider_capability.schema.json" },
+      "minItems": 1,
+      "maxItems": 100,
+      "uniqueItems": true
+    },
+    "default_timeout_ms": { "type": "integer", "minimum": 50, "maximum": 120000 },
+    "supports_cancellation": { "type": "boolean" },
+    "health_status": { "type": "string", "enum": ["healthy", "degraded", "unavailable", "unknown"] },
+    "circuit_state": { "type": "string", "enum": ["closed", "open", "half_open"] },
+    "fallback_provider_ids": {
+      "type": "array",
+      "items": { "type": "string", "pattern": "^[a-z][a-z0-9_-]{0,119}$" },
+      "minItems": 0,
+      "maxItems": 8,
+      "uniqueItems": true
+    }
+  },
+  "required": ["schema_version", "port_kind", "provider_mode", "provider_capabilities", "default_timeout_ms", "supports_cancellation", "health_status", "circuit_state", "fallback_provider_ids"]
+}

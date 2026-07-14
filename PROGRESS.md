@@ -2,8 +2,8 @@
 
 **Estado atual:** implementação de M0 em andamento  
 **Marco atual:** M0  
-**Tarefa atual:** M0-11
-**Última evidência verde:** M0-10 com telemetria W3C interna, logs sem PII e propagação API, worker e provider fake validada em 2026-07-14
+**Tarefa atual:** M0-12
+**Última evidência verde:** M0-11 com ports fake-only, registry de capacidade explícito, cancelamento derivado, storage scoped e ToolPort fechado validada em 2026-07-14
 **Bloqueadores internos:** nenhum
 **Pendências externas:** consultar `PENDENCIAS_EXTERNAS.md`  
 
@@ -28,8 +28,8 @@
 | `M0-08` | M0 | done | Implement RLS and cross-tenant negative test suite | `M0-07` | role local sem superusuário prova RLS em 35 tabelas, contexto ausente, reset transacional, FKs tenant e sessão, append-only e namespaces de cache e objetos |
 | `M0-09` | M0 | done | Implement authentication and tenant context middleware | `M0-06`, `M0-08` | registry fake somente development/test, grants mínimos server-side, seletor service-only, contexto `set_config(..., true)` e matriz de abuso validados |
 | `M0-10` | M0 | done | Add OpenTelemetry and structured logging | `M0-01`, `M0-06` | raiz pública nova, carrier W3C interno, logs fechados e propagação API, worker Python e provider fake verificados |
-| `M0-11` | M0 | in_progress | Implement provider ports and capability registry | `M0-03`, `M0-04` | início registrado antes de alterações |
-| `M0-12` | M0 | pending | Implement deterministic provider fakes | `M0-11` | pending |
+| `M0-11` | M0 | done | Implement provider ports and capability registry | `M0-03`, `M0-04` | 9 ports fake-only, registry de capability, timeout/cancelamento, health, storage scoped e testes de swap verdes |
+| `M0-12` | M0 | in_progress | Implement deterministic provider fakes | `M0-11` | início registrado antes de alterações |
 | `M0-13` | M0 | pending | Implement transactional outbox repository | `M0-05`, `M0-07`, `M0-10` | pending |
 | `M0-14` | M0 | pending | Implement Action Runtime skeleton | `M0-03`, `M0-08`, `M0-12` | pending |
 | `M0-15` | M0 | pending | Add application security baseline | `M0-02`, `M0-06`, `M0-09` | pending |
@@ -178,6 +178,18 @@
 - ADR-017, limites de plataforma, operação e D-V2-024 foram alinhados. Revisões independentes de arquitetura e segurança aprovaram o patch sem bloqueadores.
 - Evidências verdes: `pnpm lint`, `pnpm typecheck`, `pnpm test` (44 Node e 14 Python unittest), `pnpm build`, `UV_CACHE_DIR=/private/tmp/axtro-uv-cache uv run pytest` (14) e `python3 scripts/validate_all.py` (8 checks).
 - Próxima tarefa marcada antes de qualquer alteração: M0-11, portas de provider e registry de capacidades.
+
+### 2026-07-14, M0-11 concluído e M0-12 iniciado
+
+- Adicionado o 33º contrato normativo, `provider_registry_entry`, que referencia a evidência canônica `provider_capability` e aceita múltiplas capacidades do mesmo provider e port. O validador de contratos agora resolve referências locais sem rede e os tipos TypeScript e Python continuam determinísticos.
+- Criados `@axtro/provider-contracts` e gateways de composição para model, voice, avatar e meeting. Os nove ports são fake-only, sem SDK, credencial, rede ou provider selecionado como default.
+- O registry é imutável, exige provider explícito, expõe somente inspeção, elegibilidade fechada e fallback explícito. Ele recusa capability disabled ou deprecated, health unavailable ou unknown e circuit que não esteja closed. Não há roteamento, promoção ou fallback automático.
+- Todo método exposto pelo registry recebe `ProviderOperationControl`; o sinal recebido pelo adapter é derivado e aborta em cancelamento do caller ou deadline. O guard de microtask impede iniciar trabalho após abort imediato. Health, custo, outputs, exceções de capability e teardown são normalizados e erros brutos de provider não chegam ao caller.
+- Storage usa capacidade opaca process-local vinculada a scope antes do adapter. Referência de outro scope, caminho, URL ou objeto copiado é rejeitado antes de executar o port. ToolPort permanece declarado, mas fechado até M0-14, sem factory pública de autorização e sem chamada do adapter.
+- `ProviderCostUnit` foi alinhado exatamente a `CostEvent.unit_type`; qualquer conversão de byte ou duração de storage fica deliberadamente para M0-16. A decisão reversível D-V2-025 foi atualizada.
+- Revisões independentes de arquitetura e segurança aprovaram o patch após testes de cancelamento imediato, close timeout/cancelamento/redaction, capability throw segura, todos os métodos não governados, swap explícito, selection fail-closed e cross-tenant storage.
+- Evidências verdes: `pnpm lint`, `pnpm typecheck`, `pnpm contracts:check`, `pnpm test` (54 testes Node e 14 Python unittest), `pnpm build`, `UV_CACHE_DIR=/private/tmp/axtro-uv-cache uv run pytest` (14), e `python3 scripts/validate_all.py` (8 checks).
+- Próxima tarefa marcada antes de qualquer alteração: M0-12, provider fakes determinísticos com seed, latência, falha, cancelamento e resposta parcial.
 
 ### 2026-07-14, baseline arquitetural
 

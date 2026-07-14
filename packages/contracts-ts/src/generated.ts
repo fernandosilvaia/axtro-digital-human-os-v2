@@ -1,7 +1,7 @@
 /*
  * GENERATED FILE. DO NOT EDIT.
  * generator: scripts/generate_contract_types.py@1.0.0
- * source: 32 JSON Schema Draft 2020-12 documents under contracts/schemas/
+ * source: 33 JSON Schema Draft 2020-12 documents under contracts/schemas/
  */
 
 export const CONTRACT_GENERATOR_VERSION = "1.0.0" as const;
@@ -339,7 +339,7 @@ export interface PreCallBriefing {
 export interface ProviderCapability {
   schema_version: "2.0.0";
   provider_id: string;
-  provider_type: "realtime_model" | "stt" | "tts" | "avatar" | "meeting" | "telephony" | "database" | "observability";
+  provider_type: "realtime_model" | "stt" | "tts" | "avatar" | "meeting" | "telephony" | "database" | "observability" | "channel" | "tool" | "storage";
   capability: string;
   version: string;
   supported_regions: Array<string>;
@@ -352,6 +352,19 @@ export interface ProviderCapability {
   cost_model_ref: string;
   status: "candidate" | "approved" | "fallback" | "deprecated" | "disabled";
   evaluated_at: string;
+}
+
+/** Source: contracts/schemas/provider_registry_entry.schema.json; schema: https://schemas.axtro.ai/v2/provider_registry_entry.schema.json; version: 2.0.0. */
+export interface ProviderRegistryEntry {
+  schema_version: "2.0.0";
+  port_kind: "channel" | "realtime_model" | "stt" | "tts" | "avatar" | "meeting" | "telephony" | "tool" | "storage";
+  provider_mode: "fake";
+  provider_capabilities: Array<ProviderCapability>;
+  default_timeout_ms: number;
+  supports_cancellation: boolean;
+  health_status: "healthy" | "degraded" | "unavailable" | "unknown";
+  circuit_state: "closed" | "open" | "half_open";
+  fallback_provider_ids: Array<string>;
 }
 
 /** Source: contracts/schemas/role_pack_manifest.schema.json; schema: https://schemas.axtro.ai/v2/role_pack_manifest.schema.json; version: 2.0.0. */
@@ -730,8 +743,14 @@ export const CONTRACT_METADATA = {
   "ProviderCapability": {
     "schema_id": "https://schemas.axtro.ai/v2/provider_capability.schema.json",
     "schema_version": "2.0.0",
-    "source_hash": "8d729c19d645ec9b5227b719d742160ed0f778d2e79362fb41111b01c396a997",
+    "source_hash": "34b35d929e7f5bfb368350217d510533da5f3072ddae227b6ab166e3c81ac7b7",
     "source_schema": "contracts/schemas/provider_capability.schema.json"
+  },
+  "ProviderRegistryEntry": {
+    "schema_id": "https://schemas.axtro.ai/v2/provider_registry_entry.schema.json",
+    "schema_version": "2.0.0",
+    "source_hash": "a5df686e2152d90c9a4ec42da7b88492223eb6e5a6c02a14304f3bfe48c9c1ce",
+    "source_schema": "contracts/schemas/provider_registry_entry.schema.json"
   },
   "RolePackManifest": {
     "schema_id": "https://schemas.axtro.ai/v2/role_pack_manifest.schema.json",

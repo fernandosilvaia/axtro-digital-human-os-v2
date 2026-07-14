@@ -479,7 +479,7 @@ components:
           maxLength: 120
         provider_type:
           type: string
-          enum: [realtime_model, stt, tts, avatar, meeting, telephony, database, observability]
+          enum: [channel, realtime_model, stt, tts, avatar, meeting, telephony, tool, storage, database, observability]
         secret_handle:
           $ref: '#/components/schemas/SecretHandle'
         region:
