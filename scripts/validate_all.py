@@ -14,6 +14,7 @@ CHECKS = [
     "validate_database_contract.py",
     "validate_codex_setup.py",
     "validate_migration_inventory.py",
+    "dependency_scan.py",
     "secret_scan.py",
 ]
 

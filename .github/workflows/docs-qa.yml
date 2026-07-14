@@ -24,6 +24,8 @@ jobs:
         with:
           python-version: '3.12'
       - uses: astral-sh/setup-uv@v5
+      - name: Block high-severity dependency findings
+        run: python3 scripts/dependency_scan.py
       - name: Install workspace dependencies
         run: |
           pnpm install --frozen-lockfile

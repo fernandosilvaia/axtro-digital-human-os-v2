@@ -2,8 +2,8 @@
 
 **Estado atual:** implementação de M0 em andamento  
 **Marco atual:** M0  
-**Tarefa atual:** M0-15
-**Última evidência verde:** M0-14 com Action Runtime governado, catálogo fake read-only, idempotência tenant-safe e recibos validados em 2026-07-14
+**Tarefa atual:** M0-16
+**Última evidência verde:** M0-15 com ingress bounded, rate e deadline autenticados, egress deny-by-default e scan determinístico de dependências em 2026-07-14
 **Bloqueadores internos:** nenhum
 **Pendências externas:** consultar `PENDENCIAS_EXTERNAS.md`  
 
@@ -32,8 +32,8 @@
 | `M0-12` | M0 | done | Implement deterministic provider fakes | `M0-11` | 9 fakes locais determinísticos, 3 contratos gerados, clock manual, timeout, cancelamento, falha, journal fechado e 63 testes Node mais 14 Python verdes |
 | `M0-13` | M0 | done | Implement transactional outbox repository | `M0-05`, `M0-07`, `M0-10` | aggregate e envelope canônico atômicos, rollback, retry idempotente, ordering por aggregate, RLS e migration 0008 validados |
 | `M0-14` | M0 | done | Implement Action Runtime skeleton | `M0-03`, `M0-08`, `M0-12` | ActionIntent estrito, policy tenant-safe, fake read-only privado, receipt, idempotência e unknown barrier validados |
-| `M0-15` | M0 | in_progress | Add application security baseline | `M0-02`, `M0-06`, `M0-09` | início registrado antes de alterações |
-| `M0-16` | M0 | pending | Implement cost event ledger | `M0-03`, `M0-07`, `M0-11` | pending |
+| `M0-15` | M0 | done | Add application security baseline | `M0-02`, `M0-06`, `M0-09` | ingress framework-neutral bounded, quota tenant-safe, deadline cancelável, egress capability-scoped e dependency gate validados |
+| `M0-16` | M0 | in_progress | Implement cost event ledger | `M0-03`, `M0-07`, `M0-11` | início registrado antes de alterações |
 | `M0-17` | M0 | pending | Create development fixtures and tenant-zero seed | `M0-08`, `M0-12`, `M0-14` | pending |
 | `M0-18` | M0 | pending | M0 release gate | `M0-02`, `M0-03`, `M0-05`, `M0-08`, `M0-09`, `M0-10`, `M0-12`, `M0-13`, `M0-14`, `M0-15`, `M0-16`, `M0-17` | pending |
 | `M1-01` | M1 | pending | Implement session lifecycle API | `M0-18` | pending |
@@ -221,6 +221,18 @@
 - A nova suíte cobre allow, deny, approval, Actor allowlist, entrada hostil, contexto forjado, scope e purpose, isolamento cross-tenant, mesma key em tenants distintos, conflito de intent, replay pós-expiração, concorrência e unknown effect. Revisões independentes de arquitetura, segurança e testes aprovaram o patch sem bloqueadores.
 - Evidências verdes: `pnpm lint`, `pnpm typecheck`, `pnpm contracts:check`, `pnpm test` (77 testes Node e 14 Python unittest), `pnpm build`, `UV_CACHE_DIR=/private/tmp/axtro-uv-cache uv run pytest` (14), `python3 scripts/validate_all.py` (8 checks) e `git diff --check`.
 - Próxima tarefa marcada antes de qualquer alteração: M0-15, baseline de segurança com limites explícitos de entrada, rate, timeout e egress allowlist.
+
+### 2026-07-14, M0-15 concluído e M0-16 iniciado
+
+- Criado o baseline framework-neutral em `@axtro/security`: mede bytes reais antes de parse ou auth, rejeita headers duplicados, hostis ou fora de limite, usa coletor de corpo terminal após falha e entrega um perfil de headers de resposta fechado, sem CORS permissivo ou HSTS incondicional.
+- A API agora compõe a sequência obrigatória ingress, autenticação, quota por tenant e ator autenticados, deadline e handler. A quota local é bounded em 1.024 buckets, usa clock injetável e ignora IP, forwarded headers e campos públicos. O deadline derivado aborta o trabalho e descarta resultado tardio.
+- A resposta de erro segura segue exatamente o `Problem` existente no OpenAPI, com detalhe estático e `trace_id`, sem criar shape paralelo, ecoar request, segredo ou token. A correlação permanece na telemetria autenticada.
+- A policy de egress é default deny. A capability por adapter aceita somente origens HTTPS exatas e vincula a prova opaca ao alvo normalizado; somente `dispatch` capability-scoped entrega o alvo ao transporte. Scheme inseguro, userinfo, fragmento, IP, loopback, porta alternativa, suffix host, redirect externo e proof forjada são rejeitados. Nenhum fake ganhou rede ou provider real.
+- Adicionados ADR-020, D-V2-029 e atualizações de boundaries e arquitetura de segurança. O scanner local lê pnpm e uv locks contra snapshot versionado, falha fechado para input inválido e bloqueia findings high ou critical. CI executa o scanner antes de instalar o workspace, e o agregador o executa como nono validador.
+- Revisões independentes de arquitetura, segurança e testes aprovaram após três correções: o Problem foi alinhado ao OpenAPI, a proof de egress passou a carregar target capability-scoped e o collector passou a fechar também após chunk único oversized.
+- Evidências verdes: `env CI=true pnpm install --frozen-lockfile`, `pnpm lint`, `pnpm typecheck`, `pnpm contracts:check`, `pnpm test` (83 testes Node e 18 Python unittest), `pnpm build`, `UV_CACHE_DIR=/private/tmp/axtro-uv-cache uv run pytest` (18), `python3 scripts/validate_all.py` (9 checks) e `git diff --check`.
+- Riscos não bloqueantes registrados: o snapshot de advisories exige refresh operacional com proveniência antes de release, o limiter ainda é local por processo, e adapters reais deverão controlar redirects manualmente e validar DNS e IP do peer antes de qualquer egress.
+- Próxima tarefa marcada antes de qualquer alteração: M0-16, cost event ledger com valores estimados e medidos, reconciliação, arredondamento e isolamento tenant-safe.
 
 ### 2026-07-14, baseline arquitetural
 

@@ -29,6 +29,9 @@ importers:
       '@axtro/observability':
         specifier: workspace:*
         version: link:../../packages/observability
+      '@axtro/security':
+        specifier: workspace:*
+        version: link:../../packages/security
 
   packages/auth:
     dependencies:

@@ -1,3 +1,5 @@
-/** Secret references and redaction primitives. Auth, RLS, and policy arrive in later M0 tasks. */
+/** Framework-neutral security primitives. */
+export * from "./application-security.js";
+export * from "./egress-policy.js";
 export * from "./redaction.js";
 export * from "./secret-handles.js";

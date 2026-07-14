@@ -13,6 +13,7 @@
     "@axtro/auth": "workspace:*",
     "@axtro/config": "workspace:*",
     "@axtro/domain": "workspace:*",
-    "@axtro/observability": "workspace:*"
+    "@axtro/observability": "workspace:*",
+    "@axtro/security": "workspace:*"
   }
 }

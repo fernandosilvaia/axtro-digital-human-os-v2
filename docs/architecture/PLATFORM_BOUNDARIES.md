@@ -30,7 +30,7 @@ Provider adapters ------------|
 - `packages/contracts`: schemas e tipos gerados.
 - `packages/provider-contracts`: interfaces de STT, TTS, avatar, meeting, LLM e storage.
 - `packages/auth`: verificação de identidade, grants explícitos de tenant e contexto transacional.
-- `packages/security`: policy evaluation, data classification e referências de segredo.
+- `packages/security`: policy evaluation, data classification, referências de segredo, ingress framework-neutral bounded e policy de egress por adapter, sem servidor HTTP, transporte ou rede própria.
 - `packages/observability`: correlação W3C interna, nomes de spans, métricas e logs estruturados seguros, sem backend, payload ou transporte próprio.
 - `packages/ui`: componentes sem regra de domínio.
 

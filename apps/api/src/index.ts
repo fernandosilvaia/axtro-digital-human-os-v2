@@ -20,6 +20,15 @@ import {
   type TelemetryRuntime,
   type TelemetrySpan,
 } from "@axtro/observability";
+import {
+  APPLICATION_SECURITY_LIMITS,
+  createApplicationSecurityGate,
+  toSafeApplicationSecurityFailure,
+  type ApplicationSecurityClock,
+  type ApplicationSecurityTimer,
+  type BoundedRequestBodyCollector,
+  type RequestBudget,
+} from "@axtro/security";
 
 export interface ApiAuthenticationMiddlewareOptions {
   readonly identityVerifier: IdentityVerifier;
@@ -38,6 +47,64 @@ export interface ApiAuthenticationMiddleware {
     headers: unknown,
     work: (input: AuthorizedTenantTransaction) => Promise<Result>,
   ): Promise<Result>;
+}
+
+/** Explicit M0 limits, kept code-owned until an approved endpoint policy exists. */
+export const M0_API_SECURITY_LIMITS = Object.freeze({
+  max_request_body_bytes: APPLICATION_SECURITY_LIMITS.maxRequestBodyBytes,
+  max_header_count: APPLICATION_SECURITY_LIMITS.maxHeaderCount,
+  max_header_name_bytes: APPLICATION_SECURITY_LIMITS.maxHeaderNameBytes,
+  max_header_value_bytes: APPLICATION_SECURITY_LIMITS.maxHeaderValueBytes,
+  max_header_bytes: APPLICATION_SECURITY_LIMITS.maxHeaderBytes,
+  max_requests_per_window: APPLICATION_SECURITY_LIMITS.maxRequestsPerWindow,
+  rate_limit_window_ms: APPLICATION_SECURITY_LIMITS.rateLimitWindowMs,
+  max_rate_limit_buckets: APPLICATION_SECURITY_LIMITS.maxRateLimitBuckets,
+  request_timeout_min_ms: 100,
+  request_timeout_max_ms: 120_000,
+});
+
+export interface ApiSecurityPipelineOptions extends ApiAuthenticationMiddlewareOptions {
+  readonly config: Pick<RuntimeConfig, "request_timeout_ms">;
+  readonly clock?: ApplicationSecurityClock;
+  readonly timer?: ApplicationSecurityTimer;
+}
+
+export interface DevelopmentApiSecurityPipelineOptions {
+  readonly config: Pick<RuntimeConfig, "environment" | "dev_auth_enabled" | "request_timeout_ms">;
+  readonly registrations: readonly DevelopmentIdentityRegistration[];
+  readonly transactionRunner: TenantTransactionRunner;
+  readonly clock?: ApplicationSecurityClock;
+  readonly timer?: ApplicationSecurityTimer;
+}
+
+/** A bounded request handle does not expose raw headers to an application handler. */
+export interface ApiSecuredRequest {
+  readonly request: AuthorizedRequestContext;
+  readonly deadlineAtMs: number;
+  readonly timeoutMs: number;
+  readonly signal: AbortSignal;
+  readBody(): Uint8Array;
+  assertActive(): void;
+  dispose(): void;
+}
+
+export interface ApiSecurityPipeline {
+  readonly responseHeaders: Readonly<Record<string, string>>;
+  createBodyCollector(): BoundedRequestBodyCollector;
+  authorize(input: unknown): ApiSecuredRequest;
+  run<Result>(
+    input: unknown,
+    work: (request: ApiSecuredRequest) => Result | Promise<Result>,
+  ): Promise<Result>;
+}
+
+/** Matches the existing OpenAPI Problem schema after a trusted trace root exists. */
+export interface ApiSecurityProblem {
+  readonly type: "https://axtro.local/problems/request-rejected";
+  readonly title: "Request rejected";
+  readonly status: number;
+  readonly detail: string;
+  readonly trace_id: string;
 }
 
 /** Metadata is server-provided after auth. Public trace headers are not accepted. */
@@ -98,6 +165,95 @@ export function createDevelopmentApiAuthenticationMiddleware(
   return createApiAuthenticationMiddleware({
     identityVerifier: createDevelopmentIdentityVerifier(options.config, options.registrations),
     transactionRunner: options.transactionRunner,
+  });
+}
+
+/**
+ * Composes byte and header checks before authentication, then applies the
+ * tenant-safe rate bucket and request budget. M1 HTTP routes must use this
+ * pipeline instead of accepting raw request data directly.
+ */
+export function createApiSecurityPipeline(options: ApiSecurityPipelineOptions): ApiSecurityPipeline {
+  const securityGate = createApplicationSecurityGate({
+    requestTimeoutMs: options.config.request_timeout_ms,
+    ...(options.clock === undefined ? {} : { clock: options.clock }),
+    ...(options.timer === undefined ? {} : { timer: options.timer }),
+  });
+  const authentication = createApiAuthenticationMiddleware(options);
+  const budgets = new WeakMap<object, RequestBudget>();
+
+  const authorize = (input: unknown): ApiSecuredRequest => {
+    const ingress = securityGate.inspectInboundRequest(input);
+    const request = authentication.authenticate(securityGate.readInboundHeaders(ingress));
+    const tenantContext = getAuthorizedTenantContext(request);
+    const budget = securityGate.admitAuthenticatedRequest({
+      tenantId: tenantContext.tenantId,
+      actorId: tenantContext.actorId,
+      routeId: "api.m0",
+    });
+    const secured = Object.freeze({
+      request,
+      deadlineAtMs: budget.deadlineAtMs,
+      timeoutMs: budget.timeoutMs,
+      signal: budget.signal,
+      readBody(): Uint8Array {
+        budget.assertActive();
+        return securityGate.readInboundBody(ingress);
+      },
+      assertActive(): void {
+        budget.assertActive();
+      },
+      dispose(): void {
+        budget.dispose();
+      },
+    }) as ApiSecuredRequest;
+    budgets.set(secured, budget);
+    return secured;
+  };
+
+  return Object.freeze({
+    responseHeaders: securityGate.responseHeaders,
+    createBodyCollector(): BoundedRequestBodyCollector {
+      return securityGate.createBodyCollector();
+    },
+    authorize,
+    async run<Result>(
+      input: unknown,
+      work: (request: ApiSecuredRequest) => Result | Promise<Result>,
+    ): Promise<Result> {
+      const secured = authorize(input);
+      const budget = budgets.get(secured);
+      if (budget === undefined) throw new AuthenticationError();
+      return budget.run(() => work(secured));
+    },
+  });
+}
+
+/** M0 development-only security composition, with the same ingress ordering. */
+export function createDevelopmentApiSecurityPipeline(
+  options: DevelopmentApiSecurityPipelineOptions,
+): ApiSecurityPipeline {
+  return createApiSecurityPipeline({
+    config: options.config,
+    identityVerifier: createDevelopmentIdentityVerifier(options.config, options.registrations),
+    transactionRunner: options.transactionRunner,
+    ...(options.clock === undefined ? {} : { clock: options.clock }),
+    ...(options.timer === undefined ? {} : { timer: options.timer }),
+  });
+}
+
+/** Build the contract-defined problem document without echoing request input or error text. */
+export function toApiSecurityProblem(error: unknown, traceId: unknown): ApiSecurityProblem {
+  if (typeof traceId !== "string" || !/^[0-9a-f]{16,64}$/.test(traceId)) {
+    throw new AuthenticationError();
+  }
+  const failure = toSafeApplicationSecurityFailure(error);
+  return Object.freeze({
+    type: "https://axtro.local/problems/request-rejected",
+    title: "Request rejected",
+    status: failure.status,
+    detail: securityProblemDetail(failure.code),
+    trace_id: traceId,
   });
 }
 
@@ -190,4 +346,11 @@ function apiTelemetryInput(value: AuthenticatedApiTelemetryInput): Readonly<{ ro
   return Object.freeze({
     routeTemplate: routeDescriptor.value,
   });
+}
+
+function securityProblemDetail(code: string): string {
+  if (code === "rate_limited" || code === "rate_limiter_capacity") return "Request exceeded a protected rate limit";
+  if (code === "request_timed_out" || code === "request_cancelled") return "Request could not complete in the allowed time";
+  if (code === "request_body_too_large" || code === "header_limit_exceeded") return "Request exceeded an application limit";
+  return "Request was rejected by application security controls";
 }

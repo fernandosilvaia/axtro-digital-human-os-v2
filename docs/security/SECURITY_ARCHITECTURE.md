@@ -74,17 +74,28 @@ O bearer verificado produz actor, tipo, grants, escopos e finalidades server-sid
 - audio and video resource quotas;
 - no raw media in general logs.
 
+## Application ingress and egress baseline
+
+- API composition measures the received body bytes before parsing or authentication. `Content-Length` never replaces this measurement.
+- M0 limits are code-owned and explicit: 64 KiB body, 32 headers, 128 bytes per header name, 4 KiB per header value, 8 KiB total headers, 30 authenticated requests per tenant, actor and route bucket per 60 seconds, and a bounded 1,024-bucket local limiter.
+- The API applies a static no-store response-header profile. It does not reflect CORS, use wildcard CORS or emit HSTS until a trusted TLS transport owns that decision.
+- After authenticated tracing exists, rejected API requests use the existing OpenAPI `Problem` schema with static detail and `trace_id`; the correlation ID remains in tenant-safe telemetry rather than a competing response shape.
+- Rate keys come only from the authenticated tenant context and code-owned route metadata. IP, `X-Forwarded-For`, raw tenant headers and body fields do not affect quota identity.
+- The validated runtime request timeout becomes an absolute deadline and derived cancellation signal. A late handler result is discarded.
+- Egress is default deny. Only composition-owned, adapter-specific capabilities may approve an exact HTTPS origin. The capability binds the approved token to the normalized target and resolves it only in its transport dispatch boundary. Redirect hops require separate approval. M0 fakes have no egress capability and never make network calls.
+
 ## Supply chain
 
 - lockfiles committed;
 - SBOM por release;
 - dependency and container scans;
+- committed advisory snapshot for deterministic M0-M1 dependency scanning; malformed input and high or critical findings fail closed;
 - signed images and provenance quando disponível;
 - SDK de provider encapsulado em adapter;
 - version pin, changelog review e canary.
 
 ## Security gates
 
-M0: secret scan, SAST, dependency scan e RLS negative tests.
+M0: secret scan, SAST, deterministic dependency scan, ingress and egress negative tests e RLS negative tests.
 M2: media abuse, scene sandbox e provider failure tests.
 M3: threat-model review, external pen test antes de clientes regulados.
