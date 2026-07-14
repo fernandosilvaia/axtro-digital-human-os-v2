@@ -184,6 +184,32 @@ class ExperimentCandidate(TypedDict):
     status: Literal['draft', 'simulating', 'shadow', 'canary', 'running', 'paused', 'completed', 'rejected']
     created_at: str
 
+# Source: contracts/schemas/fake_provider_journal_entry.schema.json; schema: https://schemas.axtro.ai/v2/fake_provider_journal_entry.schema.json; version: 2.0.0.
+class FakeProviderJournalEntry(TypedDict):
+    schema_version: Literal['2.0.0']
+    port_kind: Literal['channel', 'realtime_model', 'stt', 'tts', 'avatar', 'meeting', 'telephony', 'tool', 'storage']
+    operation: Literal['channel.health', 'channel.estimateCost', 'channel.close', 'channel.open', 'channel.closeConnection', 'realtime_model.health', 'realtime_model.estimateCost', 'realtime_model.close', 'realtime_model.openSession', 'realtime_model.closeSession', 'stt.health', 'stt.estimateCost', 'stt.close', 'stt.transcribe', 'tts.health', 'tts.estimateCost', 'tts.close', 'tts.synthesize', 'avatar.health', 'avatar.estimateCost', 'avatar.close', 'avatar.render', 'meeting.health', 'meeting.estimateCost', 'meeting.close', 'meeting.join', 'meeting.leave', 'telephony.health', 'telephony.estimateCost', 'telephony.close', 'telephony.connect', 'telephony.disconnect', 'tool.health', 'tool.estimateCost', 'tool.close', 'storage.health', 'storage.estimateCost', 'storage.close', 'storage.read', 'storage.write']
+    invocation: int
+    sequence: int
+    phase: Literal['started', 'partial', 'completed', 'failed', 'cancelled', 'timed_out']
+    simulated_at_ms: int
+    failure_code: Literal[None, 'invalid_configuration', 'authentication', 'rate_limited', 'capacity', 'timeout', 'transient_network', 'provider_internal', 'unsupported_capability', 'policy_blocked', 'budget_blocked', 'cancelled', 'unknown']
+
+# Source: contracts/schemas/fake_provider_replay_descriptor.schema.json; schema: https://schemas.axtro.ai/v2/fake_provider_replay_descriptor.schema.json; version: 2.0.0.
+class FakeProviderReplayDescriptor(TypedDict):
+    schema_version: Literal['2.0.0']
+    seed: str
+    scenario_hash: str
+
+# Source: contracts/schemas/fake_provider_scenario.schema.json; schema: https://schemas.axtro.ai/v2/fake_provider_scenario.schema.json; version: 2.0.0.
+class _FakeProviderScenarioRequired(TypedDict):
+    schema_version: Literal['2.0.0']
+    seed: str
+
+class FakeProviderScenario(_FakeProviderScenarioRequired, total=False):
+    clock_start_ms: int
+    plans: list[dict[str, object]]
+
 # Source: contracts/schemas/handoff_packet.schema.json; schema: https://schemas.axtro.ai/v2/handoff_packet.schema.json; version: 2.0.0.
 class HandoffPacket(TypedDict):
     schema_version: Literal['2.0.0']
@@ -577,6 +603,24 @@ CONTRACT_METADATA: dict[str, dict[str, str]] = {
     "source_hash": "cfb4900584410e685deb371923cb51b36d0478e4471a81762478b22ce3c93c6c",
     "source_schema": "contracts/schemas/experiment_candidate.schema.json"
   },
+  "FakeProviderJournalEntry": {
+    "schema_id": "https://schemas.axtro.ai/v2/fake_provider_journal_entry.schema.json",
+    "schema_version": "2.0.0",
+    "source_hash": "07b0297e5f2391c0ed491361c49f26a8795ec6294a66e15ebba0ec239eace038",
+    "source_schema": "contracts/schemas/fake_provider_journal_entry.schema.json"
+  },
+  "FakeProviderReplayDescriptor": {
+    "schema_id": "https://schemas.axtro.ai/v2/fake_provider_replay_descriptor.schema.json",
+    "schema_version": "2.0.0",
+    "source_hash": "3aa874bc15651ad66c4a604a62655ed2f887e264f51732201b2f5648c1ddb736",
+    "source_schema": "contracts/schemas/fake_provider_replay_descriptor.schema.json"
+  },
+  "FakeProviderScenario": {
+    "schema_id": "https://schemas.axtro.ai/v2/fake_provider_scenario.schema.json",
+    "schema_version": "2.0.0",
+    "source_hash": "dfd3326a8dc216238e052fe9cad34bf531d9bd69de15df19eda8c311a4dfe9d1",
+    "source_schema": "contracts/schemas/fake_provider_scenario.schema.json"
+  },
   "HandoffPacket": {
     "schema_id": "https://schemas.axtro.ai/v2/handoff_packet.schema.json",
     "schema_version": "2.0.0",
@@ -725,6 +769,9 @@ __all__ = [
     'DisclosureRecord',
     'EventEnvelope',
     'ExperimentCandidate',
+    'FakeProviderJournalEntry',
+    'FakeProviderReplayDescriptor',
+    'FakeProviderScenario',
     'HandoffPacket',
     'InteractionQualityState',
     'InteractionSessionState',

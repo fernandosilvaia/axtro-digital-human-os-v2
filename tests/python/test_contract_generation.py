@@ -49,8 +49,12 @@ class ContractGenerationTests(unittest.TestCase):
             self.assertEqual(0, second.returncode, second.stdout + second.stderr)
             self.assertEqual(first_ts, generated_ts.read_bytes())
             self.assertEqual(first_py, generated_py.read_bytes())
-            self.assertEqual(33, generated_ts.read_text(encoding="utf-8").count('"source_schema"'))
-            self.assertIn("schema_version", generated_py.read_text(encoding="utf-8"))
+            self.assertEqual(36, generated_ts.read_text(encoding="utf-8").count('"source_schema"'))
+            generated_python = generated_py.read_text(encoding="utf-8")
+            self.assertIn("schema_version", generated_python)
+            self.assertIn("class _FakeProviderScenarioRequired(TypedDict):", generated_python)
+            self.assertIn("class FakeProviderScenario(_FakeProviderScenarioRequired, total=False):", generated_python)
+            self.assertIn("operation: Literal['channel.health'", generated_python)
 
     def test_every_invalid_example_is_rejected_by_its_source_schema(self) -> None:
         rejected = 0
@@ -62,7 +66,7 @@ class ContractGenerationTests(unittest.TestCase):
             errors = list(Draft202012Validator(schema, registry=registry).iter_errors(example))
             self.assertTrue(errors, f"{example_path.relative_to(ROOT)} unexpectedly passed")
             rejected += 1
-        self.assertEqual(33, rejected)
+        self.assertEqual(36, rejected)
 
     def test_runtime_configuration_contract_rejects_live_mode_and_secret_like_handles(self) -> None:
         schema_path = SCHEMAS / "runtime_configuration.schema.json"

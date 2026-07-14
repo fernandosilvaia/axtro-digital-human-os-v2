@@ -1,0 +1,58 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://schemas.axtro.ai/v2/fake_provider_scenario.schema.json",
+  "title": "Deterministic Fake Provider Scenario",
+  "description": "Closed local-only fixture configuration for deterministic provider fakes. It cannot contain credentials, network locations, tenant context, callbacks or tool execution payloads.",
+  "$defs": {
+    "fake_provider_operation": {
+      "type": "string",
+      "enum": [
+        "channel.health", "channel.estimateCost", "channel.close", "channel.open", "channel.closeConnection",
+        "realtime_model.health", "realtime_model.estimateCost", "realtime_model.close", "realtime_model.openSession", "realtime_model.closeSession",
+        "stt.health", "stt.estimateCost", "stt.close", "stt.transcribe",
+        "tts.health", "tts.estimateCost", "tts.close", "tts.synthesize",
+        "avatar.health", "avatar.estimateCost", "avatar.close", "avatar.render",
+        "meeting.health", "meeting.estimateCost", "meeting.close", "meeting.join", "meeting.leave",
+        "telephony.health", "telephony.estimateCost", "telephony.close", "telephony.connect", "telephony.disconnect",
+        "tool.health", "tool.estimateCost", "tool.close",
+        "storage.health", "storage.estimateCost", "storage.close", "storage.read", "storage.write"
+      ]
+    }
+  },
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "schema_version": { "type": "string", "const": "2.0.0" },
+    "seed": {
+      "type": "string",
+      "pattern": "^(?![0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$)(?!.*(?:secret|token|bearer|credential|password|api_?key))[a-z][a-z0-9_-]{7,63}$"
+    },
+    "clock_start_ms": { "type": "integer", "minimum": 0, "maximum": 86400000 },
+    "plans": {
+      "type": "array",
+      "minItems": 0,
+      "maxItems": 80,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "operation": { "$ref": "#/$defs/fake_provider_operation" },
+          "invocation": { "type": "integer", "minimum": 1, "maximum": 10000 },
+          "delay_ms": { "type": "integer", "minimum": 0, "maximum": 120000 },
+          "partial_count": { "type": "integer", "minimum": 0, "maximum": 32 },
+          "partial_interval_ms": { "type": "integer", "minimum": 0, "maximum": 120000 },
+          "failure_code": {
+            "type": "string",
+            "enum": [
+              "invalid_configuration", "authentication", "rate_limited", "capacity", "transient_network",
+              "provider_internal", "unsupported_capability", "policy_blocked", "budget_blocked", "unknown"
+            ]
+          },
+          "failure_phase": { "type": "string", "enum": ["before_partials", "after_partials"] }
+        },
+        "required": ["operation"]
+      }
+    }
+  },
+  "required": ["schema_version", "seed"]
+}

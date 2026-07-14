@@ -1,0 +1,17 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://schemas.axtro.ai/v2/fake_provider_replay_descriptor.schema.json",
+  "title": "Deterministic Fake Provider Replay Descriptor",
+  "description": "Serializable non-PII descriptor that identifies one deterministic fake provider scenario.",
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "schema_version": { "type": "string", "const": "2.0.0" },
+    "seed": {
+      "type": "string",
+      "pattern": "^(?![0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$)(?!.*(?:secret|token|bearer|credential|password|api_?key))[a-z][a-z0-9_-]{7,63}$"
+    },
+    "scenario_hash": { "type": "string", "pattern": "^[a-f0-9]{64}$" }
+  },
+  "required": ["schema_version", "seed", "scenario_hash"]
+}

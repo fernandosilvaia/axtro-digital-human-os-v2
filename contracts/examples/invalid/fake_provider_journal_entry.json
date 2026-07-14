@@ -1,0 +1,10 @@
+{
+  "schema_version": "2.0.0",
+  "port_kind": "tts",
+  "operation": "customer@example.invalid",
+  "invocation": 1,
+  "sequence": 2,
+  "phase": "partial",
+  "simulated_at_ms": 104,
+  "failure_code": null
+}

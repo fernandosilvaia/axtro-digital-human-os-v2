@@ -13,7 +13,7 @@ from typing import Any
 
 ROOT = Path(__file__).resolve().parents[1]
 SCHEMAS_DIR = ROOT / "contracts" / "schemas"
-EXPECTED_SCHEMA_COUNT = 33
+EXPECTED_SCHEMA_COUNT = 36
 GENERATOR_VERSION = "1.0.0"
 IDENTIFIER = re.compile(r"^[A-Za-z_$][A-Za-z0-9_$]*$")
 
@@ -78,10 +78,48 @@ def load_contracts() -> list[ContractSchema]:
     return contracts
 
 
-def ts_type(node: Any, indent: str = "") -> str:
+def resolve_fragment_reference(
+    reference: str,
+    current_document: dict[str, Any],
+    documents_by_id: dict[str, dict[str, Any]],
+) -> tuple[dict[str, Any], Any] | None:
+    """Resolve only JSON Pointer fragments; plain schema refs remain named types."""
+    if reference.startswith("#"):
+        target_document = current_document
+        fragment = reference[1:]
+    elif "#" in reference:
+        schema_id, fragment = reference.split("#", 1)
+        target_document = documents_by_id.get(schema_id)
+        if target_document is None:
+            return None
+    else:
+        return None
+    if not fragment.startswith("/"):
+        return None
+    target: Any = target_document
+    for segment in fragment.removeprefix("/").split("/"):
+        key = segment.replace("~1", "/").replace("~0", "~")
+        if not isinstance(target, dict) or key not in target:
+            return None
+        target = target[key]
+    return target_document, target
+
+
+def ts_type(
+    node: Any,
+    indent: str = "",
+    current_document: dict[str, Any] | None = None,
+    documents_by_id: dict[str, dict[str, Any]] | None = None,
+) -> str:
     if not isinstance(node, dict):
         return "unknown"
     if "$ref" in node and isinstance(node["$ref"], str):
+        resolved = None if current_document is None or documents_by_id is None else resolve_fragment_reference(
+            node["$ref"], current_document, documents_by_id,
+        )
+        if resolved is not None:
+            resolved_document, resolved_node = resolved
+            return ts_type(resolved_node, indent, resolved_document, documents_by_id)
         reference = node["$ref"].rsplit("/", 1)[-1].removesuffix(".schema.json")
         return pascal_case(reference) if reference else "unknown"
     if "const" in node:
@@ -90,12 +128,12 @@ def ts_type(node: Any, indent: str = "") -> str:
         return " | ".join(json_literal(value) for value in node["enum"])
     for union_key in ("oneOf", "anyOf"):
         if isinstance(node.get(union_key), list):
-            return " | ".join(f"({ts_type(option, indent)})" for option in node[union_key])
+            return " | ".join(f"({ts_type(option, indent, current_document, documents_by_id)})" for option in node[union_key])
     if isinstance(node.get("allOf"), list):
-        return " & ".join(f"({ts_type(option, indent)})" for option in node["allOf"])
+        return " & ".join(f"({ts_type(option, indent, current_document, documents_by_id)})" for option in node["allOf"])
     declared_type = node.get("type")
     if isinstance(declared_type, list):
-        return " | ".join(ts_type({**node, "type": item}, indent) for item in declared_type)
+        return " | ".join(ts_type({**node, "type": item}, indent, current_document, documents_by_id) for item in declared_type)
     if declared_type == "string":
         return "string"
     if declared_type in {"integer", "number"}:
@@ -105,7 +143,7 @@ def ts_type(node: Any, indent: str = "") -> str:
     if declared_type == "null":
         return "null"
     if declared_type == "array":
-        return f"Array<{ts_type(node.get('items', {}), indent)}>"
+        return f"Array<{ts_type(node.get('items', {}), indent, current_document, documents_by_id)}>"
     if declared_type == "object" or "properties" in node:
         properties = node.get("properties")
         if not isinstance(properties, dict) or not properties:
@@ -114,16 +152,26 @@ def ts_type(node: Any, indent: str = "") -> str:
         lines = ["{"]
         for name, value in properties.items():
             optional = "" if name in required else "?"
-            lines.append(f"{indent}  {property_name(name)}{optional}: {ts_type(value, indent + '  ')};")
+            lines.append(f"{indent}  {property_name(name)}{optional}: {ts_type(value, indent + '  ', current_document, documents_by_id)};")
         lines.append(f"{indent}}}")
         return "\n".join(lines)
     return "unknown"
 
 
-def py_type(node: Any) -> str:
+def py_type(
+    node: Any,
+    current_document: dict[str, Any] | None = None,
+    documents_by_id: dict[str, dict[str, Any]] | None = None,
+) -> str:
     if not isinstance(node, dict):
         return "Any"
     if "$ref" in node and isinstance(node["$ref"], str):
+        resolved = None if current_document is None or documents_by_id is None else resolve_fragment_reference(
+            node["$ref"], current_document, documents_by_id,
+        )
+        if resolved is not None:
+            resolved_document, resolved_node = resolved
+            return py_type(resolved_node, resolved_document, documents_by_id)
         reference = node["$ref"].rsplit("/", 1)[-1].removesuffix(".schema.json")
         return pascal_case(reference) if reference else "Any"
     if "const" in node:
@@ -132,12 +180,12 @@ def py_type(node: Any) -> str:
         return f"Literal[{', '.join(py_literal(value) for value in node['enum'])}]"
     for union_key in ("oneOf", "anyOf"):
         if isinstance(node.get(union_key), list):
-            return " | ".join(f"({py_type(option)})" for option in node[union_key])
+            return " | ".join(f"({py_type(option, current_document, documents_by_id)})" for option in node[union_key])
     if isinstance(node.get("allOf"), list):
-        return " & ".join(f"({py_type(option)})" for option in node["allOf"])
+        return " & ".join(f"({py_type(option, current_document, documents_by_id)})" for option in node["allOf"])
     declared_type = node.get("type")
     if isinstance(declared_type, list):
-        return " | ".join(py_type({**node, "type": item}) for item in declared_type)
+        return " | ".join(py_type({**node, "type": item}, current_document, documents_by_id) for item in declared_type)
     if declared_type == "string":
         return "str"
     if declared_type == "integer":
@@ -149,7 +197,7 @@ def py_type(node: Any) -> str:
     if declared_type == "null":
         return "None"
     if declared_type == "array":
-        return f"list[{py_type(node.get('items', {}))}]"
+        return f"list[{py_type(node.get('items', {}), current_document, documents_by_id)}]"
     if declared_type == "object" or "properties" in node:
         return "dict[str, object]"
     return "Any"
@@ -172,6 +220,7 @@ def render_metadata(contracts: list[ContractSchema], language: str) -> str:
 
 
 def render_typescript(contracts: list[ContractSchema]) -> str:
+    documents_by_id = {contract.schema_id: contract.document for contract in contracts}
     lines = [
         "/*",
         " * GENERATED FILE. DO NOT EDIT.",
@@ -192,7 +241,7 @@ def render_typescript(contracts: list[ContractSchema]) -> str:
         lines.extend(
             [
                 f"/** Source: {contract.source_schema}; schema: {contract.schema_id}; version: {contract.schema_version}. */",
-                f"export interface {contract.type_name} {ts_type(contract.document)}",
+                f"export interface {contract.type_name} {ts_type(contract.document, current_document=contract.document, documents_by_id=documents_by_id)}",
                 "",
             ]
         )
@@ -201,6 +250,7 @@ def render_typescript(contracts: list[ContractSchema]) -> str:
 
 
 def render_python(contracts: list[ContractSchema]) -> str:
+    documents_by_id = {contract.schema_id: contract.document for contract in contracts}
     lines = [
         '"""Generated contract type declarations. Do not edit manually."""',
         "from __future__ import annotations",
@@ -211,18 +261,32 @@ def render_python(contracts: list[ContractSchema]) -> str:
         "",
     ]
     for contract in contracts:
-        lines.extend(
-            [
-                f"# Source: {contract.source_schema}; schema: {contract.schema_id}; version: {contract.schema_version}.",
-                f"class {contract.type_name}(TypedDict):",
-            ]
-        )
+        lines.append(f"# Source: {contract.source_schema}; schema: {contract.schema_id}; version: {contract.schema_version}.")
         properties = contract.document.get("properties", {})
         if not isinstance(properties, dict) or not properties:
+            lines.append(f"class {contract.type_name}(TypedDict):")
             lines.append("    pass")
         else:
-            for name, value in properties.items():
-                lines.append(f"    {name}: {py_type(value)}")
+            required = set(contract.document.get("required", []))
+            optional = [name for name in properties if name not in required]
+            if optional and required:
+                required_type_name = f"_{contract.type_name}Required"
+                lines.append(f"class {required_type_name}(TypedDict):")
+                for name in properties:
+                    if name in required:
+                        lines.append(f"    {name}: {py_type(properties[name], contract.document, documents_by_id)}")
+                lines.append("")
+                lines.append(f"class {contract.type_name}({required_type_name}, total=False):")
+                for name in optional:
+                    lines.append(f"    {name}: {py_type(properties[name], contract.document, documents_by_id)}")
+            elif optional:
+                lines.append(f"class {contract.type_name}(TypedDict, total=False):")
+                for name, value in properties.items():
+                    lines.append(f"    {name}: {py_type(value, contract.document, documents_by_id)}")
+            else:
+                lines.append(f"class {contract.type_name}(TypedDict):")
+                for name, value in properties.items():
+                    lines.append(f"    {name}: {py_type(value, contract.document, documents_by_id)}")
         lines.append("")
     lines.extend(
         [

@@ -1,0 +1,13 @@
+{
+  "schema_version": "2.0.0",
+  "seed": "m012-seed-alpha",
+  "clock_start_ms": 100,
+  "plans": [
+    {
+      "operation": "tts.synthesize",
+      "delay_ms": 12,
+      "partial_count": 2,
+      "partial_interval_ms": 4
+    }
+  ]
+}

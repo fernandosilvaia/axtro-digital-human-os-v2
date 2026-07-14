@@ -2,8 +2,8 @@
 
 **Estado atual:** implementação de M0 em andamento  
 **Marco atual:** M0  
-**Tarefa atual:** M0-12
-**Última evidência verde:** M0-11 com ports fake-only, registry de capacidade explícito, cancelamento derivado, storage scoped e ToolPort fechado validada em 2026-07-14
+**Tarefa atual:** M0-13
+**Última evidência verde:** M0-12 com fakes de provider seedable, clock manual, falha, timeout, cancelamento, journal sem PII e contratos estritos validada em 2026-07-14
 **Bloqueadores internos:** nenhum
 **Pendências externas:** consultar `PENDENCIAS_EXTERNAS.md`  
 
@@ -29,8 +29,8 @@
 | `M0-09` | M0 | done | Implement authentication and tenant context middleware | `M0-06`, `M0-08` | registry fake somente development/test, grants mínimos server-side, seletor service-only, contexto `set_config(..., true)` e matriz de abuso validados |
 | `M0-10` | M0 | done | Add OpenTelemetry and structured logging | `M0-01`, `M0-06` | raiz pública nova, carrier W3C interno, logs fechados e propagação API, worker Python e provider fake verificados |
 | `M0-11` | M0 | done | Implement provider ports and capability registry | `M0-03`, `M0-04` | 9 ports fake-only, registry de capability, timeout/cancelamento, health, storage scoped e testes de swap verdes |
-| `M0-12` | M0 | in_progress | Implement deterministic provider fakes | `M0-11` | início registrado antes de alterações |
-| `M0-13` | M0 | pending | Implement transactional outbox repository | `M0-05`, `M0-07`, `M0-10` | pending |
+| `M0-12` | M0 | done | Implement deterministic provider fakes | `M0-11` | 9 fakes locais determinísticos, 3 contratos gerados, clock manual, timeout, cancelamento, falha, journal fechado e 63 testes Node mais 14 Python verdes |
+| `M0-13` | M0 | in_progress | Implement transactional outbox repository | `M0-05`, `M0-07`, `M0-10` | início registrado antes de alterações |
 | `M0-14` | M0 | pending | Implement Action Runtime skeleton | `M0-03`, `M0-08`, `M0-12` | pending |
 | `M0-15` | M0 | pending | Add application security baseline | `M0-02`, `M0-06`, `M0-09` | pending |
 | `M0-16` | M0 | pending | Implement cost event ledger | `M0-03`, `M0-07`, `M0-11` | pending |
@@ -190,6 +190,18 @@
 - Revisões independentes de arquitetura e segurança aprovaram o patch após testes de cancelamento imediato, close timeout/cancelamento/redaction, capability throw segura, todos os métodos não governados, swap explícito, selection fail-closed e cross-tenant storage.
 - Evidências verdes: `pnpm lint`, `pnpm typecheck`, `pnpm contracts:check`, `pnpm test` (54 testes Node e 14 Python unittest), `pnpm build`, `UV_CACHE_DIR=/private/tmp/axtro-uv-cache uv run pytest` (14), e `python3 scripts/validate_all.py` (8 checks).
 - Próxima tarefa marcada antes de qualquer alteração: M0-12, provider fakes determinísticos com seed, latência, falha, cancelamento e resposta parcial.
+
+### 2026-07-14, M0-12 concluído e M0-13 iniciado
+
+- Criado `@axtro/provider-fakes` com os nove ports locais fake-only, composição explícita no registry, seed determinístico, referências opacas reproduzíveis, clock manual do pacote e scheduler sem rede, SDK, credencial, fonte aleatória ou relógio ambiente.
+- Adicionados os contratos gerados `fake_provider_scenario`, `fake_provider_journal_entry` e `fake_provider_replay_descriptor`, com exemplos válidos e negativos. O journal referencia a enumeração fechada de operações do cenário e não aceita texto livre, tenant, referência, input, output, sessão, trace ou seed.
+- O cenário limita delay, parciais, invocação e falhas injetadas. Cancelamento, timeout, falha antes ou depois de parciais e resposta parcial são reproduzíveis. Parciais permanecem somente marcadores de journal até M2.
+- O provider contract deriva o orçamento de deadline na fronteira do adapter, preserva-o em controle interno e o fake o consome sem relógio ambiente. Cancelamento vence uma corrida pendente com timeout, saída tardia é bloqueada e uma chamada raw expirada falha antes de trabalho ou journal.
+- O gerador de contratos agora resolve fragmentos JSON Pointer e representa campos opcionais em `TypedDict` compatível com Python 3.10. UUIDv7 e seeds secret-like são rejeitados nos schemas de fixture.
+- Storage preserva somente referência selada e scope validado. ToolPort continua fail-closed com `action_runtime_required`, reservado para o funil `ActionIntent`, `PolicyDecision` e `ToolExecutionReceipt` de M0-14.
+- ADR-012 e D-V2-026 registram a decisão reversível. Revisões independentes de arquitetura, segurança e testes aprovaram o patch após regressões de deadline, cancelamento, raw bootstrap e contrato.
+- Evidências verdes: `pnpm lint`, `pnpm typecheck`, `pnpm contracts:check`, `pnpm test` (63 Node e 14 Python unittest), `pnpm build`, `UV_CACHE_DIR=/private/tmp/axtro-uv-cache uv run pytest` (14) e `python3 scripts/validate_all.py` (8 checks).
+- Próxima tarefa marcada antes de qualquer alteração: M0-13, outbox transacional com commit atômico, retry idempotente e ordenação por aggregate.
 
 ### 2026-07-14, baseline arquitetural
 

@@ -10,7 +10,7 @@ non_normative_roots:
 - legacy/v1/
 - legacy/fable-v2-partial/
 required_gates:
-  contracts_count: 33
+  contracts_count: 36
   valid_example_per_schema: true
   invalid_example_per_schema: true
   openapi_version: 3.1.0

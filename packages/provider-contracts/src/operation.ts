@@ -30,6 +30,7 @@ export interface ProviderHealth {
 export type ProviderOperation<Result> = (control: ProviderOperationControl) => Result | Promise<Result>;
 
 const operationControls = new WeakSet<object>();
+const adapterDeadlineBudgets = new WeakMap<object, number>();
 
 /** A normalized failure intentionally contains no raw provider response or message. */
 export class ProviderOperationError extends Error {
@@ -40,7 +41,8 @@ export class ProviderOperationError extends Error {
 }
 
 /** Create an explicit, finite control object. It cannot carry tenant, headers or credentials. */
-export function createProviderOperationControl(value: unknown, now = Date.now()): ProviderOperationControl {
+export function createProviderOperationControl(value: unknown): ProviderOperationControl {
+  const now = Date.now();
   const record = plainRecord(value);
   assertAllowedKeys(record, ["timeoutMs", "deadlineAt", "signal"], ["deadlineAt", "signal"]);
   const timeoutMs = parseFiniteInteger(readRequired(record, "timeoutMs"), 50, 120_000);
@@ -51,6 +53,16 @@ export function createProviderOperationControl(value: unknown, now = Date.now())
   const signalValue = readOptional(record, "signal");
   const signal = signalValue === undefined ? new AbortController().signal : parseAbortSignal(signalValue);
   return markOperationControl({ timeoutMs, deadlineAt, signal });
+}
+
+/**
+ * Return the deadline budget at the adapter boundary. The budget is captured
+ * once for a derived adapter control, or derived from the absolute deadline
+ * for a bootstrap-only raw adapter invocation.
+ */
+export function getProviderOperationDeadlineBudget(control: ProviderOperationControl): number {
+  assertProviderOperationControl(control);
+  return adapterDeadlineBudgets.get(control) ?? Math.max(0, control.deadlineAt - Date.now());
 }
 
 /**
@@ -65,14 +77,15 @@ export async function runProviderOperation<Result>(
   assertProviderOperationControl(control);
   if (typeof operation !== "function") throw new ProviderContractError("invalid_operation_control");
   if (control.signal.aborted) throw new ProviderOperationError(failure("cancelled"));
-  if (control.deadlineAt <= Date.now()) throw new ProviderOperationError(failure("timeout"));
+  const deadlineBudgetMs = getProviderOperationDeadlineBudget(control);
+  if (deadlineBudgetMs <= 0) throw new ProviderOperationError(failure("timeout"));
 
   const operationAbort = new AbortController();
   const operationControl = markOperationControl({
     timeoutMs: control.timeoutMs,
     deadlineAt: control.deadlineAt,
     signal: operationAbort.signal,
-  });
+  }, deadlineBudgetMs);
 
   return new Promise<Result>((resolve, reject) => {
     let settled = false;
@@ -86,13 +99,13 @@ export async function runProviderOperation<Result>(
       else reject(result.value);
     };
     const fail = (code: ProviderFailureCode): void => {
-      if (!operationAbort.signal.aborted) operationAbort.abort();
+      if (!operationAbort.signal.aborted) operationAbort.abort(code);
       finish({ kind: "reject", value: new ProviderOperationError(failure(code)) });
     };
     const onCallerAbort = (): void => fail("cancelled");
 
     control.signal.addEventListener("abort", onCallerAbort, { once: true });
-    timer = setTimeout(() => fail("timeout"), Math.max(0, control.deadlineAt - Date.now()));
+    timer = setTimeout(() => fail("timeout"), deadlineBudgetMs);
     Promise.resolve()
       .then(async () => {
         if (settled || operationAbort.signal.aborted) return;
@@ -136,9 +149,10 @@ export function createIdempotentClose(
   };
 }
 
-function markOperationControl(value: ProviderOperationControl): ProviderOperationControl {
+function markOperationControl(value: ProviderOperationControl, deadlineBudgetMs?: number): ProviderOperationControl {
   const control = Object.freeze(value);
   operationControls.add(control);
+  if (deadlineBudgetMs !== undefined) adapterDeadlineBudgets.set(control, deadlineBudgetMs);
   return control;
 }
 

@@ -330,6 +330,17 @@ test("operation controls derive and abort adapter signals for caller cancellatio
   assert.throws(() => provider.createProviderOperationControl({ timeoutMs: Infinity }), provider.ProviderContractError);
   assert.throws(() => provider.createProviderOperationControl({ timeoutMs: 121_000 }), provider.ProviderContractError);
   assert.throws(() => provider.createProviderOperationControl({ timeoutMs: 100, deadlineAt: Date.now() - 1 }), provider.ProviderContractError);
+  const now = Date.now();
+  const shorterDeadline = provider.createProviderOperationControl({ timeoutMs: 120_000, deadlineAt: now + 5_000 });
+  const shorterDeadlineBudget = provider.getProviderOperationDeadlineBudget(shorterDeadline);
+  assert.equal(shorterDeadlineBudget > 0 && shorterDeadlineBudget <= 5_000, true);
+  assert.equal(Object.isFrozen(shorterDeadline), true);
+  assert.throws(() => provider.getProviderOperationDeadlineBudget({}), provider.ProviderContractError);
+  const bypassAttempt = provider.createProviderOperationControl(
+    { timeoutMs: 120_000, deadlineAt: now + 5_000 },
+    now - 120_000,
+  );
+  assert.equal(provider.getProviderOperationDeadlineBudget(bypassAttempt) <= 5_000, true);
 
   const aborted = new AbortController();
   aborted.abort();
@@ -416,6 +427,7 @@ test("registry normalizes health, costs and operation results and applies catalo
   const registry = provider.createProviderRegistry([candidate], [strictPort]);
   const control = registry.createControl("fake_avatar", "avatar");
   assert.equal(control.timeoutMs, 1234);
+  assert.equal(provider.getProviderOperationDeadlineBudget(control) > 0, true);
   const health = await registry.resolve("fake_avatar", "avatar").health(control);
   assert.deepEqual(health, {
     status: "degraded",
