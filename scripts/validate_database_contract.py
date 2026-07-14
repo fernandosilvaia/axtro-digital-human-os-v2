@@ -14,6 +14,7 @@ EXPECTED = [
     "0004_knowledge_governance.sql",
     "0005_rls_and_immutability.sql",
     "0006_reference_seeds.sql",
+    "0007_relational_tenancy_integrity.sql",
 ]
 
 
@@ -45,8 +46,16 @@ def main() -> int:
         errors.append("Forced RLS is missing")
     if "tenant_isolation" not in all_sql:
         errors.append("Tenant isolation policy is missing")
-    if "sessions_active_presenter_fk" not in all_sql:
-        errors.append("Active presenter referential integrity is missing")
+    for constraint_name in (
+        "session_participants_tenant_session_id_id_key",
+        "sessions_active_presenter_fk",
+        "conversation_turns_tenant_id_session_id_participant_id_fkey",
+        "handoffs_tenant_id_session_id_from_presenter_id_fkey",
+    ):
+        if constraint_name not in all_sql:
+            errors.append(f"Relational tenancy constraint is missing: {constraint_name}")
+    if all_sql.count("ON DELETE RESTRICT") < 2:
+        errors.append("Historical session references must reject hard deletion")
     for immutable_table in ("session_timeline", "consent_evidence", "disclosure_records", "tool_receipts", "audit_log", "cost_events"):
         if f"{immutable_table}_append_only" not in all_sql:
             errors.append(f"Append-only trigger missing for {immutable_table}")

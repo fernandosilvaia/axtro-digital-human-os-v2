@@ -18,7 +18,7 @@ Domain IDs are UUIDv7 generated in application code. Database columns have no `g
 `provider_catalog`, `schema_registry`, `region_policy_catalog`. No tenant data, restricted writes.
 
 ### Tenant configuration
-`tenants`, `tenant_settings`, `service_identities`, `agents`, `agent_deployments`, `role_pack_installations`, `skill_grants`, `provider_connections`.
+`tenants`, `tenant_settings`, `service_identities`, `agents`, `agent_deployments`, `role_pack_installations`, `skill_pack_installations`, `provider_connections`.
 
 ### Contacts and PII
 `contact_profiles` stores encrypted sensitive fields. Domain tables reference profile ID and retain only minimized operational attributes.
@@ -45,7 +45,7 @@ M1 uses `vector` without fixed dimension, plus `embedding_model` and `embedding_
 
 ## Referential tenancy
 
-Composite uniqueness and triggers or composite FKs prevent referencing a row from another tenant. RLS alone is not enough for write integrity.
+Composite uniqueness and composite FKs prevent referencing a row from another tenant or session. `active_presenter_id`, turn participants and handoff presenters must belong to the same session. RLS alone is not enough for write integrity. A session with cost or evaluation history cannot be physically deleted, preserving append-only evidence.
 
 ## Migrations
 

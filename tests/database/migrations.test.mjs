@@ -14,7 +14,7 @@ const equivalentLocalUrl = "postgres://postgres@localhost:54329/axtro_m0_test";
 
 test("migration manifest is contiguous and local URLs cannot carry credentials or implicit identities", () => {
   const manifest = database.discoverMigrations();
-  assert.deepEqual(manifest.map((migration) => migration.version), [1, 2, 3, 4, 5, 6]);
+  assert.deepEqual(manifest.map((migration) => migration.version), [1, 2, 3, 4, 5, 6, 7]);
   assert.equal(manifest.every((migration) => /^[0-9a-f]{64}$/.test(migration.checksumSha256)), true);
   assert.equal(database.parseLocalDatabaseUrl(localUrl), localUrl);
   assert.equal(database.parseLocalDatabaseUrl(equivalentLocalUrl), equivalentLocalUrl);

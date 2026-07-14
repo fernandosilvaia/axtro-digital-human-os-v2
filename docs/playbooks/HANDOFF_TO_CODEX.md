@@ -10,7 +10,7 @@ Implementar o Axtro Digital Human OS V2 a partir desta pasta, começando por M0 
 - 31 contratos JSON Schema Draft 2020-12;
 - 31 exemplos válidos e 31 inválidos;
 - OpenAPI 3.1 e AsyncAPI 3;
-- seis migrations SQL de referência, RLS e deletion graph;
+- sete migrations SQL de referência, RLS e deletion graph;
 - task graph com 52 tarefas M0-M3;
 - oito subagentes Codex e quatro skills de repositório;
 - sete validadores agregados por `scripts/validate_all.py`;

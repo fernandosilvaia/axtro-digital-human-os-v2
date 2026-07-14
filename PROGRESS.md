@@ -2,8 +2,8 @@
 
 **Estado atual:** implementação de M0 em andamento  
 **Marco atual:** M0  
-**Tarefa atual:** M0-07 concluída, próxima M0-08
-**Última evidência verde:** M0-07 com migrations locais verificadas, RLS estrutural e gates verdes em 2026-07-14
+**Tarefa atual:** M0-08 concluída
+**Última evidência verde:** M0-08 com isolamento RLS local, integridade relacional e gates verdes em 2026-07-14
 **Bloqueadores internos:** nenhum
 **Pendências externas:** consultar `PENDENCIAS_EXTERNAS.md`  
 
@@ -25,7 +25,7 @@
 | `M0-05` | M0 | done | Implement interaction state and pure reducers | `M0-04` | reducers puros, versionamento estrito, hash canônico, replay e extensão de vendas opcional verificados |
 | `M0-06` | M0 | done | Implement typed configuration and secret handles | `M0-01` | config schema tipado, startup fail-closed, handles opacos, broker fake scoped e redaction verificados |
 | `M0-07` | M0 | done | Install database migration runner | `M0-01`, `M0-04` | runner local numerado, receipts SHA-256, drift estrutural e integração PostgreSQL 17 com pgvector verdes |
-| `M0-08` | M0 | pending | Implement RLS and cross-tenant negative test suite | `M0-07` | pending |
+| `M0-08` | M0 | done | Implement RLS and cross-tenant negative test suite | `M0-07` | role local sem superusuário prova RLS em 35 tabelas, contexto ausente, reset transacional, FKs tenant e sessão, append-only e namespaces de cache e objetos |
 | `M0-09` | M0 | pending | Implement authentication and tenant context middleware | `M0-06`, `M0-08` | pending |
 | `M0-10` | M0 | pending | Add OpenTelemetry and structured logging | `M0-01`, `M0-06` | pending |
 | `M0-11` | M0 | pending | Implement provider ports and capability registry | `M0-03`, `M0-04` | pending |
@@ -147,6 +147,16 @@
 - O harness inicia somente PostgreSQL 17 com pgvector em diretório temporário local, confirma `vector.control`, faz cleanup idempotente também em `SIGINT` ou `SIGTERM`, e não aceita ambiente remoto, credencial ou deploy.
 - Revisões independentes de dados, testes e segurança concluídas. Evidências verdes: `env CI=true pnpm install --frozen-lockfile`, `pnpm contracts:check`, `pnpm lint`, `pnpm typecheck`, `pnpm build`, `pnpm test` (31 Node e 10 Python unittest), `pnpm db:test`, `UV_CACHE_DIR=.uv-cache uv run pytest` (10) e `python3 scripts/validate_all.py` (8 checks).
 - Próxima tarefa: M0-08, suíte negativa RLS e cross-tenant.
+
+### 2026-07-14, M0-08 concluído
+
+- Adicionada a migration forward-only `0007_relational_tenancy_integrity.sql`. Presenter ativo, participante de turn e apresentador de handoff agora referenciam `(tenant_id, session_id, id)`, evitando vínculo com participante de outra sessão do mesmo tenant. O drift estrutural também verifica essas constraints e a CI executa a nova suíte `pnpm db:rls`.
+- A prova PostgreSQL local usa uma role efêmera `LOGIN NOSUPERUSER NOINHERIT NOBYPASSRLS`, sem acesso ao ledger de migrations nem a catálogos globais. Ela semeia dois tenants e testa as 35 tabelas com RLS: leitura própria, invisibilidade cross-tenant, escrita própria, insert cross-tenant rejeitado, update e delete cross-tenant sem efeito, ausência de contexto e reset de `SET LOCAL` após `COMMIT` e `ROLLBACK`.
+- Foram adicionados casos reais para FK composta de agente e de sessão, presenter, turn e handoff de sessão diferente, seis tabelas append-only e proteção do histórico. O teste revelou que `ON DELETE SET NULL` tentaria alterar `cost_events`, o que contradiz a trigger append-only. ADR-019 registra a alternativa segura: `ON DELETE RESTRICT` para custo e avaliação, preservando vínculo e atribuição.
+- `createTenantCacheKey` e `createTenantObjectKey` exigem UUIDv7, tenant e ambiente explícitos, recusam coerção hostil, traversal, barras e segmentos vazios. Os testes demonstram que componentes iguais nunca colidem entre tenants.
+- Revisões independentes de segurança e testes concluídas sem bloqueadores. A autorização de qual tenant uma identidade pode selecionar permanece deliberadamente para M0-09, sem ser declarada como concluída nesta tarefa.
+- Evidências verdes: `pnpm lint`, `pnpm typecheck`, `pnpm build`, `pnpm test` (33 Node e 10 Python unittest), `pnpm contracts:check`, `UV_CACHE_DIR=.uv-cache uv run pytest` (10), `pnpm db:test`, `pnpm db:rls` e `python3 scripts/validate_all.py` (8 checks).
+- Próxima tarefa marcada antes de qualquer alteração: M0-09, middleware de autenticação e contexto de tenant autorizado.
 
 ### 2026-07-14, baseline arquitetural
 

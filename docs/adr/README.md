@@ -22,3 +22,4 @@ Accepted decisions for V2. The Constitution has precedence. A change to an accep
 | `ADR-016-data-retention-deletion.md` | Purpose-bound retention and verifiable deletion | Accepted |
 | `ADR-017-observability-otel.md` | OpenTelemetry-correlated observability | Accepted |
 | `ADR-018-deployment-topology.md` | Regional deployment topology and staged promotion | Accepted for M0-M2 |
+| `ADR-019-relational-tenancy-and-floor-integrity.md` | Forward-only repair of composite session references and optional session deletion | Accepted |

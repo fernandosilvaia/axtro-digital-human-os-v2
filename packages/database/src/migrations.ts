@@ -112,6 +112,7 @@ const SENTINEL_SQL_BY_VERSION: Readonly<Record<number, string>> = {
   4: "SELECT (to_regclass('public.knowledge_sources') IS NOT NULL)::int;",
   5: "SELECT EXISTS (SELECT 1 FROM pg_policy WHERE polname = 'tenant_isolation')::int;",
   6: "SELECT EXISTS (SELECT 1 FROM public.provider_catalog WHERE provider_id = 'fake-realtime')::int;",
+  7: "SELECT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'session_participants_tenant_session_id_id_key')::int;",
 };
 
 const EXPECTED_PUBLIC_TABLES = [
@@ -203,6 +204,39 @@ const EXPECTED_APPEND_ONLY_TRIGGERS = [
   { table: "cost_events", name: "cost_events_append_only" },
 ] as const;
 
+const EXPECTED_RELATIONAL_CONSTRAINTS = [
+  {
+    table: "session_participants",
+    name: "session_participants_tenant_session_id_id_key",
+    definition: "unique(tenant_id,session_id,id)",
+  },
+  {
+    table: "sessions",
+    name: "sessions_active_presenter_fk",
+    definition: "foreignkey(tenant_id,id,active_presenter_id)referencessession_participants(tenant_id,session_id,id)deferrableinitiallydeferred",
+  },
+  {
+    table: "conversation_turns",
+    name: "conversation_turns_tenant_id_session_id_participant_id_fkey",
+    definition: "foreignkey(tenant_id,session_id,participant_id)referencessession_participants(tenant_id,session_id,id)",
+  },
+  {
+    table: "handoffs",
+    name: "handoffs_tenant_id_session_id_from_presenter_id_fkey",
+    definition: "foreignkey(tenant_id,session_id,from_presenter_id)referencessession_participants(tenant_id,session_id,id)",
+  },
+  {
+    table: "cost_events",
+    name: "cost_events_tenant_id_session_id_fkey",
+    definition: "foreignkey(tenant_id,session_id)referencessessions(tenant_id,id)ondeleterestrict",
+  },
+  {
+    table: "evaluation_runs",
+    name: "evaluation_runs_tenant_id_session_id_fkey",
+    definition: "foreignkey(tenant_id,session_id)referencessessions(tenant_id,id)ondeleterestrict",
+  },
+] as const;
+
 const HISTORY_BOOTSTRAP_SQL = `
 CREATE TABLE IF NOT EXISTS ${MIGRATION_HISTORY_TABLE} (
   version integer PRIMARY KEY CHECK (version > 0),
@@ -280,6 +314,20 @@ actual_app_functions AS (
   JOIN pg_namespace namespace ON namespace.oid = procedure.pronamespace
   JOIN pg_language language ON language.oid = procedure.prolang
   WHERE namespace.nspname = 'app' AND procedure.proname IN ('current_tenant_id', 'prevent_mutation')
+),
+expected_relational_constraints(table_name, constraint_name, definition) AS (
+  VALUES ${EXPECTED_RELATIONAL_CONSTRAINTS.map((constraint) => `('${constraint.table}', '${constraint.name}', '${constraint.definition}')`).join(",\n    ")}
+),
+actual_relational_constraints AS (
+  SELECT
+    relation.relname AS table_name,
+    table_constraint.conname AS constraint_name,
+    regexp_replace(lower(pg_get_constraintdef(table_constraint.oid)), '[[:space:]]+', '', 'g') AS definition
+  FROM pg_constraint table_constraint
+  JOIN pg_class relation ON relation.oid = table_constraint.conrelid
+  JOIN pg_namespace namespace ON namespace.oid = relation.relnamespace
+  WHERE namespace.nspname = 'public'
+    AND table_constraint.conname IN (${EXPECTED_RELATIONAL_CONSTRAINTS.map((constraint) => `'${constraint.name}'`).join(", ")})
 )
 SELECT CASE WHEN
   (SELECT count(*) FROM pg_extension WHERE extname IN ('vector', 'pgcrypto')) = 2
@@ -310,6 +358,23 @@ SELECT CASE WHEN
     WHERE function_name = 'prevent_mutation'
       AND language_name = 'plpgsql'
       AND source_signature = '${PREVENT_MUTATION_FUNCTION_SIGNATURE}'
+  )
+  AND NOT EXISTS (
+    SELECT 1
+    FROM expected_relational_constraints expected
+    LEFT JOIN actual_relational_constraints actual
+      ON actual.table_name = expected.table_name
+      AND actual.constraint_name = expected.constraint_name
+    WHERE actual.table_name IS NULL
+      OR actual.definition IS DISTINCT FROM expected.definition
+  )
+  AND NOT EXISTS (
+    SELECT 1
+    FROM actual_relational_constraints actual
+    LEFT JOIN expected_relational_constraints expected
+      ON expected.table_name = actual.table_name
+      AND expected.constraint_name = actual.constraint_name
+    WHERE expected.table_name IS NULL
   )
   AND NOT EXISTS (
     SELECT 1 FROM expected_tables expected
@@ -412,6 +477,13 @@ FROM (
   JOIN pg_type type ON type.oid = domain_constraint.contypid
   JOIN pg_namespace namespace ON namespace.oid = type.typnamespace
   WHERE namespace.nspname = 'app' AND type.typname = 'uuid_v7' AND domain_constraint.contype = 'c'
+  UNION ALL
+  SELECT 'constraint:' || relation.relname || ':' || table_constraint.conname || ':' || regexp_replace(lower(pg_get_constraintdef(table_constraint.oid)), '[[:space:]]+', '', 'g')
+  FROM pg_constraint table_constraint
+  JOIN pg_class relation ON relation.oid = table_constraint.conrelid
+  JOIN pg_namespace namespace ON namespace.oid = relation.relnamespace
+  WHERE namespace.nspname = 'public'
+    AND table_constraint.conname IN (${EXPECTED_RELATIONAL_CONSTRAINTS.map((constraint) => `'${constraint.name}'`).join(", ")})
 ) catalog_entries
 ORDER BY entry;
 `;

@@ -68,13 +68,13 @@ try {
   const cleanUrl = databaseUrlFor(baseDatabaseUrl, cleanName);
   const upgradeUrl = databaseUrlFor(baseDatabaseUrl, upgradeName);
   const cleanResult = database.applyLocalMigrations({ databaseUrl: cleanUrl, psqlPath });
-  assert.equal(cleanResult.applied.length, 6);
+  assert.equal(cleanResult.applied.length, 7);
   const cleanDrift = database.checkLocalSchemaDrift({ databaseUrl: cleanUrl, psqlPath });
 
   const upgradePrelude = database.applyLocalMigrations({ databaseUrl: upgradeUrl, psqlPath, targetVersion: 5 });
   assert.equal(upgradePrelude.history.length, 5);
   const upgradeResult = database.applyLocalMigrations({ databaseUrl: upgradeUrl, psqlPath });
-  assert.deepEqual(upgradeResult.applied.map((migration) => migration.version), [6]);
+  assert.deepEqual(upgradeResult.applied.map((migration) => migration.version), [6, 7]);
   const upgradeDrift = database.checkLocalSchemaDrift({ databaseUrl: upgradeUrl, psqlPath });
   assert.equal(cleanDrift.catalogFingerprint, upgradeDrift.catalogFingerprint);
   assert.deepEqual(
@@ -121,6 +121,24 @@ try {
     "ALTER DOMAIN app.uuid_v7 DROP CONSTRAINT uuid_v7_check; ALTER DOMAIN app.uuid_v7 ADD CONSTRAINT uuid_v7_check CHECK (VALUE IS NULL OR (substring(VALUE::text from 15 for 1) = '7' AND substring(VALUE::text from 20 for 1) ~ '^[89ab]$'));",
   );
   assert.equal(domainRestore.status, 0);
+  assert.doesNotThrow(() => database.checkLocalSchemaDrift({ databaseUrl: cleanUrl, psqlPath }));
+
+  const relationalConstraintDrift = runSql(
+    cleanUrl,
+    psqlPath,
+    "ALTER TABLE sessions DROP CONSTRAINT sessions_active_presenter_fk; ALTER TABLE sessions ADD CONSTRAINT sessions_active_presenter_fk FOREIGN KEY (tenant_id, active_presenter_id) REFERENCES session_participants(tenant_id, id) DEFERRABLE INITIALLY DEFERRED;",
+  );
+  assert.equal(relationalConstraintDrift.status, 0);
+  assert.throws(
+    () => database.checkLocalSchemaDrift({ databaseUrl: cleanUrl, psqlPath }),
+    database.MigrationDriftError,
+  );
+  const relationalConstraintRestore = runSql(
+    cleanUrl,
+    psqlPath,
+    "ALTER TABLE sessions DROP CONSTRAINT sessions_active_presenter_fk; ALTER TABLE sessions ADD CONSTRAINT sessions_active_presenter_fk FOREIGN KEY (tenant_id, id, active_presenter_id) REFERENCES session_participants(tenant_id, session_id, id) DEFERRABLE INITIALLY DEFERRED;",
+  );
+  assert.equal(relationalConstraintRestore.status, 0);
   assert.doesNotThrow(() => database.checkLocalSchemaDrift({ databaseUrl: cleanUrl, psqlPath }));
 
   const policyDrift = runSql(

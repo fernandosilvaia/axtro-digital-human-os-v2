@@ -6,3 +6,4 @@
 \i migrations/0004_knowledge_governance.sql
 \i migrations/0005_rls_and_immutability.sql
 \i migrations/0006_reference_seeds.sql
+\i migrations/0007_relational_tenancy_integrity.sql

@@ -14,6 +14,7 @@ The runner accepts only password-free local PostgreSQL URLs with an explicit use
 4. `0004_knowledge_governance.sql`
 5. `0005_rls_and_immutability.sql`
 6. `0006_reference_seeds.sql`
+7. `0007_relational_tenancy_integrity.sql`
 
 ## Rules
 

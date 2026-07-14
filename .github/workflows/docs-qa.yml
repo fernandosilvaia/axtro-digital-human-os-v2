@@ -76,3 +76,8 @@ jobs:
           AXTRO_LOCAL_DATABASE_URL: postgresql://postgres@127.0.0.1:5432/postgres
           AXTRO_ALLOW_LOCAL_DATABASE_URL: "1"
         run: pnpm db:test
+      - name: Prove tenant RLS isolation and relational boundaries
+        env:
+          AXTRO_LOCAL_DATABASE_URL: postgresql://postgres@127.0.0.1:5432/postgres
+          AXTRO_ALLOW_LOCAL_DATABASE_URL: "1"
+        run: pnpm db:rls
