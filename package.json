@@ -13,7 +13,9 @@
     "typecheck": "tsc --build --pretty false --force",
     "test": "pnpm run build && node scripts/test.mjs",
     "test:python": "uv run pytest",
-    "build": "tsc --build --pretty false --force"
+    "build": "tsc --build --pretty false --force",
+    "contracts:generate": "python3 scripts/generate_contract_types.py",
+    "contracts:check": "python3 scripts/generate_contract_types.py --check"
   },
   "devDependencies": {
     "@types/node": "24.10.1",

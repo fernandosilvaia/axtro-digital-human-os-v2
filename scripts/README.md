@@ -20,4 +20,15 @@ python3 scripts/secret_scan.py
 
 Eles validam documentação, task graph, 31 schemas e exemplos, OpenAPI/AsyncAPI, invariantes do banco, configuração nativa do Codex, inventário da V1 e padrões comuns de segredo.
 
+## Tipos gerados de contratos
+
+Os tipos TypeScript e Python são derivados exclusivamente de `contracts/schemas/`:
+
+```bash
+pnpm contracts:generate
+pnpm contracts:check
+```
+
+`contracts:check` também é executado pelo agregador e pela CI. Nunca edite os arquivos gerados manualmente.
+
 O Codex deve preservar esses gates e ampliar a CI com lint, typecheck, unit, integration, E2E, migration apply/rollback, RLS negativo, replay, chaos e security tests conforme o código aparecer.

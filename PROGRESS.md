@@ -2,9 +2,9 @@
 
 **Estado atual:** implementação de M0 em andamento  
 **Marco atual:** M0  
-**Tarefa atual:** M0-03  
-**Última evidência verde:** M0-02 com CI, fixtures negativos e validadores verdes em 2026-07-14  
-**Bloqueadores internos:** nenhum para M0-03; Postgres com pgvector ainda será necessário para M0-07 e M0-08  
+**Tarefa atual:** M0-04
+**Última evidência verde:** M0-03 com geração de tipos, drift detection e validadores verdes em 2026-07-14
+**Bloqueadores internos:** nenhum para M0-04; Postgres com pgvector ainda será necessário para M0-07 e M0-08
 **Pendências externas:** consultar `PENDENCIAS_EXTERNAS.md`  
 
 ## Regras de atualização
@@ -20,8 +20,8 @@
 |---|---|---|---|---|---|
 | `M0-01` | M0 | done | Bootstrap modular monorepo | nenhuma | `pnpm install`, `uv sync`, lint, typecheck, test, build e 7 validadores verdes |
 | `M0-02` | M0 | done | Install repository and documentation gates | `M0-01` | CI de runtime, fixtures negativos, rastreabilidade e 7 validadores verdes |
-| `M0-03` | M0 | in_progress | Generate TypeScript and Python contract types | `M0-01`, `M0-02` | geração determinística e drift detection em andamento |
-| `M0-04` | M0 | pending | Implement domain identifiers and value objects | `M0-03` | pending |
+| `M0-03` | M0 | done | Generate TypeScript and Python contract types | `M0-01`, `M0-02` | 31 schemas gerados em TS/Python, metadata e check de drift verdes |
+| `M0-04` | M0 | in_progress | Implement domain identifiers and value objects | `M0-03` | UUIDv7, tenancy, trace e classificação em andamento |
 | `M0-05` | M0 | pending | Implement interaction state and pure reducers | `M0-04` | pending |
 | `M0-06` | M0 | pending | Implement typed configuration and secret handles | `M0-01` | pending |
 | `M0-07` | M0 | pending | Install database migration runner | `M0-01`, `M0-04` | pending |
@@ -97,6 +97,15 @@
 - O workspace Python foi fixado em Python 3.10+ porque `jsonschema@4.26.0` exige essa versão; `python3 scripts/validate_all.py` continua verde com o Python 3.9 local pela compatibilidade TOML de M0-01.
 - Evidências verdes: `pnpm install --frozen-lockfile`, `env UV_CACHE_DIR=.uv-cache uv sync --all-groups`, `pnpm lint`, `pnpm typecheck`, `pnpm test`, `env UV_CACHE_DIR=.uv-cache uv run pytest`, `pnpm build` e `python3 scripts/validate_all.py`.
 - Próxima tarefa marcada antes de qualquer alteração: M0-03, geração determinística de tipos de contrato e detecção de drift.
+
+### 2026-07-14, M0-03 concluído e M0-04 iniciado
+
+- Criado `scripts/generate_contract_types.py`, gerador determinístico sem dependência externa para os 31 schemas Draft 2020-12.
+- Artefatos gerados: `packages/contracts-ts/src/generated.ts`, export TypeScript e `packages/contracts-py/src/axtro_contracts/__init__.py`. Cada contrato declara schema de origem, `$id`, `schema_version` e SHA-256 de origem.
+- Adicionado gate `validate_contract_generation.py` ao agregador. A CI e `pnpm contracts:check` falham quando os arquivos gerados não correspondem aos schemas.
+- Testes cobrem geração repetível em diretório temporário, sincronismo do artefato versionado e rejeição dos 31 exemplos inválidos.
+- Evidências verdes: `pnpm contracts:generate`, `pnpm contracts:check`, `pnpm lint`, `pnpm typecheck`, `pnpm test` (9 testes Python), `env UV_CACHE_DIR=.uv-cache uv run pytest` (9 testes), `pnpm build` e `python3 scripts/validate_all.py` (8 checks).
+- Próxima tarefa marcada antes de qualquer alteração: M0-04, value objects, UUIDv7, tenant context, trace context e classification primitives.
 
 ### 2026-07-14, baseline arquitetural
 

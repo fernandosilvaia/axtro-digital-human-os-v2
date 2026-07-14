@@ -9,6 +9,7 @@ ROOT = Path(__file__).resolve().parents[1]
 CHECKS = [
     "docs_qa.py",
     "validate_contracts.py",
+    "validate_contract_generation.py",
     "validate_specs.py",
     "validate_database_contract.py",
     "validate_codex_setup.py",
