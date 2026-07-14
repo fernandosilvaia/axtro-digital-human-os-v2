@@ -2,8 +2,8 @@
 
 **Estado atual:** implementação de M0 em andamento  
 **Marco atual:** M0  
-**Tarefa atual:** M0-14
-**Última evidência verde:** M0-13 com outbox atômico, relay idempotente, migration tenant-safe e drift estrutural validada em 2026-07-14
+**Tarefa atual:** M0-15
+**Última evidência verde:** M0-14 com Action Runtime governado, catálogo fake read-only, idempotência tenant-safe e recibos validados em 2026-07-14
 **Bloqueadores internos:** nenhum
 **Pendências externas:** consultar `PENDENCIAS_EXTERNAS.md`  
 
@@ -31,8 +31,8 @@
 | `M0-11` | M0 | done | Implement provider ports and capability registry | `M0-03`, `M0-04` | 9 ports fake-only, registry de capability, timeout/cancelamento, health, storage scoped e testes de swap verdes |
 | `M0-12` | M0 | done | Implement deterministic provider fakes | `M0-11` | 9 fakes locais determinísticos, 3 contratos gerados, clock manual, timeout, cancelamento, falha, journal fechado e 63 testes Node mais 14 Python verdes |
 | `M0-13` | M0 | done | Implement transactional outbox repository | `M0-05`, `M0-07`, `M0-10` | aggregate e envelope canônico atômicos, rollback, retry idempotente, ordering por aggregate, RLS e migration 0008 validados |
-| `M0-14` | M0 | in_progress | Implement Action Runtime skeleton | `M0-03`, `M0-08`, `M0-12` | início registrado antes de alterações |
-| `M0-15` | M0 | pending | Add application security baseline | `M0-02`, `M0-06`, `M0-09` | pending |
+| `M0-14` | M0 | done | Implement Action Runtime skeleton | `M0-03`, `M0-08`, `M0-12` | ActionIntent estrito, policy tenant-safe, fake read-only privado, receipt, idempotência e unknown barrier validados |
+| `M0-15` | M0 | in_progress | Add application security baseline | `M0-02`, `M0-06`, `M0-09` | início registrado antes de alterações |
 | `M0-16` | M0 | pending | Implement cost event ledger | `M0-03`, `M0-07`, `M0-11` | pending |
 | `M0-17` | M0 | pending | Create development fixtures and tenant-zero seed | `M0-08`, `M0-12`, `M0-14` | pending |
 | `M0-18` | M0 | pending | M0 release gate | `M0-02`, `M0-03`, `M0-05`, `M0-08`, `M0-09`, `M0-10`, `M0-12`, `M0-13`, `M0-14`, `M0-15`, `M0-16`, `M0-17` | pending |
@@ -212,6 +212,16 @@
 - Revisões independentes de arquitetura, segurança e testes aprovaram a tarefa. Evidências verdes: `pnpm lint`, `pnpm typecheck`, `pnpm contracts:check`, `pnpm test` (69 Node e 14 Python unittest), `pnpm build`, `UV_CACHE_DIR=/private/tmp/axtro-uv-cache uv run pytest` (14), `pnpm db:test`, `pnpm db:rls` e `python3 scripts/validate_all.py` (8 checks).
 - Próxima tarefa marcada antes de qualquer alteração: M0-14, funil ActionIntent, PolicyDecision e ToolExecutionReceipt com fake read-only.
 
+### 2026-07-14, M0-14 concluído e M0-15 iniciado
+
+- Implementados `@axtro/policy` e `@axtro/tool-runtime`. O runtime aceita somente `AuthorizedRequestContext` e `ActionIntent` estrito, exige tenant, ator, `tool:use` e `tool_auth`, e cria internamente `PolicyDecision` e `ToolExecutionReceipt` imutáveis. Texto de modelo, decisão, receipt, provider, endpoint e adapter não são entradas de execução.
+- O único recurso M0 é uma fixture de catálogo determinística, privada e somente leitura. Ela está alinhada ao contrato ativo `catalog.lookup`: `tenant_installation`, `read_tenant`, classificação interna, sem side effects e atores Presenter ou Workflow. O `ToolPort` de provider permanece fail-closed e nenhuma factory de `AuthorizedToolExecution` foi criada.
+- Idempotência é vinculada a tenant mais key e tenant mais intent. Replays retornam o mesmo receipt mesmo após a expiração da janela. Uma operação `unknown` reserva e bloqueia tenant, contrato, ação e argumentos canônicos contra retry cego, inclusive em corrida, com nova key, session, ator ou purpose. Somente receipt `succeeded` confirma efeito.
+- O perfil de approval é fechado na composição e apenas torna a policy mais restritiva para teste. Não pode ser selecionado por texto, `ActionIntent`, decisão ou receipt. ADR-010, arquitetura de ações, contratos de provider e D-V2-028 registram a fronteira reversível.
+- A nova suíte cobre allow, deny, approval, Actor allowlist, entrada hostil, contexto forjado, scope e purpose, isolamento cross-tenant, mesma key em tenants distintos, conflito de intent, replay pós-expiração, concorrência e unknown effect. Revisões independentes de arquitetura, segurança e testes aprovaram o patch sem bloqueadores.
+- Evidências verdes: `pnpm lint`, `pnpm typecheck`, `pnpm contracts:check`, `pnpm test` (77 testes Node e 14 Python unittest), `pnpm build`, `UV_CACHE_DIR=/private/tmp/axtro-uv-cache uv run pytest` (14), `python3 scripts/validate_all.py` (8 checks) e `git diff --check`.
+- Próxima tarefa marcada antes de qualquer alteração: M0-15, baseline de segurança com limites explícitos de entrada, rate, timeout e egress allowlist.
+
 ### 2026-07-14, baseline arquitetural
 
 - 31 schemas estritos e 62 exemplos de contrato preparados.
@@ -220,4 +230,4 @@
 
 ## Próxima ação
 
-Ler os contratos e ADRs de ações aplicáveis, registrar a fronteira M0-14 e implementar o funil fake read-only sem permitir execução direta por texto de modelo.
+Ler os requisitos e contratos de segurança aplicáveis a M0-15, registrar a baseline e implementar limites de entrada, rate, timeout e egress sem ampliar a superfície de providers.

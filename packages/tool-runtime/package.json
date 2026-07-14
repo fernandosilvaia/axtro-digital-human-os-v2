@@ -8,5 +8,11 @@
       "types": "./dist/index.d.ts",
       "import": "./dist/index.js"
     }
+  },
+  "dependencies": {
+    "@axtro/auth": "workspace:*",
+    "@axtro/contracts-ts": "workspace:*",
+    "@axtro/domain": "workspace:*",
+    "@axtro/policy": "workspace:*"
   }
 }

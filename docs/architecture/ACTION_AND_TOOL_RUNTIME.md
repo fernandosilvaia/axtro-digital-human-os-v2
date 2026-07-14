@@ -42,6 +42,14 @@ sequenceDiagram
 
 Todo write usa `idempotency_key` derivada de tenant, intent, target e logical attempt. Retry retorna o receipt anterior quando o efeito já ocorreu.
 
+### Perfil de execução M0
+
+M0 usa uma fixture de catálogo determinística dentro de `@axtro/tool-runtime`. Ela é privada, somente leitura, com contrato e argumentos em allowlist fechada. Não é um `ToolPort`, não recebe artefato de autorização do caller e não expõe adapter, callback, provider, endpoint ou credencial.
+
+O runtime aceita somente contexto de request autenticado e `ActionIntent`. Ele cria o `PolicyDecision` e o `ToolExecutionReceipt`. Um intent negado produz receipt sem sucesso, exigência de approval produz receipt `pending`, e nenhum deles chega à fixture. Replay usa fingerprint canônico por tenant. Um resultado `unknown` bloqueia retry automático da mesma operação canônica, mesmo com nova chave de idempotência, até existir reconciliação.
+
+O perfil de approval de M0 é uma opção fechada de composição que somente torna a policy mais restritiva para teste. Não é enviado pelo modelo nem deriva de `purpose`, argumentos ou receipt. A fixture padrão mantém o contrato `catalog.lookup` ativo: `tenant_installation`, `read_tenant`, `internal`, sem side effects e atores `presenter` ou `workflow`.
+
 ## State reduction
 
 Somente receipt `succeeded` pode confirmar efeito. `accepted` ou `pending` atualiza estado para pendente. Timeout resulta `unknown`, exige reconciliação antes de retry cego.

@@ -106,7 +106,14 @@ importers:
         specifier: workspace:*
         version: link:../security
 
-  packages/policy: {}
+  packages/policy:
+    dependencies:
+      '@axtro/contracts-ts':
+        specifier: workspace:*
+        version: link:../contracts-ts
+      '@axtro/domain':
+        specifier: workspace:*
+        version: link:../domain
 
   packages/provider-contracts:
     dependencies:
@@ -129,7 +136,20 @@ importers:
         specifier: workspace:*
         version: link:../domain
 
-  packages/tool-runtime: {}
+  packages/tool-runtime:
+    dependencies:
+      '@axtro/auth':
+        specifier: workspace:*
+        version: link:../auth
+      '@axtro/contracts-ts':
+        specifier: workspace:*
+        version: link:../contracts-ts
+      '@axtro/domain':
+        specifier: workspace:*
+        version: link:../domain
+      '@axtro/policy':
+        specifier: workspace:*
+        version: link:../policy
 
   packages/voice-gateway:
     dependencies:
