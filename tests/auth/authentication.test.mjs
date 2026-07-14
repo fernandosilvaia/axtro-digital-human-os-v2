@@ -214,6 +214,16 @@ test("authorized tenant transaction applies parameterized local context before w
     () => auth.withAuthorizedTenantTransaction(forged, success.runner, async () => "forbidden"),
     auth.TenantAuthorizationError,
   );
+
+  let forgedGetterRead = false;
+  const forgedGetter = {
+    get tenantContext() {
+      forgedGetterRead = true;
+      throw new Error("must not read forged context");
+    },
+  };
+  assert.throws(() => auth.getAuthorizedTenantContext(forgedGetter), auth.TenantAuthorizationError);
+  assert.equal(forgedGetterRead, false);
 });
 
 function createTransactionRunner({ failSet = false, failCommit = false } = {}) {

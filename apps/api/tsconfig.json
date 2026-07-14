@@ -9,6 +9,7 @@
   "references": [
     { "path": "../../packages/auth" },
     { "path": "../../packages/config" },
-    { "path": "../../packages/domain" }
+    { "path": "../../packages/domain" },
+    { "path": "../../packages/observability" }
   ]
 }

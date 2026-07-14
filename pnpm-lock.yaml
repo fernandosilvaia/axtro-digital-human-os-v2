@@ -26,6 +26,9 @@ importers:
       '@axtro/domain':
         specifier: workspace:*
         version: link:../../packages/domain
+      '@axtro/observability':
+        specifier: workspace:*
+        version: link:../../packages/observability
 
   packages/auth:
     dependencies:
@@ -70,7 +73,14 @@ importers:
         specifier: workspace:*
         version: link:../domain
 
-  packages/observability: {}
+  packages/observability:
+    dependencies:
+      '@axtro/domain':
+        specifier: workspace:*
+        version: link:../domain
+      '@axtro/security':
+        specifier: workspace:*
+        version: link:../security
 
   packages/policy: {}
 

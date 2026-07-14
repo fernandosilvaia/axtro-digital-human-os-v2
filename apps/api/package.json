@@ -12,6 +12,7 @@
   "dependencies": {
     "@axtro/auth": "workspace:*",
     "@axtro/config": "workspace:*",
-    "@axtro/domain": "workspace:*"
+    "@axtro/domain": "workspace:*",
+    "@axtro/observability": "workspace:*"
   }
 }

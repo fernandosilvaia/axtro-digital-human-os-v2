@@ -10,9 +10,23 @@ Every log, span, metric exemplar and cost event should carry when applicable:
 - `turn_id`;
 - `generation_id`;
 - `trace_id`;
-- `provider` and `provider_request_id`.
+- `provider` and a local, server-minted `provider_request_ref`.
 
 PII is not a correlation field.
+
+## M0 trust boundaries and carrier
+
+- A public API request always receives a new server-minted trace root and correlation ID after authentication. Its root span has no session ID. A session ID may be attached only by a downstream boundary after session lookup and RLS authorization. Public `traceparent`, `tracestate`, `baggage`, request IDs and tenant headers do not control telemetry lineage.
+- Only a trusted internal boundary may continue a trace. The M0 carrier is one strict W3C `traceparent` with version `00`, a nonzero 32-hex trace ID, a nonzero 16-hex span ID and two hex flags.
+- The carrier never contains tenant, session, correlation, causation, actor, payload or provider credentials. Tenant, session, correlation and causation remain in typed authorized context or in an already validated event envelope.
+- The realtime worker rejects absent or invalid internal trace context. It does not create a replacement trace for a malformed internal carrier.
+- A provider fake callback receives only the internal `traceparent` and creates a child span. The trusted adapter wrapper retains correlation locally for that span and never forwards tenant, session, correlation, conversation content or secret references to the callback.
+
+## Structured log profile
+
+M0 logs versioned event codes and closed operational attribute values only. Route templates, providers, components, operations, status, model versions and error codes come from code-owned registries. A `provider_request_ref` is minted locally from the provider span ID, and no raw provider request ID or provider-supplied reference is accepted. IDs that identify the authorized tenant, session, trace and correlation are emitted in dedicated fields.
+
+Payloads, prompts, completions, transcripts, media, headers, cookies, SQL, actor identifiers, email, phone, CPF or CNPJ, raw exception messages and stacks are rejected by construction. Redaction remains a second protection layer. For `restricted` data, the record keeps only the data classification and `payload_omitted=true`.
 
 ## Trace model per turn
 

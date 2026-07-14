@@ -2,6 +2,7 @@ import {
   AuthenticationError,
   assertAuthorizedTenantMatch,
   createDevelopmentIdentityVerifier,
+  getAuthorizedTenantContext,
   resolveAuthorizedRequestContext,
   withAuthorizedTenantTransaction,
   type AuthorizedRequestContext,
@@ -13,6 +14,12 @@ import {
 } from "@axtro/auth";
 import type { RuntimeConfig } from "@axtro/config";
 import type { TenantId } from "@axtro/domain";
+import {
+  type ActiveSpanContext,
+  type InternalTraceCarrier,
+  type TelemetryRuntime,
+  type TelemetrySpan,
+} from "@axtro/observability";
 
 export interface ApiAuthenticationMiddlewareOptions {
   readonly identityVerifier: IdentityVerifier;
@@ -31,6 +38,17 @@ export interface ApiAuthenticationMiddleware {
     headers: unknown,
     work: (input: AuthorizedTenantTransaction) => Promise<Result>,
   ): Promise<Result>;
+}
+
+/** Metadata is server-provided after auth. Public trace headers are not accepted. */
+export interface AuthenticatedApiTelemetryInput {
+  readonly routeTemplate: unknown;
+}
+
+export interface AuthenticatedApiTelemetryContext {
+  readonly span: TelemetrySpan;
+  readonly spanContext: ActiveSpanContext;
+  readonly internalTraceCarrier: InternalTraceCarrier;
 }
 
 /**
@@ -88,6 +106,60 @@ export function assertApiResourceTenant(request: AuthorizedRequestContext, tenan
   return assertAuthorizedTenantMatch(request, tenantId);
 }
 
+/**
+ * Starts a new telemetry root only after the authenticated context is present.
+ * It intentionally has no public traceparent argument. Internal consumers get
+ * a narrow W3C carrier generated from the API span.
+ */
+export async function runAuthenticatedApiTelemetry<Result>(
+  runtime: TelemetryRuntime,
+  request: AuthorizedRequestContext,
+  input: AuthenticatedApiTelemetryInput,
+  work: (context: AuthenticatedApiTelemetryContext) => Promise<Result>,
+): Promise<Result> {
+  if (runtime === null || typeof runtime !== "object" || typeof runtime.startPublicApiTrace !== "function") {
+    throw new AuthenticationError();
+  }
+  if (typeof work !== "function") throw new AuthenticationError();
+  const metadata = apiTelemetryInput(input);
+  const tenantId = getAuthorizedTenantContext(request).tenantId;
+  const trace = runtime.startPublicApiTrace({ tenantId });
+  const span = runtime.startSpan("api.request", trace, { route_template: metadata.routeTemplate });
+  runtime.log({
+    level: "info",
+    eventCode: "api.request.started",
+    context: span.context,
+    classification: "internal",
+    attributes: { route_template: metadata.routeTemplate },
+  });
+  try {
+    const result = await work(Object.freeze({
+      span,
+      spanContext: span.context,
+      internalTraceCarrier: runtime.injectInternalTraceparent(span.context),
+    }));
+    span.end({ outcome: "success" });
+    runtime.log({
+      level: "info",
+      eventCode: "api.request.completed",
+      context: span.context,
+      classification: "internal",
+      attributes: { route_template: metadata.routeTemplate, outcome: "success" },
+    });
+    return result;
+  } catch (error) {
+    span.end({ outcome: "failure", errorCode: "internal_error" });
+    runtime.log({
+      level: "error",
+      eventCode: "api.request.failed",
+      context: span.context,
+      classification: "internal",
+      attributes: { route_template: metadata.routeTemplate, outcome: "failure", error_code: "internal_error" },
+    });
+    throw error;
+  }
+}
+
 function headerRecord(value: unknown): Record<string, unknown> {
   if (value === null || typeof value !== "object" || Array.isArray(value)) throw new Error("invalid headers");
   const prototype = Object.getPrototypeOf(value);
@@ -102,4 +174,20 @@ function requiredSingleHeader(headers: Record<string, unknown>, expectedName: st
   const descriptor = matching[0]![1];
   if (!("value" in descriptor)) throw new Error("invalid headers");
   return descriptor.value;
+}
+
+function apiTelemetryInput(value: AuthenticatedApiTelemetryInput): Readonly<{ routeTemplate: unknown }> {
+  if (value === null || typeof value !== "object" || Array.isArray(value)) throw new AuthenticationError();
+  const prototype = Object.getPrototypeOf(value);
+  if (prototype !== Object.prototype && prototype !== null) throw new AuthenticationError();
+  const record = value as unknown as Record<string, unknown>;
+  const keys = Object.keys(record);
+  if (keys.some((key) => key !== "routeTemplate") || !Object.prototype.hasOwnProperty.call(record, "routeTemplate")) {
+    throw new AuthenticationError();
+  }
+  const routeDescriptor = Object.getOwnPropertyDescriptor(record, "routeTemplate");
+  if (routeDescriptor === undefined || !("value" in routeDescriptor)) throw new AuthenticationError();
+  return Object.freeze({
+    routeTemplate: routeDescriptor.value,
+  });
 }

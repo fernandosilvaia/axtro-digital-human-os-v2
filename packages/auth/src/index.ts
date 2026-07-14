@@ -234,6 +234,11 @@ export function assertAuthorizedTenantMatch(request: AuthorizedRequestContext, t
   return assertTenantMatch(requireAuthorizedRequest(request).tenantContext, asTenantString(tenantId));
 }
 
+/** Return tenant context only after the request object passes the authenticated-context guard. */
+export function getAuthorizedTenantContext(request: AuthorizedRequestContext): TenantContext {
+  return requireAuthorizedRequest(request).tenantContext;
+}
+
 /**
  * Apply tenant context inside the runner-owned transaction before a handler can
  * access a repository. No session-level PostgreSQL setting is emitted.
