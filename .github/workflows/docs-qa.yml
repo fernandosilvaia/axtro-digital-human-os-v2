@@ -1,36 +1,40 @@
-name: Architecture and Contract QA
+name: Foundation quality gates
 
 on:
   pull_request:
   push:
-    branches: [main]
 
 permissions:
   contents: read
 
 jobs:
-  validate-architecture-package:
+  validate-foundation:
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
       - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 11.9.0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+          cache: pnpm
       - uses: actions/setup-python@v5
         with:
           python-version: '3.12'
-          cache: pip
-      - name: Install validators
-        run: python -m pip install --disable-pip-version-check jsonschema==4.26.0 PyYAML==6.0.2
-      - name: Validate documentation
-        run: python3 scripts/docs_qa.py
-      - name: Validate JSON contracts
-        run: python3 scripts/validate_contracts.py
-      - name: Validate OpenAPI and AsyncAPI structure
-        run: python3 scripts/validate_specs.py
-      - name: Validate database invariants
-        run: python3 scripts/validate_database_contract.py
-      - name: Validate Codex project setup
-        run: python3 scripts/validate_codex_setup.py
-      - name: Validate migration inventory
-        run: python3 scripts/validate_migration_inventory.py
-      - name: Scan for common secret patterns
-        run: python3 scripts/secret_scan.py
+      - uses: astral-sh/setup-uv@v5
+      - name: Install workspace dependencies
+        run: |
+          pnpm install --frozen-lockfile
+          uv sync --locked --all-groups
+      - name: Lint
+        run: pnpm lint
+      - name: Typecheck
+        run: pnpm typecheck
+      - name: Test TypeScript and bootstrap contracts
+        run: pnpm test
+      - name: Test Python validators and negative fixtures
+        run: uv run pytest
+      - name: Run architecture, contract and security validators
+        run: uv run python scripts/validate_all.py

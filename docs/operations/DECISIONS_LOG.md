@@ -15,3 +15,5 @@
 | D-V2-011 | 2026-07-14 | Vector sem dimensão no walking skeleton, sem ANN | manter provider bake-off e evitar índice incorreto precoce | média |
 | D-V2-012 | 2026-07-14 | M0-M2 podem usar fakes sem credenciais | permitir desenvolvimento imediato e determinístico | alta |
 | D-V2-013 | 2026-07-14 | Compilador TypeScript e tipos de Node são dependências somente de desenvolvimento, fixadas no lockfile | manter lint, typecheck e build reproduzíveis sem introduzir SDK de provider ou dependência de produção | alta |
+| D-V2-014 | 2026-07-14 | Validadores Python e pytest ficam no grupo de desenvolvimento fixado por uv.lock | a CI e a execução local passam a usar os mesmos validadores e fixtures negativos sem dependências de produção | alta |
+| D-V2-015 | 2026-07-14 | Workspace Python requer 3.10 ou superior | jsonschema 4.26.0 é o validador normativo e exige Python 3.10+, enquanto o gate documental mantém fallback para o Python 3.9 local | alta |

@@ -2,9 +2,9 @@
 
 **Estado atual:** implementação de M0 em andamento  
 **Marco atual:** M0  
-**Tarefa atual:** M0-02  
-**Última evidência verde:** M0-01 com bootstrap, testes e validadores verdes em 2026-07-14  
-**Bloqueadores internos:** nenhum para M0-02; Postgres com pgvector ainda será necessário para M0-07 e M0-08  
+**Tarefa atual:** M0-03  
+**Última evidência verde:** M0-02 com CI, fixtures negativos e validadores verdes em 2026-07-14  
+**Bloqueadores internos:** nenhum para M0-03; Postgres com pgvector ainda será necessário para M0-07 e M0-08  
 **Pendências externas:** consultar `PENDENCIAS_EXTERNAS.md`  
 
 ## Regras de atualização
@@ -19,8 +19,8 @@
 | ID | Marco | Status | Título | Dependências | Evidência |
 |---|---|---|---|---|---|
 | `M0-01` | M0 | done | Bootstrap modular monorepo | nenhuma | `pnpm install`, `uv sync`, lint, typecheck, test, build e 7 validadores verdes |
-| `M0-02` | M0 | in_progress | Install repository and documentation gates | `M0-01` | CI e gates de rastreabilidade em andamento |
-| `M0-03` | M0 | pending | Generate TypeScript and Python contract types | `M0-01`, `M0-02` | pending |
+| `M0-02` | M0 | done | Install repository and documentation gates | `M0-01` | CI de runtime, fixtures negativos, rastreabilidade e 7 validadores verdes |
+| `M0-03` | M0 | in_progress | Generate TypeScript and Python contract types | `M0-01`, `M0-02` | geração determinística e drift detection em andamento |
 | `M0-04` | M0 | pending | Implement domain identifiers and value objects | `M0-03` | pending |
 | `M0-05` | M0 | pending | Implement interaction state and pure reducers | `M0-04` | pending |
 | `M0-06` | M0 | pending | Implement typed configuration and secret handles | `M0-01` | pending |
@@ -88,6 +88,15 @@
 - Dependências somente de desenvolvimento registradas: `typescript@5.9.3` e `@types/node@24.10.1`; sem SDK de provider nem dependência de produção.
 - Evidências verdes: `env UV_CACHE_DIR=.uv-cache uv sync`, `pnpm install`, `pnpm lint`, `pnpm typecheck`, `pnpm test`, `pnpm build` e `python3 scripts/validate_all.py`.
 - Próxima tarefa marcada antes de qualquer alteração: M0-02, CI de runtime, meta-gates negativos e rastreabilidade P0.
+
+### 2026-07-14, M0-02 concluído e M0-03 iniciado
+
+- A CI agora instala pnpm, Node 24, Python 3.12 e uv, executa `pnpm install --frozen-lockfile`, `uv sync --locked --all-groups`, lint, typecheck, testes, pytest e o agregador de validadores.
+- Incluídos fixtures efêmeros que provam falha para schema quebrado, link Markdown quebrado e segredo detectável, sem gravar segredo em arquivo versionado.
+- `docs_qa.py` passou a validar cada referência de tarefa da matriz P0 contra o task graph. A matriz foi alinhada aos IDs reais, inclusive disclosure/consentimento em M1-01, RLS em M0-08, Action Runtime em M0-14/M1-05 e Axtro Bridge em M1-03.
+- O workspace Python foi fixado em Python 3.10+ porque `jsonschema@4.26.0` exige essa versão; `python3 scripts/validate_all.py` continua verde com o Python 3.9 local pela compatibilidade TOML de M0-01.
+- Evidências verdes: `pnpm install --frozen-lockfile`, `env UV_CACHE_DIR=.uv-cache uv sync --all-groups`, `pnpm lint`, `pnpm typecheck`, `pnpm test`, `env UV_CACHE_DIR=.uv-cache uv run pytest`, `pnpm build` e `python3 scripts/validate_all.py`.
+- Próxima tarefa marcada antes de qualquer alteração: M0-03, geração determinística de tipos de contrato e detecção de drift.
 
 ### 2026-07-14, baseline arquitetural
 

@@ -2,11 +2,15 @@
 name = "axtro-digital-human-os-v2"
 version = "0.1.0"
 description = "Local development workspace for Axtro Digital Human OS V2"
-requires-python = ">=3.9,<3.14"
+requires-python = ">=3.10,<3.14"
 dependencies = []
 
 [dependency-groups]
-dev = []
+dev = [
+  "jsonschema==4.26.0",
+  "PyYAML==6.0.2",
+  "pytest==8.4.2"
+]
 
 [tool.uv.workspace]
 members = ["apps/realtime-worker", "packages/contracts-py"]

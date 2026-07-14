@@ -2,5 +2,5 @@
 name = "axtro-contracts-py"
 version = "0.1.0"
 description = "Generated Python contract models"
-requires-python = ">=3.9,<3.14"
+requires-python = ">=3.10,<3.14"
 dependencies = []

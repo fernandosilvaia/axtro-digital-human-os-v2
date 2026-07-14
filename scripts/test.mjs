@@ -21,7 +21,11 @@ function run(command, args) {
 const nodeTests = findTests(join(root, "tests"));
 if (nodeTests.length > 0) run(process.execPath, ["--test", ...nodeTests]);
 if (existsSync(join(root, "tests", "python"))) {
-  run(process.env.PYTHON ?? "python3", ["-m", "unittest", "discover", "-s", "tests/python", "-p", "test_*.py"]);
+  const workspacePython = join(root, ".venv", "bin", "python");
+  run(
+    process.env.PYTHON ?? (existsSync(workspacePython) ? workspacePython : "python3"),
+    ["-m", "unittest", "discover", "-s", "tests/python", "-p", "test_*.py"],
+  );
 }
 
 console.log("TEST SUITE PASSED");

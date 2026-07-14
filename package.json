@@ -4,10 +4,15 @@
   "private": true,
   "type": "module",
   "packageManager": "pnpm@11.9.0",
+  "engines": {
+    "node": ">=24 <27",
+    "pnpm": "11.9.0"
+  },
   "scripts": {
     "lint": "node scripts/lint.mjs",
     "typecheck": "tsc --build --pretty false --force",
     "test": "pnpm run build && node scripts/test.mjs",
+    "test:python": "uv run pytest",
     "build": "tsc --build --pretty false --force"
   },
   "devDependencies": {

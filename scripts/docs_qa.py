@@ -20,10 +20,12 @@ REQUIRED_FILES = [
     "docs/architecture/TURN_COORDINATOR.md", "docs/architecture/ACTION_AND_TOOL_RUNTIME.md",
     "docs/security/SECURITY_ARCHITECTURE.md", "docs/security/THREAT_MODEL.md",
     "docs/playbooks/HANDOFF_TO_CODEX.md", "docs/playbooks/PROMPT_EXECUCAO_AUTONOMA_CODEX.md",
+    "docs/operations/REQUIREMENTS_TRACEABILITY_MATRIX.md",
     "backlog/MVP_TASK_GRAPH.yaml", "contracts/openapi/axtro-api.yaml", "contracts/asyncapi/axtro-events.yaml",
     "database/reference-schema.sql", "spreadsheets/UNIT_ECONOMICS_V2.xlsx",
 ]
 LINK_PATTERN = re.compile(r"\[[^\]]+\]\(([^)]+)\)")
+TASK_REFERENCE_PATTERN = re.compile(r"\bM\d+-\d+\b")
 
 
 def load_yaml(path: Path) -> dict[str, Any]:
@@ -82,6 +84,32 @@ def check_task_graph(errors: list[str]) -> None:
             errors.append(f"Milestone {milestone} has invalid exit gate {exit_gate}")
 
 
+def check_traceability(errors: list[str]) -> None:
+    """Prove that every P0 matrix row points at an executable task."""
+    matrix_path = ROOT / "docs" / "operations" / "REQUIREMENTS_TRACEABILITY_MATRIX.md"
+    graph_path = ROOT / "backlog" / "MVP_TASK_GRAPH.yaml"
+    if not matrix_path.exists() or not graph_path.exists():
+        return
+    graph = load_yaml(graph_path)
+    task_ids = {
+        task.get("id")
+        for task in graph.get("tasks", [])
+        if isinstance(task, dict) and isinstance(task.get("id"), str)
+    }
+    for line_number, line in enumerate(matrix_path.read_text(encoding="utf-8").splitlines(), start=1):
+        if not line.startswith("| REQ-"):
+            continue
+        references = TASK_REFERENCE_PATTERN.findall(line)
+        if not references:
+            errors.append(f"{matrix_path.relative_to(ROOT)}:{line_number} has no task reference")
+            continue
+        unknown = sorted(set(references) - task_ids)
+        if unknown:
+            errors.append(
+                f"{matrix_path.relative_to(ROOT)}:{line_number} references unknown tasks: {unknown}"
+            )
+
+
 def check_markdown(errors: list[str]) -> None:
     for path in ROOT.rglob("*.md"):
         if "legacy" in path.parts:
@@ -114,6 +142,7 @@ def main() -> int:
             errors.append("Manifest API versions are incorrect")
 
     check_task_graph(errors)
+    check_traceability(errors)
     check_markdown(errors)
 
     normative_text = "\n".join(
