@@ -2,8 +2,8 @@
 
 **Estado atual:** implementação de M0 em andamento  
 **Marco atual:** M0  
-**Tarefa atual:** M0-16
-**Última evidência verde:** M0-15 com ingress bounded, rate e deadline autenticados, egress deny-by-default e scan determinístico de dependências em 2026-07-14
+**Tarefa atual:** M0-17
+**Última evidência verde:** M0-16 com ledger de custo determinístico, reconciliação protegida no banco e isolamento multi-tenant em 2026-07-14
 **Bloqueadores internos:** nenhum
 **Pendências externas:** consultar `PENDENCIAS_EXTERNAS.md`  
 
@@ -33,8 +33,8 @@
 | `M0-13` | M0 | done | Implement transactional outbox repository | `M0-05`, `M0-07`, `M0-10` | aggregate e envelope canônico atômicos, rollback, retry idempotente, ordering por aggregate, RLS e migration 0008 validados |
 | `M0-14` | M0 | done | Implement Action Runtime skeleton | `M0-03`, `M0-08`, `M0-12` | ActionIntent estrito, policy tenant-safe, fake read-only privado, receipt, idempotência e unknown barrier validados |
 | `M0-15` | M0 | done | Add application security baseline | `M0-02`, `M0-06`, `M0-09` | ingress framework-neutral bounded, quota tenant-safe, deadline cancelável, egress capability-scoped e dependency gate validados |
-| `M0-16` | M0 | in_progress | Implement cost event ledger | `M0-03`, `M0-07`, `M0-11` | início registrado antes de alterações |
-| `M0-17` | M0 | pending | Create development fixtures and tenant-zero seed | `M0-08`, `M0-12`, `M0-14` | pending |
+| `M0-16` | M0 | done | Implement cost event ledger | `M0-03`, `M0-07`, `M0-11` | custo decimal determinístico, reconciliação SQL, replay guard, RLS e migração histórica validados |
+| `M0-17` | M0 | in_progress | Create development fixtures and tenant-zero seed | `M0-08`, `M0-12`, `M0-14` | início registrado antes de alterações |
 | `M0-18` | M0 | pending | M0 release gate | `M0-02`, `M0-03`, `M0-05`, `M0-08`, `M0-09`, `M0-10`, `M0-12`, `M0-13`, `M0-14`, `M0-15`, `M0-16`, `M0-17` | pending |
 | `M1-01` | M1 | pending | Implement session lifecycle API | `M0-18` | pending |
 | `M1-02` | M1 | pending | Implement Session Actor and mailbox | `M1-01` | pending |
@@ -234,6 +234,16 @@
 - Riscos não bloqueantes registrados: o snapshot de advisories exige refresh operacional com proveniência antes de release, o limiter ainda é local por processo, e adapters reais deverão controlar redirects manualmente e validar DNS e IP do peer antes de qualquer egress.
 - Próxima tarefa marcada antes de qualquer alteração: M0-16, cost event ledger com valores estimados e medidos, reconciliação, arredondamento e isolamento tenant-safe.
 
+### 2026-07-14, M0-16 concluído e M0-17 iniciado
+
+- Implementado `@axtro/costing` com ledger determinístico append-only, cálculo por inteiros escalados, arredondamento half-up e rejeição explícita quando um valor não preserva precisão no contrato numérico gerado. Valores estimados, medidos e reportados pelo provider permanecem separados em agregações e reconciliações.
+- Rate cards e provider request references são capabilities opacas locais. A referência de request é vinculada ao rate card, tenant e sessão, e o ledger aceita uma vez por fonte, preservando somente o replay idempotente do mesmo evento. Nenhum SDK, credencial, invoice API ou caminho crítico realtime foi introduzido.
+- A migration `0009_cost_event_reconciliation.sql` adiciona campos compatíveis e constraints forward-only para preservar eventos legados, trigger de reconciliação para exigir evidência estimada com dimensões iguais e índice parcial único por tenant, fonte e request reference para impedir duplicidade persistida. O guard de drift valida definição de checks, função, trigger, FK e índice.
+- A integração PostgreSQL prova migração limpa, upgrade com custo histórico compatível e incompatível preservados, equação de custo, alvo medido rejeitado, dimensões divergentes rejeitadas, replay por reference, índice parcial, drift estrutural e UUIDv7. A suíte RLS confirma contexto ausente, relacionamento cross-tenant e mutação append-only, incluindo `DELETE` de custo.
+- ADR-021, modelo de custo, limites de provider, plano de migration, decisão D-V2-030 e matriz de rastreabilidade foram atualizados. As revisões independentes de arquitetura, segurança e testes aprovaram sem bloqueadores.
+- Evidências verdes: `pnpm lint`, `pnpm contracts:check`, `pnpm typecheck`, `pnpm test` (88 Node e 18 Python unittest), `pnpm build`, `UV_CACHE_DIR=/private/tmp/axtro-uv-cache uv run pytest` (18), `pnpm db:test`, `pnpm db:rls`, `python3 scripts/validate_all.py` (9 checks) e `git diff --check`.
+- Próxima tarefa marcada antes de qualquer alteração: M0-17, fixtures de development e tenant-zero fake, sem PII ou credenciais reais.
+
 ### 2026-07-14, baseline arquitetural
 
 - 31 schemas estritos e 62 exemplos de contrato preparados.
@@ -242,4 +252,4 @@
 
 ## Próxima ação
 
-Ler os requisitos e contratos de segurança aplicáveis a M0-15, registrar a baseline e implementar limites de entrada, rate, timeout e egress sem ampliar a superfície de providers.
+Implementar M0-17 com seed local repetível para tenants isolados e providers fake, mantendo a suíte de segredo, RLS e contratos verde.

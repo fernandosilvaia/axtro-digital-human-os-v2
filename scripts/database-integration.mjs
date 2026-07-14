@@ -70,19 +70,21 @@ try {
   const upgradeUrl = databaseUrlFor(baseDatabaseUrl, upgradeName);
   const invalidUrl = databaseUrlFor(baseDatabaseUrl, invalidName);
   const cleanResult = database.applyLocalMigrations({ databaseUrl: cleanUrl, psqlPath });
-  assert.equal(cleanResult.applied.length, 8);
+  assert.equal(cleanResult.applied.length, 9);
   const cleanDrift = database.checkLocalSchemaDrift({ databaseUrl: cleanUrl, psqlPath });
 
   const upgradePrelude = database.applyLocalMigrations({ databaseUrl: upgradeUrl, psqlPath, targetVersion: 5 });
   assert.equal(upgradePrelude.history.length, 5);
   const historical = outboxFixture(100);
+  const historicalCompatibleCost = legacyCostEventFixture(106, historical.tenantId, "0.02");
+  const historicalIncompatibleCost = legacyCostEventFixture(107, historical.tenantId, "0.03");
   assert.equal(runSql(
     upgradeUrl,
     psqlPath,
-    `${tenantInsertSql(historical.tenantId, "outbox-upgrade")} ${legacyOutboxInsertSql(historical)}`,
+    `${tenantInsertSql(historical.tenantId, "outbox-upgrade")} ${legacyOutboxInsertSql(historical)} ${legacyCostEventInsertSql(historicalCompatibleCost)} ${legacyCostEventInsertSql(historicalIncompatibleCost)}`,
   ).status, 0);
   const upgradeResult = database.applyLocalMigrations({ databaseUrl: upgradeUrl, psqlPath });
-  assert.deepEqual(upgradeResult.applied.map((migration) => migration.version), [6, 7, 8]);
+  assert.deepEqual(upgradeResult.applied.map((migration) => migration.version), [6, 7, 8, 9]);
   assert.equal(
     queryScalar(
       upgradeUrl,
@@ -90,6 +92,22 @@ try {
       `SELECT event_id::text FROM events_outbox WHERE tenant_id = '${historical.tenantId}' AND id = '${historical.rowId}';`,
     ),
     historical.eventId,
+  );
+  assert.equal(
+    queryScalar(
+      upgradeUrl,
+      psqlPath,
+      `SELECT amount_usd::text || ':' || currency FROM cost_events WHERE tenant_id = '${historical.tenantId}' AND id = '${historicalCompatibleCost.id}';`,
+    ),
+    "0.02000000:USD",
+  );
+  assert.equal(
+    queryScalar(
+      upgradeUrl,
+      psqlPath,
+      `SELECT amount_usd::text || ':' || currency FROM cost_events WHERE tenant_id = '${historical.tenantId}' AND id = '${historicalIncompatibleCost.id}';`,
+    ),
+    "0.03000000:USD",
   );
   const upgradeDrift = database.checkLocalSchemaDrift({ databaseUrl: upgradeUrl, psqlPath });
   assert.equal(cleanDrift.catalogFingerprint, upgradeDrift.catalogFingerprint);
@@ -212,6 +230,55 @@ try {
   );
   assert.notEqual(invalidVariantWrite.status, 0);
 
+  const validCostEventId = fixtureUuid(260);
+  const validCostWrite = runSql(
+    cleanUrl,
+    psqlPath,
+    `INSERT INTO cost_events (tenant_id, id, session_id, provider_id, service, unit_type, quantity, unit_cost_usd, amount_usd, source, occurred_at, currency, rate_card_ref, rate_card_as_of, reconciles_cost_event_id, trace_id, provider_request_ref) VALUES ('${validTenantId}', '${validCostEventId}', NULL, 'fake-realtime', 'model', 'token', 0.1, 0.2, 0.02, 'estimated', '2026-07-14T00:00:00Z', 'USD', 'catalog/fake-realtime-2026-07-14', '2026-07-14T00:00:00Z', NULL, '0123456789abcdef0123456789abcdef', 'ppr_fake000001');`,
+  );
+  assert.equal(validCostWrite.status, 0);
+  const sourceScopedProviderRequest = runSql(
+    cleanUrl,
+    psqlPath,
+    `INSERT INTO cost_events (tenant_id, id, session_id, provider_id, service, unit_type, quantity, unit_cost_usd, amount_usd, source, occurred_at, provider_request_ref) VALUES ('${validTenantId}', '${fixtureUuid(267)}', NULL, 'fake-realtime', 'model', 'token', 0.1, 0.2, 0.02, 'provider_reported', '2026-07-14T00:00:00Z', 'ppr_fake000001');`,
+  );
+  assert.equal(sourceScopedProviderRequest.status, 0);
+  const duplicateProviderRequest = runSql(
+    cleanUrl,
+    psqlPath,
+    `INSERT INTO cost_events (tenant_id, id, session_id, provider_id, service, unit_type, quantity, unit_cost_usd, amount_usd, source, occurred_at, provider_request_ref) VALUES ('${validTenantId}', '${fixtureUuid(268)}', NULL, 'fake-realtime', 'model', 'token', 0.1, 0.2, 0.02, 'estimated', '2026-07-14T00:00:00Z', 'ppr_fake000001');`,
+  );
+  assert.notEqual(duplicateProviderRequest.status, 0);
+  const idempotentCostRetry = runSql(
+    cleanUrl,
+    psqlPath,
+    `INSERT INTO cost_events (tenant_id, id, session_id, provider_id, service, unit_type, quantity, unit_cost_usd, amount_usd, source, occurred_at, provider_request_ref) VALUES ('${validTenantId}', '${validCostEventId}', NULL, 'fake-realtime', 'model', 'token', 0.1, 0.2, 0.02, 'estimated', '2026-07-14T00:00:00Z', 'ppr_fake000001') ON CONFLICT (tenant_id, id) DO NOTHING;`,
+  );
+  assert.equal(idempotentCostRetry.status, 0);
+  assert.equal(
+    queryScalar(
+      cleanUrl,
+      psqlPath,
+      `SELECT count(*) FROM cost_events WHERE tenant_id = '${validTenantId}' AND source = 'estimated' AND provider_request_ref = 'ppr_fake000001';`,
+    ),
+    "1",
+  );
+  const validMeasuredCostEventId = fixtureUuid(264);
+  assert.equal(runSql(
+    cleanUrl,
+    psqlPath,
+    `INSERT INTO cost_events (tenant_id, id, session_id, provider_id, service, unit_type, quantity, unit_cost_usd, amount_usd, source, occurred_at, reconciles_cost_event_id) VALUES ('${validTenantId}', '${validMeasuredCostEventId}', NULL, 'fake-realtime', 'model', 'token', 0.1, 0.2, 0.02, 'measured', '2026-07-14T00:00:00Z', '${validCostEventId}');`,
+  ).status, 0);
+  for (const invalidCostSql of [
+    `INSERT INTO cost_events (tenant_id, id, provider_id, service, unit_type, quantity, unit_cost_usd, amount_usd, source, occurred_at) VALUES ('${validTenantId}', '${fixtureUuid(261)}', 'fake-realtime', 'model', 'token', 0.1, 0.2, 0.03, 'estimated', now());`,
+    `INSERT INTO cost_events (tenant_id, id, provider_id, service, unit_type, quantity, unit_cost_usd, amount_usd, source, occurred_at) VALUES ('${validTenantId}', '${fixtureUuid(262)}', 'fake-realtime', 'model', 'gigabyte', 0.1, 0.2, 0.02, 'estimated', now());`,
+    `INSERT INTO cost_events (tenant_id, id, provider_id, service, unit_type, quantity, unit_cost_usd, amount_usd, source, occurred_at, currency) VALUES ('${validTenantId}', '${fixtureUuid(263)}', 'fake-realtime', 'model', 'token', 0.1, 0.2, 0.02, 'estimated', now(), 'EUR');`,
+    `INSERT INTO cost_events (tenant_id, id, session_id, provider_id, service, unit_type, quantity, unit_cost_usd, amount_usd, source, occurred_at, reconciles_cost_event_id) VALUES ('${validTenantId}', '${fixtureUuid(265)}', NULL, 'fake-realtime', 'model', 'token', 0.1, 0.2, 0.02, 'measured', now(), '${validMeasuredCostEventId}');`,
+    `INSERT INTO cost_events (tenant_id, id, session_id, provider_id, service, unit_type, quantity, unit_cost_usd, amount_usd, source, occurred_at, reconciles_cost_event_id) VALUES ('${validTenantId}', '${fixtureUuid(266)}', NULL, 'fake-realtime', 'tts', 'token', 0.1, 0.2, 0.02, 'measured', now(), '${validCostEventId}');`,
+  ]) {
+    assert.notEqual(runSql(cleanUrl, psqlPath, invalidCostSql).status, 0);
+  }
+
   const domainDrift = runSql(
     cleanUrl,
     psqlPath,
@@ -283,6 +350,70 @@ try {
   assert.equal(outboxDocumentIdentityRestore.status, 0);
   assert.doesNotThrow(() => database.checkLocalSchemaDrift({ databaseUrl: cleanUrl, psqlPath }));
 
+  const costReconciliationDrift = runSql(
+    cleanUrl,
+    psqlPath,
+    "ALTER TABLE cost_events DROP CONSTRAINT cost_events_amount_reconciliation_check;",
+  );
+  assert.equal(costReconciliationDrift.status, 0);
+  assert.throws(
+    () => database.checkLocalSchemaDrift({ databaseUrl: cleanUrl, psqlPath }),
+    database.MigrationDriftError,
+  );
+  const costReconciliationNoopRestore = runSql(
+    cleanUrl,
+    psqlPath,
+    "ALTER TABLE cost_events ADD CONSTRAINT cost_events_amount_reconciliation_check CHECK (true);",
+  );
+  assert.equal(costReconciliationNoopRestore.status, 0);
+  assert.throws(
+    () => database.checkLocalSchemaDrift({ databaseUrl: cleanUrl, psqlPath }),
+    database.MigrationDriftError,
+  );
+  const costReconciliationRestore = runSql(
+    cleanUrl,
+    psqlPath,
+    "ALTER TABLE cost_events DROP CONSTRAINT cost_events_amount_reconciliation_check; ALTER TABLE cost_events ADD CONSTRAINT cost_events_amount_reconciliation_check CHECK (amount_usd = round(quantity * unit_cost_usd, 8));",
+  );
+  assert.equal(costReconciliationRestore.status, 0);
+  assert.doesNotThrow(() => database.checkLocalSchemaDrift({ databaseUrl: cleanUrl, psqlPath }));
+
+  const costReconciliationTriggerDrift = runSql(
+    cleanUrl,
+    psqlPath,
+    "DROP TRIGGER cost_events_reconciliation_target ON cost_events;",
+  );
+  assert.equal(costReconciliationTriggerDrift.status, 0);
+  assert.throws(
+    () => database.checkLocalSchemaDrift({ databaseUrl: cleanUrl, psqlPath }),
+    database.MigrationDriftError,
+  );
+  const costReconciliationTriggerRestore = runSql(
+    cleanUrl,
+    psqlPath,
+    "CREATE TRIGGER cost_events_reconciliation_target BEFORE INSERT ON cost_events FOR EACH ROW EXECUTE FUNCTION app.validate_cost_event_reconciliation();",
+  );
+  assert.equal(costReconciliationTriggerRestore.status, 0);
+  assert.doesNotThrow(() => database.checkLocalSchemaDrift({ databaseUrl: cleanUrl, psqlPath }));
+
+  const providerRequestIndexDrift = runSql(
+    cleanUrl,
+    psqlPath,
+    "DROP INDEX cost_events_tenant_source_provider_request_ref_unique;",
+  );
+  assert.equal(providerRequestIndexDrift.status, 0);
+  assert.throws(
+    () => database.checkLocalSchemaDrift({ databaseUrl: cleanUrl, psqlPath }),
+    database.MigrationDriftError,
+  );
+  const providerRequestIndexRestore = runSql(
+    cleanUrl,
+    psqlPath,
+    "CREATE UNIQUE INDEX cost_events_tenant_source_provider_request_ref_unique ON cost_events (tenant_id, source, provider_request_ref) WHERE provider_request_ref IS NOT NULL;",
+  );
+  assert.equal(providerRequestIndexRestore.status, 0);
+  assert.doesNotThrow(() => database.checkLocalSchemaDrift({ databaseUrl: cleanUrl, psqlPath }));
+
   const policyDrift = runSql(
     cleanUrl,
     psqlPath,
@@ -349,7 +480,7 @@ try {
     database.MigrationDriftError,
   );
 
-  console.log("DATABASE INTEGRATION PASSED: clean apply, upgrade outbox backfill, invalid-envelope rollback, structural drift, and UUIDv7 rejection");
+  console.log("DATABASE INTEGRATION PASSED: clean apply, upgrade backfill, cost reconciliation, structural drift, and UUIDv7 rejection");
 } catch (error) {
   primaryError = error;
   throw error;
@@ -496,6 +627,18 @@ function fixtureUuid(offset) {
 
 function tenantInsertSql(tenantId, slug) {
   return `INSERT INTO tenants (id, slug, legal_name, status, home_region, default_language, default_timezone) VALUES ('${tenantId}', '${slug}', 'Outbox Migration Tenant', 'active', 'local', 'en', 'UTC');`;
+}
+
+function legacyCostEventFixture(offset, tenantId, amountUsd) {
+  return {
+    tenantId,
+    id: fixtureUuid(offset),
+    amountUsd,
+  };
+}
+
+function legacyCostEventInsertSql(fixture) {
+  return `INSERT INTO cost_events (tenant_id, id, session_id, provider_id, service, unit_type, quantity, unit_cost_usd, amount_usd, source, occurred_at) VALUES ('${fixture.tenantId}', '${fixture.id}', NULL, 'fake-realtime', 'model', 'token', 0.1, 0.2, ${fixture.amountUsd}, 'estimated', '2026-07-14T00:00:00Z');`;
 }
 
 function legacyOutboxInsertSql(fixture) {

@@ -100,6 +100,15 @@ const UUID_V7_CONSTRAINT_SIGNATURE = "checkvalueisnullorsubstringvaluetextfrom15
 const CURRENT_TENANT_ID_FUNCTION_SIGNATURE = "selectnullifcurrent_settingapptenant_idtrueuuid";
 const PREVENT_MUTATION_FUNCTION_SIGNATURE = "beginraiseexceptiontableisappendonlytg_table_nameusingerrcode55000end";
 const APPEND_ONLY_ROW_UPDATE_DELETE_TRIGGER_TYPE = 27;
+const COST_RECONCILIATION_ROW_INSERT_TRIGGER_TYPE = 7;
+const COST_RECONCILIATION_FUNCTION_SIGNATURES = [
+  "newreconciles_cost_event_idisnull",
+  "target_costsourceisdistinctfromestimated",
+  "target_costsession_idisdistinctfromnewsession_id",
+  "target_costprovider_idisdistinctfromnewprovider_id",
+  "target_costserviceisdistinctfromnewservice",
+  "target_costunit_typeisdistinctfromnewunit_type",
+] as const;
 const OUTBOX_EVENT_DOCUMENT_IDENTITY_CHECK = "events_outbox_event_document_identity_check";
 const OUTBOX_EVENT_DOCUMENT_IDENTITY_SIGNATURES = [
   "jsonb_typeofevent_documentobjecttext",
@@ -112,6 +121,35 @@ const OUTBOX_EVENT_DOCUMENT_IDENTITY_SIGNATURES = [
   "notevent_documentevent_idtextappuuid_v7uuidisdistinctfromevent_iduuid",
   "notevent_documenttenant_idtextisdistinctfromtenant_idtext",
 ] as const;
+const COST_EVENT_CHECK_CONSTRAINTS = [
+  { name: "cost_events_currency_check", signatures: ["currencyusd"] },
+  { name: "cost_events_provider_id_length_check", signatures: ["char_lengthprovider_id1andchar_lengthprovider_id120"] },
+  { name: "cost_events_service_length_check", signatures: ["char_lengthservice1andchar_lengthservice160"] },
+  { name: "cost_events_unit_type_check", signatures: ["unit_type", "minute", "second", "token", "character", "megabyte", "request", "seat", "flat"] },
+  { name: "cost_events_amount_reconciliation_check", signatures: ["amount_usdroundquantityunit_cost_usd8"] },
+  {
+    name: "cost_events_rate_card_pair_check",
+    signatures: ["rate_card_refisnullandrate_card_as_ofisnull", "rate_card_refisnotnullandrate_card_as_ofisnotnull"],
+  },
+  { name: "cost_events_trace_id_check", signatures: ["trace_id", "09af32"] },
+  { name: "cost_events_provider_request_ref_check", signatures: ["provider_request_ref", "ppr_az09664"] },
+  {
+    name: "cost_events_reconciliation_source_check",
+    signatures: ["reconciles_cost_event_idisnull", "measured", "provider_reported", "reconciles_cost_event_iduuididuuid"],
+  },
+] as const;
+const COST_EVENT_CHECK_SIGNATURES = COST_EVENT_CHECK_CONSTRAINTS.flatMap(({ name, signatures }) => (
+  signatures.map((signature) => ({ name, signature }))
+));
+const COST_EVENT_UNIQUE_INDEX = {
+  name: "cost_events_tenant_source_provider_request_ref_unique",
+  signatures: [
+    "createuniqueindex",
+    "cost_events",
+    "tenant_idsourceprovider_request_ref",
+    "provider_request_refisnotnull",
+  ],
+} as const;
 const DEFAULT_MIGRATIONS_DIRECTORY = resolve(
   fileURLToPath(new URL("..", import.meta.url)),
   "../../database/migrations",
@@ -126,6 +164,7 @@ const SENTINEL_SQL_BY_VERSION: Readonly<Record<number, string>> = {
   6: "SELECT EXISTS (SELECT 1 FROM public.provider_catalog WHERE provider_id = 'fake-realtime')::int;",
   7: "SELECT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'session_participants_tenant_session_id_id_key')::int;",
   8: "SELECT (EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'events_outbox_tenant_event_id_key') AND EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'events_outbox_event_document_identity_check'))::int;",
+  9: "SELECT (EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'cost_events_amount_reconciliation_check') AND EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'cost_events_tenant_id_reconciles_cost_event_id_fkey') AND to_regclass('public.cost_events_tenant_source_provider_request_ref_unique') IS NOT NULL)::int;",
 };
 
 const EXPECTED_PUBLIC_TABLES = [
@@ -208,13 +247,14 @@ const EXPECTED_TENANT_TABLES = [
 
 const EXPECTED_RLS_TABLES = ["tenants", ...EXPECTED_TENANT_TABLES] as const;
 
-const EXPECTED_APPEND_ONLY_TRIGGERS = [
-  { table: "session_timeline", name: "session_timeline_append_only" },
-  { table: "consent_evidence", name: "consent_evidence_append_only" },
-  { table: "disclosure_records", name: "disclosure_records_append_only" },
-  { table: "tool_receipts", name: "tool_receipts_append_only" },
-  { table: "audit_log", name: "audit_log_append_only" },
-  { table: "cost_events", name: "cost_events_append_only" },
+const EXPECTED_TRIGGERS = [
+  { table: "session_timeline", name: "session_timeline_append_only", triggerType: APPEND_ONLY_ROW_UPDATE_DELETE_TRIGGER_TYPE, functionName: "prevent_mutation" },
+  { table: "consent_evidence", name: "consent_evidence_append_only", triggerType: APPEND_ONLY_ROW_UPDATE_DELETE_TRIGGER_TYPE, functionName: "prevent_mutation" },
+  { table: "disclosure_records", name: "disclosure_records_append_only", triggerType: APPEND_ONLY_ROW_UPDATE_DELETE_TRIGGER_TYPE, functionName: "prevent_mutation" },
+  { table: "tool_receipts", name: "tool_receipts_append_only", triggerType: APPEND_ONLY_ROW_UPDATE_DELETE_TRIGGER_TYPE, functionName: "prevent_mutation" },
+  { table: "audit_log", name: "audit_log_append_only", triggerType: APPEND_ONLY_ROW_UPDATE_DELETE_TRIGGER_TYPE, functionName: "prevent_mutation" },
+  { table: "cost_events", name: "cost_events_append_only", triggerType: APPEND_ONLY_ROW_UPDATE_DELETE_TRIGGER_TYPE, functionName: "prevent_mutation" },
+  { table: "cost_events", name: "cost_events_reconciliation_target", triggerType: COST_RECONCILIATION_ROW_INSERT_TRIGGER_TYPE, functionName: "validate_cost_event_reconciliation" },
 ] as const;
 
 const EXPECTED_RELATIONAL_CONSTRAINTS = [
@@ -242,6 +282,11 @@ const EXPECTED_RELATIONAL_CONSTRAINTS = [
     table: "cost_events",
     name: "cost_events_tenant_id_session_id_fkey",
     definition: "foreignkey(tenant_id,session_id)referencessessions(tenant_id,id)ondeleterestrict",
+  },
+  {
+    table: "cost_events",
+    name: "cost_events_tenant_id_reconciles_cost_event_id_fkey",
+    definition: "foreignkey(tenant_id,reconciles_cost_event_id)referencescost_events(tenant_id,id)ondeleterestrictnotvalid",
   },
   {
     table: "evaluation_runs",
@@ -305,8 +350,8 @@ actual_policies AS (
   FROM pg_policies
   WHERE schemaname = 'public'
 ),
-expected_triggers(table_name, trigger_name) AS (
-  VALUES ${EXPECTED_APPEND_ONLY_TRIGGERS.map((trigger) => `('${trigger.table}', '${trigger.name}')`).join(", ")}
+expected_triggers(table_name, trigger_name, trigger_type, function_name) AS (
+  VALUES ${EXPECTED_TRIGGERS.map((trigger) => `('${trigger.table}', '${trigger.name}', ${trigger.triggerType}, '${trigger.functionName}')`).join(", ")}
 ),
 actual_triggers AS (
   SELECT
@@ -331,7 +376,7 @@ actual_app_functions AS (
   FROM pg_proc procedure
   JOIN pg_namespace namespace ON namespace.oid = procedure.pronamespace
   JOIN pg_language language ON language.oid = procedure.prolang
-  WHERE namespace.nspname = 'app' AND procedure.proname IN ('current_tenant_id', 'prevent_mutation')
+  WHERE namespace.nspname = 'app' AND procedure.proname IN ('current_tenant_id', 'prevent_mutation', 'validate_cost_event_reconciliation')
 ),
 expected_relational_constraints(table_name, constraint_name, definition) AS (
   VALUES ${EXPECTED_RELATIONAL_CONSTRAINTS.map((constraint) => `('${constraint.table}', '${constraint.name}', '${constraint.definition}')`).join(",\n    ")}
@@ -356,6 +401,33 @@ actual_outbox_event_document_identity_check AS (
     AND relation.relname = 'events_outbox'
     AND table_constraint.conname = '${OUTBOX_EVENT_DOCUMENT_IDENTITY_CHECK}'
     AND table_constraint.contype = 'c'
+),
+expected_cost_event_check_signatures(constraint_name, signature) AS (
+  VALUES ${COST_EVENT_CHECK_SIGNATURES.map((entry) => `('${entry.name}', '${entry.signature}')`).join(", ")}
+),
+actual_cost_event_check_constraints AS (
+  SELECT
+    table_constraint.conname AS constraint_name,
+    regexp_replace(lower(pg_get_constraintdef(table_constraint.oid)), '[^a-z0-9_]+', '', 'g') AS definition
+  FROM pg_constraint table_constraint
+  JOIN pg_class relation ON relation.oid = table_constraint.conrelid
+  JOIN pg_namespace namespace ON namespace.oid = relation.relnamespace
+  WHERE namespace.nspname = 'public'
+    AND relation.relname = 'cost_events'
+    AND table_constraint.contype = 'c'
+    AND table_constraint.conname IN (${COST_EVENT_CHECK_CONSTRAINTS.map((constraint) => `'${constraint.name}'`).join(", ")})
+),
+actual_cost_event_unique_index AS (
+  SELECT
+    index_class.relname AS index_name,
+    regexp_replace(lower(pg_get_indexdef(index_class.oid)), '[^a-z0-9_]+', '', 'g') AS definition
+  FROM pg_index index
+  JOIN pg_class index_class ON index_class.oid = index.indexrelid
+  JOIN pg_class relation ON relation.oid = index.indrelid
+  JOIN pg_namespace namespace ON namespace.oid = relation.relnamespace
+  WHERE namespace.nspname = 'public'
+    AND relation.relname = 'cost_events'
+    AND index_class.relname = '${COST_EVENT_UNIQUE_INDEX.name}'
 )
 SELECT CASE WHEN
   (SELECT count(*) FROM pg_extension WHERE extname IN ('vector', 'pgcrypto')) = 2
@@ -386,6 +458,12 @@ SELECT CASE WHEN
     WHERE function_name = 'prevent_mutation'
       AND language_name = 'plpgsql'
       AND source_signature = '${PREVENT_MUTATION_FUNCTION_SIGNATURE}'
+  )
+  AND EXISTS (
+    SELECT 1 FROM actual_app_functions
+    WHERE function_name = 'validate_cost_event_reconciliation'
+      AND language_name = 'plpgsql'
+      AND ${COST_RECONCILIATION_FUNCTION_SIGNATURES.map((signature) => `source_signature LIKE '%${signature}%'`).join("\n      AND ")}
   )
   AND NOT EXISTS (
     SELECT 1
@@ -449,9 +527,9 @@ SELECT CASE WHEN
       AND actual.trigger_name = expected.trigger_name
     WHERE actual.table_name IS NULL
       OR actual.enabled IS DISTINCT FROM 'O'
-      OR actual.trigger_type IS DISTINCT FROM ${APPEND_ONLY_ROW_UPDATE_DELETE_TRIGGER_TYPE}
+      OR actual.trigger_type IS DISTINCT FROM expected.trigger_type
       OR actual.function_schema IS DISTINCT FROM 'app'
-      OR actual.function_name IS DISTINCT FROM 'prevent_mutation'
+      OR actual.function_name IS DISTINCT FROM expected.function_name
   )
   AND NOT EXISTS (
     SELECT 1
@@ -465,6 +543,26 @@ SELECT CASE WHEN
     SELECT 1
     FROM actual_outbox_event_document_identity_check
     WHERE ${OUTBOX_EVENT_DOCUMENT_IDENTITY_SIGNATURES.map((signature) => `definition LIKE '%${signature}%'`).join("\n      AND ")}
+  )
+  AND NOT EXISTS (
+    SELECT 1
+    FROM expected_cost_event_check_signatures expected
+    LEFT JOIN actual_cost_event_check_constraints actual
+      ON actual.constraint_name = expected.constraint_name
+    WHERE actual.constraint_name IS NULL
+      OR actual.definition NOT LIKE '%' || expected.signature || '%'
+  )
+  AND NOT EXISTS (
+    SELECT 1
+    FROM actual_cost_event_unique_index actual
+    WHERE actual.index_name IS DISTINCT FROM '${COST_EVENT_UNIQUE_INDEX.name}'
+      OR ${COST_EVENT_UNIQUE_INDEX.signatures.map((signature) => `actual.definition NOT LIKE '%${signature}%'`).join("\n      OR ")}
+  )
+  AND EXISTS (
+    SELECT 1
+    FROM actual_cost_event_unique_index actual
+    WHERE actual.index_name = '${COST_EVENT_UNIQUE_INDEX.name}'
+      AND ${COST_EVENT_UNIQUE_INDEX.signatures.map((signature) => `actual.definition LIKE '%${signature}%'`).join("\n      AND ")}
   )
 THEN 'ok' ELSE 'drift' END;
 `;
@@ -503,7 +601,7 @@ FROM (
   FROM pg_proc procedure
   JOIN pg_namespace namespace ON namespace.oid = procedure.pronamespace
   JOIN pg_language language ON language.oid = procedure.prolang
-  WHERE namespace.nspname = 'app' AND procedure.proname IN ('current_tenant_id', 'prevent_mutation')
+  WHERE namespace.nspname = 'app' AND procedure.proname IN ('current_tenant_id', 'prevent_mutation', 'validate_cost_event_reconciliation')
   UNION ALL
   SELECT 'uuid_v7_constraint:' || regexp_replace(lower(pg_get_constraintdef(domain_constraint.oid)), '[[:space:]]+', '', 'g')
   FROM pg_constraint domain_constraint
@@ -516,8 +614,64 @@ FROM (
   JOIN pg_class relation ON relation.oid = table_constraint.conrelid
   JOIN pg_namespace namespace ON namespace.oid = relation.relnamespace
   WHERE namespace.nspname = 'public'
-    AND table_constraint.conname IN (${[...EXPECTED_RELATIONAL_CONSTRAINTS.map((constraint) => `'${constraint.name}'`), `'${OUTBOX_EVENT_DOCUMENT_IDENTITY_CHECK}'`].join(", ")})
+    AND table_constraint.conname IN (${[...EXPECTED_RELATIONAL_CONSTRAINTS.map((constraint) => `'${constraint.name}'`), `'${OUTBOX_EVENT_DOCUMENT_IDENTITY_CHECK}'`, ...COST_EVENT_CHECK_CONSTRAINTS.map((constraint) => `'${constraint.name}'`)].join(", ")})
+  UNION ALL
+  SELECT 'index:' || index_class.relname || ':' || regexp_replace(lower(pg_get_indexdef(index_class.oid)), '[^a-z0-9_]+', '', 'g')
+  FROM pg_index index
+  JOIN pg_class index_class ON index_class.oid = index.indexrelid
+  JOIN pg_class relation ON relation.oid = index.indrelid
+  JOIN pg_namespace namespace ON namespace.oid = relation.relnamespace
+  WHERE namespace.nspname = 'public'
+    AND relation.relname = 'cost_events'
+    AND index_class.relname = '${COST_EVENT_UNIQUE_INDEX.name}'
 ) catalog_entries
+ORDER BY entry;
+`;
+
+const CATALOG_DIAGNOSTIC_SQL = `
+SELECT entry
+FROM (
+  SELECT 'cost_check:' || table_constraint.conname || ':' || regexp_replace(lower(pg_get_constraintdef(table_constraint.oid)), '[^a-z0-9_]+', '', 'g') AS entry
+  FROM pg_constraint table_constraint
+  JOIN pg_class relation ON relation.oid = table_constraint.conrelid
+  JOIN pg_namespace namespace ON namespace.oid = relation.relnamespace
+  WHERE namespace.nspname = 'public'
+    AND relation.relname = 'cost_events'
+    AND table_constraint.contype = 'c'
+    AND table_constraint.conname IN (${COST_EVENT_CHECK_CONSTRAINTS.map((constraint) => `'${constraint.name}'`).join(", ")})
+  UNION ALL
+  SELECT 'trigger:' || relation.relname || ':' || trigger.tgname || ':' || trigger.tgtype::integer::text || ':' || function_namespace.nspname || '.' || procedure.proname
+  FROM pg_trigger trigger
+  JOIN pg_class relation ON relation.oid = trigger.tgrelid
+  JOIN pg_namespace namespace ON namespace.oid = relation.relnamespace
+  JOIN pg_proc procedure ON procedure.oid = trigger.tgfoid
+  JOIN pg_namespace function_namespace ON function_namespace.oid = procedure.pronamespace
+  WHERE namespace.nspname = 'public'
+    AND relation.relname = 'cost_events'
+    AND NOT trigger.tgisinternal
+  UNION ALL
+  SELECT 'function:' || procedure.proname || ':' || regexp_replace(lower(procedure.prosrc), '[^a-z0-9_]+', '', 'g')
+  FROM pg_proc procedure
+  JOIN pg_namespace namespace ON namespace.oid = procedure.pronamespace
+  WHERE namespace.nspname = 'app'
+    AND procedure.proname = 'validate_cost_event_reconciliation'
+  UNION ALL
+  SELECT 'relational:' || table_constraint.conname || ':' || regexp_replace(lower(pg_get_constraintdef(table_constraint.oid)), '[[:space:]]+', '', 'g')
+  FROM pg_constraint table_constraint
+  JOIN pg_class relation ON relation.oid = table_constraint.conrelid
+  JOIN pg_namespace namespace ON namespace.oid = relation.relnamespace
+  WHERE namespace.nspname = 'public'
+    AND table_constraint.conname = 'cost_events_tenant_id_reconciles_cost_event_id_fkey'
+  UNION ALL
+  SELECT 'index:' || index_class.relname || ':' || regexp_replace(lower(pg_get_indexdef(index_class.oid)), '[^a-z0-9_]+', '', 'g')
+  FROM pg_index index
+  JOIN pg_class index_class ON index_class.oid = index.indexrelid
+  JOIN pg_class relation ON relation.oid = index.indrelid
+  JOIN pg_namespace namespace ON namespace.oid = relation.relnamespace
+  WHERE namespace.nspname = 'public'
+    AND relation.relname = 'cost_events'
+    AND index_class.relname = '${COST_EVENT_UNIQUE_INDEX.name}'
+) diagnostics
 ORDER BY entry;
 `;
 
@@ -634,7 +788,10 @@ export function checkLocalSchemaDrift(options: Omit<LocalMigrationOptions, "targ
     assertHistoryExact(history, migrations);
 
     const catalogStatus = querySql(executor, psqlPath, databaseUrl, CATALOG_ASSERTION_SQL, "schema catalog verification").trim();
-    if (catalogStatus !== "ok") throw new MigrationDriftError("Database catalog does not match the normative migration contract");
+    if (catalogStatus !== "ok") {
+      const diagnostics = querySql(executor, psqlPath, databaseUrl, CATALOG_DIAGNOSTIC_SQL, "schema catalog diagnostics").trim();
+      throw new MigrationDriftError(`Database catalog does not match the normative migration contract: ${diagnostics}`);
+    }
     const catalog = querySql(executor, psqlPath, databaseUrl, CATALOG_FINGERPRINT_SQL, "schema catalog fingerprint");
     return Object.freeze({
       migrationCount: history.length,

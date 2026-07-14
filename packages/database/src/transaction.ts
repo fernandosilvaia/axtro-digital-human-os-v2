@@ -23,6 +23,41 @@ export class DeterministicTransactionError extends Error {
 export class DeterministicTransactionCoordinator {
   #active = false;
 
+  /**
+   * Synchronous counterpart for deterministic, in-process repositories. It
+   * avoids yielding between a state write and its rollback boundary, which
+   * keeps duplicate delivery checks atomic on the JavaScript event loop.
+   */
+  executeSync<Result, Snapshot>(
+    participant: TransactionalStateParticipant<Snapshot>,
+    work: () => Result,
+  ): Result {
+    if (!isParticipant(participant) || typeof work !== "function") {
+      throw new DeterministicTransactionError();
+    }
+    if (this.#active) throw new DeterministicTransactionError("Nested deterministic transactions are not supported");
+
+    this.#active = true;
+    let snapshot: Snapshot | undefined;
+    let captured = false;
+    try {
+      snapshot = participant.captureSnapshot();
+      captured = true;
+      return work();
+    } catch (error) {
+      if (captured) {
+        try {
+          participant.restoreSnapshot(snapshot as Snapshot);
+        } catch {
+          throw new DeterministicTransactionError("Deterministic transaction rollback failed");
+        }
+      }
+      throw error;
+    } finally {
+      this.#active = false;
+    }
+  }
+
   async execute<Result, Snapshot>(
     participant: TransactionalStateParticipant<Snapshot>,
     work: () => Result | Promise<Result>,

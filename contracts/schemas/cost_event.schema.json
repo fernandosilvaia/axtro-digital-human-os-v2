@@ -72,6 +72,42 @@
         "estimated"
       ]
     },
+    "rate_card_ref": {
+      "type": [
+        "string",
+        "null"
+      ],
+      "pattern": "^[a-z][a-z0-9._/-]{0,159}$",
+      "maxLength": 160
+    },
+    "rate_card_as_of": {
+      "type": [
+        "string",
+        "null"
+      ],
+      "format": "date-time"
+    },
+    "reconciles_cost_event_id": {
+      "type": [
+        "string",
+        "null"
+      ],
+      "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$"
+    },
+    "trace_id": {
+      "type": [
+        "string",
+        "null"
+      ],
+      "pattern": "^[0-9a-f]{32}$"
+    },
+    "provider_request_ref": {
+      "type": [
+        "string",
+        "null"
+      ],
+      "pattern": "^ppr_[a-z0-9]{6,64}$"
+    },
     "occurred_at": {
       "type": "string",
       "format": "date-time"

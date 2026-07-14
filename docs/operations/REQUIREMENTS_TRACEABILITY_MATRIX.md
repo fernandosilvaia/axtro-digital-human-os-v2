@@ -30,6 +30,6 @@ This matrix covers P0 requirements at architecture level. Task IDs reference `ba
 | REQ-SEC-001 | Context Composer | source metadata | knowledge | M1-04 | RAG injection | ignore commands |
 | REQ-SEC-002 | Secret broker | provider connection ref | secret refs | M0-06 | secret scan | block build |
 | REQ-OBS-001 | OTel conventions | event envelope | logs/traces | M0-10 | correlation test | reject missing |
-| REQ-OBS-002 | Cost ledger | cost_event | cost events | M0-16 | reconciliation | budget degrade |
+| REQ-OBS-002 | Cost ledger | cost_event | cost events | M0-16 | deterministic decimal reconciliation, precision rejection, source buckets, request capability binding and cross-tenant denial | budget degrade; no invoice integration in M0 |
 | REQ-OBS-003 | Health manager | session_health_state | health | M2-10 | threshold chaos | degradation mode |
 | REQ-AXTRO-001 | Axtro Bridge | agent_suggestion | outbox/bridge | M1-03 | sync dependency scan | daemon disabled |

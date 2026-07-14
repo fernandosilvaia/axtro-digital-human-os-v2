@@ -12,7 +12,7 @@
 | Workflow | timers, retries, compensações | media loop |
 | Evaluation | datasets, runs, scores, findings | promoção direta |
 | Learning | candidates, experiments, promotions | autoedição de produção |
-| Billing and Cost | usage ledger, budgets, plans | provider secrets |
+| Billing and Cost | cost events append-only, usage ledger, rate cards, budgets, plans | provider secrets, invoice API, realtime critical path |
 
 ## Regra de dependência
 
@@ -32,6 +32,7 @@ Provider adapters ------------|
 - `packages/auth`: verificação de identidade, grants explícitos de tenant e contexto transacional.
 - `packages/security`: policy evaluation, data classification, referências de segredo, ingress framework-neutral bounded e policy de egress por adapter, sem servidor HTTP, transporte ou rede própria.
 - `packages/observability`: correlação W3C interna, nomes de spans, métricas e logs estruturados seguros, sem backend, payload ou transporte próprio.
+- `packages/costing`: atribuição determinística de custo, rate cards opacos, agregação por evidência e reconciliação append-only, sem SDK, rede ou chamada a adapter.
 - `packages/ui`: componentes sem regra de domínio.
 
 ## Regras de import

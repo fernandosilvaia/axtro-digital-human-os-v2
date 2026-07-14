@@ -75,7 +75,7 @@ try {
   createDatabase(baseDatabaseUrl, psqlPath, testDatabaseName);
   const testDatabaseUrl = databaseUrlFor(baseDatabaseUrl, testDatabaseName);
   const migrated = database.applyLocalMigrations({ databaseUrl: testDatabaseUrl, psqlPath });
-  assert.equal(migrated.history.length, 8);
+  assert.equal(migrated.history.length, 9);
   assertSucceeded(runSql(testDatabaseUrl, psqlPath, seedSql(fixture)), "deterministic tenant fixture seed");
   assertSucceeded(provisionRuntimeRole(baseDatabaseUrl, testDatabaseUrl, psqlPath, runtimeRole), "least-privilege runtime role");
   const runtimeUrl = databaseUrlWithUser(testDatabaseUrl, runtimeRole);
@@ -227,6 +227,16 @@ function assertCrossTenantRelationshipsAreRejected(runtimeUrl) {
   assert.notEqual(turnOtherSession.status, 0, "turn participant must belong to the same session");
   const handoffOtherSession = withTenant(runtimeUrl, fixture.tenantAlpha, `INSERT INTO handoffs (tenant_id, id, session_id, from_presenter_id, target_type, reason_code, priority, packet_document, status, requested_at) VALUES ('${fixture.tenantAlpha}', '${fixture.crossHandoff}', '${fixture.sessionAlpha}', '${fixture.participantAlphaOtherSession}', 'human', 'fixture', 'normal', '{}'::jsonb, 'requested', now());`);
   assert.notEqual(handoffOtherSession.status, 0, "handoff presenter must belong to the same session");
+  const crossTenantCostSession = withTenant(runtimeUrl, fixture.tenantBeta, `INSERT INTO cost_events (tenant_id, id, session_id, provider_id, service, unit_type, quantity, unit_cost_usd, amount_usd, source, occurred_at) VALUES ('${fixture.tenantBeta}', '${fixture.crossCostSession}', '${fixture.sessionAlpha}', 'fake-realtime', 'model', 'token', 1, 0.1, 0.1, 'estimated', now());`);
+  assert.notEqual(crossTenantCostSession.status, 0, "cost event session must belong to the same tenant");
+  const crossTenantCostReconciliation = withTenant(runtimeUrl, fixture.tenantBeta, `INSERT INTO cost_events (tenant_id, id, session_id, provider_id, service, unit_type, quantity, unit_cost_usd, amount_usd, source, occurred_at, reconciles_cost_event_id) VALUES ('${fixture.tenantBeta}', '${fixture.crossCost}', NULL, 'fake-realtime', 'model', 'token', 1, 0.1, 0.1, 'measured', now(), '${fixture.costAlpha}');`);
+  assert.notEqual(crossTenantCostReconciliation.status, 0, "cost reconciliation must not reference another tenant's evidence");
+  const matchingMeasuredCost = withTenant(runtimeUrl, fixture.tenantAlpha, `INSERT INTO cost_events (tenant_id, id, session_id, provider_id, service, unit_type, quantity, unit_cost_usd, amount_usd, source, occurred_at, reconciles_cost_event_id) VALUES ('${fixture.tenantAlpha}', '${fixture.costMeasuredAlpha}', '${fixture.sessionAlpha}', 'fake-realtime', 'model', 'token', 1, 0.1, 0.1, 'measured', now(), '${fixture.costAlpha}');`);
+  assertSucceeded(matchingMeasuredCost, "matching measured cost reconciliation");
+  const measuredToMeasured = withTenant(runtimeUrl, fixture.tenantAlpha, `INSERT INTO cost_events (tenant_id, id, session_id, provider_id, service, unit_type, quantity, unit_cost_usd, amount_usd, source, occurred_at, reconciles_cost_event_id) VALUES ('${fixture.tenantAlpha}', '${fixture.costInvalidReconciliation}', '${fixture.sessionAlpha}', 'fake-realtime', 'model', 'token', 1, 0.1, 0.1, 'measured', now(), '${fixture.costMeasuredAlpha}');`);
+  assert.notEqual(measuredToMeasured.status, 0, "cost reconciliation target must be estimated evidence");
+  const mismatchedCostDimension = withTenant(runtimeUrl, fixture.tenantAlpha, `INSERT INTO cost_events (tenant_id, id, session_id, provider_id, service, unit_type, quantity, unit_cost_usd, amount_usd, source, occurred_at, reconciles_cost_event_id) VALUES ('${fixture.tenantAlpha}', '${fixture.costInvalidDimension}', '${fixture.sessionAlpha}', 'fake-realtime', 'tts', 'token', 1, 0.1, 0.1, 'measured', now(), '${fixture.costAlpha}');`);
+  assert.notEqual(mismatchedCostDimension.status, 0, "cost reconciliation must retain matching attribution dimensions");
 }
 
 function assertAppendOnlyTablesRejectMutation(runtimeUrl) {
@@ -244,6 +254,8 @@ function assertAppendOnlyTablesRejectMutation(runtimeUrl) {
   }
   const deletion = withTenant(runtimeUrl, fixture.tenantAlpha, `DELETE FROM session_timeline WHERE tenant_id = '${fixture.tenantAlpha}' AND id = '${fixture.timelineAlpha}';`);
   assert.notEqual(deletion.status, 0, "session_timeline must reject deletes");
+  const costDeletion = withTenant(runtimeUrl, fixture.tenantAlpha, `DELETE FROM cost_events WHERE tenant_id = '${fixture.tenantAlpha}' AND id = '${fixture.costAlpha}';`);
+  assert.notEqual(costDeletion.status, 0, "cost_events must reject deletes");
 }
 
 function assertHistoricalSessionReferencesRejectDeletion(adminUrl) {
@@ -342,7 +354,8 @@ function createFixture() {
     versionAlpha: nextId(), chunkAlpha: nextId(), embeddingAlpha: nextId(), workflowAlpha: nextId(), commandAlpha: nextId(), auditAlpha: nextId(),
     outboxAlpha: nextId(), costAlpha: nextId(), costForDeletion: nextId(), usageAlpha: nextId(), evaluationAlpha: nextId(), evaluationForDeletion: nextId(),
     experimentAlpha: nextId(), promotionAlpha: nextId(), missingContextWrite: nextId(), tenantBetaContact: nextId(), crossTenantWrite: nextId(),
-    crossSession: nextId(), crossParticipant: nextId(), crossTurn: nextId(), crossHandoff: nextId(),
+    crossSession: nextId(), crossParticipant: nextId(), crossTurn: nextId(), crossHandoff: nextId(), crossCostSession: nextId(), crossCost: nextId(),
+    costMeasuredAlpha: nextId(), costInvalidReconciliation: nextId(), costInvalidDimension: nextId(),
   });
 }
 

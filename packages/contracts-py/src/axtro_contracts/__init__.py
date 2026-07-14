@@ -88,7 +88,7 @@ class ConversationState(TypedDict):
     updated_at: str
 
 # Source: contracts/schemas/cost_event.schema.json; schema: https://schemas.axtro.ai/v2/cost_event.schema.json; version: 2.0.0.
-class CostEvent(TypedDict):
+class _CostEventRequired(TypedDict):
     schema_version: Literal['2.0.0']
     cost_event_id: str
     tenant_id: str
@@ -102,6 +102,13 @@ class CostEvent(TypedDict):
     currency: Literal['USD']
     source: Literal['measured', 'provider_reported', 'estimated']
     occurred_at: str
+
+class CostEvent(_CostEventRequired, total=False):
+    rate_card_ref: str | None
+    rate_card_as_of: str | None
+    reconciles_cost_event_id: str | None
+    trace_id: str | None
+    provider_request_ref: str | None
 
 # Source: contracts/schemas/deployment_promotion.schema.json; schema: https://schemas.axtro.ai/v2/deployment_promotion.schema.json; version: 2.0.0.
 class DeploymentPromotion(TypedDict):
@@ -570,7 +577,7 @@ CONTRACT_METADATA: dict[str, dict[str, str]] = {
   "CostEvent": {
     "schema_id": "https://schemas.axtro.ai/v2/cost_event.schema.json",
     "schema_version": "2.0.0",
-    "source_hash": "a7c3e1dd519a538b0bd72c6a5332853d951ce00a1cf92e85ca4b8820a6bb4ac7",
+    "source_hash": "bed4a4a890ed8779b0ac9b79a392aec01f31eb8bea68ab038beab1f5a9e75e98",
     "source_schema": "contracts/schemas/cost_event.schema.json"
   },
   "DeploymentPromotion": {

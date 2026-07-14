@@ -8,3 +8,4 @@
 \i migrations/0006_reference_seeds.sql
 \i migrations/0007_relational_tenancy_integrity.sql
 \i migrations/0008_outbox_event_identity.sql
+\i migrations/0009_cost_event_reconciliation.sql

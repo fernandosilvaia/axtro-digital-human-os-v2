@@ -16,6 +16,7 @@ The runner accepts only password-free local PostgreSQL URLs with an explicit use
 6. `0006_reference_seeds.sql`
 7. `0007_relational_tenancy_integrity.sql`
 8. `0008_outbox_event_identity.sql`
+9. `0009_cost_event_reconciliation.sql`
 
 ## Rules
 
@@ -26,6 +27,7 @@ The runner accepts only password-free local PostgreSQL URLs with an explicit use
 - Destructive schema changes use expand, migrate, verify, contract.
 - Migrations must be tested from zero and from the previous release snapshot.
 - Outbox rows carry a UUIDv7 `event_id` with a unique `(tenant_id, event_id)` constraint. A forward migration derives it only from an existing canonical event envelope whose identity fields prove `event_document.tenant_id = events_outbox.tenant_id`, and a persistent check prevents future mismatched envelopes. Historical rows that cannot prove this fail closed.
+- Cost events retain tenant-scoped append-only evidence. The cost reconciliation migration applies new checks as forward-only `NOT VALID` constraints so legacy rows remain readable, and enforces USD, unit catalog, provider and service bounds, fixed-decimal amount reconciliation, dated rate-card pairing, local request and trace references. A partial unique index prevents a non-null provider request reference from creating more than one event per tenant and source. A `BEFORE INSERT` trigger admits a reconciliation only when it targets same-tenant estimated evidence with matching session, provider, service, and unit.
 
 ## M0 evidence
 

@@ -64,4 +64,4 @@ The ToolPort is declared and remains fail-closed until a future runtime-owned pr
 
 ## Cost metering
 
-Every adapter reports the billing quantity and unit it can observe. `ProviderCostUnit` is exactly the generated `CostEvent.unit_type` union, including `megabyte`, `seat` and `flat`; no implicit byte conversion is allowed. M0-16 will define any byte or storage-duration conversion before ledger persistence. The Cost Ledger may combine provider-reported usage with a datestamped rate card. Estimated and invoiced costs remain distinct until reconciliation.
+Every adapter reports the billing quantity and unit it can observe. `ProviderCostUnit` is exactly the generated `CostEvent.unit_type` union, including `megabyte`, `seat` and `flat`; no implicit byte conversion is allowed. M0-16 records provider-observed usage only after the application combines it with an opaque, dated rate card and a server-minted request capability bound to that rate card, tenant, and session. The Cost Ledger keeps estimated, measured, and provider-reported evidence separate. Provider invoice ingestion is deferred to a later contract-first integration.

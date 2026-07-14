@@ -121,6 +121,11 @@ export interface CostEvent {
   amount_usd: number;
   currency: "USD";
   source: "measured" | "provider_reported" | "estimated";
+  rate_card_ref?: string | null;
+  rate_card_as_of?: string | null;
+  reconciles_cost_event_id?: string | null;
+  trace_id?: string | null;
+  provider_request_ref?: string | null;
   occurred_at: string;
 }
 
@@ -706,7 +711,7 @@ export const CONTRACT_METADATA = {
   "CostEvent": {
     "schema_id": "https://schemas.axtro.ai/v2/cost_event.schema.json",
     "schema_version": "2.0.0",
-    "source_hash": "a7c3e1dd519a538b0bd72c6a5332853d951ce00a1cf92e85ca4b8820a6bb4ac7",
+    "source_hash": "bed4a4a890ed8779b0ac9b79a392aec01f31eb8bea68ab038beab1f5a9e75e98",
     "source_schema": "contracts/schemas/cost_event.schema.json"
   },
   "DeploymentPromotion": {

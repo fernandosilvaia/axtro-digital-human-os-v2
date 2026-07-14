@@ -16,6 +16,7 @@ EXPECTED = [
     "0006_reference_seeds.sql",
     "0007_relational_tenancy_integrity.sql",
     "0008_outbox_event_identity.sql",
+    "0009_cost_event_reconciliation.sql",
 ]
 
 
@@ -60,9 +61,27 @@ def main() -> int:
         "handoffs_tenant_id_session_id_from_presenter_id_fkey",
         "events_outbox_tenant_event_id_key",
         "events_outbox_event_document_identity_check",
+        "cost_events_tenant_id_reconciles_cost_event_id_fkey",
     ):
         if constraint_name not in all_sql:
             errors.append(f"Relational tenancy constraint is missing: {constraint_name}")
+    for constraint_name in (
+        "cost_events_currency_check",
+        "cost_events_amount_reconciliation_check",
+        "cost_events_rate_card_pair_check",
+        "cost_events_reconciliation_source_check",
+    ):
+        if constraint_name not in all_sql:
+            errors.append(f"Cost ledger constraint is missing: {constraint_name}")
+    cost_reconciliation_migration = (MIGRATIONS / "0009_cost_event_reconciliation.sql").read_text(encoding="utf-8")
+    if "CHECK (amount_usd = round(quantity * unit_cost_usd, 8)) NOT VALID" not in cost_reconciliation_migration:
+        errors.append("Cost amount reconciliation must preserve legacy rows with a forward-only constraint")
+    if "CREATE FUNCTION app.validate_cost_event_reconciliation()" not in cost_reconciliation_migration:
+        errors.append("Cost reconciliation target validation function is missing")
+    if "CREATE TRIGGER cost_events_reconciliation_target" not in cost_reconciliation_migration:
+        errors.append("Cost reconciliation target trigger is missing")
+    if "CREATE UNIQUE INDEX cost_events_tenant_source_provider_request_ref_unique" not in cost_reconciliation_migration:
+        errors.append("Cost provider request replay guard is missing")
     if all_sql.count("ON DELETE RESTRICT") < 2:
         errors.append("Historical session references must reject hard deletion")
     for immutable_table in ("session_timeline", "consent_evidence", "disclosure_records", "tool_receipts", "audit_log", "cost_events"):
