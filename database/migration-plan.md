@@ -2,7 +2,9 @@
 
 ## Runner decision
 
-M0 must choose one migration runner already compatible with the selected TypeScript or Python database layer. The SQL files in this directory remain the normative database contract. A runner may wrap them, but must not silently reinterpret constraints.
+M0 uses the TypeScript `@axtro/database` runner backed by local `psql`. No ORM or database client library is selected yet. The SQL files in this directory remain the normative database contract; the runner executes them verbatim and must not silently reinterpret constraints.
+
+The runner accepts only password-free local PostgreSQL URLs with an explicit user and database name, writes ordered SHA-256 receipts to `public.axtro_schema_migrations`, and fails closed if a schema sentinel exists without its receipt. It starts subprocesses from a minimal allowlist with GSS disabled, requires an explicit opt-in for a caller-supplied loopback URL, and uses one normalized local lock for apply, read, and drift operations. The lock serializes this runner on one machine but cannot coordinate manual database clients. `pg` and Drizzle remain deferred until a repository implementation needs a database client.
 
 ## Order
 
@@ -25,7 +27,7 @@ M0 must choose one migration runner already compatible with the selected TypeScr
 ## M0 evidence
 
 - clean apply on PostgreSQL with pgvector;
-- rollback or documented irreversible boundary;
+- documented forward-only boundary and repair procedure;
 - two-tenant negative tests for read, insert, update and delete;
 - append-only mutation rejection;
 - UUIDv7 rejection test;

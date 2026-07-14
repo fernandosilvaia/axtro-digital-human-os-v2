@@ -5,7 +5,13 @@ CREATE EXTENSION IF NOT EXISTS vector;
 CREATE EXTENSION IF NOT EXISTS pgcrypto;
 
 CREATE DOMAIN app.uuid_v7 AS uuid
-  CHECK (VALUE IS NULL OR substring(VALUE::text from 15 for 1) = '7');
+  CHECK (
+    VALUE IS NULL
+    OR (
+      substring(VALUE::text from 15 for 1) = '7'
+      AND substring(VALUE::text from 20 for 1) ~ '^[89ab]$'
+    )
+  );
 
 CREATE OR REPLACE FUNCTION app.current_tenant_id()
 RETURNS uuid

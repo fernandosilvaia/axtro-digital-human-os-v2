@@ -1,2 +1,2 @@
-/** Database adapters and local migration runner are added in M0-07. */
-export {};
+/** Local migration and database boundary. No ORM or provider SDK is selected in M0. */
+export * from "./migrations.js";

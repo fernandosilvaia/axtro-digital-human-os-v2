@@ -2,9 +2,9 @@
 
 **Estado atual:** implementação de M0 em andamento  
 **Marco atual:** M0  
-**Tarefa atual:** M0-07
-**Última evidência verde:** M0-06 com configuração fail-closed, handles opacos e gates verdes em 2026-07-14
-**Bloqueadores internos:** nenhum; M0-07 requer somente PostgreSQL local com pgvector, sem banco remoto
+**Tarefa atual:** M0-07 concluída, próxima M0-08
+**Última evidência verde:** M0-07 com migrations locais verificadas, RLS estrutural e gates verdes em 2026-07-14
+**Bloqueadores internos:** nenhum
 **Pendências externas:** consultar `PENDENCIAS_EXTERNAS.md`  
 
 ## Regras de atualização
@@ -24,7 +24,7 @@
 | `M0-04` | M0 | done | Implement domain identifiers and value objects | `M0-03` | UUIDv7 determinístico, fronteiras estritas, contextos imutáveis e serialização verificados |
 | `M0-05` | M0 | done | Implement interaction state and pure reducers | `M0-04` | reducers puros, versionamento estrito, hash canônico, replay e extensão de vendas opcional verificados |
 | `M0-06` | M0 | done | Implement typed configuration and secret handles | `M0-01` | config schema tipado, startup fail-closed, handles opacos, broker fake scoped e redaction verificados |
-| `M0-07` | M0 | in_progress | Install database migration runner | `M0-01`, `M0-04` | descoberta local e runner numerado serão implementados sem conexão remota |
+| `M0-07` | M0 | done | Install database migration runner | `M0-01`, `M0-04` | runner local numerado, receipts SHA-256, drift estrutural e integração PostgreSQL 17 com pgvector verdes |
 | `M0-08` | M0 | pending | Implement RLS and cross-tenant negative test suite | `M0-07` | pending |
 | `M0-09` | M0 | pending | Implement authentication and tenant context middleware | `M0-06`, `M0-08` | pending |
 | `M0-10` | M0 | pending | Add OpenTelemetry and structured logging | `M0-01`, `M0-06` | pending |
@@ -137,6 +137,16 @@
 - Testes novos cobrem matriz de configuração, aliases de segredo, inputs hostis, redaction de objetos, erros e ciclos, isolamento de tenant, provider, purpose e scope, ausência de rede e contrato de handles. Revisão de segurança independente concluída sem achados remanescentes.
 - Evidências verdes: `env CI=true pnpm install --frozen-lockfile`, `pnpm contracts:check`, `pnpm lint`, `pnpm typecheck`, `pnpm build`, `pnpm test` (25 testes Node e 10 Python unittest), `env UV_CACHE_DIR=.uv-cache uv run pytest` (10 testes) e `python3 scripts/validate_all.py` (8 checks).
 - Próxima tarefa marcada antes de qualquer alteração: M0-07, runner de migrations numeradas contra PostgreSQL local com pgvector, sem conexão remota.
+
+### 2026-07-14, M0-07 concluído
+
+- Implementado `@axtro/database` com descoberta contígua das seis migrations normativas, checksums SHA-256, receipts ordenados em `public.axtro_schema_migrations`, sentinelas contra migration aplicada sem receipt e boundary explícito de UUIDv7 da aplicação.
+- `db:migrate`, `db:drift` e `db:test` usam somente URLs loopback sem senha, usuário e banco explícitos. A URL fornecida pelo operador exige `AXTRO_ALLOW_LOCAL_DATABASE_URL=1`; subprocessos recebem allowlist mínima, password e service files inertes, TLS e GSS desabilitados.
+- Leitura e drift não criam a tabela de receipts. Um lock local por identidade normalizada serializa apply, read e drift entre aliases de loopback, com falha fechada para lock órfão ou estado sem receipt.
+- O drift verifica extensões, domínio UUIDv7 completo, tabela e policy RLS exatas, triggers append-only ativos com timing e eventos corretos, e as funções `app.current_tenant_id` e `app.prevent_mutation`. A integração prova clean apply, upgrade de 0005 para 0006, rejeições UUIDv4 e variante RFC inválida, e regressões reais de domínio, policy, trigger e função.
+- O harness inicia somente PostgreSQL 17 com pgvector em diretório temporário local, confirma `vector.control`, faz cleanup idempotente também em `SIGINT` ou `SIGTERM`, e não aceita ambiente remoto, credencial ou deploy.
+- Revisões independentes de dados, testes e segurança concluídas. Evidências verdes: `env CI=true pnpm install --frozen-lockfile`, `pnpm contracts:check`, `pnpm lint`, `pnpm typecheck`, `pnpm build`, `pnpm test` (31 Node e 10 Python unittest), `pnpm db:test`, `UV_CACHE_DIR=.uv-cache uv run pytest` (10) e `python3 scripts/validate_all.py` (8 checks).
+- Próxima tarefa: M0-08, suíte negativa RLS e cross-tenant.
 
 ### 2026-07-14, baseline arquitetural
 

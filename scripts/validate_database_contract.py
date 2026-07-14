@@ -37,6 +37,10 @@ def main() -> int:
         errors.append("Embedding dimension must not be hard-coded to 1536")
     if "CREATE DOMAIN app.uuid_v7" not in all_sql:
         errors.append("UUIDv7 domain is missing")
+    if "substring(VALUE::text from 15 for 1) = '7'" not in all_sql:
+        errors.append("UUIDv7 version constraint is missing")
+    if "substring(VALUE::text from 20 for 1) ~ '^[89ab]$'" not in all_sql:
+        errors.append("UUIDv7 RFC variant constraint is missing")
     if "FORCE ROW LEVEL SECURITY" not in all_sql:
         errors.append("Forced RLS is missing")
     if "tenant_isolation" not in all_sql:

@@ -32,3 +32,15 @@ pnpm contracts:check
 `contracts:check` também é executado pelo agregador e pela CI. Nunca edite os arquivos gerados manualmente.
 
 O Codex deve preservar esses gates e ampliar a CI com lint, typecheck, unit, integration, E2E, migration apply/rollback, RLS negativo, replay, chaos e security tests conforme o código aparecer.
+
+## Migrations locais
+
+```bash
+export AXTRO_LOCAL_DATABASE_URL='postgresql://postgres@127.0.0.1:54329/axtro_dhos_v2'
+export AXTRO_ALLOW_LOCAL_DATABASE_URL=1
+pnpm db:migrate
+pnpm db:drift
+pnpm db:test
+```
+
+Os comandos aceitam somente PostgreSQL local sem senha e exigem opt-in explícito quando uma URL local é fornecida. `db:test` usa um cluster PostgreSQL 17 com pgvector efêmero quando nenhuma URL local é fornecida.

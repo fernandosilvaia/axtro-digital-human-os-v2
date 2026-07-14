@@ -30,7 +30,11 @@ importers:
 
   packages/costing: {}
 
-  packages/database: {}
+  packages/database:
+    dependencies:
+      '@axtro/domain':
+        specifier: workspace:*
+        version: link:../domain
 
   packages/domain:
     dependencies:
