@@ -60,21 +60,37 @@ try {
   const suffix = `${process.pid}_${Date.now()}`;
   const cleanName = `axtro_m0_clean_${suffix}`;
   const upgradeName = `axtro_m0_upgrade_${suffix}`;
-  for (const name of [cleanName, upgradeName]) {
+  const invalidName = `axtro_m0_invalid_${suffix}`;
+  for (const name of [cleanName, upgradeName, invalidName]) {
     createDatabase(baseDatabaseUrl, psqlPath, name);
     createdDatabases.push(name);
   }
 
   const cleanUrl = databaseUrlFor(baseDatabaseUrl, cleanName);
   const upgradeUrl = databaseUrlFor(baseDatabaseUrl, upgradeName);
+  const invalidUrl = databaseUrlFor(baseDatabaseUrl, invalidName);
   const cleanResult = database.applyLocalMigrations({ databaseUrl: cleanUrl, psqlPath });
-  assert.equal(cleanResult.applied.length, 7);
+  assert.equal(cleanResult.applied.length, 8);
   const cleanDrift = database.checkLocalSchemaDrift({ databaseUrl: cleanUrl, psqlPath });
 
   const upgradePrelude = database.applyLocalMigrations({ databaseUrl: upgradeUrl, psqlPath, targetVersion: 5 });
   assert.equal(upgradePrelude.history.length, 5);
+  const historical = outboxFixture(100);
+  assert.equal(runSql(
+    upgradeUrl,
+    psqlPath,
+    `${tenantInsertSql(historical.tenantId, "outbox-upgrade")} ${legacyOutboxInsertSql(historical)}`,
+  ).status, 0);
   const upgradeResult = database.applyLocalMigrations({ databaseUrl: upgradeUrl, psqlPath });
-  assert.deepEqual(upgradeResult.applied.map((migration) => migration.version), [6, 7]);
+  assert.deepEqual(upgradeResult.applied.map((migration) => migration.version), [6, 7, 8]);
+  assert.equal(
+    queryScalar(
+      upgradeUrl,
+      psqlPath,
+      `SELECT event_id::text FROM events_outbox WHERE tenant_id = '${historical.tenantId}' AND id = '${historical.rowId}';`,
+    ),
+    historical.eventId,
+  );
   const upgradeDrift = database.checkLocalSchemaDrift({ databaseUrl: upgradeUrl, psqlPath });
   assert.equal(cleanDrift.catalogFingerprint, upgradeDrift.catalogFingerprint);
   assert.deepEqual(
@@ -92,6 +108,97 @@ try {
     ).status,
     0,
   );
+  const mismatchedEnvelope = outboxFixture(200, { tenantId: domain.uuidV7FromParts(1_700_000_000_900, Uint8Array.from([9, 8, 7, 6, 5, 4, 3, 2, 1, 0])) });
+  const mismatchedOutboxWrite = runSql(
+    cleanUrl,
+    psqlPath,
+    currentOutboxInsertSql({ ...outboxFixture(201), tenantId: validTenantId, eventDocument: mismatchedEnvelope.eventDocument }),
+  );
+  assert.notEqual(mismatchedOutboxWrite.status, 0);
+  const eventIdentityFixture = outboxFixture(202, { tenantId: validTenantId });
+  const wrongEventIdentityWrite = runSql(
+    cleanUrl,
+    psqlPath,
+    currentOutboxInsertSql({
+      ...eventIdentityFixture,
+      eventDocument: { ...eventIdentityFixture.eventDocument, event_id: fixtureUuid(299) },
+    }),
+  );
+  assert.notEqual(wrongEventIdentityWrite.status, 0);
+  const nullTenantFixture = outboxFixture(203, { tenantId: validTenantId });
+  assert.notEqual(runSql(
+    cleanUrl,
+    psqlPath,
+    currentOutboxInsertSql({ ...nullTenantFixture, eventDocument: { ...nullTenantFixture.eventDocument, tenant_id: null } }),
+  ).status, 0);
+  const nullEventFixture = outboxFixture(204, { tenantId: validTenantId });
+  assert.notEqual(runSql(
+    cleanUrl,
+    psqlPath,
+    currentOutboxInsertSql({ ...nullEventFixture, eventDocument: { ...nullEventFixture.eventDocument, event_id: null } }),
+  ).status, 0);
+
+  const invalidPrelude = database.applyLocalMigrations({ databaseUrl: invalidUrl, psqlPath, targetVersion: 7 });
+  assert.equal(invalidPrelude.history.length, 7);
+  const invalidFixture = outboxFixture(300);
+  assert.equal(runSql(invalidUrl, psqlPath, tenantInsertSql(invalidFixture.tenantId, "outbox-invalid")).status, 0);
+  const missingEventDocument = { ...invalidFixture.eventDocument };
+  delete missingEventDocument.event_id;
+  assert.equal(runSql(
+    invalidUrl,
+    psqlPath,
+    legacyOutboxInsertSql({ ...invalidFixture, eventDocument: missingEventDocument }),
+  ).status, 0);
+  assert.throws(
+    () => database.applyLocalMigrations({ databaseUrl: invalidUrl, psqlPath }),
+    database.LocalDatabaseCommandError,
+  );
+  assert.equal(database.readAppliedMigrations({ databaseUrl: invalidUrl, psqlPath }).length, 7);
+  assert.equal(
+    queryScalar(
+      invalidUrl,
+      psqlPath,
+      "SELECT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_schema = 'public' AND table_name = 'events_outbox' AND column_name = 'event_id');",
+    ),
+    "f",
+  );
+  assert.equal(runSql(invalidUrl, psqlPath, "DELETE FROM events_outbox;").status, 0);
+  const nullEventDocument = { ...invalidFixture.eventDocument, event_id: null };
+  assert.equal(runSql(
+    invalidUrl,
+    psqlPath,
+    legacyOutboxInsertSql({ ...invalidFixture, eventDocument: nullEventDocument }),
+  ).status, 0);
+  assert.throws(
+    () => database.applyLocalMigrations({ databaseUrl: invalidUrl, psqlPath }),
+    database.LocalDatabaseCommandError,
+  );
+  assert.equal(database.readAppliedMigrations({ databaseUrl: invalidUrl, psqlPath }).length, 7);
+  assert.equal(runSql(invalidUrl, psqlPath, "DELETE FROM events_outbox;").status, 0);
+  const nullTenantDocument = { ...invalidFixture.eventDocument, tenant_id: null };
+  assert.equal(runSql(
+    invalidUrl,
+    psqlPath,
+    legacyOutboxInsertSql({ ...invalidFixture, eventDocument: nullTenantDocument }),
+  ).status, 0);
+  assert.throws(
+    () => database.applyLocalMigrations({ databaseUrl: invalidUrl, psqlPath }),
+    database.LocalDatabaseCommandError,
+  );
+  assert.equal(database.readAppliedMigrations({ databaseUrl: invalidUrl, psqlPath }).length, 7);
+  assert.equal(runSql(invalidUrl, psqlPath, "DELETE FROM events_outbox;").status, 0);
+  const mismatchedHistorical = outboxFixture(301, { tenantId: invalidFixture.tenantId });
+  const foreignEnvelope = outboxFixture(302);
+  assert.equal(runSql(
+    invalidUrl,
+    psqlPath,
+    legacyOutboxInsertSql({ ...mismatchedHistorical, eventDocument: foreignEnvelope.eventDocument }),
+  ).status, 0);
+  assert.throws(
+    () => database.applyLocalMigrations({ databaseUrl: invalidUrl, psqlPath }),
+    database.LocalDatabaseCommandError,
+  );
+  assert.equal(database.readAppliedMigrations({ databaseUrl: invalidUrl, psqlPath }).length, 7);
   const uuidV4Write = runSql(
     cleanUrl,
     psqlPath,
@@ -139,6 +246,41 @@ try {
     "ALTER TABLE sessions DROP CONSTRAINT sessions_active_presenter_fk; ALTER TABLE sessions ADD CONSTRAINT sessions_active_presenter_fk FOREIGN KEY (tenant_id, id, active_presenter_id) REFERENCES session_participants(tenant_id, session_id, id) DEFERRABLE INITIALLY DEFERRED;",
   );
   assert.equal(relationalConstraintRestore.status, 0);
+  assert.doesNotThrow(() => database.checkLocalSchemaDrift({ databaseUrl: cleanUrl, psqlPath }));
+
+  const outboxIdentityDrift = runSql(
+    cleanUrl,
+    psqlPath,
+    "ALTER TABLE events_outbox DROP CONSTRAINT events_outbox_tenant_event_id_key;",
+  );
+  assert.equal(outboxIdentityDrift.status, 0);
+  assert.throws(
+    () => database.checkLocalSchemaDrift({ databaseUrl: cleanUrl, psqlPath }),
+    database.MigrationDriftError,
+  );
+  const outboxIdentityRestore = runSql(
+    cleanUrl,
+    psqlPath,
+    "ALTER TABLE events_outbox ADD CONSTRAINT events_outbox_tenant_event_id_key UNIQUE (tenant_id, event_id);",
+  );
+  assert.equal(outboxIdentityRestore.status, 0);
+  assert.doesNotThrow(() => database.checkLocalSchemaDrift({ databaseUrl: cleanUrl, psqlPath }));
+  const outboxDocumentIdentityDrift = runSql(
+    cleanUrl,
+    psqlPath,
+    "ALTER TABLE events_outbox DROP CONSTRAINT events_outbox_event_document_identity_check;",
+  );
+  assert.equal(outboxDocumentIdentityDrift.status, 0);
+  assert.throws(
+    () => database.checkLocalSchemaDrift({ databaseUrl: cleanUrl, psqlPath }),
+    database.MigrationDriftError,
+  );
+  const outboxDocumentIdentityRestore = runSql(
+    cleanUrl,
+    psqlPath,
+    `ALTER TABLE events_outbox ADD CONSTRAINT events_outbox_event_document_identity_check ${outboxEventDocumentIdentityCheckSql()};`,
+  );
+  assert.equal(outboxDocumentIdentityRestore.status, 0);
   assert.doesNotThrow(() => database.checkLocalSchemaDrift({ databaseUrl: cleanUrl, psqlPath }));
 
   const policyDrift = runSql(
@@ -207,7 +349,7 @@ try {
     database.MigrationDriftError,
   );
 
-  console.log("DATABASE INTEGRATION PASSED: clean apply, upgrade, structural drift, and UUIDv7 rejection");
+  console.log("DATABASE INTEGRATION PASSED: clean apply, upgrade outbox backfill, invalid-envelope rollback, structural drift, and UUIDv7 rejection");
 } catch (error) {
   primaryError = error;
   throw error;
@@ -313,6 +455,75 @@ function quoteIdentifier(value) {
   return `"${value}"`;
 }
 
+function outboxFixture(offset, overrides = {}) {
+  const tenantId = overrides.tenantId ?? fixtureUuid(offset + 1);
+  const rowId = overrides.rowId ?? fixtureUuid(offset + 2);
+  const eventId = overrides.eventId ?? fixtureUuid(offset + 3);
+  const aggregateId = overrides.aggregateId ?? fixtureUuid(offset + 4);
+  const correlationId = overrides.correlationId ?? fixtureUuid(offset + 5);
+  return {
+    tenantId,
+    rowId,
+    eventId,
+    aggregateId,
+    eventDocument: overrides.eventDocument ?? {
+      schema_version: "2.0.0",
+      event_id: eventId,
+      event_type: "session.created",
+      event_version: 1,
+      aggregate_type: "interaction_session",
+      aggregate_id: aggregateId,
+      aggregate_version: 1,
+      tenant_id: tenantId,
+      session_id: aggregateId,
+      producer: "database-integration",
+      trace_id: "0123456789abcdef0123456789abcdef",
+      correlation_id: correlationId,
+      causation_id: null,
+      data_classification: "internal",
+      payload_json: "{}",
+      occurred_at: "2026-07-14T00:00:00.000Z",
+    },
+  };
+}
+
+function fixtureUuid(offset) {
+  return domain.uuidV7FromParts(
+    1_700_000_100_000 + offset,
+    Uint8Array.from(Array.from({ length: 10 }, (_, index) => (offset + index + 1) & 0xff)),
+  );
+}
+
+function tenantInsertSql(tenantId, slug) {
+  return `INSERT INTO tenants (id, slug, legal_name, status, home_region, default_language, default_timezone) VALUES ('${tenantId}', '${slug}', 'Outbox Migration Tenant', 'active', 'local', 'en', 'UTC');`;
+}
+
+function legacyOutboxInsertSql(fixture) {
+  return `INSERT INTO events_outbox (tenant_id, id, aggregate_type, aggregate_id, aggregate_version, event_type, event_version, event_document) VALUES ('${fixture.tenantId}', '${fixture.rowId}', 'interaction_session', '${fixture.aggregateId}', 1, 'session.created', 1, '${sqlLiteral(JSON.stringify(fixture.eventDocument))}'::jsonb);`;
+}
+
+function currentOutboxInsertSql(fixture) {
+  return `INSERT INTO events_outbox (tenant_id, id, event_id, aggregate_type, aggregate_id, aggregate_version, event_type, event_version, event_document) VALUES ('${fixture.tenantId}', '${fixture.rowId}', '${fixture.eventId}', 'interaction_session', '${fixture.aggregateId}', 1, 'session.created', 1, '${sqlLiteral(JSON.stringify(fixture.eventDocument))}'::jsonb);`;
+}
+
+function sqlLiteral(value) {
+  return value.replaceAll("'", "''");
+}
+
+function outboxEventDocumentIdentityCheckSql() {
+  return `CHECK (
+    jsonb_typeof(event_document) = 'object'
+    AND event_document ?& ARRAY[
+      'schema_version', 'event_id', 'event_type', 'event_version',
+      'aggregate_type', 'aggregate_id', 'aggregate_version', 'tenant_id',
+      'session_id', 'producer', 'trace_id', 'correlation_id', 'causation_id',
+      'data_classification', 'payload_json', 'occurred_at'
+    ]
+    AND event_document ->> 'tenant_id' IS NOT DISTINCT FROM tenant_id::text
+    AND (event_document ->> 'event_id')::app.uuid_v7 IS NOT DISTINCT FROM event_id
+  )`;
+}
+
 function runSql(databaseUrl, executable, sql) {
   return spawnSync(executable, [
     "--no-psqlrc",
@@ -324,6 +535,23 @@ function runSql(databaseUrl, executable, sql) {
     "--command",
     sql,
   ], { encoding: "utf8", env: childEnvironment() });
+}
+
+function queryScalar(databaseUrl, executable, sql) {
+  const result = spawnSync(executable, [
+    "--no-psqlrc",
+    "--no-password",
+    "--tuples-only",
+    "--no-align",
+    "--set",
+    "ON_ERROR_STOP=1",
+    "--dbname",
+    databaseUrl,
+    "--command",
+    sql,
+  ], { encoding: "utf8", env: childEnvironment() });
+  if (result.status !== 0) throw new Error("Local PostgreSQL scalar query failed");
+  return result.stdout.trim();
 }
 
 function run(executable, args, phase) {

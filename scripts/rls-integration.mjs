@@ -75,7 +75,7 @@ try {
   createDatabase(baseDatabaseUrl, psqlPath, testDatabaseName);
   const testDatabaseUrl = databaseUrlFor(baseDatabaseUrl, testDatabaseName);
   const migrated = database.applyLocalMigrations({ databaseUrl: testDatabaseUrl, psqlPath });
-  assert.equal(migrated.history.length, 7);
+  assert.equal(migrated.history.length, 8);
   assertSucceeded(runSql(testDatabaseUrl, psqlPath, seedSql(fixture)), "deterministic tenant fixture seed");
   assertSucceeded(provisionRuntimeRole(baseDatabaseUrl, testDatabaseUrl, psqlPath, runtimeRole), "least-privilege runtime role");
   const runtimeUrl = databaseUrlWithUser(testDatabaseUrl, runtimeRole);
@@ -310,7 +310,7 @@ function seedSql(f) {
     INSERT INTO knowledge_embeddings (tenant_id, id, chunk_id, embedding_model, embedding_dimensions, embedding) VALUES ('${f.tenantAlpha}', '${f.embeddingAlpha}', '${f.chunkAlpha}', 'fake-embedding', 2, '[0.1,0.2]'::vector);
     INSERT INTO workflow_runs (tenant_id, id, command_id, workflow_type, workflow_version, aggregate_type, aggregate_id, idempotency_key, status, current_step, input_document) VALUES ('${f.tenantAlpha}', '${f.workflowAlpha}', '${f.commandAlpha}', 'fixture', '1.0.0', 'session', '${f.sessionAlpha}', 'workflow-alpha', 'completed', 'done', '{}'::jsonb);
     INSERT INTO audit_log (tenant_id, id, actor_id, action, resource_type, resource_id, outcome, trace_id, occurred_at) VALUES ('${f.tenantAlpha}', '${f.auditAlpha}', '${f.actorAlpha}', 'fixture', 'session', '${f.sessionAlpha}', 'allowed', 'trace-alpha', now());
-    INSERT INTO events_outbox (tenant_id, id, aggregate_type, aggregate_id, aggregate_version, event_type, event_version, event_document) VALUES ('${f.tenantAlpha}', '${f.outboxAlpha}', 'session', '${f.sessionAlpha}', 1, 'session.created', 1, '{}'::jsonb);
+    INSERT INTO events_outbox (tenant_id, id, event_id, aggregate_type, aggregate_id, aggregate_version, event_type, event_version, event_document) VALUES ('${f.tenantAlpha}', '${f.outboxAlpha}', '${f.outboxAlpha}', 'session', '${f.sessionAlpha}', 1, 'session.created', 1, jsonb_build_object('schema_version', '2.0.0', 'event_id', '${f.outboxAlpha}', 'event_type', 'session.created', 'event_version', 1, 'aggregate_type', 'interaction_session', 'aggregate_id', '${f.sessionAlpha}', 'aggregate_version', 1, 'tenant_id', '${f.tenantAlpha}', 'session_id', '${f.sessionAlpha}', 'producer', 'rls-fixture', 'trace_id', '0123456789abcdef0123456789abcdef', 'correlation_id', '${f.correlationAlpha}', 'causation_id', NULL, 'data_classification', 'internal', 'payload_json', '{}', 'occurred_at', '2026-07-14T00:00:00.000Z'));
     INSERT INTO cost_events (tenant_id, id, session_id, provider_id, service, unit_type, quantity, unit_cost_usd, amount_usd, source, occurred_at) VALUES
       ('${f.tenantAlpha}', '${f.costAlpha}', '${f.sessionAlpha}', 'fake-realtime', 'model', 'token', 1, 0.1, 0.1, 'estimated', now()),
       ('${f.tenantAlpha}', '${f.costForDeletion}', '${f.sessionForDeletion}', 'fake-realtime', 'model', 'token', 1, 0.1, 0.1, 'estimated', now());

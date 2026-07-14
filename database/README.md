@@ -41,3 +41,4 @@ The CI job uses the same test against an ephemeral pgvector service. No migratio
 - Use transaction-local tenant context after authentication is implemented in M0-09.
 - Do not store provider secrets, raw chain-of-thought, or unbounded PII JSON.
 - Applied reference DDL is forward-only. There is no automatic rollback; an incident uses an explicit forward repair migration after investigation.
+- `events_outbox.id` is the storage-row identifier. `events_outbox.event_id` is the UUIDv7 event identity used by tenant-scoped idempotent consumers; it is unique with `tenant_id`. A database check requires the canonical envelope to carry the same event ID and tenant ID as its row.

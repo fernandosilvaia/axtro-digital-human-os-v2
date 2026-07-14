@@ -38,7 +38,7 @@
 
 ## Delivery
 
-M0: transactional outbox plus relay to Redis Streams or equivalent. Workflow commands are not inferred from arbitrary event text; consumers map explicit event type to workflow start.
+M0: transactional outbox plus a deterministic local relay seam. The repository commits reduced aggregate state and a canonical envelope together, and materializes `event_id` for tenant-scoped deduplication. The database rejects envelopes whose event or tenant identity differs from the outbox row. The fake relay is at least once, bounded and local. It proves consumer effect idempotency by tenant plus event ID but does not select a broker, start a workflow, recover a lease or scan tenants globally. M1-07 owns the production relay and consumer implementation. Workflow commands are not inferred from arbitrary event text; consumers map explicit event type to workflow start.
 
 ## Ordering
 

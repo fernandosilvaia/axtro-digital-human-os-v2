@@ -15,6 +15,7 @@ EXPECTED = [
     "0005_rls_and_immutability.sql",
     "0006_reference_seeds.sql",
     "0007_relational_tenancy_integrity.sql",
+    "0008_outbox_event_identity.sql",
 ]
 
 
@@ -46,11 +47,19 @@ def main() -> int:
         errors.append("Forced RLS is missing")
     if "tenant_isolation" not in all_sql:
         errors.append("Tenant isolation policy is missing")
+    if "event_document ->> 'tenant_id' IS DISTINCT FROM tenant_id::text" not in all_sql:
+        errors.append("Outbox historical envelope tenant validation must be null-safe")
+    if "event_document ->> 'tenant_id' IS NOT DISTINCT FROM tenant_id::text" not in all_sql:
+        errors.append("Outbox envelope tenant check must be null-safe")
+    if "(event_document ->> 'event_id')::app.uuid_v7 IS NOT DISTINCT FROM event_id" not in all_sql:
+        errors.append("Outbox envelope event identity check must be null-safe")
     for constraint_name in (
         "session_participants_tenant_session_id_id_key",
         "sessions_active_presenter_fk",
         "conversation_turns_tenant_id_session_id_participant_id_fkey",
         "handoffs_tenant_id_session_id_from_presenter_id_fkey",
+        "events_outbox_tenant_event_id_key",
+        "events_outbox_event_document_identity_check",
     ):
         if constraint_name not in all_sql:
             errors.append(f"Relational tenancy constraint is missing: {constraint_name}")

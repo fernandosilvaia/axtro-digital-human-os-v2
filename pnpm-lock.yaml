@@ -72,9 +72,15 @@ importers:
 
   packages/events:
     dependencies:
+      '@axtro/auth':
+        specifier: workspace:*
+        version: link:../auth
       '@axtro/contracts-ts':
         specifier: workspace:*
         version: link:../contracts-ts
+      '@axtro/database':
+        specifier: workspace:*
+        version: link:../database
       '@axtro/domain':
         specifier: workspace:*
         version: link:../domain

@@ -14,13 +14,18 @@ const equivalentLocalUrl = "postgres://postgres@localhost:54329/axtro_m0_test";
 
 test("migration manifest is contiguous and local URLs cannot carry credentials or implicit identities", () => {
   const manifest = database.discoverMigrations();
-  assert.deepEqual(manifest.map((migration) => migration.version), [1, 2, 3, 4, 5, 6, 7]);
+  assert.deepEqual(manifest.map((migration) => migration.version), [1, 2, 3, 4, 5, 6, 7, 8]);
   assert.equal(manifest.every((migration) => /^[0-9a-f]{64}$/.test(migration.checksumSha256)), true);
   assert.equal(database.parseLocalDatabaseUrl(localUrl), localUrl);
   assert.equal(database.parseLocalDatabaseUrl(equivalentLocalUrl), equivalentLocalUrl);
   const firstMigration = readFileSync(manifest[0].path, "utf8");
   assert.match(firstMigration, /substring\(VALUE::text from 15 for 1\) = '7'/);
   assert.match(firstMigration, /substring\(VALUE::text from 20 for 1\) ~ '\^\[89ab\]\$'/);
+  const outboxIdentityMigration = readFileSync(manifest.at(-1).path, "utf8");
+  assert.match(outboxIdentityMigration, /events_outbox_tenant_event_id_key UNIQUE \(tenant_id, event_id\)/);
+  assert.match(outboxIdentityMigration, /events_outbox_event_document_identity_check CHECK/);
+  assert.match(outboxIdentityMigration, /event_document ->> 'tenant_id' IS DISTINCT FROM tenant_id::text/);
+  assert.match(outboxIdentityMigration, /IS NOT DISTINCT FROM event_id/);
 
   for (const value of [
     "postgresql://postgres@database.example.test/axtro_m0_test",

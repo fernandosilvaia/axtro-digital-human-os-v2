@@ -2,8 +2,8 @@
 
 **Estado atual:** implementação de M0 em andamento  
 **Marco atual:** M0  
-**Tarefa atual:** M0-13
-**Última evidência verde:** M0-12 com fakes de provider seedable, clock manual, falha, timeout, cancelamento, journal sem PII e contratos estritos validada em 2026-07-14
+**Tarefa atual:** M0-14
+**Última evidência verde:** M0-13 com outbox atômico, relay idempotente, migration tenant-safe e drift estrutural validada em 2026-07-14
 **Bloqueadores internos:** nenhum
 **Pendências externas:** consultar `PENDENCIAS_EXTERNAS.md`  
 
@@ -30,8 +30,8 @@
 | `M0-10` | M0 | done | Add OpenTelemetry and structured logging | `M0-01`, `M0-06` | raiz pública nova, carrier W3C interno, logs fechados e propagação API, worker Python e provider fake verificados |
 | `M0-11` | M0 | done | Implement provider ports and capability registry | `M0-03`, `M0-04` | 9 ports fake-only, registry de capability, timeout/cancelamento, health, storage scoped e testes de swap verdes |
 | `M0-12` | M0 | done | Implement deterministic provider fakes | `M0-11` | 9 fakes locais determinísticos, 3 contratos gerados, clock manual, timeout, cancelamento, falha, journal fechado e 63 testes Node mais 14 Python verdes |
-| `M0-13` | M0 | in_progress | Implement transactional outbox repository | `M0-05`, `M0-07`, `M0-10` | início registrado antes de alterações |
-| `M0-14` | M0 | pending | Implement Action Runtime skeleton | `M0-03`, `M0-08`, `M0-12` | pending |
+| `M0-13` | M0 | done | Implement transactional outbox repository | `M0-05`, `M0-07`, `M0-10` | aggregate e envelope canônico atômicos, rollback, retry idempotente, ordering por aggregate, RLS e migration 0008 validados |
+| `M0-14` | M0 | in_progress | Implement Action Runtime skeleton | `M0-03`, `M0-08`, `M0-12` | início registrado antes de alterações |
 | `M0-15` | M0 | pending | Add application security baseline | `M0-02`, `M0-06`, `M0-09` | pending |
 | `M0-16` | M0 | pending | Implement cost event ledger | `M0-03`, `M0-07`, `M0-11` | pending |
 | `M0-17` | M0 | pending | Create development fixtures and tenant-zero seed | `M0-08`, `M0-12`, `M0-14` | pending |
@@ -203,6 +203,15 @@
 - Evidências verdes: `pnpm lint`, `pnpm typecheck`, `pnpm contracts:check`, `pnpm test` (63 Node e 14 Python unittest), `pnpm build`, `UV_CACHE_DIR=/private/tmp/axtro-uv-cache uv run pytest` (14) e `python3 scripts/validate_all.py` (8 checks).
 - Próxima tarefa marcada antes de qualquer alteração: M0-13, outbox transacional com commit atômico, retry idempotente e ordenação por aggregate.
 
+### 2026-07-14, M0-13 concluído e M0-14 iniciado
+
+- Implementado `@axtro/events` com repositório local determinístico que recebe somente `AuthorizedRequestContext`, valida o evento de interação pelo codec existente e confirma aggregate reduzido e envelope canônico no mesmo coordenador copy-on-write. Falhas injetadas depois da escrita do aggregate, do outbox ou antes do commit restauram aggregate, outbox e índices juntos.
+- O relay M0 permanece local, bounded e sem broker, worker, workflow, rede ou scan global. Ele usa índices por tenant e aggregate, exige `session:write`, preserva predecessor não publicado e expõe somente uma seam de inspeção tenant-scoped do fake. Efeito de consumer é idempotente por `(tenant_id, event_id)` e retry após perda de acknowledgement não duplica o efeito.
+- Adicionada a migration forward-only `0008_outbox_event_identity.sql`: materializa `event_id`, exige unicidade `(tenant_id, event_id)` e exige envelope canônico com identidade de tenant e evento correspondente. A validação é null-safe tanto no backfill quanto no `CHECK` persistente. O runner agora detecta drift das duas constraints de identidade.
+- A integração PostgreSQL prova apply limpo, upgrade com backfill válido, rollback para envelope ausente, nulo ou de tenant divergente, rejeição de evento divergente no mesmo tenant, e drift após remoção de cada constraint. A fixture RLS usa envelope canônico.
+- Revisões independentes de arquitetura, segurança e testes aprovaram a tarefa. Evidências verdes: `pnpm lint`, `pnpm typecheck`, `pnpm contracts:check`, `pnpm test` (69 Node e 14 Python unittest), `pnpm build`, `UV_CACHE_DIR=/private/tmp/axtro-uv-cache uv run pytest` (14), `pnpm db:test`, `pnpm db:rls` e `python3 scripts/validate_all.py` (8 checks).
+- Próxima tarefa marcada antes de qualquer alteração: M0-14, funil ActionIntent, PolicyDecision e ToolExecutionReceipt com fake read-only.
+
 ### 2026-07-14, baseline arquitetural
 
 - 31 schemas estritos e 62 exemplos de contrato preparados.
@@ -211,4 +220,4 @@
 
 ## Próxima ação
 
-Executar `python3 scripts/validate_all.py`, registrar o resultado e iniciar `M0-01`.
+Ler os contratos e ADRs de ações aplicáveis, registrar a fronteira M0-14 e implementar o funil fake read-only sem permitir execução direta por texto de modelo.

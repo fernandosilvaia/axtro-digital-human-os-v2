@@ -15,6 +15,7 @@ The runner accepts only password-free local PostgreSQL URLs with an explicit use
 5. `0005_rls_and_immutability.sql`
 6. `0006_reference_seeds.sql`
 7. `0007_relational_tenancy_integrity.sql`
+8. `0008_outbox_event_identity.sql`
 
 ## Rules
 
@@ -24,6 +25,7 @@ The runner accepts only password-free local PostgreSQL URLs with an explicit use
 - Global catalogs are not tenant tables. Writes are restricted to migration or explicitly privileged administrative identities.
 - Destructive schema changes use expand, migrate, verify, contract.
 - Migrations must be tested from zero and from the previous release snapshot.
+- Outbox rows carry a UUIDv7 `event_id` with a unique `(tenant_id, event_id)` constraint. A forward migration derives it only from an existing canonical event envelope whose identity fields prove `event_document.tenant_id = events_outbox.tenant_id`, and a persistent check prevents future mismatched envelopes. Historical rows that cannot prove this fail closed.
 
 ## M0 evidence
 

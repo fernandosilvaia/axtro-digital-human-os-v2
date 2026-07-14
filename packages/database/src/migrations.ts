@@ -100,6 +100,18 @@ const UUID_V7_CONSTRAINT_SIGNATURE = "checkvalueisnullorsubstringvaluetextfrom15
 const CURRENT_TENANT_ID_FUNCTION_SIGNATURE = "selectnullifcurrent_settingapptenant_idtrueuuid";
 const PREVENT_MUTATION_FUNCTION_SIGNATURE = "beginraiseexceptiontableisappendonlytg_table_nameusingerrcode55000end";
 const APPEND_ONLY_ROW_UPDATE_DELETE_TRIGGER_TYPE = 27;
+const OUTBOX_EVENT_DOCUMENT_IDENTITY_CHECK = "events_outbox_event_document_identity_check";
+const OUTBOX_EVENT_DOCUMENT_IDENTITY_SIGNATURES = [
+  "jsonb_typeofevent_documentobjecttext",
+  "schema_version",
+  "aggregate_version",
+  "payload_json",
+  "occurred_at",
+  "event_documentevent_id",
+  "appuuid_v7",
+  "notevent_documentevent_idtextappuuid_v7uuidisdistinctfromevent_iduuid",
+  "notevent_documenttenant_idtextisdistinctfromtenant_idtext",
+] as const;
 const DEFAULT_MIGRATIONS_DIRECTORY = resolve(
   fileURLToPath(new URL("..", import.meta.url)),
   "../../database/migrations",
@@ -113,6 +125,7 @@ const SENTINEL_SQL_BY_VERSION: Readonly<Record<number, string>> = {
   5: "SELECT EXISTS (SELECT 1 FROM pg_policy WHERE polname = 'tenant_isolation')::int;",
   6: "SELECT EXISTS (SELECT 1 FROM public.provider_catalog WHERE provider_id = 'fake-realtime')::int;",
   7: "SELECT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'session_participants_tenant_session_id_id_key')::int;",
+  8: "SELECT (EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'events_outbox_tenant_event_id_key') AND EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'events_outbox_event_document_identity_check'))::int;",
 };
 
 const EXPECTED_PUBLIC_TABLES = [
@@ -235,6 +248,11 @@ const EXPECTED_RELATIONAL_CONSTRAINTS = [
     name: "evaluation_runs_tenant_id_session_id_fkey",
     definition: "foreignkey(tenant_id,session_id)referencessessions(tenant_id,id)ondeleterestrict",
   },
+  {
+    table: "events_outbox",
+    name: "events_outbox_tenant_event_id_key",
+    definition: "unique(tenant_id,event_id)",
+  },
 ] as const;
 
 const HISTORY_BOOTSTRAP_SQL = `
@@ -328,6 +346,16 @@ actual_relational_constraints AS (
   JOIN pg_namespace namespace ON namespace.oid = relation.relnamespace
   WHERE namespace.nspname = 'public'
     AND table_constraint.conname IN (${EXPECTED_RELATIONAL_CONSTRAINTS.map((constraint) => `'${constraint.name}'`).join(", ")})
+),
+actual_outbox_event_document_identity_check AS (
+  SELECT regexp_replace(lower(pg_get_constraintdef(table_constraint.oid)), '[^a-z0-9_]+', '', 'g') AS definition
+  FROM pg_constraint table_constraint
+  JOIN pg_class relation ON relation.oid = table_constraint.conrelid
+  JOIN pg_namespace namespace ON namespace.oid = relation.relnamespace
+  WHERE namespace.nspname = 'public'
+    AND relation.relname = 'events_outbox'
+    AND table_constraint.conname = '${OUTBOX_EVENT_DOCUMENT_IDENTITY_CHECK}'
+    AND table_constraint.contype = 'c'
 )
 SELECT CASE WHEN
   (SELECT count(*) FROM pg_extension WHERE extname IN ('vector', 'pgcrypto')) = 2
@@ -433,6 +461,11 @@ SELECT CASE WHEN
       AND expected.trigger_name = actual.trigger_name
     WHERE expected.table_name IS NULL
   )
+  AND EXISTS (
+    SELECT 1
+    FROM actual_outbox_event_document_identity_check
+    WHERE ${OUTBOX_EVENT_DOCUMENT_IDENTITY_SIGNATURES.map((signature) => `definition LIKE '%${signature}%'`).join("\n      AND ")}
+  )
 THEN 'ok' ELSE 'drift' END;
 `;
 
@@ -483,7 +516,7 @@ FROM (
   JOIN pg_class relation ON relation.oid = table_constraint.conrelid
   JOIN pg_namespace namespace ON namespace.oid = relation.relnamespace
   WHERE namespace.nspname = 'public'
-    AND table_constraint.conname IN (${EXPECTED_RELATIONAL_CONSTRAINTS.map((constraint) => `'${constraint.name}'`).join(", ")})
+    AND table_constraint.conname IN (${[...EXPECTED_RELATIONAL_CONSTRAINTS.map((constraint) => `'${constraint.name}'`), `'${OUTBOX_EVENT_DOCUMENT_IDENTITY_CHECK}'`].join(", ")})
 ) catalog_entries
 ORDER BY entry;
 `;
