@@ -1,7 +1,7 @@
 lockfileVersion: '9.0'
 
 settings:
-  autoInstallPeers: true
+  autoInstallPeers: false
   excludeLinksFromLockfile: false
 
 importers:
@@ -25,7 +25,11 @@ importers:
 
   packages/database: {}
 
-  packages/domain: {}
+  packages/domain:
+    dependencies:
+      '@axtro/contracts-ts':
+        specifier: workspace:*
+        version: link:../contracts-ts
 
   packages/events: {}
 

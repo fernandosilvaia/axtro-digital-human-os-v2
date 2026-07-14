@@ -2,9 +2,9 @@
 
 **Estado atual:** implementação de M0 em andamento  
 **Marco atual:** M0  
-**Tarefa atual:** M0-04
-**Última evidência verde:** M0-03 com geração de tipos, drift detection e validadores verdes em 2026-07-14
-**Bloqueadores internos:** nenhum para M0-04; Postgres com pgvector ainda será necessário para M0-07 e M0-08
+**Tarefa atual:** M0-05
+**Última evidência verde:** M0-04 com UUIDv7, contextos explícitos e gates verdes em 2026-07-14
+**Bloqueadores internos:** nenhum para M0-05; Postgres com pgvector ainda será necessário para M0-07 e M0-08
 **Pendências externas:** consultar `PENDENCIAS_EXTERNAS.md`  
 
 ## Regras de atualização
@@ -21,8 +21,8 @@
 | `M0-01` | M0 | done | Bootstrap modular monorepo | nenhuma | `pnpm install`, `uv sync`, lint, typecheck, test, build e 7 validadores verdes |
 | `M0-02` | M0 | done | Install repository and documentation gates | `M0-01` | CI de runtime, fixtures negativos, rastreabilidade e 7 validadores verdes |
 | `M0-03` | M0 | done | Generate TypeScript and Python contract types | `M0-01`, `M0-02` | 31 schemas gerados em TS/Python, metadata e check de drift verdes |
-| `M0-04` | M0 | in_progress | Implement domain identifiers and value objects | `M0-03` | UUIDv7, tenancy, trace e classificação em andamento |
-| `M0-05` | M0 | pending | Implement interaction state and pure reducers | `M0-04` | pending |
+| `M0-04` | M0 | done | Implement domain identifiers and value objects | `M0-03` | UUIDv7 determinístico, fronteiras estritas, contextos imutáveis e serialização verificados |
+| `M0-05` | M0 | in_progress | Implement interaction state and pure reducers | `M0-04` | reducers e replay determinístico em andamento |
 | `M0-06` | M0 | pending | Implement typed configuration and secret handles | `M0-01` | pending |
 | `M0-07` | M0 | pending | Install database migration runner | `M0-01`, `M0-04` | pending |
 | `M0-08` | M0 | pending | Implement RLS and cross-tenant negative test suite | `M0-07` | pending |
@@ -106,6 +106,16 @@
 - Testes cobrem geração repetível em diretório temporário, sincronismo do artefato versionado e rejeição dos 31 exemplos inválidos.
 - Evidências verdes: `pnpm contracts:generate`, `pnpm contracts:check`, `pnpm lint`, `pnpm typecheck`, `pnpm test` (9 testes Python), `env UV_CACHE_DIR=.uv-cache uv run pytest` (9 testes), `pnpm build` e `python3 scripts/validate_all.py` (8 checks).
 - Próxima tarefa marcada antes de qualquer alteração: M0-04, value objects, UUIDv7, tenant context, trace context e classification primitives.
+
+### 2026-07-14, M0-04 concluído e M0-05 iniciado
+
+- Implementados UUIDv7 lower-case com variante RFC, construtores determinístico e criptograficamente aleatório, parsers de fronteira e tipos distintos para tenant, sessão, ator e correlação.
+- Implementados `TenantContext` e `TraceContext` explícitos, imutáveis e serializáveis, com validação de actor type, escopos, finalidades, trace ID e correspondência de tenant.
+- Adicionados `schema_version` e `data_classification` como primitives estritas derivadas dos contratos gerados. O domínio continua sem import de banco, framework ou SDK de provider.
+- A revisão de segurança identificou duas entradas permissivas no primeiro patch. Os parsers agora recusam objetos com `toString` e `actorType` é validado em runtime antes do narrowing de TypeScript.
+- Testes cobrem UUIDv7 determinístico, propriedades de timestamp, versão e variante, rejeição de UUIDv4 e objetos coercíveis, round trip de serialização e valores de contexto e classificação inválidos.
+- Evidências verdes: `env CI=true pnpm install --frozen-lockfile`, `pnpm lint`, `pnpm typecheck`, `pnpm test`, `env UV_CACHE_DIR=.uv-cache uv run pytest`, `pnpm build` e `python3 scripts/validate_all.py`.
+- Próxima tarefa marcada antes de qualquer alteração: M0-05, estados de interação, reducers puros, hash e replay determinístico.
 
 ### 2026-07-14, baseline arquitetural
 

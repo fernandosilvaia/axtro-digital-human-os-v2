@@ -1,3 +1,7 @@
 packages:
   - apps/api
   - packages/*
+
+autoInstallPeers: false
+strictPeerDependencies: true
+verifyDepsBeforeRun: false
