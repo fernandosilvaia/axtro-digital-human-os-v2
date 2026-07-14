@@ -1,0 +1,241 @@
+[
+  {
+    "schema_version": "2.0.0",
+    "event_id": "018bcfe5-6810-7abc-bf01-020304050607",
+    "event_type": "session.created",
+    "event_version": 1,
+    "aggregate_type": "interaction_session",
+    "aggregate_id": "018bcfe5-6801-7abc-bf01-020304050607",
+    "aggregate_version": 1,
+    "tenant_id": "018bcfe5-6800-7abc-bf01-020304050607",
+    "session_id": "018bcfe5-6801-7abc-bf01-020304050607",
+    "producer": "tests.reducer",
+    "trace_id": "0123456789abcdef0123456789abcdef",
+    "correlation_id": "018bcfe5-6805-7abc-bf01-020304050607",
+    "causation_id": null,
+    "data_classification": "internal",
+    "occurred_at": "2026-07-14T12:00:00.000Z",
+    "payload": {
+      "agent_id": "018bcfe5-6802-7abc-bf01-020304050607",
+      "channel": {
+        "type": "api",
+        "external_session_ref": null,
+        "region": "us-east-1"
+      },
+      "consent_status": "pending",
+      "disclosure_status": "pending",
+      "capabilities": {
+        "audio": false,
+        "video": false,
+        "avatar": false,
+        "screen_share": false,
+        "tools": true,
+        "handoff": true
+      },
+      "role": {
+        "role_pack_id": "generic-assistant",
+        "role_pack_version": "1.0.0",
+        "objective": "Assist the participant with confirmed information.",
+        "stage": "opening",
+        "milestones": [],
+        "missing_fields": ["participant_goal"],
+        "next_best_action": {
+          "action_code": "listen",
+          "reason": "Collect the participant goal before proposing a next step.",
+          "confidence": 1,
+          "expires_at": "2026-07-14T12:30:00.000Z"
+        }
+      },
+      "language": "en-US"
+    }
+  },
+  {
+    "schema_version": "2.0.0",
+    "event_id": "018bcfe5-6811-7abc-bf01-020304050607",
+    "event_type": "session.prepared",
+    "event_version": 1,
+    "aggregate_type": "interaction_session",
+    "aggregate_id": "018bcfe5-6801-7abc-bf01-020304050607",
+    "aggregate_version": 2,
+    "tenant_id": "018bcfe5-6800-7abc-bf01-020304050607",
+    "session_id": "018bcfe5-6801-7abc-bf01-020304050607",
+    "producer": "tests.reducer",
+    "trace_id": "0123456789abcdef0123456789abcdef",
+    "correlation_id": "018bcfe5-6805-7abc-bf01-020304050607",
+    "causation_id": "018bcfe5-6810-7abc-bf01-020304050607",
+    "data_classification": "internal",
+    "occurred_at": "2026-07-14T12:00:01.000Z",
+    "payload": {}
+  },
+  {
+    "schema_version": "2.0.0",
+    "event_id": "018bcfe5-680f-7abc-bf01-020304050607",
+    "event_type": "consent.recorded",
+    "event_version": 1,
+    "aggregate_type": "interaction_session",
+    "aggregate_id": "018bcfe5-6801-7abc-bf01-020304050607",
+    "aggregate_version": 3,
+    "tenant_id": "018bcfe5-6800-7abc-bf01-020304050607",
+    "session_id": "018bcfe5-6801-7abc-bf01-020304050607",
+    "producer": "tests.reducer",
+    "trace_id": "0123456789abcdef0123456789abcdef",
+    "correlation_id": "018bcfe5-6805-7abc-bf01-020304050607",
+    "causation_id": "018bcfe5-6811-7abc-bf01-020304050607",
+    "data_classification": "internal",
+    "occurred_at": "2026-07-14T12:00:01.500Z",
+    "payload": {
+      "status": "not_required"
+    }
+  },
+  {
+    "schema_version": "2.0.0",
+    "event_id": "018bcfe5-6812-7abc-bf01-020304050607",
+    "event_type": "disclosure.delivered",
+    "event_version": 1,
+    "aggregate_type": "interaction_session",
+    "aggregate_id": "018bcfe5-6801-7abc-bf01-020304050607",
+    "aggregate_version": 4,
+    "tenant_id": "018bcfe5-6800-7abc-bf01-020304050607",
+    "session_id": "018bcfe5-6801-7abc-bf01-020304050607",
+    "producer": "tests.reducer",
+    "trace_id": "0123456789abcdef0123456789abcdef",
+    "correlation_id": "018bcfe5-6805-7abc-bf01-020304050607",
+    "causation_id": "018bcfe5-680f-7abc-bf01-020304050607",
+    "data_classification": "internal",
+    "occurred_at": "2026-07-14T12:00:02.000Z",
+    "payload": {
+      "status": "delivered"
+    }
+  },
+  {
+    "schema_version": "2.0.0",
+    "event_id": "018bcfe5-6813-7abc-bf01-020304050607",
+    "event_type": "session.activated",
+    "event_version": 1,
+    "aggregate_type": "interaction_session",
+    "aggregate_id": "018bcfe5-6801-7abc-bf01-020304050607",
+    "aggregate_version": 5,
+    "tenant_id": "018bcfe5-6800-7abc-bf01-020304050607",
+    "session_id": "018bcfe5-6801-7abc-bf01-020304050607",
+    "producer": "tests.reducer",
+    "trace_id": "0123456789abcdef0123456789abcdef",
+    "correlation_id": "018bcfe5-6805-7abc-bf01-020304050607",
+    "causation_id": "018bcfe5-6812-7abc-bf01-020304050607",
+    "data_classification": "internal",
+    "occurred_at": "2026-07-14T12:00:03.000Z",
+    "payload": {
+      "presenter_id": "018bcfe5-6803-7abc-bf01-020304050607"
+    }
+  },
+  {
+    "schema_version": "2.0.0",
+    "event_id": "018bcfe5-6814-7abc-bf01-020304050607",
+    "event_type": "turn.committed",
+    "event_version": 1,
+    "aggregate_type": "interaction_session",
+    "aggregate_id": "018bcfe5-6801-7abc-bf01-020304050607",
+    "aggregate_version": 6,
+    "tenant_id": "018bcfe5-6800-7abc-bf01-020304050607",
+    "session_id": "018bcfe5-6801-7abc-bf01-020304050607",
+    "producer": "tests.reducer",
+    "trace_id": "0123456789abcdef0123456789abcdef",
+    "correlation_id": "018bcfe5-6805-7abc-bf01-020304050607",
+    "causation_id": "018bcfe5-6813-7abc-bf01-020304050607",
+    "data_classification": "confidential",
+    "occurred_at": "2026-07-14T12:00:04.000Z",
+    "payload": {
+      "turn_index": 1,
+      "active_topic": "participant_goal",
+      "language": "en-US",
+      "open_questions": [],
+      "confirmed_facts": [
+        {
+          "evidence_id": "018bcfe5-6804-7abc-bf01-020304050607",
+          "kind": "explicit_user_statement",
+          "summary": "The participant wants a product overview.",
+          "source_ref": "turn:1",
+          "confidence": 1,
+          "observed_at": "2026-07-14T12:00:04.000Z",
+          "expires_at": null
+        }
+      ],
+      "repair_state": "none",
+      "incremental_summary": "The participant asked for a product overview."
+    }
+  },
+  {
+    "schema_version": "2.0.0",
+    "event_id": "018bcfe5-6815-7abc-bf01-020304050607",
+    "event_type": "role.updated",
+    "event_version": 1,
+    "aggregate_type": "interaction_session",
+    "aggregate_id": "018bcfe5-6801-7abc-bf01-020304050607",
+    "aggregate_version": 7,
+    "tenant_id": "018bcfe5-6800-7abc-bf01-020304050607",
+    "session_id": "018bcfe5-6801-7abc-bf01-020304050607",
+    "producer": "tests.reducer",
+    "trace_id": "0123456789abcdef0123456789abcdef",
+    "correlation_id": "018bcfe5-6805-7abc-bf01-020304050607",
+    "causation_id": "018bcfe5-6814-7abc-bf01-020304050607",
+    "data_classification": "internal",
+    "occurred_at": "2026-07-14T12:00:05.000Z",
+    "payload": {
+      "role_pack_id": "generic-assistant",
+      "role_pack_version": "1.0.0",
+      "objective": "Assist the participant with confirmed information.",
+      "stage": "discovery",
+      "milestones": [
+        {
+          "code": "participant_goal",
+          "status": "completed",
+          "evidence_refs": ["018bcfe5-6804-7abc-bf01-020304050607"]
+        }
+      ],
+      "missing_fields": [],
+      "next_best_action": {
+        "action_code": "provide_overview",
+        "reason": "The participant explicitly requested an overview.",
+        "confidence": 1,
+        "expires_at": "2026-07-14T12:30:00.000Z"
+      }
+    }
+  },
+  {
+    "schema_version": "2.0.0",
+    "event_id": "018bcfe5-6816-7abc-bf01-020304050607",
+    "event_type": "quality.updated",
+    "event_version": 1,
+    "aggregate_type": "interaction_session",
+    "aggregate_id": "018bcfe5-6801-7abc-bf01-020304050607",
+    "aggregate_version": 8,
+    "tenant_id": "018bcfe5-6800-7abc-bf01-020304050607",
+    "session_id": "018bcfe5-6801-7abc-bf01-020304050607",
+    "producer": "tests.reducer",
+    "trace_id": "0123456789abcdef0123456789abcdef",
+    "correlation_id": "018bcfe5-6805-7abc-bf01-020304050607",
+    "causation_id": "018bcfe5-6815-7abc-bf01-020304050607",
+    "data_classification": "internal",
+    "occurred_at": "2026-07-14T12:00:06.000Z",
+    "payload": {
+      "dimensions": [
+        {
+          "name": "clarity",
+          "value": 0.9,
+          "confidence": 1,
+          "evidence_refs": ["018bcfe5-6804-7abc-bf01-020304050607"],
+          "rationale": "The participant stated a clear request.",
+          "expires_at": null
+        },
+        {
+          "name": "system_confidence",
+          "value": 1,
+          "confidence": 1,
+          "evidence_refs": [],
+          "rationale": "All reducer inputs were validated.",
+          "expires_at": null
+        }
+      ],
+      "aggregate_confidence": 0.95
+    }
+  }
+]

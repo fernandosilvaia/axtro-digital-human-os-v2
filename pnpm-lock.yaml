@@ -31,7 +31,14 @@ importers:
         specifier: workspace:*
         version: link:../contracts-ts
 
-  packages/events: {}
+  packages/events:
+    dependencies:
+      '@axtro/contracts-ts':
+        specifier: workspace:*
+        version: link:../contracts-ts
+      '@axtro/domain':
+        specifier: workspace:*
+        version: link:../domain
 
   packages/observability: {}
 

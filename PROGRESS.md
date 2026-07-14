@@ -2,9 +2,9 @@
 
 **Estado atual:** implementação de M0 em andamento  
 **Marco atual:** M0  
-**Tarefa atual:** M0-05
-**Última evidência verde:** M0-04 com UUIDv7, contextos explícitos e gates verdes em 2026-07-14
-**Bloqueadores internos:** nenhum para M0-05; Postgres com pgvector ainda será necessário para M0-07 e M0-08
+**Tarefa atual:** M0-06
+**Última evidência verde:** M0-05 com reducers determinísticos, replay e gates verdes em 2026-07-14
+**Bloqueadores internos:** nenhum para M0-06; Postgres com pgvector ainda será necessário para M0-07 e M0-08
 **Pendências externas:** consultar `PENDENCIAS_EXTERNAS.md`  
 
 ## Regras de atualização
@@ -22,8 +22,8 @@
 | `M0-02` | M0 | done | Install repository and documentation gates | `M0-01` | CI de runtime, fixtures negativos, rastreabilidade e 7 validadores verdes |
 | `M0-03` | M0 | done | Generate TypeScript and Python contract types | `M0-01`, `M0-02` | 31 schemas gerados em TS/Python, metadata e check de drift verdes |
 | `M0-04` | M0 | done | Implement domain identifiers and value objects | `M0-03` | UUIDv7 determinístico, fronteiras estritas, contextos imutáveis e serialização verificados |
-| `M0-05` | M0 | in_progress | Implement interaction state and pure reducers | `M0-04` | reducers e replay determinístico em andamento |
-| `M0-06` | M0 | pending | Implement typed configuration and secret handles | `M0-01` | pending |
+| `M0-05` | M0 | done | Implement interaction state and pure reducers | `M0-04` | reducers puros, versionamento estrito, hash canônico, replay e extensão de vendas opcional verificados |
+| `M0-06` | M0 | in_progress | Implement typed configuration and secret handles | `M0-01` | configuração fail-closed e redaction em andamento |
 | `M0-07` | M0 | pending | Install database migration runner | `M0-01`, `M0-04` | pending |
 | `M0-08` | M0 | pending | Implement RLS and cross-tenant negative test suite | `M0-07` | pending |
 | `M0-09` | M0 | pending | Implement authentication and tenant context middleware | `M0-06`, `M0-08` | pending |
@@ -116,6 +116,17 @@
 - Testes cobrem UUIDv7 determinístico, propriedades de timestamp, versão e variante, rejeição de UUIDv4 e objetos coercíveis, round trip de serialização e valores de contexto e classificação inválidos.
 - Evidências verdes: `env CI=true pnpm install --frozen-lockfile`, `pnpm lint`, `pnpm typecheck`, `pnpm test`, `env UV_CACHE_DIR=.uv-cache uv run pytest`, `pnpm build` e `python3 scripts/validate_all.py`.
 - Próxima tarefa marcada antes de qualquer alteração: M0-05, estados de interação, reducers puros, hash e replay determinístico.
+
+### 2026-07-14, M0-05 concluído e M0-06 iniciado
+
+- Implementado aggregate de interação com `InteractionSessionState`, `ConversationState`, `RoleState`, qualidade multidimensional e extensão `SalesState` ausente por padrão. O domínio não importa `@axtro/events`, providers, banco, framework ou daemon.
+- Adicionados eventos internos discriminados e parser runtime estrito. O pacote de eventos somente codifica e decodifica o `EventEnvelope` gerado, usando payload JSON canônico.
+- Reducers rejeitam schema, event type, payload, aggregate type, tenant, sessão e versão inválidos. O primeiro evento exige versão 1 e os seguintes exigem incremento exato.
+- Hash SHA-256 usa serialização canônica com chaves ordenadas e arrays preservados. Snapshots e eventos de entrada permanecem imutáveis; replay repetido e após round trip JSON produz o mesmo hash.
+- Ativação exige `consent.recorded` permitido, `disclosure.delivered` ou acknowledgment e presenter não nulo. `session.created` inicia ambos os estados em `pending`; troca de presenter exige o proprietário anterior esperado.
+- A revisão de segurança também levou à revalidação estrutural de snapshot reidratado antes de cada transição. `derived_hypothesis` é proibida como fato confirmado. A lineage persistida de `evidence_id` ainda depende da futura timeline ou repositório de evidências e está registrada como R17.
+- Evidências verdes: `env CI=true pnpm install --frozen-lockfile`, `pnpm lint`, `pnpm typecheck`, `pnpm build`, `pnpm test` (16 testes Node e 9 Python), `env UV_CACHE_DIR=.uv-cache uv run pytest` (9 testes) e `python3 scripts/validate_all.py` (8 checks).
+- Próxima tarefa marcada antes de qualquer alteração: M0-06, configuração tipada, secret handles, redaction e matriz fail-closed.
 
 ### 2026-07-14, baseline arquitetural
 

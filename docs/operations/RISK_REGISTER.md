@@ -18,3 +18,4 @@
 | R14 | denial of wallet | M | H | per-session and tenant budgets | spend spike |
 | R15 | insufficient engineering focus | H | H | task graph, small PRs, two-track gates | tasks exceed size |
 | R16 | legal advice assumed from architecture | M | H | counsel gate and disclaimers | regulated pilot |
+| R17 | provenance de evidence ID ainda não é verificável no reducer em memória | M | H | bloquear `derived_hypothesis` como fato confirmado e vincular lineage de evidência antes da primeira persistência de timeline | tentativa de promover hipótese como fato |
