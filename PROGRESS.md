@@ -3,7 +3,7 @@
 **Estado atual:** M0 Foundation e M1 Walking Skeleton concluídos; M2 Human Presence Spike em execução autônoma controlada
 
 **Marco atual:** M2
-**Tarefa atual:** M2-05
+**Tarefa atual:** M2-06
 **Última evidência verde:** M1-11 com pipeline completa, 209 testes Node, 23 unittest Python, 23 pytest, 2 testes E2E, PostgreSQL local, RLS e 9 validadores verdes em 2026-07-15
 **Bloqueadores internos:** nenhum
 **Pendências externas:** consultar `PENDENCIAS_EXTERNAS.md`  
@@ -53,7 +53,7 @@
 | `M2-03` | M2 | done | Implement modular STT, LLM and TTS path | `M2-02`, `M0-12` | `runModularConversationPath` com timing por componente e modo exact-capture, 7 testes Node verdes |
 | `M2-04` | M2 | done | Implement speech-to-speech experiment adapter | `M2-02`, `M0-11` | Router `selectConversationPathMode` com fallback, sessão S2S com renovação antes do expiry, coberto nos mesmos 7 testes |
 | `M2-05` | M2 | done | Implement Behavior and Presence Director | `M2-02`, `M0-03` | 10 estados canônicos, `BehaviorIntent` fechado, scheduler determinístico por seed, 10 testes Node verdes |
-| `M2-06` | M2 | pending | Implement avatar port, fake and cancellation semantics | `M2-01`, `M2-05`, `M0-12` | pending |
+| `M2-06` | M2 | done | Implement avatar port, fake and cancellation semantics | `M2-01`, `M2-05`, `M0-12` | `AvatarSession` com resultado tipado (nunca exceção), 4 testes Node verdes |
 | `M2-07` | M2 | pending | Implement Scene and Presentation Director | `M2-01`, `M0-03` | pending |
 | `M2-08` | M2 | pending | Implement silent Specialist Fabric | `M1-04`, `M0-12` | pending |
 | `M2-09` | M2 | pending | Implement perception signal bus and quality state | `M2-02`, `M0-03` | pending |
@@ -469,6 +469,15 @@
 - `pnpm lint`, `tsc --build` completo e `node scripts/test.mjs` (250 testes Node, 23 unittest Python) verdes.
 - Nenhuma credencial real, produção, provider real, deploy, migration remota ou M3 foi acessado ou iniciado.
 
+### 2026-07-15, M2-06 concluído
+
+- `@axtro/avatar-gateway` ganhou `AvatarSession`: `warmUp` mede `elapsedMs` e desabilita a sessão (Art. 14, degradação declarada) se `health()` não vier `healthy` a tempo; `renderSegment` nunca lança exceção — todo resultado é um `AvatarRenderOutcome` tipado (`rendered` | `degraded_to_voice_only` | `discarded_late` | `disabled`), garantindo que falha de avatar nunca bloqueia o áudio.
+- Fencing por `generationId`: `renderSegment` recebe um callback `isGenerationActive` e descarta silenciosamente (`discarded_late`) qualquer segmento cuja geração já foi cancelada por barge-in antes do provider terminar de renderizar — nenhum frame de lip-sync tardio é entregue.
+- Uma vez desabilitada (falha de warm-up ou de render), a sessão permanece `disabled` para o resto da sessão, sem retry automático, alinhado à tabela de `CAPABILITY_DEGRADATION_MATRIX.md` que M2-10 vai formalizar.
+- 4 testes novos em `tests/realtime/avatar-session.test.mjs`: warm-up e render saudáveis, falha de render degradando sem lançar exceção e desabilitando a sessão, timeout de warm-up antes de qualquer render, e descarte de segmento de geração cancelada.
+- `pnpm lint`, `tsc --build` completo e `node scripts/test.mjs` (254 testes Node, 23 unittest Python) verdes.
+- Nenhuma credencial real, produção, provider real, deploy, migration remota ou M3 foi acessado ou iniciado.
+
 ## Próxima ação
 
-Continuar M2 em modo autônomo controlado: M2-06, avatar port/fake/cancelamento, sobre o Behavior Director recém-criado.
+Continuar M2 em modo autônomo controlado: M2-07, Scene and Presentation Director, sobre `apps/meeting-room` e o Avatar Session recém-criados.

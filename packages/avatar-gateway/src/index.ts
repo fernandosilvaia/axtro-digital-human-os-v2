@@ -6,3 +6,14 @@ export function resolveAvatarPort(registry: ProviderRegistry, providerId: unknow
 }
 
 export type { AvatarPort, AvatarRenderRequest } from "@axtro/provider-contracts";
+
+export {
+  createAvatarSession,
+  type AvatarSession,
+  type AvatarSessionClock,
+  type AvatarRenderOutcome,
+  type AvatarRenderSegmentInput,
+  type AvatarRenderStatus,
+  type AvatarWarmUpResult,
+  type CreateAvatarSessionOptions,
+} from "./avatar-session.js";
