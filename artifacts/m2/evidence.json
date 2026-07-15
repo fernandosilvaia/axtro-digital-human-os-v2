@@ -1,0 +1,221 @@
+{
+  "schema_version": "1.0.0",
+  "milestone": "M2",
+  "scenario_id": "human-presence-spike-v1",
+  "provider_mode": "fake",
+  "external_network_calls": 0,
+  "total_simulated_duration_ms": 600000,
+  "meets_ten_minute_requirement": true,
+  "checklist": [
+    {
+      "step": "disclosure",
+      "at_ms": 0,
+      "note": "disclosure_receipt_owned_by_m1_session_application"
+    },
+    {
+      "step": "open_question",
+      "at_ms": 3915,
+      "generation_id": 1,
+      "avatar_status": "rendered",
+      "behavior_state": "speaking_explaining",
+      "warm_up_ready": true
+    },
+    {
+      "step": "mid_sentence_pause",
+      "at_ms": 7875,
+      "candidate_state": "endpoint_candidate",
+      "resumed_state": "user_speaking",
+      "generation_id": 3
+    },
+    {
+      "step": "exact_capture_number_or_email",
+      "at_ms": 10185,
+      "generation_id": 3,
+      "avatar_status": "rendered"
+    },
+    {
+      "step": "user_interruption",
+      "at_ms": 11065,
+      "interrupted_generation_id": 3,
+      "post_interruption_state": "user_speaking",
+      "interrupted_generation_still_active": false,
+      "late_avatar_outcome": "discarded_late"
+    },
+    {
+      "step": "catalog_read_only_query",
+      "at_ms": 12425,
+      "status": "completed",
+      "generation_id": 4
+    },
+    {
+      "step": "delayed_specialist_never_blocks_presenter",
+      "at_ms": 12625,
+      "status": "timeout",
+      "generation_id": 4
+    },
+    {
+      "step": "slide_presentation",
+      "at_ms": 15258,
+      "scene_outcome": "accepted",
+      "manifest_id": "slide-deck-human-presence",
+      "behavior_state": "presenting"
+    },
+    {
+      "step": "avatar_failure_injection",
+      "at_ms": 18813,
+      "avatar_outcome": "degraded_to_voice_only",
+      "avatar_disabled": true,
+      "generation_id": 5
+    },
+    {
+      "step": "return_to_voice_only",
+      "at_ms": 19885,
+      "avatar_still_disabled": true,
+      "avatar_attempt_outcome": "disabled"
+    },
+    {
+      "step": "closing",
+      "at_ms": 22995,
+      "generation_id": 6
+    }
+  ],
+  "checklist_summary": {
+    "required_steps": [
+      "disclosure",
+      "open_question",
+      "mid_sentence_pause",
+      "user_interruption",
+      "exact_capture_number_or_email",
+      "catalog_read_only_query",
+      "delayed_specialist_never_blocks_presenter",
+      "slide_presentation",
+      "avatar_failure_injection",
+      "return_to_voice_only",
+      "closing"
+    ],
+    "all_steps_completed": true
+  },
+  "turn_coordinator": {
+    "final_state": "idle",
+    "generation_ids_observed": [
+      1,
+      3,
+      4,
+      5,
+      6
+    ],
+    "barge_in_confirmed": true
+  },
+  "avatar": {
+    "warm_up_ready": true,
+    "failure_injected": true,
+    "disabled_after_failure": true,
+    "late_segment_discarded": true,
+    "post_failure_render_outcome": "disabled"
+  },
+  "scene": {
+    "outcome": "accepted",
+    "manifest_id": "slide-deck-human-presence"
+  },
+  "specialists": {
+    "catalog_query_status": "completed",
+    "delayed_specialist_status": "timeout"
+  },
+  "perception": {
+    "signal_accepted": true,
+    "hypothesis_outcome": "accepted"
+  },
+  "degradation": {
+    "failures_declared": [
+      "avatar_unavailable"
+    ],
+    "duplicate_presentation_would_be_suppressed_for_interrupted_generation": true
+  },
+  "telemetry": {
+    "spans": {
+      "audio_ingress": {
+        "p50Ms": 40,
+        "p95Ms": 40,
+        "sampleSize": 1,
+        "budget_evaluation": "unbudgeted"
+      },
+      "turn_candidate": {
+        "p50Ms": 350,
+        "p95Ms": 350,
+        "sampleSize": 1,
+        "budget_evaluation": "unbudgeted"
+      },
+      "turn_commit": {
+        "p50Ms": 60,
+        "p95Ms": 60,
+        "sampleSize": 5,
+        "budget_evaluation": "within_budget"
+      },
+      "context_compose": {
+        "p50Ms": 15,
+        "p95Ms": 15,
+        "sampleSize": 5,
+        "budget_evaluation": "within_budget"
+      },
+      "model_first_token": {
+        "p50Ms": 220,
+        "p95Ms": 220,
+        "sampleSize": 5,
+        "budget_evaluation": "within_budget"
+      },
+      "tts_first_audio": {
+        "p50Ms": 160,
+        "p95Ms": 160,
+        "sampleSize": 5,
+        "budget_evaluation": "within_budget"
+      },
+      "avatar_first_frame": {
+        "p50Ms": 870,
+        "p95Ms": 900,
+        "sampleSize": 3,
+        "budget_evaluation": "within_budget"
+      },
+      "channel_publish": {
+        "p50Ms": 68,
+        "p95Ms": 72,
+        "sampleSize": 5,
+        "budget_evaluation": "within_budget"
+      },
+      "cancellation_acknowledged": {
+        "p50Ms": 140,
+        "p95Ms": 140,
+        "sampleSize": 1,
+        "budget_evaluation": "within_budget"
+      }
+    },
+    "total_eot_to_audio_ms": 525,
+    "total_eot_to_audio_budget_evaluation": "within_budget",
+    "missing_spans_for_closing_turn": [
+      "audio_ingress",
+      "cancellation_acknowledged"
+    ]
+  },
+  "cost": {
+    "status": "reconciled",
+    "sessionId": "room-human-presence-spike",
+    "estimatedUsdMicros": 84,
+    "providerReportedUsdMicros": 87,
+    "varianceRatio": 0.03571428571428571
+  },
+  "naturalness_review": {
+    "method": "scripted_deterministic_fixture_review",
+    "note": "PT-BR ten-minute naturalness review requires a human/provider bake-off per PROVIDER_BENCHMARK_PROTOCOL.md; not claimed here."
+  },
+  "video_quality": {
+    "method": "not_measured_fake_only",
+    "note": "no real video pipeline exists in M2 fake-first scope"
+  },
+  "decision_inputs": {
+    "preliminary_recommendation": "continue",
+    "requires_human_gate_for": [
+      "real_provider_bake_off",
+      "credentialed_benchmark"
+    ]
+  },
+  "failures": []
+}

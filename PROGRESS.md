@@ -3,7 +3,7 @@
 **Estado atual:** M0 Foundation e M1 Walking Skeleton concluídos; M2 Human Presence Spike em execução autônoma controlada
 
 **Marco atual:** M2
-**Tarefa atual:** M2-11
+**Tarefa atual:** M2-12
 **Última evidência verde:** M1-11 com pipeline completa, 209 testes Node, 23 unittest Python, 23 pytest, 2 testes E2E, PostgreSQL local, RLS e 9 validadores verdes em 2026-07-15
 **Bloqueadores internos:** nenhum
 **Pendências externas:** consultar `PENDENCIAS_EXTERNAS.md`  
@@ -59,7 +59,7 @@
 | `M2-09` | M2 | done | Implement perception signal bus and quality state | `M2-02`, `M0-03` | Vocabulário fechado de sinal/hipótese, TTL e consentimento aplicados, 8 testes Node verdes |
 | `M2-10` | M2 | done | Implement degradation and recovery controller | `M2-03`, `M2-04`, `M2-06`, `M2-07` | Matriz de 10 linhas executável, recuperação explícita, fencing anti-duplicidade, 7 testes Node verdes |
 | `M2-11` | M2 | done | Instrument realtime latency, quality and cost | `M2-03`, `M2-06`, `M2-07`, `M0-16` | Recorder p50/p95 por span, orçamentos de `LATENCY_BUDGETS.md`, reconciliação de custo, 11 testes Node verdes |
-| `M2-12` | M2 | pending | Run mandatory ten-minute Human Presence scenario | `M2-05`, `M2-08`, `M2-09`, `M2-10`, `M2-11` | pending |
+| `M2-12` | M2 | done | Run mandatory ten-minute Human Presence scenario | `M2-05`, `M2-08`, `M2-09`, `M2-10`, `M2-11` | Cenário determinístico de 600.000ms simulados, 11/11 itens do checklist, `artifacts/m2/evidence.json` congelado, 7 testes Node verdes |
 | `M2-13` | M2 | pending | M2 architecture and provider decision gate | `M2-12` | pending |
 | `M3-01` | M3 | pending | Implement Sales Closer Role Pack | `M2-13` | pending |
 | `M3-02` | M3 | pending | Implement authorized knowledge ingestion and RAG | `M3-01`, `M0-08` | pending |
@@ -528,6 +528,16 @@
 - `pnpm lint`, `tsc --build` completo e `node scripts/test.mjs` (298 testes Node, 23 unittest Python) verdes.
 - Nenhuma credencial real, produção, provider real, deploy, migration remota ou M3 foi acessado ou iniciado.
 
+### 2026-07-15, M2-12 concluído
+
+- `tests/e2e/m2-human-presence-spike-harness.mjs` compõe todos os componentes M2-01 a M2-11 (RoomTransport, Turn Coordinator, caminho modular, Behavior Director, Avatar Session, Scene Director, Specialist Fabric, Perception Bus, Degradation Controller, Realtime Telemetry) num único cenário fake-first com relógio simulado próprio.
+- Os onze itens obrigatórios de `docs/operations/HUMAN_PRESENCE_SPIKE.md` são exercitados em sequência: disclosure (marcador, mecanismo real em M1-01), pergunta aberta, pausa no meio de frase, interrupção do usuário (barge-in com frame de avatar tardio descartado), captura exata de número/e-mail, consulta de catálogo read-only, especialista atrasado (timeout no próprio deadline), apresentação de slide, injeção de falha de avatar (quinta chamada de `avatar.render` falha deterministicamente), retorno a voice-only e encerramento.
+- O relógio simulado avança até exatamente 600.000ms (dez minutos); o preenchimento final usa tempo de escuta ambiente sem eventos, provando ausência de deadlock, exceção não tratada ou transição de estado inválida ao longo de toda a janela, não só nos destaques roteirizados.
+- Dois bugs de composição foram corrigidos durante a integração: (1) a falha de avatar injetada na segunda chamada de render acontecia cedo demais, misturando o teste de "late frame descartado" com o de "falha de avatar" — movida para a quinta chamada; (2) o turno que sucede a interrupção tinha voz insuficiente (90ms) para superar `minSpeechDurationMsToStart`, sendo tratado como falso início — corrigido com um chunk de fala adicional antes do silêncio final.
+- `pnpm m2:e2e` (novo script, espelha `m1:e2e`) roda 7 testes: determinismo byte-a-byte contra `artifacts/m2/evidence.json`, checklist completo mais dez minutos sem deadlock, barge-in sem late output mais degradação de avatar, especialista atrasado não bloqueante, cena aceita mais custo reconciliado, todos os orçamentos de `LATENCY_BUDGETS.md` avaliados, e ausência de material restrito no artefato congelado.
+- `artifacts/m2/evidence.json` e `artifacts/m2/README.md` congelados; `pnpm lint`, `tsc --build` completo, `node scripts/test.mjs` (305 testes Node, 23 unittest Python) e `pnpm m1:e2e` (M1 continua verde) passaram.
+- Nenhuma credencial real, produção, provider real, deploy ou migration remota foi acessado. A revisão de naturalidade PT-BR real e o bake-off de provider ficam explicitamente pendentes para M2-13/M3 com gate humano.
+
 ## Próxima ação
 
-Continuar M2 em modo autônomo controlado: M2-12, cenário obrigatório de dez minutos, integrando todos os componentes M2-01 a M2-11.
+Continuar M2 em modo autônomo controlado: M2-13, decisão de arquitetura e provider, encerrando o marco M2.

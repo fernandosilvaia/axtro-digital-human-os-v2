@@ -13,6 +13,7 @@
     "typecheck": "tsc --build --pretty false --force",
     "test": "pnpm run build && node scripts/test.mjs",
     "m1:e2e": "pnpm run build && node --test tests/e2e/m1-walking-skeleton.test.mjs",
+    "m2:e2e": "pnpm run build && node --test tests/e2e/m2-human-presence-spike.test.mjs",
     "test:python": "uv run pytest",
     "build": "tsc --build --pretty false --force",
     "contracts:generate": "python3 scripts/generate_contract_types.py",
