@@ -24,6 +24,7 @@
     { "path": "./packages/context-composer" },
     { "path": "./packages/turns" },
     { "path": "./packages/turn-coordinator" },
+    { "path": "./packages/behavior-director" },
     { "path": "./packages/ui" },
     { "path": "./apps/api" },
     { "path": "./apps/event-relay" },

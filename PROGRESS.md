@@ -3,7 +3,7 @@
 **Estado atual:** M0 Foundation e M1 Walking Skeleton concluídos; M2 Human Presence Spike em execução autônoma controlada
 
 **Marco atual:** M2
-**Tarefa atual:** M2-04
+**Tarefa atual:** M2-05
 **Última evidência verde:** M1-11 com pipeline completa, 209 testes Node, 23 unittest Python, 23 pytest, 2 testes E2E, PostgreSQL local, RLS e 9 validadores verdes em 2026-07-15
 **Bloqueadores internos:** nenhum
 **Pendências externas:** consultar `PENDENCIAS_EXTERNAS.md`  
@@ -52,7 +52,7 @@
 | `M2-02` | M2 | done | Build Turn Coordinator harness | `M2-01` | Máquina de estados pura, 4 perfis, geração cercada, 18 testes Node verdes cobrindo os 10 fixtures obrigatórios |
 | `M2-03` | M2 | done | Implement modular STT, LLM and TTS path | `M2-02`, `M0-12` | `runModularConversationPath` com timing por componente e modo exact-capture, 7 testes Node verdes |
 | `M2-04` | M2 | done | Implement speech-to-speech experiment adapter | `M2-02`, `M0-11` | Router `selectConversationPathMode` com fallback, sessão S2S com renovação antes do expiry, coberto nos mesmos 7 testes |
-| `M2-05` | M2 | pending | Implement Behavior and Presence Director | `M2-02`, `M0-03` | pending |
+| `M2-05` | M2 | done | Implement Behavior and Presence Director | `M2-02`, `M0-03` | 10 estados canônicos, `BehaviorIntent` fechado, scheduler determinístico por seed, 10 testes Node verdes |
 | `M2-06` | M2 | pending | Implement avatar port, fake and cancellation semantics | `M2-01`, `M2-05`, `M0-12` | pending |
 | `M2-07` | M2 | pending | Implement Scene and Presentation Director | `M2-01`, `M0-03` | pending |
 | `M2-08` | M2 | pending | Implement silent Specialist Fabric | `M1-04`, `M0-12` | pending |
@@ -459,6 +459,16 @@
 - `pnpm lint`, `tsc --build` completo e `node scripts/test.mjs` (240 testes Node, 23 unittest Python) verdes.
 - Nenhuma credencial real, produção, provider real, deploy, migration remota ou M3 foi acessado ou iniciado.
 
+### 2026-07-15, M2-05 concluído
+
+- `@axtro/behavior-director` converte `BehaviorIntent` (goal/energy/warmth/pacing/pauseProfile/nonverbalIntent fechado, sem comando de animação livre) em `behavior_directive` validada contra `provider_capability` (voice style, faixa de speaking rate, microgestos permitidos, gaze target, max duration, `cancellationGenerationId`).
+- Dez estados canônicos do documento implementados com tabelas de allowance, gaze e duração máxima por estado; `interrupted_recovering` e `technical_degraded` nunca gesticulam; `idle_ready`/`listening_*`/`thinking_brief` ficam restritos a gestos "quiet" (nod, tilt_head, soft_gaze_break), dando prioridade a listening sobre performance visual.
+- Naturalness scheduler: cooldown de 8s por gesto, limite de 6 nods e 4 smiles por minuto com janela deslizante, e seleção estocástica determinística via hash SHA-256 de `(sessionSeed, callIndex, gesto)` — mesma seed e mesma sequência de chamadas sempre produzem a mesma diretiva.
+- Acessibilidade: `reducedMotion` suprime todo gesto e gaze sem perder a diretiva de voz/estado; `supportsGaze=false` da capability força `gazeTarget: "none"` incondicionalmente.
+- 10 testes novos em `tests/realtime/behavior-director.test.mjs`: validação contra capability, determinismo por seed, diferenciação entre seeds, neutralidade predominante de `idle_ready`, cooldown, cap por minuto, estados sem gesto, reduced motion, ausência de gaze e rejeição de intent não-canônico.
+- `pnpm lint`, `tsc --build` completo e `node scripts/test.mjs` (250 testes Node, 23 unittest Python) verdes.
+- Nenhuma credencial real, produção, provider real, deploy, migration remota ou M3 foi acessado ou iniciado.
+
 ## Próxima ação
 
-Continuar M2 em modo autônomo controlado: M2-05, Behavior and Presence Director, sobre o Turn Coordinator e a rota de conversação recém-criados.
+Continuar M2 em modo autônomo controlado: M2-06, avatar port/fake/cancelamento, sobre o Behavior Director recém-criado.

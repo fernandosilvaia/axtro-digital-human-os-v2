@@ -138,6 +138,8 @@ importers:
         specifier: workspace:*
         version: link:../provider-contracts
 
+  packages/behavior-director: {}
+
   packages/config:
     dependencies:
       '@axtro/contracts-ts':
