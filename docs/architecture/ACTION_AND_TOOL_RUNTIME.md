@@ -67,6 +67,13 @@ não produz fala automática. O modo fake de timeout é fechado na composição;
 `unknown` bloqueia nova pergunta para a mesma operação até reconciliação
 autenticada que determina `not_applied`. O `ToolPort` continua fechado.
 
+Para composição com o console operacional, o coordenador oferece uma
+capability separada de leitura bounded, derivada da cadeia imutável que ele
+próprio já produziu. A leitura exige `session:read`, `essential_processing` e
+tenant e sessão registrados, e retorna somente metadata allowlisted do intent,
+policy e receipt. Ela não expõe argumentos, resultado, erro, provider, comando,
+runtime, execução, reconciliação, publicação, timeline ou adapter.
+
 ## State reduction
 
 Somente receipt `succeeded` pode confirmar efeito. `accepted` ou `pending` atualiza estado para pendente. Timeout resulta `unknown`, exige reconciliação antes de retry cego.

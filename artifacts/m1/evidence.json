@@ -1,0 +1,164 @@
+{
+  "schema_version": "1.0.0",
+  "milestone": "M1",
+  "scenario_id": "m1-deterministic-walking-skeleton",
+  "provider_mode": "fake",
+  "external_network_calls": 0,
+  "session": {
+    "tenant_id": "0190c579-9d01-7a4b-8c4d-4e4f50515253",
+    "session_id": "0190c579-9d64-7dae-afb0-b1b2b3b4b5b6",
+    "role_pack": "sales-closer@0.1.0",
+    "channel": "api",
+    "final_status": "completed",
+    "final_state_version": 12
+  },
+  "turns": {
+    "participant_turn_count": 3,
+    "presenter_turn_count": 3,
+    "accepted_command_count": 3,
+    "final_turn_index": 6,
+    "speaker_role_sequence": [
+      "participant",
+      "presenter",
+      "participant",
+      "presenter",
+      "participant",
+      "presenter"
+    ],
+    "turn_index_sequence": [
+      1,
+      2,
+      3,
+      4,
+      5,
+      6
+    ],
+    "unique_presenter_count": 1,
+    "presenter_matches_active_floor": true,
+    "alternate_presenter_count": 0
+  },
+  "governed_action": {
+    "question_id": "0190c579-9d1e-7768-a96a-6b6c6d6e6f70",
+    "execution_id": "0190c579-9d1e-762c-9fe6-668062394bb5",
+    "intent_id": "0190c579-9d1e-7874-87a1-43bec12bfc5a",
+    "tool_contract_id": "catalog.lookup",
+    "policy_outcome": "allow",
+    "receipt_status": "succeeded",
+    "effect_hash": "fb7fc96937569d9d64ac1278e73e3319f13e4a91b9eb53e55ede86f67c1e4d37",
+    "effect_confirmed": true,
+    "idempotent_replay_same_candidate": true,
+    "fake_invocation_count": 1,
+    "timeline_event_delta": 0,
+    "candidate_speech_match_count": 0,
+    "automatically_published": false
+  },
+  "outbox_relay": {
+    "crash_point": "after_effect_before_ack",
+    "status_after_crash": "publishing",
+    "pre_lease_outcome": "idle",
+    "recovered_outcome": "published",
+    "recovered_attempt": 2,
+    "timeline_completion_count": 1,
+    "workflow_enqueue_count": 1,
+    "dead_letter_count": 0
+  },
+  "replay": {
+    "aggregate_version": 12,
+    "full_event_count": 12,
+    "snapshot_version": 11,
+    "tail_event_count": 1,
+    "state_hash": "5b61e69e9c9b9d8af7a15ef5e2358be06544b7b7cfa46b3d4335b1d9f9e425b5",
+    "matches_outbox": true,
+    "matches_hot_actor": true,
+    "matches_workflow_source": true,
+    "matches_console": true
+  },
+  "post_call_workflow": {
+    "run_id": "0190c579-9f6c-75b6-b7b8-b9babbbcbdbe",
+    "outcomes": [
+      "checkpointed",
+      "checkpointed",
+      "checkpointed",
+      "completed"
+    ],
+    "final_status": "completed",
+    "step_receipt_count": 4,
+    "result_hash": "691b752bb81030936791cbc5fd25f3cfdf0b1f8e3456b9bd37bb3350cf7db7c1",
+    "summary_template_code": "deterministic_session_summary_v1",
+    "summary_canonical_event_count": 12,
+    "evaluation_outcome": "passed",
+    "evaluation_score_basis_points": 10000,
+    "follow_up_external_effect": false
+  },
+  "cost": {
+    "buckets": [
+      {
+        "source": "estimated",
+        "service": "catalog",
+        "unit_type": "request",
+        "event_count": 1,
+        "quantity_decimal": "1",
+        "amount_usd_decimal": "0.02"
+      }
+    ],
+    "total_estimated_usd_decimal": "0.02"
+  },
+  "operations_console": {
+    "http_status": 200,
+    "state_hash": "5b61e69e9c9b9d8af7a15ef5e2358be06544b7b7cfa46b3d4335b1d9f9e425b5",
+    "timeline_event_count": 12,
+    "confirmed_receipt_count": 1,
+    "html_sha256": "8d831c7c9ee54e4adca332489e47be36ac3c7b56f0ada0d44576f43714b70fc4",
+    "cache_control": "private, no-store, max-age=0",
+    "raw_payload_fields_rendered": false
+  },
+  "failure_matrix": [
+    {
+      "case": "cross_tenant_denial",
+      "outcome": "passed",
+      "api_foreign_status": 404,
+      "api_missing_status": 404,
+      "console_foreign_status": 404,
+      "console_missing_status": 404,
+      "foreign_equals_missing": true,
+      "foreign_secondary_reads": 0,
+      "beta_relay_outcome": "idle",
+      "beta_timeline_event_count": 0,
+      "beta_catalog_error": "ActionRuntimeAuthorizationError",
+      "beta_workflow_error": "WorkflowNotFoundError"
+    },
+    {
+      "case": "outbox_retry_after_effect",
+      "outcome": "passed",
+      "pre_lease_outcome": "idle",
+      "recovered_attempt": 2,
+      "final_delivery_status": "published",
+      "completion_event_count": 1,
+      "workflow_enqueue_count": 1,
+      "dead_letter_count": 0
+    },
+    {
+      "case": "unknown_tool_effect",
+      "outcome": "passed",
+      "initial_receipt_status": "unknown",
+      "initial_effect_hash": null,
+      "initial_confirmed": false,
+      "idempotent_replay_same_candidate": true,
+      "blind_retry_error": "ActionRuntimeUnknownEffectError",
+      "beta_reconciliation_error": "ActionRuntimeAuthorizationError",
+      "altered_reconciliation_error": "CatalogLookupCommandConflictError",
+      "reconciliation_status": "not_applied",
+      "second_reconciliation_error": "ActionRuntimeUnknownEffectError",
+      "post_reconciliation_receipt_status": "succeeded",
+      "fake_invocation_count": 2,
+      "timeline_event_delta": 0
+    }
+  ],
+  "safeguards": {
+    "one_mouth_rule_preserved": true,
+    "action_candidate_not_spoken_automatically": true,
+    "governed_action_chain_verified": true,
+    "external_follow_up_sent": false,
+    "telemetry_sensitive_data_found": false
+  }
+}

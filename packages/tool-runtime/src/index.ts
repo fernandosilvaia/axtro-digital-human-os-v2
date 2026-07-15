@@ -109,7 +109,33 @@ export interface CatalogLookupReconciliation {
   readonly status: "not_applied";
 }
 
+/** Safe, bounded projection derived from the exact governed action result. */
+export interface CatalogLookupActionEvidenceRow {
+  readonly tenant_id: string;
+  readonly session_id: string;
+  readonly execution_id: string;
+  readonly intent_id: string;
+  readonly tool_contract_id: string;
+  readonly action: string;
+  readonly status: ToolExecutionReceipt["status"];
+  readonly policy_outcome: PolicyDecision["outcome"];
+  readonly confirmed_effect: boolean;
+  readonly effect_hash: string | null;
+  readonly attempt: number;
+  readonly started_at: string;
+  readonly completed_at: string | null;
+}
+
+export interface CatalogLookupActionEvidenceProjection {
+  listBySession(
+    request: AuthorizedRequestContext,
+    sessionId: unknown,
+  ): readonly CatalogLookupActionEvidenceRow[];
+}
+
 export interface DeterministicCatalogLookupCommandFlow {
+  /** Separate read-only capability. It has no execution or reconciliation method. */
+  readonly action_evidence: CatalogLookupActionEvidenceProjection;
   /** Parses a structured command, derives an ActionIntent, and returns a receipt-backed candidate. */
   submitCatalogLookup(request: AuthorizedRequestContext, command: unknown): Promise<ReceiptBackedCatalogAnswer>;
   /** Clears only the authenticated command's exact fake unknown-effect barrier. */
@@ -256,6 +282,7 @@ const CATALOG_COMMAND_TTL_MS = 5 * 60 * 1_000;
 const DEFAULT_LEDGER_ENTRIES_PER_TENANT = 128;
 const MAX_LEDGER_ENTRIES_PER_TENANT = 4_096;
 const MAX_CATALOG_SESSION_AUTHORITIES = 256;
+const MAX_CATALOG_EVIDENCE_ROWS_PER_SESSION = 100;
 const RECEIPT_KEYS = [
   "schema_version",
   "execution_id",
@@ -478,6 +505,25 @@ export function createDeterministicCatalogLookupCommandFlow(
   const operationsInFlight = new Map<string, CatalogLookupLedgerEntry>();
   const unknownOperations = new Map<string, CatalogUnknownBarrier>();
   const ledgerEntryCounts = new Map<TenantId, number>();
+  const evidenceBySession = new Map<string, CatalogLookupActionEvidenceRow[]>();
+  const evidenceReservationsBySession = new Map<string, number>();
+  const actionEvidence: CatalogLookupActionEvidenceProjection = Object.freeze({
+    listBySession(request: AuthorizedRequestContext, sessionIdInput: unknown): readonly CatalogLookupActionEvidenceRow[] {
+      const context = requireCatalogEvidenceReadContext(request);
+      let sessionId: SessionId;
+      try {
+        sessionId = parseSessionId(sessionIdInput);
+      } catch {
+        throw new ActionRuntimeAuthorizationError();
+      }
+      const authority = options.sessions.get(sessionId);
+      if (authority === undefined || authority.tenantId !== context.tenantId) return Object.freeze([]);
+      const rows = evidenceBySession.get(tenantSessionEvidenceKey(context.tenantId, sessionId)) ?? [];
+      return Object.freeze([...rows]
+        .sort((left, right) => right.started_at.localeCompare(left.started_at)
+          || left.execution_id.localeCompare(right.execution_id)));
+    },
+  });
 
   async function submitCatalogLookup(
     request: AuthorizedRequestContext,
@@ -507,6 +553,12 @@ export function createDeterministicCatalogLookupCommandFlow(
       now,
       command.plan_id,
     );
+    reserveCatalogEvidence(
+      evidenceBySession,
+      evidenceReservationsBySession,
+      context.tenantId,
+      session.sessionId,
+    );
     const promise = Promise.resolve().then(async () => {
       const actionResult = await actionRuntime.submitActionIntent(request, actionIntent);
       const answer = createReceiptBackedCatalogAnswer(command, context, actionIntent, actionResult);
@@ -522,6 +574,11 @@ export function createDeterministicCatalogLookupCommandFlow(
         });
         unknownOperations.set(operationKey, barrier);
       }
+      appendCatalogEvidence(
+        evidenceBySession,
+        evidenceReservationsBySession,
+        createCatalogLookupActionEvidenceRow(command, context, actionIntent, actionResult),
+      );
       return Object.freeze({ command, actionIntent, actionResult, answer });
     });
     const entry: CatalogLookupLedgerEntry = Object.freeze({ fingerprint, operationKey, promise });
@@ -537,6 +594,11 @@ export function createDeterministicCatalogLookupCommandFlow(
           commandsByQuestion.delete(questionKey);
           decrementLedgerCount(ledgerEntryCounts, context.tenantId);
         }
+        releaseCatalogEvidenceReservation(
+          evidenceReservationsBySession,
+          context.tenantId,
+          session.sessionId,
+        );
         if (operationsInFlight.get(operationKey) === entry) operationsInFlight.delete(operationKey);
       },
     );
@@ -589,6 +651,7 @@ export function createDeterministicCatalogLookupCommandFlow(
   }
 
   return Object.freeze({
+    action_evidence: actionEvidence,
     submitCatalogLookup,
     reconcileUnknownCatalogLookup,
     readFakeCatalogInvocationCount(request: AuthorizedRequestContext): number {
@@ -629,6 +692,15 @@ function requireCatalogCommandContext(request: AuthorizedRequestContext): Tenant
   ) {
     throw new ActionRuntimeAuthorizationError();
   }
+  return context;
+}
+
+function requireCatalogEvidenceReadContext(request: AuthorizedRequestContext): TenantContext {
+  const context = getAuthorizedTenantContext(request);
+  if (
+    !context.grantedScopes.includes("session:read")
+    || !context.purposes.includes("essential_processing")
+  ) throw new ActionRuntimeAuthorizationError();
   return context;
 }
 
@@ -735,6 +807,90 @@ function createReceiptBackedCatalogAnswer(
   });
 }
 
+function createCatalogLookupActionEvidenceRow(
+  command: CatalogLookupCommand,
+  context: TenantContext,
+  actionIntent: ActionIntent,
+  actionResult: ActionRuntimeResult,
+): CatalogLookupActionEvidenceRow {
+  const decision = actionResult.policy_decision;
+  const receipt = actionResult.tool_execution_receipt;
+  const confirmedEffect = decision.outcome === "allow"
+    && receipt.status === "succeeded"
+    && receipt.effect_hash !== null
+    && receipt.completed_at !== null;
+  if (
+    canonicalJson(actionResult.action_intent) !== canonicalJson(actionIntent)
+    || actionIntent.tenant_id !== context.tenantId
+    || actionIntent.session_id !== command.session_id
+    || decision.intent_id !== actionIntent.intent_id
+    || decision.tenant_id !== context.tenantId
+    || receipt.intent_id !== actionIntent.intent_id
+    || receipt.tenant_id !== context.tenantId
+    || actionResult.effect_confirmed !== confirmedEffect
+  ) throw new ActionRuntimeInvariantError();
+  return Object.freeze({
+    tenant_id: context.tenantId,
+    session_id: command.session_id,
+    execution_id: receipt.execution_id,
+    intent_id: actionIntent.intent_id,
+    tool_contract_id: actionIntent.tool_contract_id,
+    action: actionIntent.action,
+    status: receipt.status,
+    policy_outcome: decision.outcome,
+    confirmed_effect: confirmedEffect,
+    effect_hash: receipt.effect_hash,
+    attempt: receipt.attempt,
+    started_at: receipt.started_at,
+    completed_at: receipt.completed_at,
+  });
+}
+
+function reserveCatalogEvidence(
+  evidenceBySession: ReadonlyMap<string, readonly CatalogLookupActionEvidenceRow[]>,
+  reservationsBySession: Map<string, number>,
+  tenantId: TenantId,
+  sessionId: SessionId,
+): void {
+  const key = tenantSessionEvidenceKey(tenantId, sessionId);
+  const rowCount = evidenceBySession.get(key)?.length ?? 0;
+  const reservationCount = reservationsBySession.get(key) ?? 0;
+  if (rowCount + reservationCount >= MAX_CATALOG_EVIDENCE_ROWS_PER_SESSION) {
+    throw new ActionRuntimeLedgerCapacityError();
+  }
+  reservationsBySession.set(key, reservationCount + 1);
+}
+
+function appendCatalogEvidence(
+  evidenceBySession: Map<string, CatalogLookupActionEvidenceRow[]>,
+  reservationsBySession: Map<string, number>,
+  row: CatalogLookupActionEvidenceRow,
+): void {
+  const key = tenantSessionEvidenceKey(row.tenant_id as TenantId, row.session_id as SessionId);
+  const reservationCount = reservationsBySession.get(key) ?? 0;
+  const rows = evidenceBySession.get(key) ?? [];
+  if (
+    reservationCount < 1
+    || rows.length >= MAX_CATALOG_EVIDENCE_ROWS_PER_SESSION
+    || rows.some((existing) => existing.execution_id === row.execution_id)
+  ) throw new ActionRuntimeInvariantError();
+  rows.push(row);
+  evidenceBySession.set(key, rows);
+  releaseCatalogEvidenceReservation(reservationsBySession, row.tenant_id as TenantId, row.session_id as SessionId);
+}
+
+function releaseCatalogEvidenceReservation(
+  reservationsBySession: Map<string, number>,
+  tenantId: TenantId,
+  sessionId: SessionId,
+): void {
+  const key = tenantSessionEvidenceKey(tenantId, sessionId);
+  const current = reservationsBySession.get(key);
+  if (current === undefined) return;
+  if (current <= 1) reservationsBySession.delete(key);
+  else reservationsBySession.set(key, current - 1);
+}
+
 function parseCatalogReceiptResult(resultJson: string): Readonly<{
   raw: Readonly<Record<string, string>>;
   catalogVersion: string;
@@ -777,6 +933,10 @@ function catalogOperationKey(tenantId: TenantId, planId: "starter" | "growth"): 
 
 function tenantQuestionKey(tenantId: TenantId, questionId: UuidV7): string {
   return `${tenantId}\u0000${questionId}`;
+}
+
+function tenantSessionEvidenceKey(tenantId: TenantId, sessionId: SessionId): string {
+  return `${tenantId}\u0000${sessionId}`;
 }
 
 function normalizeCatalogLookupFlowOptions(value: unknown): NormalizedCatalogLookupFlowOptions {

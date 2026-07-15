@@ -3,8 +3,8 @@
 **Estado atual:** implementação de M1 em andamento
 
 **Marco atual:** M1
-**Tarefa atual:** M1-09
-**Última evidência verde:** M1-09 com console SSR tenant-safe, PostgreSQL e RLS locais, 206 testes Node, 23 testes Python e 9 validadores verdes em 2026-07-15
+**Tarefa atual:** M1-10
+**Última evidência verde:** M1-10 com Walking Skeleton determinístico, 209 testes Node, 23 testes Python, 2 testes E2E e 9 validadores verdes em 2026-07-15
 **Bloqueadores internos:** nenhum
 **Pendências externas:** consultar `PENDENCIAS_EXTERNAS.md`  
 
@@ -46,7 +46,7 @@
 | `M1-07` | M1 | done | Implement outbox relay and idempotent consumers | `M0-13`, `M1-06` | state machine bounded, token histórico, lease exclusivo, budget pinado, timeline idempotente, DLQ PII-free, telemetria tenant-safe e 180 testes Node mais 23 Python verdes |
 | `M1-08` | M1 | done | Implement fake post-call workflow | `M1-07` | consumer composto, quatro checkpoints, resumo e avaliação fake, follow-up noop idempotente, resume, retry, cancelamento, migration 0011, RLS e 191 testes Node mais 23 Python verdes |
 | `M1-09` | M1 | done | Build minimal operations console | `M1-01`, `M1-06` | lifecycle-first, replay canônico, receipts governados, custos exatos, 404 cross-tenant sem leituras secundárias, CSP hash-pinned, accessibility smoke e 206 testes Node mais 23 Python verdes |
-| `M1-10` | M1 | pending | Walking Skeleton E2E and failure suite | `M1-04`, `M1-05`, `M1-06`, `M1-07`, `M1-08`, `M1-09` | pending |
+| `M1-10` | M1 | done | Walking Skeleton E2E and failure suite | `M1-04`, `M1-05`, `M1-06`, `M1-07`, `M1-08`, `M1-09` | `pnpm m1:e2e` executa lifecycle, turnos, ação governada, relay, replay, workflow e console; goldens incluem 12 eventos, replay hash e matriz de falhas verde |
 | `M1-11` | M1 | pending | M1 release gate | `M1-10` | pending |
 | `M2-01` | M2 | pending | Implement channel adapter and native-room transport boundary | `M1-11`, `M0-11` | pending |
 | `M2-02` | M2 | pending | Build Turn Coordinator harness | `M2-01` | pending |
@@ -386,6 +386,26 @@
 - Riscos não bloqueantes: a rota é um adapter SSR interno, não um servidor HTTP nem browser auth; a projeção de receipts é process-local e injetada no bootstrap; a M1-10 deve provar o produtor real do Action Runtime até o console; o teste de acessibilidade é smoke estrutural, não auditoria WCAG com browser; cada refresh ainda refaz até 5 MB de replay e deve migrar para snapshot mais tail e admission control antes de exposição HTTP real.
 - Nenhuma credencial real, ambiente de produção, banco remoto, deploy, provider real, execução direta de ferramenta, M2 ou M3 foi acessado ou iniciado.
 
+### 2026-07-15, M1-10 iniciado
+
+- Dependências M1-04, M1-05, M1-06, M1-07, M1-08 e M1-09 concluídas, validadas e separadas por commits convencionais. M1-09 foi commitada em `94ebd3f` antes deste início.
+- Escopo fechado à composição E2E fake-only do Walking Skeleton, artefatos determinísticos e matriz de falhas exigida no task graph. Nenhum canal de áudio, provider real, deploy, credencial, M2 ou M3 será iniciado.
+
+### 2026-07-15, M1-10 concluído
+
+- Criado o comando canônico `pnpm m1:e2e`, que compõe as fronteiras reais e framework-neutral de lifecycle, Session Actor, Context Composer, Turn Driver, Action Runtime, Cost Ledger, outbox relay, timeline, replay verifier, workflow pós-call e console operacional. O cenário completo roda duas vezes e exige igualdade estrutural e byte a byte dos goldens.
+- O fluxo produz 12 eventos canônicos, materializa snapshot na versão 11, aplica o tail de conclusão, converge outbox, Actor ativo, Actor reidratado, workflow e console no replay hash `5b61e69e9c9b9d8af7a15ef5e2358be06544b7b7cfa46b3d4335b1d9f9e425b5`.
+- A One Mouth Rule é comprovada pelos seis payloads reais antes da sanitização: três turnos do participante e três do Presenter, sequência alternada, índices 1 a 6, um único Presenter igual ao floor ativo e nenhum participante usando a identidade do Presenter. Nenhum payload restrito entra nos artefatos.
+- A ação de catálogo passa pela cadeia `ActionIntent`, `PolicyDecision` e `ToolExecutionReceipt`, executa o fake exatamente uma vez, reaproveita a mesma candidata no replay e não adiciona fala ou evento. A capability `action_evidence` é separada, read-only, tenant-scoped, limitada a 100 registros e expõe somente metadata allowlisted para o console.
+- A matriz de falhas prova 404 indistinguível e zero leituras secundárias cross-tenant, crash do relay depois do efeito e antes do ACK com recuperação na tentativa 2 sem duplicação, e efeito de ferramenta `unknown` com retry cego bloqueado e reconciliação exata enquanto a sessão ainda está ativa.
+- O workflow pós-call conclui quatro checkpoints, mantém follow-up externo desativado e preserva o hash de origem. O baseline fake registra uma requisição de catálogo estimada em USD 0.02, sem custo medido ou reportado por provider.
+- Congelados `artifacts/m1/timeline.json`, `artifacts/m1/evidence.json` e `artifacts/m1/manifest.json`. O manifest fixa 12 eventos, o replay hash, SHA-256 canônico da timeline `beffbdd11a04b74889afe2159fcce4bab53b1eef8d9ef7f0cc107a92be4cffee` e da evidência `a0da2cc6519690bbe118b353b8b26a8d3ba7497db091355af2d4345ca9a0c14a`.
+- ADR-026, arquitetura do Action Runtime, playbook do Walking Skeleton e D-V2-041 registram a capability de evidência, os limites locais, degradação e rollback. Não foi necessário alterar contrato wire, schema, migration, dependência ou Constituição.
+- Revisões independentes finais de arquitetura, segurança e confiabilidade aprovaram o patch sem P0, P1 ou P2. O achado intermediário sobre prova insuficiente da One Mouth Rule foi corrigido e ganhou regressão explícita; o cenário `unknown` foi movido para antes da conclusão da sessão.
+- Evidências verdes: `pnpm lint`; `pnpm contracts:check` com 47 schemas; `pnpm typecheck`; `pnpm test` com 209 testes Node e 23 unittest Python; `UV_CACHE_DIR=/private/tmp/axtro-uv-cache uv run pytest` com 23 testes; `pnpm build`; `pnpm m1:e2e` com 2 testes; `python3 scripts/validate_all.py` com 9 checks, 47 schemas, 42 tabelas e 11 migrations; e `git diff --check`.
+- Riscos não bloqueantes: repositories, evidência de ação e execução E2E permanecem process-local; os goldens retêm somente metadata; o console ainda é SSR interno sem servidor ou browser auth; esta tarefa não reaplicou PostgreSQL e RLS porque não alterou banco, e o gate M1-11 executará a pipeline local completa.
+- Nenhuma credencial real, ambiente de produção, banco remoto, deploy, provider real, ação externa, M2 ou M3 foi acessado ou iniciado.
+
 ### 2026-07-14, baseline arquitetural
 
 - 31 schemas estritos e 62 exemplos de contrato preparados.
@@ -394,4 +414,4 @@
 
 ## Próxima ação
 
-Iniciar M1-10 em uma atualização separada: suíte E2E completa do Walking Skeleton e matriz de falhas, sem iniciar M2 ou M3.
+Criar o commit convencional de M1-10 e iniciar M1-11 como tarefa separada para revisar e congelar o release gate do Walking Skeleton, sem iniciar M2 ou M3.

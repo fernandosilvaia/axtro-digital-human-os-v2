@@ -46,6 +46,14 @@ or allowing a blind retry.
 - Idempotency is derived from `question_id` and scoped by tenant. The
   coordinator and underlying action runtime use bounded per-tenant ledgers.
   Replays return the prior candidate; new entries fail closed at capacity.
+- The coordinator exposes a separate bounded, read-only evidence capability
+  for trusted composition. It requires authenticated `session:read` and
+  `essential_processing`, keys every read by authorized tenant and registered
+  session, and projects only allowlisted receipt metadata from the exact
+  immutable action result already produced. It exposes no command, arguments,
+  result, error, provider, runtime, submit, reconciliation, publication, or
+  adapter method. This permits the operations console to consume authoritative
+  evidence without reconstructing caller-controlled receipts.
 - A closed trusted fake mode can make the first allowed dispatch for each
   tenant return a receipt with status `unknown`, normalized timeout evidence,
   and an exact tenant-scoped barrier. The caller cannot select that mode.
@@ -70,7 +78,8 @@ or allowing a blind retry.
 
 The Walking Skeleton proves a complete deterministic action chain while
 preserving the One Mouth Rule and realtime latency boundary. The coordinator
-is intentionally narrow and read-only. Any general command parser, provider
+is intentionally narrow, and its evidence seam is read-only and tenant-scoped.
+Any general command parser, provider
 adapter, durable receipt store, timeline publication, or automatic speech
 requires its own contract and architecture review.
 

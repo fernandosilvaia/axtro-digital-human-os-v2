@@ -90,8 +90,20 @@ function catalogFlow({
 test("an explicit catalog command derives the governed chain and cites only its successful receipt", async () => {
   const flow = catalogFlow();
   const request = authorizedRequest({ token: "dev_catalog_alpha_happy_0001" });
+  const observer = authorizedRequest({
+    token: "dev_catalog_alpha_observer_0001",
+    actorId: id(8),
+    actorType: "human_operator",
+    scopes: ["session:read"],
+    purposes: ["essential_processing"],
+  });
+  const lookup = command();
 
-  const answer = await flow.submitCatalogLookup(request, command());
+  assert.deepEqual(flow.action_evidence.listBySession(observer, sessionAlpha), []);
+  const pending = flow.submitCatalogLookup(request, lookup);
+  assert.deepEqual(flow.action_evidence.listBySession(observer, sessionAlpha), []);
+  const answer = await pending;
+  const evidence = flow.action_evidence.listBySession(observer, sessionAlpha);
 
   assert.equal(answer.confirmed, true);
   assert.equal(answer.receipt.status, "succeeded");
@@ -106,7 +118,24 @@ test("an explicit catalog command derives the governed chain and cites only its 
   assert.deepEqual(Object.keys(answer).sort(), ["confirmed", "question_id", "receipt", "response_text", "session_id", "tenant_id"]);
   assert.equal(Object.isFrozen(answer), true);
   assert.equal(Object.isFrozen(answer.receipt), true);
+  assert.equal(evidence.length, 1);
+  assert.deepEqual(Object.keys(evidence[0]).sort(), [
+    "action", "attempt", "completed_at", "confirmed_effect", "effect_hash", "execution_id",
+    "intent_id", "policy_outcome", "session_id", "started_at", "status", "tenant_id", "tool_contract_id",
+  ].sort());
+  assert.equal(evidence[0].session_id, sessionAlpha);
+  assert.equal(evidence[0].tool_contract_id, "catalog.lookup");
+  assert.equal(evidence[0].policy_outcome, "allow");
+  assert.equal(evidence[0].execution_id, answer.receipt.execution_id);
+  assert.equal(evidence[0].effect_hash, answer.receipt.effect_hash);
+  assert.equal(evidence[0].confirmed_effect, true);
+  assert.equal(Object.isFrozen(evidence), true);
+  assert.equal(Object.isFrozen(evidence[0]), true);
+  await flow.submitCatalogLookup(request, structuredClone(lookup));
+  assert.deepEqual(flow.action_evidence.listBySession(observer, sessionAlpha), evidence);
   assert.equal(typeof flow.submitActionIntent, "undefined");
+  assert.equal(typeof flow.action_evidence.submitCatalogLookup, "undefined");
+  assert.equal(typeof flow.action_evidence.reconcileUnknownCatalogLookup, "undefined");
   assert.equal(flow.readFakeCatalogInvocationCount(request), 1);
 });
 
@@ -179,6 +208,7 @@ test("text, forged fields, unauthorized identity and cross-tenant sessions are d
     flow.submitCatalogLookup(beta, command({ questionId: id(24), sessionId: sessionAlpha })),
     runtime.ActionRuntimeAuthorizationError,
   );
+  assert.deepEqual(flow.action_evidence.listBySession(beta, sessionAlpha), []);
   assert.equal(flow.readFakeCatalogInvocationCount(request), 0);
 });
 
@@ -217,6 +247,12 @@ test("unknown timeout blocks blind retry until same-command authenticated reconc
   assert.equal(unknown.receipt.error_code, "timeout");
   assert.doesNotMatch(unknown.response_text, /is available/);
   assert.equal(flow.readFakeCatalogInvocationCount(alpha), 1);
+  const unknownEvidence = flow.action_evidence.listBySession(alpha, sessionAlpha);
+  assert.equal(unknownEvidence.length, 1);
+  assert.equal(unknownEvidence[0].policy_outcome, "allow");
+  assert.equal(unknownEvidence[0].status, "unknown");
+  assert.equal(unknownEvidence[0].confirmed_effect, false);
+  assert.equal(unknownEvidence[0].effect_hash, null);
 
   const betaUnknown = await flow.submitCatalogLookup(beta, betaOriginal);
   assert.equal(betaUnknown.confirmed, false);
@@ -284,6 +320,47 @@ test("the per-tenant command and action ledgers fail closed at capacity but pres
   assert.equal(betaFirst.confirmed, true);
   assert.equal(flow.readFakeCatalogInvocationCount(request), 1);
   assert.equal(flow.readFakeCatalogInvocationCount(beta), 1);
+});
+
+test("the read-only action evidence capability fails closed at 100 rows without executing a hidden 101st action", async () => {
+  const flow = catalogFlow({ maxLedgerEntriesPerTenant: 128 });
+  const presenter = authorizedRequest({ token: "dev_catalog_alpha_evidence_capacity_0001" });
+  const observer = authorizedRequest({
+    token: "dev_catalog_alpha_evidence_observer_0001",
+    actorId: id(90),
+    actorType: "human_operator",
+    scopes: ["session:read"],
+    purposes: ["essential_processing"],
+  });
+  for (let index = 0; index < 100; index += 1) {
+    const answer = await flow.submitCatalogLookup(presenter, command({
+      questionId: id(1_000 + index),
+      planId: index % 2 === 0 ? "growth" : "starter",
+    }));
+    assert.equal(answer.confirmed, true);
+  }
+  const rows = flow.action_evidence.listBySession(observer, sessionAlpha);
+  assert.equal(rows.length, 100);
+  assert.equal(new Set(rows.map((row) => row.execution_id)).size, 100);
+  assert.equal(rows.every((row) => !Object.hasOwn(row, "arguments_json")
+    && !Object.hasOwn(row, "result_json")
+    && !Object.hasOwn(row, "error")
+    && !Object.hasOwn(row, "provider_id")), true);
+  await assert.rejects(
+    flow.submitCatalogLookup(presenter, command({ questionId: id(1_100) })),
+    runtime.ActionRuntimeLedgerCapacityError,
+  );
+  assert.equal(flow.readFakeCatalogInvocationCount(presenter), 100);
+  assert.equal(flow.action_evidence.listBySession(observer, sessionAlpha).length, 100);
+
+  const noRead = authorizedRequest({
+    token: "dev_catalog_alpha_evidence_no_read_0001",
+    scopes: ["session:write", "tool:use"],
+  });
+  assert.throws(
+    () => flow.action_evidence.listBySession(noRead, sessionAlpha),
+    runtime.ActionRuntimeAuthorizationError,
+  );
 });
 
 test("the textual Fast Lane remains free of Action Runtime and catalog candidates have no publication path", () => {

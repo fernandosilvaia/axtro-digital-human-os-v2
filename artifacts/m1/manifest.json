@@ -1,0 +1,14 @@
+{
+  "schema_version": "1.0.0",
+  "milestone": "M1",
+  "scenario_id": "m1-deterministic-walking-skeleton",
+  "canonical_command": "pnpm m1:e2e",
+  "deterministic": true,
+  "synthetic_data": true,
+  "event_count": 12,
+  "replay_state_hash": "5b61e69e9c9b9d8af7a15ef5e2358be06544b7b7cfa46b3d4335b1d9f9e425b5",
+  "artifacts": {
+    "timeline.json": "beffbdd11a04b74889afe2159fcce4bab53b1eef8d9ef7f0cc107a92be4cffee",
+    "evidence.json": "a0da2cc6519690bbe118b353b8b26a8d3ba7497db091355af2d4345ca9a0c14a"
+  }
+}

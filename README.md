@@ -6,7 +6,7 @@ O primeiro produto é o **Sales Closer Role Pack**, mas o kernel não é acoplad
 
 ## Estado real da entrega
 
-**M0 concluído e M1 em execução, com a Foundation verde e o Walking Skeleton implementado até o console operacional M1-09.**
+**M0 concluído e M1 em execução, com a Foundation verde e o Walking Skeleton E2E determinístico concluído na M1-10.**
 
 O repositório já contém:
 
@@ -17,7 +17,17 @@ O repositório já contém:
 - console SSR tenant-safe com estado, timeline, receipts e custos;
 - provider fakes para desenvolver sem credenciais.
 
-M1-10 e M1-11 ainda precisam fechar a demo E2E e o release gate. M2 não foi iniciado.
+M1-11 ainda precisa congelar o release gate e a evidência final do marco. M2 não foi iniciado.
+
+A demo completa da M1 roda com um único comando, somente com fakes locais:
+
+```bash
+pnpm m1:e2e
+```
+
+O comando compara duas execuções idênticas com os artefatos versionados em
+`artifacts/m1/`, incluindo timeline metadata-only, replay hash, custos,
+workflow e a matriz cross-tenant, retry de outbox e unknown tool effect.
 
 A produção com providers reais continua condicionada a credenciais, termos comerciais, bake-off de qualidade e validações regulatórias listadas em `PENDENCIAS_EXTERNAS.md`.
 
