@@ -177,6 +177,26 @@ class DisclosureRecord(TypedDict):
     acknowledged: bool
     acknowledged_at: str | None
 
+# Source: contracts/schemas/event_delivery_receipt.schema.json; schema: https://schemas.axtro.ai/v2/event_delivery_receipt.schema.json; version: 2.0.0.
+class EventDeliveryReceipt(TypedDict):
+    schema_version: Literal['2.0.0']
+    tenant_id: str
+    event_id: str
+    aggregate_id: str
+    aggregate_version: int
+    consumer_name: Literal['session-timeline']
+    event_fingerprint: str
+    trace_id: str
+    correlation_id: str
+    status: Literal['published', 'retry_scheduled', 'dead_letter']
+    attempt: int
+    max_attempts: int
+    failure_code: (Literal['consumer_retryable', 'consumer_rejected', 'timeline_conflict', 'timeline_capacity', 'timeline_invalid', 'lease_expired', 'max_attempts_exhausted']) | (None)
+    effect_hash: (str) | (None)
+    started_at: str
+    completed_at: str
+    data_classification: Literal['internal']
+
 # Source: contracts/schemas/event_envelope.schema.json; schema: https://schemas.axtro.ai/v2/event_envelope.schema.json; version: 2.0.0.
 class EventEnvelope(TypedDict):
     schema_version: Literal['2.0.0']
@@ -393,7 +413,7 @@ class RoleState(TypedDict):
 class RuntimeConfiguration(TypedDict):
     schema_version: Literal['2.0.0']
     environment: Literal['development', 'test', 'staging', 'canary', 'production']
-    service_name: Literal['api', 'realtime-worker', 'axtro-supervisor', 'meeting-bot-worker', 'workflow-worker']
+    service_name: Literal['api', 'realtime-worker', 'axtro-supervisor', 'meeting-bot-worker', 'workflow-worker', 'event-relay']
     provider_mode: Literal['fake']
     secret_broker_handle: str
     port: int
@@ -664,6 +684,12 @@ CONTRACT_METADATA: dict[str, dict[str, str]] = {
     "source_hash": "dd9af87ab35fbb75b8e22e1a410fff482daeb94cede48d9ffa94cf6fbaac6815",
     "source_schema": "contracts/schemas/disclosure_record.schema.json"
   },
+  "EventDeliveryReceipt": {
+    "schema_id": "https://schemas.axtro.ai/v2/event_delivery_receipt.schema.json",
+    "schema_version": "2.0.0",
+    "source_hash": "a700b1fb8877c8bcc7816bf3c8a4911840b210d1e5262897ef32610d5da6c7fa",
+    "source_schema": "contracts/schemas/event_delivery_receipt.schema.json"
+  },
   "EventEnvelope": {
     "schema_id": "https://schemas.axtro.ai/v2/event_envelope.schema.json",
     "schema_version": "2.0.0",
@@ -757,7 +783,7 @@ CONTRACT_METADATA: dict[str, dict[str, str]] = {
   "RuntimeConfiguration": {
     "schema_id": "https://schemas.axtro.ai/v2/runtime_configuration.schema.json",
     "schema_version": "2.0.0",
-    "source_hash": "206376a0bcacadeea2b928436d008d574d6f13bca41a4835af57a0d701cc3898",
+    "source_hash": "437a3e0a5dfba4db44d655ae68cb35a88b91d1347b0d332ebfcf12f54a6b6dc8",
     "source_schema": "contracts/schemas/runtime_configuration.schema.json"
   },
   "SalesState": {
@@ -860,6 +886,7 @@ __all__ = [
     'DeploymentPromotion',
     'DerivedHypothesis',
     'DisclosureRecord',
+    'EventDeliveryReceipt',
     'EventEnvelope',
     'ExperimentCandidate',
     'FakeProviderJournalEntry',

@@ -131,6 +131,41 @@ test("M0 rejects a tenant header selector for user identities", () => {
   );
 });
 
+test("M1 event scopes are restricted to workflow service identities", () => {
+  const workflowRegistration = alphaRegistration({
+    actorType: "workflow",
+    tenantGrants: [{
+      tenantId: tenantAlpha,
+      grantedScopes: ["event:relay", "event:observe", "session:write"],
+      purposes: ["essential_processing"],
+    }],
+  });
+  const verifier = auth.createDevelopmentIdentityVerifier(runtimeConfiguration(), [workflowRegistration]);
+  const resolved = auth.resolveAuthorizedRequestContext({
+    authorization: `Bearer ${developmentToken}`,
+    requestedTenantId: tenantAlpha,
+  }, verifier);
+  assert.deepEqual(resolved.tenantContext.grantedScopes, ["event:relay", "event:observe", "session:write"]);
+  assert.equal(resolved.principal.actorType, "workflow");
+  assert.equal(resolved.principal.identityKind, "service");
+
+  for (const registration of [
+    alphaRegistration({
+      tenantGrants: [{ tenantId: tenantAlpha, grantedScopes: ["event:relay"], purposes: ["essential_processing"] }],
+    }),
+    alphaRegistration({
+      actorType: "workflow",
+      identityKind: "user",
+      tenantGrants: [{ tenantId: tenantAlpha, grantedScopes: ["event:observe"], purposes: ["essential_processing"] }],
+    }),
+  ]) {
+    assert.throws(
+      () => auth.createDevelopmentIdentityVerifier(runtimeConfiguration(), [registration]),
+      auth.DevelopmentAuthConfigurationError,
+    );
+  }
+});
+
 test("development registration validation rejects invalid actors, broad grants, duplicate tenants, and unknown fields", () => {
   const invalidActor = alphaRegistration({ actorId: "550e8400-e29b-41d4-a716-446655440000" });
   const duplicateTenant = alphaRegistration({

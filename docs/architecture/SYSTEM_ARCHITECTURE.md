@@ -47,6 +47,7 @@ flowchart LR
 | `apps/web` | TypeScript/Next.js | console, sala, administração | request based |
 | `apps/api` | TypeScript/NestJS ou Fastify modular | Control Plane e APIs | stateless |
 | `apps/realtime-worker` | Python/LiveKit Agents | Session Actor e media loop | por sessão/job |
+| `apps/event-relay` | TypeScript determinístico | claim bounded do outbox e consumer idempotente da timeline | uma tentativa por job |
 | `apps/axtro-supervisor` | Python | bridge com daemon e jobs assistivos | workers |
 | `apps/meeting-bot-worker` | TypeScript ou Python | lifecycle de meeting bots | por bot |
 | workflow worker | TypeScript ou Python | timers, retries e compensação | queue workers |

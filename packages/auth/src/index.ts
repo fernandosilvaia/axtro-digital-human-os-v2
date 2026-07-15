@@ -113,7 +113,15 @@ export class TenantTransactionContextError extends Error {
 const BEARER_PATTERN = /^Bearer ([A-Za-z0-9._~-]{8,256})$/;
 const DEVELOPMENT_TOKEN_PATTERN = /^dev_[a-z0-9][a-z0-9._-]{7,127}$/;
 const IDENTITY_KINDS = ["user", "service"] as const;
-const M0_GRANTED_SCOPES = ["session:read", "session:write", "provider:use", "tool:use"] as const;
+const SUPPORTED_GRANTED_SCOPES = [
+  "session:read",
+  "session:write",
+  "provider:use",
+  "tool:use",
+  "event:relay",
+  "event:observe",
+] as const;
+const EVENT_SERVICE_SCOPES = ["event:relay", "event:observe"] as const;
 const M0_PURPOSES = ["essential_processing", "provider_auth", "tool_auth"] as const;
 const AUTHORIZED_REQUESTS = new WeakSet<object>();
 
@@ -285,9 +293,13 @@ function normalizeVerifiedIdentity(input: unknown): VerifiedIdentity {
       tenantId: requiredString(readData(grantRecord, "tenantId")),
       actorId,
       actorType,
-      grantedScopes: normalizedLabels(readData(grantRecord, "grantedScopes"), M0_GRANTED_SCOPES),
+      grantedScopes: normalizedLabels(readData(grantRecord, "grantedScopes"), SUPPORTED_GRANTED_SCOPES),
       purposes: normalizedLabels(readData(grantRecord, "purposes"), M0_PURPOSES),
     });
+    if (
+      context.grantedScopes.some((scope) => EVENT_SERVICE_SCOPES.includes(scope as (typeof EVENT_SERVICE_SCOPES)[number]))
+      && (identityKind !== "service" || actorType !== "workflow")
+    ) throw new NormalizationError();
     if (tenantIds.has(context.tenantId)) throw new NormalizationError();
     tenantIds.add(context.tenantId);
     normalizedActorId ??= context.actorId;

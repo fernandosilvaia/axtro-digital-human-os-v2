@@ -1,0 +1,19 @@
+{
+  "schema_version": "2.0.0",
+  "tenant_id": "018bcfe5-6800-7abc-8f01-020304050607",
+  "event_id": "018bcfe5-6801-7abc-8f01-020304050608",
+  "aggregate_id": "018bcfe5-6802-7abc-8f01-020304050609",
+  "aggregate_version": 3,
+  "consumer_name": "session-timeline",
+  "event_fingerprint": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+  "trace_id": "0123456789abcdef0123456789abcdef",
+  "correlation_id": "018bcfe5-6803-7abc-8f01-020304050610",
+  "status": "published",
+  "attempt": 2,
+  "max_attempts": 4,
+  "failure_code": null,
+  "effect_hash": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+  "started_at": "2026-07-15T12:00:00.000Z",
+  "completed_at": "2026-07-15T12:00:00.025Z",
+  "data_classification": "internal"
+}

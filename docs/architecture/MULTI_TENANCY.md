@@ -20,7 +20,7 @@ No Postgres, usar `SET LOCAL app.tenant_id` dentro da transação. O adapter M0 
 
 ## Development auth boundary
 
-O verificador determinístico de M0 consulta somente um registro server-side injetado no startup. Ele não é OIDC nem JWT de produção, aceita somente os scopes M0 `session:read`, `session:write`, `provider:use` e `tool:use`, e as finalidades `essential_processing`, `provider_auth` e `tool_auth`. Portanto não aceita wildcard, admin, bypass ou grants amplos. Ele só pode ser construído com `dev_auth_enabled=true` em `development` ou `test`. Staging, canary e produção exigem um verificador de identidade posterior e falham fechados para o fake.
+O verificador determinístico consulta somente um registro server-side injetado no startup. Ele não é OIDC nem JWT de produção. O baseline M0 aceita `session:read`, `session:write`, `provider:use` e `tool:use`; M1-07 adiciona `event:relay` e `event:observe` somente para service identity com actor type `workflow`, e o repository exige também a finalidade `essential_processing` para qualquer mutação ou leitura operacional do relay. As finalidades registráveis permanecem `essential_processing`, `provider_auth` e `tool_auth`. Wildcard, admin, bypass e grants amplos continuam proibidos. O verificador só pode ser construído com `dev_auth_enabled=true` em `development` ou `test`. Staging, canary e produção exigem um verificador de identidade posterior e falham fechados para o fake.
 
 ## Service identities
 

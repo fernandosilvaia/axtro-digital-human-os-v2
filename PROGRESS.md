@@ -3,8 +3,8 @@
 **Estado atual:** implementação de M1 em andamento
 
 **Marco atual:** M1
-**Tarefa atual:** M1-06 concluída; M1-07 ainda não iniciada
-**Última evidência verde:** M1-06 com timeline autoritativa, snapshot reconstruível, replay equivalente e pipeline limpo em 2026-07-15
+**Tarefa atual:** M1-07 concluída; M1-08 ainda não iniciada
+**Última evidência verde:** M1-07 com relay bounded, consumer idempotente, DLQ observável e pipeline limpo em 2026-07-15
 **Bloqueadores internos:** nenhum
 **Pendências externas:** consultar `PENDENCIAS_EXTERNAS.md`  
 
@@ -43,7 +43,7 @@
 | `M1-04` | M1 | done | Implement context composer | `M1-03` | 39º contrato gerado, snapshot opaco, budget UTF-8, provenance, TTL, freshness no Turn Driver e suíte de injeção validados |
 | `M1-05` | M1 | done | Complete fake Action Runtime flow | `M1-03`, `M0-14` | comando fechado, ActionIntent e policy derivados server-side, receipt-backed candidate, timeout fake por tenant, reconciliação exata, ledgers bounded e 154 testes Node mais 23 Python verdes |
 | `M1-06` | M1 | done | Implement timeline, snapshots and replay verifier | `M1-02`, `M0-13` | timeline append-only tenant-scoped, snapshot derivado do replay, equivalência zero versus snapshot mais tail, migration 0010, rollback, drift, RLS e 166 testes Node mais 23 Python verdes |
-| `M1-07` | M1 | pending | Implement outbox relay and idempotent consumers | `M0-13`, `M1-06` | pending |
+| `M1-07` | M1 | done | Implement outbox relay and idempotent consumers | `M0-13`, `M1-06` | state machine bounded, token histórico, lease exclusivo, budget pinado, timeline idempotente, DLQ PII-free, telemetria tenant-safe e 180 testes Node mais 23 Python verdes |
 | `M1-08` | M1 | pending | Implement fake post-call workflow | `M1-07` | pending |
 | `M1-09` | M1 | pending | Build minimal operations console | `M1-01`, `M1-06` | pending |
 | `M1-10` | M1 | pending | Walking Skeleton E2E and failure suite | `M1-04`, `M1-05`, `M1-06`, `M1-07`, `M1-08`, `M1-09` | pending |
@@ -332,6 +332,19 @@
 - Riscos não bloqueantes: o repositório determinístico da M1 permanece process-local; um adapter PostgreSQL futuro deve fixar um watermark ou usar leitura transacional consistente. O fingerprint detecta alteração no limite do repositório, mas não substitui uma hash chain ou proteção contra administrador do storage comprometido.
 - Próxima tarefa pendente: M1-07, relay de outbox e consumidores idempotentes. Nenhuma tarefa de M2 ou M3 foi iniciada.
 
+### 2026-07-15, M1-07 concluído
+
+- Criado o contrato fechado `event_delivery_receipt`, elevando o catálogo a 42 schemas gerados para TypeScript e Python. O receipt registra somente identidade tenant, evento, aggregate, consumer code-owned, fingerprint, trace, correlation, status, tentativas, códigos fechados, effect hash e timestamps. Payload, transcript, claim token, bearer token, erro bruto e stack não são observáveis.
+- Implementada em `@axtro/events` a máquina de entrega determinística e bounded com estados `pending`, `publishing`, `failed`, `published` e `dead_letter`. Claims usam lease com deadline exclusivo, UUIDv7 single-use no histórico tenant-scoped, fencing contra ACK obsoleto, attempt budget pinado no primeiro claim, backoff, máximo de tentativas, ordem por aggregate e progresso independente entre aggregates.
+- Criado `apps/event-relay` com `runOnce` de um evento, clock e tokens determinísticos e consumer explícito `session-timeline`. Crash antes do efeito recupera somente após o lease; crash depois do efeito usa o receipt idempotente da timeline e não duplica o estado. O consumer reconcilia tenant, sessão, evento, versão, fingerprint e state hash antes do ACK; nome arbitrário não pode sequestrar o delivery.
+- `event:relay` e `event:observe` são concedidos somente a workflow service identities e exigem `essential_processing` também no repository. Claim, ACK, retry, DLQ e observação continuam tenant-scoped e falham antes de mutação em overreach, purpose incorreto ou tenant cruzado.
+- `event-relay` foi adicionado ao catálogo de observabilidade. Cada claim válido produz span `outbox.relay` e códigos fechados sem payload. Trace canônico de 32 caracteres não zero é preservado; valores válidos de 16 a 64 caracteres fora do perfil W3C usam derivação SHA-256 estável com domínio versionado, enquanto o receipt preserva o valor original. Falha do sink não altera ACK, retry, DLQ ou efeito.
+- ADR-028, D-V2-038, arquitetura de eventos, multi-tenancy, topologia, matriz de rastreabilidade e documentação de contratos registram a decisão. O relay legado e o ledger `WeakMap` foram removidos. Não houve migration, alteração de banco ou implementação de M1-08, M2 ou M3; o ADR exige migration forward-only antes de adapter PostgreSQL ou execução multiprocesso.
+- Revisões independentes de arquitetura, segurança e testes aprovaram o snapshot final sem bloqueadores. A suíte cobre crash antes do efeito, crash depois do efeito, reuso histórico de token, ACK no deadline, drift de configuração após restart, retry/backoff/max, poison e DLQ, ordenação, consumer não registrado, receipt divergente, config hostil, scopes, purposes, tenants cruzados, trace 16/32/64 e falha do sink.
+- Evidências verdes: `pnpm lint`; `pnpm contracts:check` e `python3 scripts/validate_contracts.py` com 42 schemas; `pnpm typecheck`; `pnpm test` com 180 testes Node e 23 unittest Python; `pnpm build`; `uv run pytest` com 23 testes; `python3 scripts/validate_all.py` com 9 checks; e `git diff --check`. O validador de database permaneceu verde com 38 tabelas e 10 migrations; integração PostgreSQL e RLS não foram reaplicadas porque esta tarefa não alterou schema, migration ou policy de banco.
+- Riscos não bloqueantes: o repository continua process-local e com capacidade finita. A factory fake possui até 1.024 tokens e consome um por `runOnce`, inclusive idle; isso é adequado somente ao perfil local e por job de M1 e deve ser substituído antes de worker recorrente.
+- Próxima tarefa pendente: M1-08, workflow fake pós-call com resume, retry, cancelamento e idempotência, sem iniciar M2 ou M3.
+
 ### 2026-07-14, baseline arquitetural
 
 - 31 schemas estritos e 62 exemplos de contrato preparados.
@@ -340,4 +353,4 @@
 
 ## Próxima ação
 
-Implementar M1-07: relay de outbox e consumidores idempotentes, com retry, crash boundaries e dead-letter observável, sem iniciar M2 ou M3.
+Implementar M1-08: workflow fake pós-call com resumo e avaliação determinísticos, retomada após restart, retry, cancelamento e idempotência de comando, sem iniciar M2 ou M3.

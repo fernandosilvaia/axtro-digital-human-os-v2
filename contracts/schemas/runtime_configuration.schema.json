@@ -16,7 +16,7 @@
     },
     "service_name": {
       "type": "string",
-      "enum": ["api", "realtime-worker", "axtro-supervisor", "meeting-bot-worker", "workflow-worker"]
+      "enum": ["api", "realtime-worker", "axtro-supervisor", "meeting-bot-worker", "workflow-worker", "event-relay"]
     },
     "provider_mode": {
       "type": "string",

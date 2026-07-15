@@ -57,6 +57,13 @@ test("runtime configuration applies only non-sensitive defaults", () => {
   assert.equal(loaded.log_level, "info");
 });
 
+test("event relay is an explicit fake-only runtime service", () => {
+  const loaded = config.loadRuntimeConfig(validEnvironment({ AXTRO_SERVICE_NAME: "event-relay" }));
+  assert.equal(loaded.service_name, "event-relay");
+  assert.equal(loaded.provider_mode, "fake");
+  assert.equal(loaded.dev_auth_enabled, true);
+});
+
 test("configuration errors expose field names and codes but never raw values", () => {
   const credentialCanary = ["sk", "config", "x".repeat(24)].join("-");
   const cases = [

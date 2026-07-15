@@ -1,7 +1,7 @@
 /*
  * GENERATED FILE. DO NOT EDIT.
  * generator: scripts/generate_contract_types.py@1.0.0
- * source: 41 JSON Schema Draft 2020-12 documents under contracts/schemas/
+ * source: 42 JSON Schema Draft 2020-12 documents under contracts/schemas/
  */
 
 export const CONTRACT_GENERATOR_VERSION = "1.0.0" as const;
@@ -214,6 +214,27 @@ export interface DisclosureRecord {
   delivered_at: string;
   acknowledged: boolean;
   acknowledged_at: string | null;
+}
+
+/** Source: contracts/schemas/event_delivery_receipt.schema.json; schema: https://schemas.axtro.ai/v2/event_delivery_receipt.schema.json; version: 2.0.0. */
+export interface EventDeliveryReceipt {
+  schema_version: "2.0.0";
+  tenant_id: string;
+  event_id: string;
+  aggregate_id: string;
+  aggregate_version: number;
+  consumer_name: "session-timeline";
+  event_fingerprint: string;
+  trace_id: string;
+  correlation_id: string;
+  status: "published" | "retry_scheduled" | "dead_letter";
+  attempt: number;
+  max_attempts: number;
+  failure_code: ("consumer_retryable" | "consumer_rejected" | "timeline_conflict" | "timeline_capacity" | "timeline_invalid" | "lease_expired" | "max_attempts_exhausted") | (null);
+  effect_hash: (string) | (null);
+  started_at: string;
+  completed_at: string;
+  data_classification: "internal";
 }
 
 /** Source: contracts/schemas/event_envelope.schema.json; schema: https://schemas.axtro.ai/v2/event_envelope.schema.json; version: 2.0.0. */
@@ -489,7 +510,7 @@ export interface RoleState {
 export interface RuntimeConfiguration {
   schema_version: "2.0.0";
   environment: "development" | "test" | "staging" | "canary" | "production";
-  service_name: "api" | "realtime-worker" | "axtro-supervisor" | "meeting-bot-worker" | "workflow-worker";
+  service_name: "api" | "realtime-worker" | "axtro-supervisor" | "meeting-bot-worker" | "workflow-worker" | "event-relay";
   provider_mode: "fake";
   secret_broker_handle: string;
   port: number;
@@ -835,6 +856,12 @@ export const CONTRACT_METADATA = {
     "source_hash": "dd9af87ab35fbb75b8e22e1a410fff482daeb94cede48d9ffa94cf6fbaac6815",
     "source_schema": "contracts/schemas/disclosure_record.schema.json"
   },
+  "EventDeliveryReceipt": {
+    "schema_id": "https://schemas.axtro.ai/v2/event_delivery_receipt.schema.json",
+    "schema_version": "2.0.0",
+    "source_hash": "a700b1fb8877c8bcc7816bf3c8a4911840b210d1e5262897ef32610d5da6c7fa",
+    "source_schema": "contracts/schemas/event_delivery_receipt.schema.json"
+  },
   "EventEnvelope": {
     "schema_id": "https://schemas.axtro.ai/v2/event_envelope.schema.json",
     "schema_version": "2.0.0",
@@ -928,7 +955,7 @@ export const CONTRACT_METADATA = {
   "RuntimeConfiguration": {
     "schema_id": "https://schemas.axtro.ai/v2/runtime_configuration.schema.json",
     "schema_version": "2.0.0",
-    "source_hash": "206376a0bcacadeea2b928436d008d574d6f13bca41a4835af57a0d701cc3898",
+    "source_hash": "437a3e0a5dfba4db44d655ae68cb35a88b91d1347b0d332ebfcf12f54a6b6dc8",
     "source_schema": "contracts/schemas/runtime_configuration.schema.json"
   },
   "SalesState": {

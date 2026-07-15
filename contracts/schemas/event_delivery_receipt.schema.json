@@ -1,0 +1,87 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://schemas.axtro.ai/v2/event_delivery_receipt.schema.json",
+  "title": "Event Delivery Receipt",
+  "description": "PII-free operational evidence for one bounded outbox delivery attempt.",
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "schema_version": { "type": "string", "const": "2.0.0" },
+    "tenant_id": { "type": "string", "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$" },
+    "event_id": { "type": "string", "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$" },
+    "aggregate_id": { "type": "string", "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$" },
+    "aggregate_version": { "type": "integer", "minimum": 1, "maximum": 10000000 },
+    "consumer_name": { "type": "string", "const": "session-timeline" },
+    "event_fingerprint": { "type": "string", "pattern": "^[0-9a-f]{64}$" },
+    "trace_id": { "type": "string", "pattern": "^[0-9a-f]{16,64}$" },
+    "correlation_id": { "type": "string", "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$" },
+    "status": { "type": "string", "enum": ["published", "retry_scheduled", "dead_letter"] },
+    "attempt": { "type": "integer", "minimum": 1, "maximum": 16 },
+    "max_attempts": { "type": "integer", "minimum": 1, "maximum": 16 },
+    "failure_code": {
+      "oneOf": [
+        {
+          "type": "string",
+          "enum": [
+            "consumer_retryable",
+            "consumer_rejected",
+            "timeline_conflict",
+            "timeline_capacity",
+            "timeline_invalid",
+            "lease_expired",
+            "max_attempts_exhausted"
+          ]
+        },
+        { "type": "null" }
+      ]
+    },
+    "effect_hash": {
+      "oneOf": [
+        { "type": "string", "pattern": "^[0-9a-f]{64}$" },
+        { "type": "null" }
+      ]
+    },
+    "started_at": { "type": "string", "format": "date-time" },
+    "completed_at": { "type": "string", "format": "date-time" },
+    "data_classification": { "type": "string", "const": "internal" }
+  },
+  "required": [
+    "schema_version",
+    "tenant_id",
+    "event_id",
+    "aggregate_id",
+    "aggregate_version",
+    "consumer_name",
+    "event_fingerprint",
+    "trace_id",
+    "correlation_id",
+    "status",
+    "attempt",
+    "max_attempts",
+    "failure_code",
+    "effect_hash",
+    "started_at",
+    "completed_at",
+    "data_classification"
+  ],
+  "allOf": [
+    {
+      "if": {
+        "properties": { "status": { "const": "published" } },
+        "required": ["status"]
+      },
+      "then": {
+        "properties": {
+          "failure_code": { "const": null },
+          "effect_hash": { "type": "string" }
+        }
+      },
+      "else": {
+        "properties": {
+          "failure_code": { "type": "string" },
+          "effect_hash": { "const": null }
+        }
+      }
+    }
+  ]
+}

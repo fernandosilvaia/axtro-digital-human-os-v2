@@ -1,4 +1,4 @@
-import { randomBytes } from "node:crypto";
+import { createHash, randomBytes } from "node:crypto";
 
 import {
   createUuidV7,
@@ -30,6 +30,7 @@ export const TELEMETRY_SERVICE_NAMES = [
   "workflow-worker",
   "meeting-bot-worker",
   "axtro-supervisor",
+  "event-relay",
 ] as const;
 export type TelemetryServiceName = (typeof TELEMETRY_SERVICE_NAMES)[number];
 
@@ -65,6 +66,9 @@ export const TELEMETRY_EVENT_CODES = [
   "provider.fake.request.started",
   "provider.fake.request.completed",
   "provider.fake.request.failed",
+  "outbox.relay.started",
+  "outbox.relay.completed",
+  "outbox.relay.failed",
   "security.telemetry.rejected",
 ] as const;
 export type TelemetryEventCode = (typeof TELEMETRY_EVENT_CODES)[number];
@@ -117,6 +121,11 @@ export interface TrustedInternalTraceInput {
   readonly sessionId: unknown;
   readonly correlationId: unknown;
   readonly causationId: unknown;
+}
+
+/** Correlation already validated on a canonical internal event. */
+export interface TrustedEventTraceInput extends TrustedInternalTraceInput {
+  readonly traceId: unknown;
 }
 
 export interface FakeProviderTelemetryInput {
@@ -212,6 +221,8 @@ export class TelemetryValidationError extends Error {
 }
 
 const TRACE_ID_PATTERN = /^[0-9a-f]{32}$/;
+const CANONICAL_EVENT_TRACE_ID_PATTERN = /^[0-9a-f]{16,64}$/;
+const EVENT_TRACE_DERIVATION_DOMAIN = "axtro-event-trace-v1:";
 const SPAN_ID_PATTERN = /^[0-9a-f]{16}$/;
 const TRACE_FLAGS_PATTERN = /^[0-9a-f]{2}$/;
 const W3C_TRACEPARENT_PATTERN = /^00-([0-9a-f]{32})-([0-9a-f]{16})-([0-9a-f]{2})$/;
@@ -288,7 +299,17 @@ const ATTRIBUTE_VALUE_REGISTRY: Readonly<Record<EnumeratedTelemetryAttributeKey,
     "evaluate_action",
     "execute_action",
   ],
-  status: ["accepted", "completed", "failed", "pending", "cancelled", "degraded"],
+  status: [
+    "accepted",
+    "completed",
+    "failed",
+    "pending",
+    "cancelled",
+    "degraded",
+    "published",
+    "retry_scheduled",
+    "dead_letter",
+  ],
 });
 const DEVELOPMENT_BEARER_PATTERN = /(?:^|[^a-z0-9])dev_[a-z0-9][a-z0-9._-]{7,127}(?:$|[^a-z0-9])/i;
 const EMAIL_PATTERN = /[a-z0-9._%+-]+@[a-z0-9.-]+\.[a-z]{2,}/i;
@@ -383,6 +404,16 @@ export class TelemetryRuntime {
       traceId: parent.traceId,
       traceFlags: parent.traceFlags,
       parentSpanId: parent.parentSpanId,
+    });
+  }
+
+  /** Continue a canonical event trace, deriving a stable W3C ID for legacy 16..64 hex values. */
+  startTrustedEventTrace(input: TrustedEventTraceInput): TelemetryContext {
+    const trusted = normalizeTrustedEventTraceInput(input);
+    return freezeContext({
+      ...trusted,
+      traceFlags: "01",
+      parentSpanId: null,
     });
   }
 
@@ -682,6 +713,36 @@ function normalizeTrustedInternalInput(value: unknown): Omit<TelemetryContext, "
     correlationId: parseCorrelation(readRequired(record, "correlationId")),
     causationId: parseNullableCorrelation(readRequired(record, "causationId")),
   });
+}
+
+function normalizeTrustedEventTraceInput(
+  value: unknown,
+): Omit<TelemetryContext, "traceFlags" | "parentSpanId"> {
+  const record = plainRecord(value);
+  assertAllowedKeys(record, ["serviceName", "tenantId", "sessionId", "correlationId", "causationId", "traceId"]);
+  return Object.freeze({
+    ...normalizeTrustedInternalInput({
+      serviceName: readRequired(record, "serviceName"),
+      tenantId: readRequired(record, "tenantId"),
+      sessionId: readRequired(record, "sessionId"),
+      correlationId: readRequired(record, "correlationId"),
+      causationId: readRequired(record, "causationId"),
+    }),
+    traceId: normalizeCanonicalEventTraceId(readRequired(record, "traceId")),
+  });
+}
+
+function normalizeCanonicalEventTraceId(value: unknown): TraceId {
+  if (typeof value !== "string" || !CANONICAL_EVENT_TRACE_ID_PATTERN.test(value)) {
+    throw new TelemetryValidationError();
+  }
+  if (value.length === 32 && value !== ZERO_TRACE_ID) return parseTraceId(value);
+  return parseTraceId(
+    createHash("sha256")
+      .update(`${EVENT_TRACE_DERIVATION_DOMAIN}${value}`, "utf8")
+      .digest("hex")
+      .slice(0, 32),
+  );
 }
 
 function normalizeTelemetryContext(value: unknown): TelemetryContext {

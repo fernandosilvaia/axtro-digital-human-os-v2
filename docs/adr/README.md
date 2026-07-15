@@ -31,3 +31,4 @@ Accepted decisions for V2. The Constitution has precedence. A change to an accep
 | `ADR-025-bounded-context-composer.md` | Bounded context composition with provenance and TTL | Accepted |
 | `ADR-026-receipt-backed-catalog-lookup.md` | Receipt-backed catalog lookup outside the Fast Lane | Accepted |
 | `ADR-027-authoritative-session-timeline-replay.md` | Authoritative session timeline and replay verification | Accepted |
+| `ADR-028-bounded-outbox-relay-and-idempotent-timeline-consumer.md` | Bounded outbox relay and idempotent timeline consumer | Accepted |

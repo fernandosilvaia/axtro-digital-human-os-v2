@@ -40,7 +40,7 @@ export interface ModelRuntimeMetadata {
 }
 
 const ENVIRONMENTS = ["development", "test", "staging", "canary", "production"] as const;
-const SERVICE_NAMES = ["api", "realtime-worker", "axtro-supervisor", "meeting-bot-worker", "workflow-worker"] as const;
+const SERVICE_NAMES = ["api", "realtime-worker", "axtro-supervisor", "meeting-bot-worker", "workflow-worker", "event-relay"] as const;
 const LOG_LEVELS = ["debug", "info", "warn", "error"] as const;
 const INPUT_KEYS = new Set([
   "AXTRO_ENV",

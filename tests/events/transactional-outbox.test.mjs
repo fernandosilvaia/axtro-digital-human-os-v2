@@ -41,7 +41,12 @@ function runtimeConfiguration() {
   });
 }
 
-function authorizedRequest(tenantId, actorId, token, scopes = ["session:read", "session:write"]) {
+function authorizedRequest(
+  tenantId,
+  actorId,
+  token,
+  scopes = ["session:read", "session:write", "event:relay", "event:observe"],
+) {
   const verifier = auth.createDevelopmentIdentityVerifier(runtimeConfiguration(), [{
     token,
     actorId,
@@ -177,43 +182,58 @@ test("duplicate event identities and stale aggregate versions fail without creat
   assert.equal(repository.listOutbox(request).length, 1);
 });
 
-test("acknowledgement loss retries delivery without duplicating the deterministic consumer effect", async () => {
-  const repository = events.createDeterministicTransactionalOutboxRepository({ faultPoints: ["before_publish_ack"] });
+test("a retry receipt advances through a fenced second attempt", async () => {
+  const repository = events.createDeterministicTransactionalOutboxRepository();
   const request = authorizedRequest(tenantAlpha, actorAlpha, "dev_outbox_relay_0001");
-  const consumer = events.createDeterministicIdempotentConsumer("timeline-consumer");
   const event = eventFor({ tenantId: tenantAlpha, aggregateId: aggregateAlpha, eventId: alphaEventOne, aggregateVersion: 1 });
   await repository.commitInteractionEvent(request, event);
 
-  const uncertain = await repository.relayOnce(request, consumer);
-  assert.deepEqual(uncertain, {
-    outcome: "retry_scheduled",
-    event_id: alphaEventOne,
-    aggregate_id: aggregateAlpha,
-    aggregate_version: 1,
-    attempts: 1,
+  const first = await repository.claimNextDelivery(request, {
+    consumer_name: "session-timeline",
+    claim_token: id(300),
+    now: "2026-07-14T13:00:00.000Z",
+    lease_duration_ms: 100,
+    max_attempts: 3,
   });
-  assert.deepEqual(repository.readConsumerEffect(request, consumer, alphaEventOne), {
+  assert.equal(first.outcome, "claimed");
+  const retry = await repository.failDelivery(request, {
     event_id: alphaEventOne,
-    effect_count: 1,
-    delivery_count: 1,
+    consumer_name: "session-timeline",
+    claim_token: id(300),
+    completed_at: "2026-07-14T13:00:00.000Z",
+    failure_code: "consumer_retryable",
+    retryable: true,
+    retry_delay_ms: 0,
   });
+  assert.equal(retry.status, "retry_scheduled");
+  assert.equal(retry.attempt, 1);
   assert.equal(repository.listOutbox(request)[0].status, "failed");
 
-  const retry = await repository.relayOnce(request, consumer);
-  assert.equal(retry.outcome, "published");
-  assert.equal(retry.attempts, 2);
-  assert.deepEqual(repository.readConsumerEffect(request, consumer, alphaEventOne), {
-    event_id: alphaEventOne,
-    effect_count: 1,
-    delivery_count: 2,
+  const second = await repository.claimNextDelivery(request, {
+    consumer_name: "session-timeline",
+    claim_token: id(301),
+    now: "2026-07-14T13:00:00.000Z",
+    lease_duration_ms: 100,
+    max_attempts: 3,
   });
+  assert.equal(second.outcome, "claimed");
+  assert.equal(second.claim.attempt, 2);
+  const published = await repository.acknowledgeDelivery(request, {
+    event_id: alphaEventOne,
+    consumer_name: "session-timeline",
+    claim_token: id(301),
+    completed_at: "2026-07-14T13:00:00.000Z",
+    effect_hash: "a".repeat(64),
+  });
+  assert.equal(published.status, "published");
+  assert.equal(published.attempt, 2);
   assert.equal(repository.listOutbox(request)[0].status, "published");
+  assert.deepEqual(repository.readLatestDeliveryReceipt(request, "session-timeline", alphaEventOne), published);
 });
 
-test("relay blocks N+1 while N failed and keeps a different aggregate independently eligible", async () => {
-  const repository = events.createDeterministicTransactionalOutboxRepository({ faultPoints: ["before_publish_ack"] });
+test("delivery blocks N+1 while N is delayed and keeps a different aggregate independently eligible", async () => {
+  const repository = events.createDeterministicTransactionalOutboxRepository();
   const request = authorizedRequest(tenantAlpha, actorAlpha, "dev_outbox_ordering_0001");
-  const consumer = events.createDeterministicIdempotentConsumer("ordering-consumer");
   const aggregateA = id(50);
   const aggregateB = id(60);
   const eventAOne = id(51);
@@ -239,15 +259,68 @@ test("relay blocks N+1 while N failed and keeps a different aggregate independen
     aggregateVersion: 1,
   }));
 
-  assert.equal((await repository.relayOnce(request, consumer)).event_id, eventAOne);
-  assert.equal(repository.isRelayEligible(request, eventATwo), false);
-  assert.equal(repository.isRelayEligible(request, eventBOne), true);
-  assert.equal(repository.readConsumerEffect(request, consumer, eventATwo), null);
-  assert.equal(repository.readConsumerEffect(request, consumer, eventBOne), null);
-
-  assert.equal((await repository.relayOnce(request, consumer)).event_id, eventAOne);
-  assert.equal((await repository.relayOnce(request, consumer)).event_id, eventATwo);
-  assert.equal((await repository.relayOnce(request, consumer)).event_id, eventBOne);
+  const first = await repository.claimNextDelivery(request, {
+    consumer_name: "session-timeline",
+    claim_token: id(310),
+    now: "2026-07-14T14:00:00.000Z",
+    lease_duration_ms: 100,
+    max_attempts: 3,
+  });
+  assert.equal(first.claim.event_id, eventAOne);
+  await repository.failDelivery(request, {
+    event_id: eventAOne,
+    consumer_name: "session-timeline",
+    claim_token: id(310),
+    completed_at: "2026-07-14T14:00:00.000Z",
+    failure_code: "consumer_retryable",
+    retryable: true,
+    retry_delay_ms: 100,
+  });
+  const independent = await repository.claimNextDelivery(request, {
+    consumer_name: "session-timeline",
+    claim_token: id(311),
+    now: "2026-07-14T14:00:00.000Z",
+    lease_duration_ms: 100,
+    max_attempts: 3,
+  });
+  assert.equal(independent.claim.event_id, eventBOne);
+  await repository.acknowledgeDelivery(request, {
+    event_id: eventBOne,
+    consumer_name: "session-timeline",
+    claim_token: id(311),
+    completed_at: "2026-07-14T14:00:00.000Z",
+    effect_hash: "b".repeat(64),
+  });
+  const retry = await repository.claimNextDelivery(request, {
+    consumer_name: "session-timeline",
+    claim_token: id(312),
+    now: "2026-07-14T14:00:00.100Z",
+    lease_duration_ms: 100,
+    max_attempts: 3,
+  });
+  assert.equal(retry.claim.event_id, eventAOne);
+  await repository.acknowledgeDelivery(request, {
+    event_id: eventAOne,
+    consumer_name: "session-timeline",
+    claim_token: id(312),
+    completed_at: "2026-07-14T14:00:00.100Z",
+    effect_hash: "c".repeat(64),
+  });
+  const successor = await repository.claimNextDelivery(request, {
+    consumer_name: "session-timeline",
+    claim_token: id(313),
+    now: "2026-07-14T14:00:00.100Z",
+    lease_duration_ms: 100,
+    max_attempts: 3,
+  });
+  assert.equal(successor.claim.event_id, eventATwo);
+  await repository.acknowledgeDelivery(request, {
+    event_id: eventATwo,
+    consumer_name: "session-timeline",
+    claim_token: id(313),
+    completed_at: "2026-07-14T14:00:00.100Z",
+    effect_hash: "d".repeat(64),
+  });
   assert.deepEqual(repository.listOutbox(request).map((record) => [record.event_id, record.status]), [
     [eventAOne, "published"],
     [eventATwo, "published"],
@@ -262,7 +335,6 @@ test("tenant scope encloses commits, reads, relay delivery and consumer deduplic
   const alphaReadOnly = authorizedRequest(tenantAlpha, actorAlpha, "dev_outbox_readonly_alpha", ["session:read"]);
   const alphaEvent = eventFor({ tenantId: tenantAlpha, aggregateId: aggregateAlpha, eventId: alphaEventOne, aggregateVersion: 1 });
   const betaEvent = eventFor({ tenantId: tenantBeta, aggregateId: aggregateBeta, eventId: alphaEventOne, aggregateVersion: 1 });
-  const consumer = events.createDeterministicIdempotentConsumer("tenant-consumer");
 
   await repository.commitInteractionEvent(alpha, alphaEvent);
   assert.deepEqual(repository.listOutbox(beta), []);
@@ -272,16 +344,36 @@ test("tenant scope encloses commits, reads, relay delivery and consumer deduplic
   assert.throws(() => repository.listOutbox({}), auth.TenantAuthorizationError);
 
   await repository.commitInteractionEvent(beta, betaEvent);
-  await repository.relayOnce(alpha, consumer);
-  await repository.relayOnce(beta, consumer);
-  assert.deepEqual(repository.readConsumerEffect(alpha, consumer, alphaEventOne), {
-    event_id: alphaEventOne,
-    effect_count: 1,
-    delivery_count: 1,
+  const alphaClaim = await repository.claimNextDelivery(alpha, {
+    consumer_name: "session-timeline",
+    claim_token: id(320),
+    now: "2026-07-14T15:00:00.000Z",
+    lease_duration_ms: 100,
+    max_attempts: 3,
   });
-  assert.deepEqual(repository.readConsumerEffect(beta, consumer, alphaEventOne), {
-    event_id: alphaEventOne,
-    effect_count: 1,
-    delivery_count: 1,
+  const betaClaim = await repository.claimNextDelivery(beta, {
+    consumer_name: "session-timeline",
+    claim_token: id(320),
+    now: "2026-07-14T15:00:00.000Z",
+    lease_duration_ms: 100,
+    max_attempts: 3,
   });
+  assert.equal(alphaClaim.claim.event_id, alphaEventOne);
+  assert.equal(betaClaim.claim.event_id, alphaEventOne);
+  const alphaReceipt = await repository.acknowledgeDelivery(alpha, {
+    event_id: alphaEventOne,
+    consumer_name: "session-timeline",
+    claim_token: id(320),
+    completed_at: "2026-07-14T15:00:00.000Z",
+    effect_hash: "e".repeat(64),
+  });
+  const betaReceipt = await repository.acknowledgeDelivery(beta, {
+    event_id: alphaEventOne,
+    consumer_name: "session-timeline",
+    claim_token: id(320),
+    completed_at: "2026-07-14T15:00:00.000Z",
+    effect_hash: "f".repeat(64),
+  });
+  assert.equal(repository.readLatestDeliveryReceipt(alpha, "session-timeline", alphaEventOne).effect_hash, alphaReceipt.effect_hash);
+  assert.equal(repository.readLatestDeliveryReceipt(beta, "session-timeline", alphaEventOne).effect_hash, betaReceipt.effect_hash);
 });

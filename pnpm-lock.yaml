@@ -42,6 +42,24 @@ importers:
         specifier: workspace:*
         version: link:../../packages/turns
 
+  apps/event-relay:
+    dependencies:
+      '@axtro/auth':
+        specifier: workspace:*
+        version: link:../../packages/auth
+      '@axtro/contracts-ts':
+        specifier: workspace:*
+        version: link:../../packages/contracts-ts
+      '@axtro/domain':
+        specifier: workspace:*
+        version: link:../../packages/domain
+      '@axtro/events':
+        specifier: workspace:*
+        version: link:../../packages/events
+      '@axtro/observability':
+        specifier: workspace:*
+        version: link:../../packages/observability
+
   packages/auth:
     dependencies:
       '@axtro/config':
