@@ -25,3 +25,13 @@ Hedra aparece como deprecated na documentação atual do LiveKit. Não entra na 
 ## Regra de decisão
 
 Nenhum provider é default definitivo nesta fase. M2-13 deve registrar `continue`, `tune`, `replace` ou `blocked`, com evidência de qualidade, custo, privacidade, confiabilidade e fallback.
+
+## M2-13: decisão registrada (2026-07-15)
+
+Todas as linhas desta matriz permanecem `blocked` para promoção: a sessão
+que implementou M2-01 a M2-12 foi inteiramente fake-first, sem credencial
+real e sem chamada de rede externa. Nenhum candidate foi executado contra
+seu SDK real. Ver `artifacts/m2/DECISION.md` para o veredito completo por
+candidate e por área de arquitetura, e `artifacts/m2/evidence.json` para a
+evidência fake que sustenta as decisões de arquitetura (não de provider).
+Nenhuma linha desta tabela muda de "precisa benchmark" para aprovada.

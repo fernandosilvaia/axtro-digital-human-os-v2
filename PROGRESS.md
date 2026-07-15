@@ -1,9 +1,9 @@
 # Progresso de implementação
 
-**Estado atual:** M0 Foundation e M1 Walking Skeleton concluídos; M2 Human Presence Spike em execução autônoma controlada
+**Estado atual:** M0 Foundation, M1 Walking Skeleton e M2 Human Presence Spike concluídos (fake-first)
 
-**Marco atual:** M2
-**Tarefa atual:** M2-12
+**Marco atual:** M2 (concluído)
+**Tarefa atual:** M2-13 (última tarefa do marco)
 **Última evidência verde:** M1-11 com pipeline completa, 209 testes Node, 23 unittest Python, 23 pytest, 2 testes E2E, PostgreSQL local, RLS e 9 validadores verdes em 2026-07-15
 **Bloqueadores internos:** nenhum
 **Pendências externas:** consultar `PENDENCIAS_EXTERNAS.md`  
@@ -60,7 +60,7 @@
 | `M2-10` | M2 | done | Implement degradation and recovery controller | `M2-03`, `M2-04`, `M2-06`, `M2-07` | Matriz de 10 linhas executável, recuperação explícita, fencing anti-duplicidade, 7 testes Node verdes |
 | `M2-11` | M2 | done | Instrument realtime latency, quality and cost | `M2-03`, `M2-06`, `M2-07`, `M0-16` | Recorder p50/p95 por span, orçamentos de `LATENCY_BUDGETS.md`, reconciliação de custo, 11 testes Node verdes |
 | `M2-12` | M2 | done | Run mandatory ten-minute Human Presence scenario | `M2-05`, `M2-08`, `M2-09`, `M2-10`, `M2-11` | Cenário determinístico de 600.000ms simulados, 11/11 itens do checklist, `artifacts/m2/evidence.json` congelado, 7 testes Node verdes |
-| `M2-13` | M2 | pending | M2 architecture and provider decision gate | `M2-12` | pending |
+| `M2-13` | M2 | done | M2 architecture and provider decision gate | `M2-12` | `artifacts/m2/DECISION.md`: 12 áreas de arquitetura `continue`/`tune`, 11 candidates de provider `blocked` por ausência de credencial real |
 | `M3-01` | M3 | pending | Implement Sales Closer Role Pack | `M2-13` | pending |
 | `M3-02` | M3 | pending | Implement authorized knowledge ingestion and RAG | `M3-01`, `M0-08` | pending |
 | `M3-03` | M3 | pending | Add CRM-lite read adapter | `M3-01`, `M0-14` | pending |
@@ -538,6 +538,14 @@
 - `artifacts/m2/evidence.json` e `artifacts/m2/README.md` congelados; `pnpm lint`, `tsc --build` completo, `node scripts/test.mjs` (305 testes Node, 23 unittest Python) e `pnpm m1:e2e` (M1 continua verde) passaram.
 - Nenhuma credencial real, produção, provider real, deploy ou migration remota foi acessado. A revisão de naturalidade PT-BR real e o bake-off de provider ficam explicitamente pendentes para M2-13/M3 com gate humano.
 
+### 2026-07-15, M2-13 concluído — M2 Human Presence Spike encerrado
+
+- `artifacts/m2/DECISION.md` registra o gate de decisão: 12 áreas de arquitetura M2-01 a M2-11 recebem `continue` (2 delas com nota `tune`: vocabulário próprio de telemetria/degradação e validação spike-tier), nenhuma recebe `replace`; os 10 candidates de `CURRENT_PROVIDER_MATRIX.md` mais Hedra recebem `blocked` uniformemente, motivo explícito de ausência de bake-off credenciado, sem nenhum blocker de qualidade ou jurídico adicional.
+- `docs/operations/CURRENT_PROVIDER_MATRIX.md` ganhou uma seção "M2-13: decisão registrada" apontando para a evidência; nenhuma linha da matriz mudou de "precisa benchmark" para aprovada.
+- D-V2-048 registra a separação deliberada entre decisão de arquitetura (comprovável com evidência fake de M2-12) e decisão de provider (exige credencial real e gate humano) — misturar as duas esconderia que nenhum provider real foi de fato exercitado nesta sessão.
+- Reestimativa qualitativa de M3: os contratos e o fencing por geração de M2 (`RoomTransport`, `TurnCoordinator`, `AvatarSession`, `SceneDirector`) são tratados como estáveis para receber uma implementação real de provider sem redesenho; M3 deve orçar o bake-off credenciado (`PROVIDER_BENCHMARK_PROTOCOL.md`, gate humano) como item de escopo próprio, não incluído em M0-M2.
+- **M2 Human Presence Spike está concluído**: M2-01 a M2-13 done, 305 testes Node e 23 unittest Python verdes, `pnpm m1:e2e` e `pnpm m2:e2e` verdes, nenhuma credencial real, provider real, deploy ou migration remota acessados.
+
 ## Próxima ação
 
-Continuar M2 em modo autônomo controlado: M2-13, decisão de arquitetura e provider, encerrando o marco M2.
+Rodar a suíte de validação completa (lint, contracts, typecheck, test, pytest, build, db:test, db:rls, m1:e2e, m2:e2e, validate_all.py) e produzir o relatório final da sessão. Depois, uma sessão futura pode iniciar M3 assumindo M0-M2 como baseline congelada, com o bake-off de provider como pré-requisito de gate humano.
