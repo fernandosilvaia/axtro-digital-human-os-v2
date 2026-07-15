@@ -26,6 +26,7 @@
     { "path": "./packages/ui" },
     { "path": "./apps/api" },
     { "path": "./apps/event-relay" },
+    { "path": "./apps/meeting-room" },
     { "path": "./apps/web" },
     { "path": "./apps/workflow-worker" }
   ]

@@ -1,9 +1,9 @@
 # Progresso de implementação
 
-**Estado atual:** M0 Foundation e M1 Walking Skeleton concluídos
+**Estado atual:** M0 Foundation e M1 Walking Skeleton concluídos; M2 Human Presence Spike em execução autônoma controlada
 
-**Marco atual:** M1
-**Tarefa atual:** M1-11
+**Marco atual:** M2
+**Tarefa atual:** M2-01
 **Última evidência verde:** M1-11 com pipeline completa, 209 testes Node, 23 unittest Python, 23 pytest, 2 testes E2E, PostgreSQL local, RLS e 9 validadores verdes em 2026-07-15
 **Bloqueadores internos:** nenhum
 **Pendências externas:** consultar `PENDENCIAS_EXTERNAS.md`  
@@ -48,7 +48,7 @@
 | `M1-09` | M1 | done | Build minimal operations console | `M1-01`, `M1-06` | lifecycle-first, replay canônico, receipts governados, custos exatos, 404 cross-tenant sem leituras secundárias, CSP hash-pinned, accessibility smoke e 206 testes Node mais 23 Python verdes |
 | `M1-10` | M1 | done | Walking Skeleton E2E and failure suite | `M1-04`, `M1-05`, `M1-06`, `M1-07`, `M1-08`, `M1-09` | `pnpm m1:e2e` executa lifecycle, turnos, ação governada, relay, replay, workflow e console; goldens incluem 12 eventos, replay hash e matriz de falhas verde |
 | `M1-11` | M1 | done | M1 release gate | `M1-10` | pipeline completa verde, revisões sem P0, P1 ou P2, custo fake nominal USD 0.02 e baseline M1 congelados |
-| `M2-01` | M2 | pending | Implement channel adapter and native-room transport boundary | `M1-11`, `M0-11` | pending |
+| `M2-01` | M2 | done | Implement channel adapter and native-room transport boundary | `M1-11`, `M0-11` | `RoomTransport` local determinístico sobre `ChannelPort`, `apps/meeting-room` compõe fakes, 6 testes Node verdes |
 | `M2-02` | M2 | pending | Build Turn Coordinator harness | `M2-01` | pending |
 | `M2-03` | M2 | pending | Implement modular STT, LLM and TTS path | `M2-02`, `M0-12` | pending |
 | `M2-04` | M2 | pending | Implement speech-to-speech experiment adapter | `M2-02`, `M0-11` | pending |
@@ -429,6 +429,16 @@
 - OpenAPI, AsyncAPI, SQL, RLS, task graph, unit economics e configuração Codex preparados.
 - Código de aplicação ainda não iniciado.
 
+### 2026-07-15, M2-01 concluído
+
+- Adicionado `RoomTransport` em `packages/meeting-gateway/src/room-transport.ts`: fronteira normalizada de sala nativa (join, leave, publish, unpublish, subscribe, reconnect, disconnect) sobre exatamente uma conexão `ChannelPort`. Nenhum SDK concreto (LiveKit ou outro) é importado; a troca futura por um adapter real fica restrita à implementação de `ChannelPort` (ADR-003, gate de benchmark).
+- Ciclo de vida de participante (`joining` implícito → `active` → `reconnecting` → `active` | `left` | `removed`) preserva identidade e `joinedAtMs` através de reconexão, sem duplicar participante.
+- `apps/meeting-room` criado como novo app do workspace (`pnpm-workspace.yaml`, `tsconfig.json` raiz) e único ponto que compõe `@axtro/provider-fakes` com `@axtro/meeting-gateway`; código de sessão depende somente da interface `RoomTransport`.
+- 6 testes novos em `tests/realtime/room-transport.test.mjs`: contrato de transporte, rejeição de join duplicado e publish inativo, reconexão preservando identidade, participante e track desconhecidos, idempotência de `disconnect`, isolamento entre duas salas independentes.
+- `pnpm lint`, `tsc --build` completo do workspace e `node scripts/test.mjs` (215 testes Node, 23 unittest Python) verdes após a mudança.
+- D-V2-043 registra o padrão de validação mais leve adotado nos pacotes M2 (spike fake-first) frente ao padrão M0/M1.
+- Nenhuma credencial real, produção, provider real, deploy, migration remota ou M3 foi acessado ou iniciado.
+
 ## Próxima ação
 
-Preservar a baseline de M0 e M1. Em uma sessão posterior, iniciar M2-01 pela fronteira de channel adapter e transporte local substituível; não iniciar M2 ou M3 nesta sessão.
+Continuar M2 em modo autônomo controlado: M2-02, Turn Coordinator harness, sobre a fronteira `RoomTransport` recém-criada.

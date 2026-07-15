@@ -63,6 +63,18 @@ importers:
         specifier: workspace:*
         version: link:../../packages/workflows
 
+  apps/meeting-room:
+    dependencies:
+      '@axtro/meeting-gateway':
+        specifier: workspace:*
+        version: link:../../packages/meeting-gateway
+      '@axtro/provider-contracts':
+        specifier: workspace:*
+        version: link:../../packages/provider-contracts
+      '@axtro/provider-fakes':
+        specifier: workspace:*
+        version: link:../../packages/provider-fakes
+
   apps/web:
     dependencies:
       '@axtro/auth':

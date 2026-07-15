@@ -14,3 +14,19 @@ export function resolveTelephonyPort(registry: ProviderRegistry, providerId: unk
 }
 
 export type { ChannelPort, MeetingPort, TelephonyPort, MeetingJoinRequest, TelephonyConnectRequest } from "@axtro/provider-contracts";
+
+export {
+  createLocalRoomTransport,
+  RoomTransportError,
+  type CreateLocalRoomTransportInput,
+  type RoomLeaveReason,
+  type RoomParticipant,
+  type RoomParticipantLifecycle,
+  type RoomParticipantRole,
+  type RoomPublishedTrack,
+  type RoomTrackKind,
+  type RoomTransport,
+  type RoomTransportClock,
+  type RoomTransportErrorCode,
+  type RoomTransportEvent,
+} from "./room-transport.js";
