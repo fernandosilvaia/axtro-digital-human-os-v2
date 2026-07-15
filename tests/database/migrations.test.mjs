@@ -14,7 +14,7 @@ const equivalentLocalUrl = "postgres://postgres@localhost:54329/axtro_m0_test";
 
 test("migration manifest is contiguous and local URLs cannot carry credentials or implicit identities", () => {
   const manifest = database.discoverMigrations();
-  assert.deepEqual(manifest.map((migration) => migration.version), [1, 2, 3, 4, 5, 6, 7, 8, 9]);
+  assert.deepEqual(manifest.map((migration) => migration.version), [1, 2, 3, 4, 5, 6, 7, 8, 9, 10]);
   assert.equal(manifest.every((migration) => /^[0-9a-f]{64}$/.test(migration.checksumSha256)), true);
   assert.equal(database.parseLocalDatabaseUrl(localUrl), localUrl);
   assert.equal(database.parseLocalDatabaseUrl(equivalentLocalUrl), equivalentLocalUrl);
@@ -33,6 +33,14 @@ test("migration manifest is contiguous and local URLs cannot carry credentials o
   assert.match(costReconciliationMigration, /CREATE FUNCTION app\.validate_cost_event_reconciliation\(\)/);
   assert.match(costReconciliationMigration, /CREATE TRIGGER cost_events_reconciliation_target/);
   assert.match(costReconciliationMigration, /CREATE UNIQUE INDEX cost_events_tenant_source_provider_request_ref_unique/);
+  const timelineIdentityMigration = readFileSync(manifest.find((migration) => migration.version === 10).path, "utf8");
+  assert.match(timelineIdentityMigration, /session_timeline_tenant_event_id_key UNIQUE \(tenant_id, event_id\)/);
+  assert.match(timelineIdentityMigration, /session_timeline_event_document_identity_check CHECK/);
+  assert.match(timelineIdentityMigration, /event_document - ARRAY\[/);
+  assert.match(timelineIdentityMigration, /\] = '\{\}'::jsonb/);
+  assert.match(timelineIdentityMigration, /aggregate_id' IS NOT DISTINCT FROM session_id::text/);
+  assert.match(timelineIdentityMigration, /DISABLE TRIGGER session_timeline_append_only/);
+  assert.match(timelineIdentityMigration, /ENABLE TRIGGER session_timeline_append_only/);
 
   for (const value of [
     "postgresql://postgres@database.example.test/axtro_m0_test",

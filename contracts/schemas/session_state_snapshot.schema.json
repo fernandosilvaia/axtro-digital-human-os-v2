@@ -1,0 +1,87 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://schemas.axtro.ai/v2/session_state_snapshot.schema.json",
+  "title": "Session State Snapshot",
+  "description": "Rebuildable restricted cache of the complete interaction aggregate at one canonical timeline version.",
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "schema_version": {
+      "type": "string",
+      "const": "2.0.0"
+    },
+    "snapshot_id": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$"
+    },
+    "tenant_id": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$"
+    },
+    "session_id": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$"
+    },
+    "aggregate_version": {
+      "type": "integer",
+      "minimum": 1
+    },
+    "state": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "schema_version": {
+          "type": "string",
+          "const": "2.0.0"
+        },
+        "session": {
+          "$ref": "https://schemas.axtro.ai/v2/interaction_session_state.schema.json"
+        },
+        "conversation": {
+          "$ref": "https://schemas.axtro.ai/v2/conversation_state.schema.json"
+        },
+        "role": {
+          "$ref": "https://schemas.axtro.ai/v2/role_state.schema.json"
+        },
+        "quality": {
+          "$ref": "https://schemas.axtro.ai/v2/interaction_quality_state.schema.json"
+        },
+        "extensions": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "sales": {
+              "$ref": "https://schemas.axtro.ai/v2/sales_state.schema.json"
+            }
+          }
+        }
+      },
+      "required": [
+        "schema_version",
+        "session",
+        "conversation",
+        "role",
+        "quality",
+        "extensions"
+      ]
+    },
+    "state_hash": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{64}$"
+    },
+    "created_at": {
+      "type": "string",
+      "format": "date-time"
+    }
+  },
+  "required": [
+    "schema_version",
+    "snapshot_id",
+    "tenant_id",
+    "session_id",
+    "aggregate_version",
+    "state",
+    "state_hash",
+    "created_at"
+  ]
+}

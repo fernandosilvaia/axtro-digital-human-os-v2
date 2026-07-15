@@ -67,7 +67,8 @@ try {
   const cleanName = `axtro_m0_clean_${suffix}`;
   const upgradeName = `axtro_m0_upgrade_${suffix}`;
   const invalidName = `axtro_m0_invalid_${suffix}`;
-  for (const name of [cleanName, upgradeName, invalidName]) {
+  const invalidTimelineName = `axtro_m1_invalid_timeline_${suffix}`;
+  for (const name of [cleanName, upgradeName, invalidName, invalidTimelineName]) {
     createDatabase(baseDatabaseUrl, psqlPath, name);
     createdDatabases.push(name);
   }
@@ -75,8 +76,9 @@ try {
   const cleanUrl = databaseUrlFor(baseDatabaseUrl, cleanName);
   const upgradeUrl = databaseUrlFor(baseDatabaseUrl, upgradeName);
   const invalidUrl = databaseUrlFor(baseDatabaseUrl, invalidName);
+  const invalidTimelineUrl = databaseUrlFor(baseDatabaseUrl, invalidTimelineName);
   const cleanResult = database.applyLocalMigrations({ databaseUrl: cleanUrl, psqlPath });
-  assert.equal(cleanResult.applied.length, 9);
+  assert.equal(cleanResult.applied.length, 10);
   const cleanDrift = database.checkLocalSchemaDrift({ databaseUrl: cleanUrl, psqlPath });
   assert.equal(runDevelopmentSeed(cleanUrl).status, 0);
   const firstSeedComposition = readDevelopmentSeedComposition(cleanUrl);
@@ -127,8 +129,8 @@ try {
     psqlPath,
     `${tenantInsertSql(historical.tenantId, "outbox-upgrade")} ${legacyOutboxInsertSql(historical)} ${legacyCostEventInsertSql(historicalCompatibleCost)} ${legacyCostEventInsertSql(historicalIncompatibleCost)}`,
   ).status, 0);
-  const upgradeResult = database.applyLocalMigrations({ databaseUrl: upgradeUrl, psqlPath });
-  assert.deepEqual(upgradeResult.applied.map((migration) => migration.version), [6, 7, 8, 9]);
+  const upgradeThroughNine = database.applyLocalMigrations({ databaseUrl: upgradeUrl, psqlPath, targetVersion: 9 });
+  assert.deepEqual(upgradeThroughNine.applied.map((migration) => migration.version), [6, 7, 8, 9]);
   assert.equal(
     queryScalar(
       upgradeUrl,
@@ -153,6 +155,35 @@ try {
     ),
     "0.03000000:USD",
   );
+  const historicalTimeline = timelineFixture(120, { tenantId: historical.tenantId });
+  assert.equal(runSql(
+    upgradeUrl,
+    psqlPath,
+    `${timelinePrerequisiteSql(historicalTimeline)} ${legacyTimelineInsertSql(historicalTimeline)}`,
+  ).status, 0);
+  const upgradeResult = database.applyLocalMigrations({ databaseUrl: upgradeUrl, psqlPath });
+  assert.deepEqual(upgradeResult.applied.map((migration) => migration.version), [10]);
+  assert.equal(
+    queryScalar(
+      upgradeUrl,
+      psqlPath,
+      `SELECT event_id::text FROM session_timeline WHERE tenant_id = '${historicalTimeline.tenantId}' AND id = '${historicalTimeline.rowId}';`,
+    ),
+    historicalTimeline.eventId,
+  );
+  assert.equal(
+    queryScalar(
+      upgradeUrl,
+      psqlPath,
+      "SELECT tgenabled FROM pg_trigger WHERE tgname = 'session_timeline_append_only' AND NOT tgisinternal;",
+    ),
+    "O",
+  );
+  assert.notEqual(runSql(
+    upgradeUrl,
+    psqlPath,
+    `UPDATE session_timeline SET event_type = 'tampered' WHERE tenant_id = '${historicalTimeline.tenantId}' AND id = '${historicalTimeline.rowId}';`,
+  ).status, 0);
   const upgradeDrift = database.checkLocalSchemaDrift({ databaseUrl: upgradeUrl, psqlPath });
   assert.equal(cleanDrift.catalogFingerprint, upgradeDrift.catalogFingerprint);
   assert.deepEqual(
@@ -216,6 +247,39 @@ try {
     database.LocalDatabaseCommandError,
   );
   assert.equal(database.readAppliedMigrations({ databaseUrl: invalidUrl, psqlPath }).length, 7);
+  const invalidTimelinePrelude = database.applyLocalMigrations({ databaseUrl: invalidTimelineUrl, psqlPath, targetVersion: 9 });
+  assert.equal(invalidTimelinePrelude.history.length, 9);
+  const invalidTimeline = timelineFixture(330);
+  const malformedEventTimeline = {
+    ...invalidTimeline,
+    eventDocument: { ...invalidTimeline.eventDocument, event_id: "550e8400-e29b-41d4-a716-446655440000" },
+  };
+  assert.equal(runSql(
+    invalidTimelineUrl,
+    psqlPath,
+    `${tenantInsertSql(invalidTimeline.tenantId, "timeline-invalid")} ${timelinePrerequisiteSql(invalidTimeline)} ${legacyTimelineInsertSql(malformedEventTimeline)}`,
+  ).status, 0);
+  assert.throws(
+    () => database.applyLocalMigrations({ databaseUrl: invalidTimelineUrl, psqlPath }),
+    database.LocalDatabaseCommandError,
+  );
+  assert.equal(database.readAppliedMigrations({ databaseUrl: invalidTimelineUrl, psqlPath }).length, 9);
+  assert.equal(
+    queryScalar(
+      invalidTimelineUrl,
+      psqlPath,
+      "SELECT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_schema = 'public' AND table_name = 'session_timeline' AND column_name = 'event_id');",
+    ),
+    "f",
+  );
+  assert.equal(
+    queryScalar(
+      invalidTimelineUrl,
+      psqlPath,
+      "SELECT tgenabled FROM pg_trigger WHERE tgname = 'session_timeline_append_only' AND NOT tgisinternal;",
+    ),
+    "O",
+  );
   assert.equal(
     queryScalar(
       invalidUrl,
@@ -392,6 +456,23 @@ try {
     `ALTER TABLE events_outbox ADD CONSTRAINT events_outbox_event_document_identity_check ${outboxEventDocumentIdentityCheckSql()};`,
   );
   assert.equal(outboxDocumentIdentityRestore.status, 0);
+  assert.doesNotThrow(() => database.checkLocalSchemaDrift({ databaseUrl: cleanUrl, psqlPath }));
+  const timelineDocumentIdentityDrift = runSql(
+    cleanUrl,
+    psqlPath,
+    `ALTER TABLE session_timeline DROP CONSTRAINT session_timeline_event_document_identity_check; ALTER TABLE session_timeline ADD CONSTRAINT session_timeline_event_document_identity_check ${timelineEventDocumentIdentityCheckSql({ includeClosure: false })};`,
+  );
+  assert.equal(timelineDocumentIdentityDrift.status, 0);
+  assert.throws(
+    () => database.checkLocalSchemaDrift({ databaseUrl: cleanUrl, psqlPath }),
+    database.MigrationDriftError,
+  );
+  const timelineDocumentIdentityRestore = runSql(
+    cleanUrl,
+    psqlPath,
+    `ALTER TABLE session_timeline DROP CONSTRAINT session_timeline_event_document_identity_check; ALTER TABLE session_timeline ADD CONSTRAINT session_timeline_event_document_identity_check ${timelineEventDocumentIdentityCheckSql()};`,
+  );
+  assert.equal(timelineDocumentIdentityRestore.status, 0);
   assert.doesNotThrow(() => database.checkLocalSchemaDrift({ databaseUrl: cleanUrl, psqlPath }));
 
   const costReconciliationDrift = runSql(
@@ -662,6 +743,65 @@ function outboxFixture(offset, overrides = {}) {
   };
 }
 
+function timelineFixture(offset, overrides = {}) {
+  const tenantId = overrides.tenantId ?? fixtureUuid(offset + 1);
+  const agentId = overrides.agentId ?? fixtureUuid(offset + 2);
+  const sessionId = overrides.sessionId ?? fixtureUuid(offset + 3);
+  const rowId = overrides.rowId ?? fixtureUuid(offset + 4);
+  const eventId = overrides.eventId ?? fixtureUuid(offset + 5);
+  const correlationId = overrides.correlationId ?? fixtureUuid(offset + 6);
+  const occurredAt = "2026-07-14T00:00:00.000Z";
+  const payload = {
+    agent_id: agentId,
+    channel: { type: "api", external_session_ref: null, region: "local" },
+    consent_status: "pending",
+    disclosure_status: "pending",
+    capabilities: { audio: false, video: false, avatar: false, screen_share: false, tools: true, handoff: true },
+    role: {
+      role_pack_id: "generic-assistant",
+      role_pack_version: "1.0.0",
+      objective: "Prove a canonical timeline backfill.",
+      stage: "opening",
+      milestones: [],
+      missing_fields: [],
+      next_best_action: {
+        action_code: "listen",
+        reason: "Await the next canonical event.",
+        confidence: 1,
+        expires_at: "2026-07-14T00:30:00.000Z",
+      },
+    },
+    language: "en-US",
+  };
+  return {
+    tenantId,
+    agentId,
+    sessionId,
+    rowId,
+    eventId,
+    correlationId,
+    occurredAt,
+    eventDocument: overrides.eventDocument ?? {
+      schema_version: "2.0.0",
+      event_id: eventId,
+      event_type: "session.created",
+      event_version: 1,
+      aggregate_type: "interaction_session",
+      aggregate_id: sessionId,
+      aggregate_version: 1,
+      tenant_id: tenantId,
+      session_id: sessionId,
+      producer: "database-integration",
+      trace_id: "0123456789abcdef0123456789abcdef",
+      correlation_id: correlationId,
+      causation_id: null,
+      data_classification: "internal",
+      payload_json: JSON.stringify(payload),
+      occurred_at: occurredAt,
+    },
+  };
+}
+
 function fixtureUuid(offset) {
   return domain.uuidV7FromParts(
     1_700_000_100_000 + offset,
@@ -671,6 +811,14 @@ function fixtureUuid(offset) {
 
 function tenantInsertSql(tenantId, slug) {
   return `INSERT INTO tenants (id, slug, legal_name, status, home_region, default_language, default_timezone) VALUES ('${tenantId}', '${slug}', 'Outbox Migration Tenant', 'active', 'local', 'en', 'UTC');`;
+}
+
+function timelinePrerequisiteSql(fixture) {
+  return `INSERT INTO agents (tenant_id, id, name, role_type, status, disclosure_profile_id) VALUES ('${fixture.tenantId}', '${fixture.agentId}', 'Timeline Migration Agent', 'generic', 'active', 'default'); INSERT INTO sessions (tenant_id, id, agent_id, role_pack_id, role_pack_version, channel_type, status) VALUES ('${fixture.tenantId}', '${fixture.sessionId}', '${fixture.agentId}', 'generic-assistant', '1.0.0', 'api', 'preparing');`;
+}
+
+function legacyTimelineInsertSql(fixture) {
+  return `INSERT INTO session_timeline (tenant_id, id, session_id, aggregate_version, event_type, event_version, event_document, trace_id, correlation_id, causation_id, occurred_at) VALUES ('${fixture.tenantId}', '${fixture.rowId}', '${fixture.sessionId}', 1, 'session.created', 1, '${sqlLiteral(JSON.stringify(fixture.eventDocument))}'::jsonb, '0123456789abcdef0123456789abcdef', '${fixture.correlationId}', NULL, '${fixture.occurredAt}');`;
 }
 
 function legacyCostEventFixture(offset, tenantId, amountUsd) {
@@ -708,6 +856,41 @@ function outboxEventDocumentIdentityCheckSql() {
     ]
     AND event_document ->> 'tenant_id' IS NOT DISTINCT FROM tenant_id::text
     AND (event_document ->> 'event_id')::app.uuid_v7 IS NOT DISTINCT FROM event_id
+  )`;
+}
+
+function timelineEventDocumentIdentityCheckSql(options = {}) {
+  const includeClosure = options.includeClosure ?? true;
+  const closure = includeClosure ? `
+    AND event_document - ARRAY[
+      'schema_version', 'event_id', 'event_type', 'event_version',
+      'aggregate_type', 'aggregate_id', 'aggregate_version', 'tenant_id',
+      'session_id', 'producer', 'trace_id', 'correlation_id', 'causation_id',
+      'data_classification', 'payload_json', 'occurred_at'
+    ] = '{}'::jsonb` : "";
+  return `CHECK (
+    jsonb_typeof(event_document) = 'object'
+    AND event_document ?& ARRAY[
+      'schema_version', 'event_id', 'event_type', 'event_version',
+      'aggregate_type', 'aggregate_id', 'aggregate_version', 'tenant_id',
+      'session_id', 'producer', 'trace_id', 'correlation_id', 'causation_id',
+      'data_classification', 'payload_json', 'occurred_at'
+    ]${closure}
+    AND event_document ->> 'schema_version' IS NOT DISTINCT FROM '2.0.0'
+    AND event_document ->> 'tenant_id' IS NOT DISTINCT FROM tenant_id::text
+    AND event_document ->> 'session_id' IS NOT DISTINCT FROM session_id::text
+    AND event_document ->> 'aggregate_type' IS NOT DISTINCT FROM 'interaction_session'
+    AND event_document ->> 'aggregate_id' IS NOT DISTINCT FROM session_id::text
+    AND (event_document ->> 'event_id')::app.uuid_v7 IS NOT DISTINCT FROM event_id
+    AND (event_document ->> 'aggregate_version')::bigint IS NOT DISTINCT FROM aggregate_version
+    AND event_document ->> 'event_type' IS NOT DISTINCT FROM event_type
+    AND (event_document ->> 'event_version')::integer IS NOT DISTINCT FROM event_version
+    AND event_document ->> 'trace_id' IS NOT DISTINCT FROM trace_id
+    AND (event_document ->> 'correlation_id')::app.uuid_v7 IS NOT DISTINCT FROM correlation_id
+    AND (event_document ->> 'causation_id')::app.uuid_v7 IS NOT DISTINCT FROM causation_id
+    AND (event_document ->> 'occurred_at')::timestamptz IS NOT DISTINCT FROM occurred_at
+    AND jsonb_typeof(event_document -> 'payload_json') = 'string'
+    AND jsonb_typeof((event_document ->> 'payload_json')::jsonb) = 'object'
   )`;
 }
 

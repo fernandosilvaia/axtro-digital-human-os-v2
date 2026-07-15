@@ -3,8 +3,8 @@
 **Estado atual:** implementação de M1 em andamento
 
 **Marco atual:** M1
-**Tarefa atual:** M1-05 concluída; M1-06 ainda não iniciada
-**Última evidência verde:** M1-05 com fluxo Action Runtime fake receipt-backed, timeout reconciliável e pipeline limpo em 2026-07-14
+**Tarefa atual:** M1-06 concluída; M1-07 ainda não iniciada
+**Última evidência verde:** M1-06 com timeline autoritativa, snapshot reconstruível, replay equivalente e pipeline limpo em 2026-07-15
 **Bloqueadores internos:** nenhum
 **Pendências externas:** consultar `PENDENCIAS_EXTERNAS.md`  
 
@@ -42,7 +42,7 @@
 | `M1-03` | M1 | done | Implement textual turn driver | `M1-02`, `M0-12` | turnos canônicos participant e Presenter, Fast Lane fake, One Mouth, interrupção, cancelamento, isolamento e API validados |
 | `M1-04` | M1 | done | Implement context composer | `M1-03` | 39º contrato gerado, snapshot opaco, budget UTF-8, provenance, TTL, freshness no Turn Driver e suíte de injeção validados |
 | `M1-05` | M1 | done | Complete fake Action Runtime flow | `M1-03`, `M0-14` | comando fechado, ActionIntent e policy derivados server-side, receipt-backed candidate, timeout fake por tenant, reconciliação exata, ledgers bounded e 154 testes Node mais 23 Python verdes |
-| `M1-06` | M1 | pending | Implement timeline, snapshots and replay verifier | `M1-02`, `M0-13` | pending |
+| `M1-06` | M1 | done | Implement timeline, snapshots and replay verifier | `M1-02`, `M0-13` | timeline append-only tenant-scoped, snapshot derivado do replay, equivalência zero versus snapshot mais tail, migration 0010, rollback, drift, RLS e 166 testes Node mais 23 Python verdes |
 | `M1-07` | M1 | pending | Implement outbox relay and idempotent consumers | `M0-13`, `M1-06` | pending |
 | `M1-08` | M1 | pending | Implement fake post-call workflow | `M1-07` | pending |
 | `M1-09` | M1 | pending | Build minimal operations console | `M1-01`, `M1-06` | pending |
@@ -319,6 +319,19 @@
 - Risco não bloqueante: a registry de sessão continua fake e a candidata não é publicação. M1-06 e posteriores devem trocar a autoridade pela fonte durável de floor/estado antes de timeline ou fala Presenter.
 - Próxima tarefa pendente: M1-06, timeline, snapshots e replay verifier. Nenhuma tarefa de M2 ou M3 foi iniciada.
 
+### 2026-07-15, M1-06 concluído
+
+- Criado o contrato fechado `session_state_snapshot`, elevando o catálogo a 41 schemas gerados para TypeScript e Python. O snapshot cobre o aggregate completo, é `restricted`, inclui hash canônico e permanece um cache reconstruível, nunca a fonte de autoridade.
+- Implementado em `@axtro/events` o repositório determinístico de timeline append-only, tenant-scoped e bounded. Append exige `session:write`; leitura exige `session:read`; materialização do snapshot exige ambos. Identidade global por tenant e evento, continuidade de versões, fingerprints canônicos, reentrega idempotente e conflitos falham antes de mutação.
+- Implementado em `@axtro/session-runtime` o replay verifier público e a fonte read-only do Session Actor. A hidratação reproduz a timeline desde zero, lê um tail real depois da versão do snapshot e só publica estado após comparar estado, versão, hash, identidades e fingerprints. Ausência de snapshot, tail vazio, versão ausente, duplicação, inversão e tamper estão cobertos.
+- Adicionada a migration forward-only `0010_session_timeline_event_identity.sql`, com `event_id` UUIDv7, unicidade tenant-scoped e constraint fechada que alinha o envelope a tenant, sessão, aggregate, versões, trace e timestamps. O backfill suspende somente o trigger append-only dentro da transação e o restaura antes do commit.
+- A integração PostgreSQL prova upgrade histórico válido, backfill, trigger restaurado, rejeição append-only, rollback atômico quando UUIDv4 falha entre `DISABLE` e `ENABLE TRIGGER`, e drift quando a constraint perde a closure do envelope. A matriz RLS prova identidade relacional, isolamento cross-tenant, contexto ausente e namespaces isolados.
+- ADR-027 e D-V2-037 registram timeline como autoridade, snapshot como cache, leitura consistente futura e a fronteira de M1-07. A matriz usa `REQ-STATE-004`; nenhuma regra constitucional, provider, rede, ferramenta direta, Axtro Agent síncrono, M2 ou M3 foi introduzido.
+- Revisões independentes de arquitetura, segurança e testes aprovaram a tarefa sem bloqueadores após os hardenings de least privilege, backfill transacional, drift fechado e rollback do trigger.
+- Evidências verdes: `pnpm lint`; `pnpm contracts:check` com 41 schemas; `pnpm typecheck`; `pnpm test` com 166 testes Node e 23 unittest Python; `pnpm build`; `UV_CACHE_DIR=.uv-cache uv run pytest` com 23 testes; `python3 scripts/validate_all.py` com 9 checks; `pnpm db:test`; `pnpm db:rls`; e `git diff --check`.
+- Riscos não bloqueantes: o repositório determinístico da M1 permanece process-local; um adapter PostgreSQL futuro deve fixar um watermark ou usar leitura transacional consistente. O fingerprint detecta alteração no limite do repositório, mas não substitui uma hash chain ou proteção contra administrador do storage comprometido.
+- Próxima tarefa pendente: M1-07, relay de outbox e consumidores idempotentes. Nenhuma tarefa de M2 ou M3 foi iniciada.
+
 ### 2026-07-14, baseline arquitetural
 
 - 31 schemas estritos e 62 exemplos de contrato preparados.
@@ -327,4 +340,4 @@
 
 ## Próxima ação
 
-Implementar M1-05: completar o fluxo fake Action Runtime por `ActionIntent`, `PolicyDecision` e `ToolExecutionReceipt`, sem chamada direta do modelo para ferramentas.
+Implementar M1-07: relay de outbox e consumidores idempotentes, com retry, crash boundaries e dead-letter observável, sem iniciar M2 ou M3.

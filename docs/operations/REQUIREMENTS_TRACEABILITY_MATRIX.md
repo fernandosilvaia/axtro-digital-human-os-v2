@@ -12,6 +12,7 @@ This matrix covers P0 requirements at architecture level. Task IDs reference `ba
 | REQ-RT-003 | Model Gateway | provider_capability | deployments | M2-04 | dual adapter | switch to modular |
 | REQ-RT-004 | Textual Turn Driver Fast Lane | turn_submission/turn_committed | canonical timeline | M1-03 | deterministic three-turn, timeout, cancellation and late-output tests | local fake stays independent from daemon and specialists |
 | REQ-STATE-001 | Reducers | interaction_session_state/event_envelope | snapshots/timeline | M0-05 | replay hash | rebuild from timeline |
+| REQ-STATE-004 | Authoritative session timeline and replay verifier | event_envelope/session_state_snapshot | session_timeline/session_state_snapshots | M1-06 | zero replay, real snapshot tail, idempotency, tamper, migration and RLS suites | reject gap, duplicate, inversion, divergent fingerprint or snapshot; replay from zero |
 | REQ-STATE-002 | Role architecture | role_state/sales_state | role states | M0-05 | no-sales kernel test | remove pack |
 | REQ-STATE-003 | Quality state | interaction_quality_state | session state | M0-05 | evidence validation | omit low confidence |
 | REQ-COG-001 | One Mouth | specialist_result | active presenter | M2-08 | no media publish | block specialist output |

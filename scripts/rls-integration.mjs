@@ -79,7 +79,7 @@ try {
   createDatabase(baseDatabaseUrl, psqlPath, testDatabaseName);
   const testDatabaseUrl = databaseUrlFor(baseDatabaseUrl, testDatabaseName);
   const migrated = database.applyLocalMigrations({ databaseUrl: testDatabaseUrl, psqlPath });
-  assert.equal(migrated.history.length, 9);
+  assert.equal(migrated.history.length, 10);
   assertSucceeded(runDevelopmentSeed(testDatabaseUrl), "deterministic development seed");
   assertSucceeded(runSql(testDatabaseUrl, psqlPath, seedSql(fixture)), "deterministic tenant fixture seed");
   assertSucceeded(provisionRuntimeRole(baseDatabaseUrl, testDatabaseUrl, psqlPath, runtimeRole), "least-privilege runtime role");
@@ -97,7 +97,7 @@ try {
   assertHistoricalSessionReferencesRejectDeletion(testDatabaseUrl);
   assertRuntimeRoleCannotAccessGlobalCatalogs(runtimeUrl);
 
-  console.log("RLS INTEGRATION PASSED: matrix, missing context, pool reset, foreign keys, append-only, cache/object namespaces");
+  console.log("RLS INTEGRATION PASSED: matrix, timeline identity, missing context, pool reset, foreign keys, append-only, cache/object namespaces");
 } catch (error) {
   primaryError = error;
   throw error;
@@ -310,6 +310,8 @@ function assertCrossTenantRelationshipsAreRejected(runtimeUrl) {
   assert.notEqual(measuredToMeasured.status, 0, "cost reconciliation target must be estimated evidence");
   const mismatchedCostDimension = withTenant(runtimeUrl, fixture.tenantAlpha, `INSERT INTO cost_events (tenant_id, id, session_id, provider_id, service, unit_type, quantity, unit_cost_usd, amount_usd, source, occurred_at, reconciles_cost_event_id) VALUES ('${fixture.tenantAlpha}', '${fixture.costInvalidDimension}', '${fixture.sessionAlpha}', 'fake-realtime', 'tts', 'token', 1, 0.1, 0.1, 'measured', now(), '${fixture.costAlpha}');`);
   assert.notEqual(mismatchedCostDimension.status, 0, "cost reconciliation must retain matching attribution dimensions");
+  const mismatchedTimelineIdentity = withTenant(runtimeUrl, fixture.tenantAlpha, `INSERT INTO session_timeline (tenant_id, id, event_id, session_id, aggregate_version, event_type, event_version, event_document, trace_id, correlation_id, causation_id, occurred_at) VALUES ('${fixture.tenantAlpha}', '${fixture.timelineIdentityRow}', '${fixture.timelineIdentityEvent}', '${fixture.sessionAlpha}', 2, 'session.prepared', 1, jsonb_build_object('schema_version', '2.0.0', 'event_id', '${fixture.timelineIdentityOther}', 'event_type', 'session.prepared', 'event_version', 1, 'aggregate_type', 'interaction_session', 'aggregate_id', '${fixture.sessionAlpha}', 'aggregate_version', 2, 'tenant_id', '${fixture.tenantAlpha}', 'session_id', '${fixture.sessionAlpha}', 'producer', 'rls-fixture', 'trace_id', 'trace-alpha-two', 'correlation_id', '${fixture.timelineIdentityCorrelation}', 'causation_id', '${fixture.timelineAlpha}', 'data_classification', 'internal', 'payload_json', '{}', 'occurred_at', '2026-07-14T00:00:01.000Z'), 'trace-alpha-two', '${fixture.timelineIdentityCorrelation}', '${fixture.timelineAlpha}', '2026-07-14T00:00:01.000Z');`);
+  assert.notEqual(mismatchedTimelineIdentity.status, 0, "timeline envelope event identity must match its relational row");
 }
 
 function assertAppendOnlyTablesRejectMutation(runtimeUrl) {
@@ -378,7 +380,7 @@ function seedSql(f) {
       ('${f.tenantAlpha}', '${f.participantAlphaOtherSession}', '${f.sessionAlphaOther}', 'digital_presenter', 'Other Alpha Presenter'),
       ('${f.tenantBeta}', '${f.participantBeta}', '${f.sessionBeta}', 'digital_presenter', 'Beta Presenter');
     INSERT INTO session_state_snapshots (tenant_id, id, session_id, aggregate_version, schema_id, schema_version, state_document, state_hash) VALUES ('${f.tenantAlpha}', '${f.snapshotAlpha}', '${f.sessionAlpha}', 1, 'interaction_session_state', '1.0.0', '{}'::jsonb, '${hash}');
-    INSERT INTO session_timeline (tenant_id, id, session_id, aggregate_version, event_type, event_version, event_document, trace_id, correlation_id, occurred_at) VALUES ('${f.tenantAlpha}', '${f.timelineAlpha}', '${f.sessionAlpha}', 1, 'session.created', 1, '{}'::jsonb, 'trace-alpha', '${f.correlationAlpha}', now());
+    INSERT INTO session_timeline (tenant_id, id, event_id, session_id, aggregate_version, event_type, event_version, event_document, trace_id, correlation_id, causation_id, occurred_at) VALUES ('${f.tenantAlpha}', '${f.timelineAlpha}', '${f.timelineAlpha}', '${f.sessionAlpha}', 1, 'session.created', 1, jsonb_build_object('schema_version', '2.0.0', 'event_id', '${f.timelineAlpha}', 'event_type', 'session.created', 'event_version', 1, 'aggregate_type', 'interaction_session', 'aggregate_id', '${f.sessionAlpha}', 'aggregate_version', 1, 'tenant_id', '${f.tenantAlpha}', 'session_id', '${f.sessionAlpha}', 'producer', 'rls-fixture', 'trace_id', 'trace-alpha', 'correlation_id', '${f.correlationAlpha}', 'causation_id', NULL, 'data_classification', 'internal', 'payload_json', '{}', 'occurred_at', '2026-07-14T00:00:00.000Z'), 'trace-alpha', '${f.correlationAlpha}', NULL, '2026-07-14T00:00:00.000Z');
     INSERT INTO conversation_turns (tenant_id, id, session_id, participant_id, turn_index, role, language, started_at) VALUES ('${f.tenantAlpha}', '${f.turnAlpha}', '${f.sessionAlpha}', '${f.participantAlpha}', 0, 'presenter', 'en', now());
     INSERT INTO consent_evidence (tenant_id, id, session_id, subject_ref, consent_type, purpose, status, method, jurisdiction, disclosure_version, evidence_hash, captured_at) VALUES ('${f.tenantAlpha}', '${f.consentAlpha}', '${f.sessionAlpha}', 'subject-alpha', 'essential', 'conversation', 'granted', 'fixture', 'local', '1.0.0', '${hash}', now());
     INSERT INTO disclosure_records (tenant_id, id, session_id, disclosure_type, version, content_hash, delivery_channel, language, delivered_at) VALUES ('${f.tenantAlpha}', '${f.disclosureAlpha}', '${f.sessionAlpha}', 'ai_identity', '1.0.0', '${hash}', 'api', 'en', now());
@@ -428,7 +430,8 @@ function createFixture() {
     outboxAlpha: nextId(), costAlpha: nextId(), costForDeletion: nextId(), usageAlpha: nextId(), evaluationAlpha: nextId(), evaluationForDeletion: nextId(),
     experimentAlpha: nextId(), promotionAlpha: nextId(), missingContextWrite: nextId(), tenantBetaContact: nextId(), crossTenantWrite: nextId(),
     crossSession: nextId(), crossParticipant: nextId(), crossTurn: nextId(), crossHandoff: nextId(), crossCostSession: nextId(), crossCost: nextId(),
-    costMeasuredAlpha: nextId(), costInvalidReconciliation: nextId(), costInvalidDimension: nextId(),
+    costMeasuredAlpha: nextId(), costInvalidReconciliation: nextId(), costInvalidDimension: nextId(), timelineIdentityRow: nextId(),
+    timelineIdentityEvent: nextId(), timelineIdentityOther: nextId(), timelineIdentityCorrelation: nextId(),
   });
 }
 

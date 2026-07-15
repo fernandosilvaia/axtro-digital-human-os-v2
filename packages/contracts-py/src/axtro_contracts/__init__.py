@@ -457,6 +457,17 @@ class SessionHealthState(TypedDict):
     active_incidents: list[str]
     updated_at: str
 
+# Source: contracts/schemas/session_state_snapshot.schema.json; schema: https://schemas.axtro.ai/v2/session_state_snapshot.schema.json; version: 2.0.0.
+class SessionStateSnapshot(TypedDict):
+    schema_version: Literal['2.0.0']
+    snapshot_id: str
+    tenant_id: str
+    session_id: str
+    aggregate_version: int
+    state: dict[str, object]
+    state_hash: str
+    created_at: str
+
 # Source: contracts/schemas/skill_pack_manifest.schema.json; schema: https://schemas.axtro.ai/v2/skill_pack_manifest.schema.json; version: 2.0.0.
 class SkillPackManifest(TypedDict):
     schema_version: Literal['2.0.0']
@@ -773,6 +784,12 @@ CONTRACT_METADATA: dict[str, dict[str, str]] = {
     "source_hash": "09db010a88aed2d8308094923ca1acdac9091fcaf1f8b5cb93a363f7ff0f03d5",
     "source_schema": "contracts/schemas/session_health_state.schema.json"
   },
+  "SessionStateSnapshot": {
+    "schema_id": "https://schemas.axtro.ai/v2/session_state_snapshot.schema.json",
+    "schema_version": "2.0.0",
+    "source_hash": "cd600b47ca54f45587340db37b0db76ae2a885dfef300261cc9613ead203262a",
+    "source_schema": "contracts/schemas/session_state_snapshot.schema.json"
+  },
   "SkillPackManifest": {
     "schema_id": "https://schemas.axtro.ai/v2/skill_pack_manifest.schema.json",
     "schema_version": "2.0.0",
@@ -863,6 +880,7 @@ __all__ = [
     'SceneDirective',
     'SceneManifest',
     'SessionHealthState',
+    'SessionStateSnapshot',
     'SkillPackManifest',
     'SpecialistRequest',
     'SpecialistResult',

@@ -1,6 +1,6 @@
 # Database Reference and Local Runner
 
-The numbered migrations are the normative M0 database contract. The runner executes them verbatim through `psql`; it does not reinterpret constraints or select an ORM.
+The numbered migrations are the normative M0-M1 database contract. The runner executes them verbatim through `psql`; it does not reinterpret constraints or select an ORM.
 
 ## Local-only safety boundary
 
@@ -42,3 +42,4 @@ The CI job uses the same test against an ephemeral pgvector service. No migratio
 - Do not store provider secrets, raw chain-of-thought, or unbounded PII JSON.
 - Applied reference DDL is forward-only. There is no automatic rollback; an incident uses an explicit forward repair migration after investigation.
 - `events_outbox.id` is the storage-row identifier. `events_outbox.event_id` is the UUIDv7 event identity used by tenant-scoped idempotent consumers; it is unique with `tenant_id`. A database check requires the canonical envelope to carry the same event ID and tenant ID as its row.
+- `session_timeline.id` is the storage-row identifier. `session_timeline.event_id` is the canonical UUIDv7 delivery identity. Its closed envelope must match all relational identity and correlation columns, and the existing trigger rejects updates and deletes.

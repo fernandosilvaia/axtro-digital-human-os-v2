@@ -31,6 +31,18 @@ Cada dimensão possui valor normalizado, confidence, evidence refs, rationale cu
 
 Timeline é append-only e snapshots são caches reconstruíveis. Não precisamos aplicar event sourcing a toda a plataforma, apenas ao aggregate de sessão onde replay e auditoria têm valor alto.
 
+Em M1, `@axtro/events` mantém o writer tenant-scoped e bounded. A identidade
+canônica usa `event_id` mais fingerprint do envelope, além da versão única por
+sessão. Redelivery idêntico é idempotente; conflito de identidade, gap,
+duplicata ou inversão falha antes de mutar a timeline.
+
+O contrato `session_state_snapshot` cobre o aggregate completo, não apenas o
+lifecycle. O repository só o materializa a partir do replay da própria timeline
+e retém o snapshot como cache substituível. `@axtro/session-runtime` verifica o
+replay desde zero contra uma leitura separada de snapshot mais tail e só então
+publica o estado no Actor. O Actor continua sem porta de escrita para timeline,
+snapshot ou outbox.
+
 ## Reducers
 
 Reducers são funções puras:

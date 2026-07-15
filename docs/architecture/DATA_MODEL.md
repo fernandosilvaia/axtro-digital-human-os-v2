@@ -26,6 +26,12 @@ Domain IDs are UUIDv7 generated in application code. Database columns have no `g
 ### Interaction
 `sessions`, `session_state_snapshots`, `session_timeline`, `conversation_turns`, `session_participants`, `consent_evidence`, `disclosure_records`, `session_health`.
 
+`session_timeline.id` identifica a linha de armazenamento e
+`session_timeline.event_id` identifica o evento canônico. O envelope fechado é
+reconciliado com tenant, sessão, versão e metadados relacionais pela migration
+forward-only de M1-06. Snapshots completos são dados `restricted`, caches
+reconstruíveis e nunca substituem a timeline como autoridade.
+
 ### Actions
 `action_intents`, `policy_decisions`, `tool_executions`, `tool_receipts`, `human_approvals`, `handoffs`.
 

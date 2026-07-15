@@ -1,7 +1,7 @@
 /*
  * GENERATED FILE. DO NOT EDIT.
  * generator: scripts/generate_contract_types.py@1.0.0
- * source: 40 JSON Schema Draft 2020-12 documents under contracts/schemas/
+ * source: 41 JSON Schema Draft 2020-12 documents under contracts/schemas/
  */
 
 export const CONTRACT_GENERATOR_VERSION = "1.0.0" as const;
@@ -587,6 +587,27 @@ export interface SessionHealthState {
   updated_at: string;
 }
 
+/** Source: contracts/schemas/session_state_snapshot.schema.json; schema: https://schemas.axtro.ai/v2/session_state_snapshot.schema.json; version: 2.0.0. */
+export interface SessionStateSnapshot {
+  schema_version: "2.0.0";
+  snapshot_id: string;
+  tenant_id: string;
+  session_id: string;
+  aggregate_version: number;
+  state: {
+    schema_version: "2.0.0";
+    session: InteractionSessionState;
+    conversation: ConversationState;
+    role: RoleState;
+    quality: InteractionQualityState;
+    extensions: {
+      sales?: SalesState;
+    };
+  };
+  state_hash: string;
+  created_at: string;
+}
+
 /** Source: contracts/schemas/skill_pack_manifest.schema.json; schema: https://schemas.axtro.ai/v2/skill_pack_manifest.schema.json; version: 2.0.0. */
 export interface SkillPackManifest {
   schema_version: "2.0.0";
@@ -933,6 +954,12 @@ export const CONTRACT_METADATA = {
     "schema_version": "2.0.0",
     "source_hash": "09db010a88aed2d8308094923ca1acdac9091fcaf1f8b5cb93a363f7ff0f03d5",
     "source_schema": "contracts/schemas/session_health_state.schema.json"
+  },
+  "SessionStateSnapshot": {
+    "schema_id": "https://schemas.axtro.ai/v2/session_state_snapshot.schema.json",
+    "schema_version": "2.0.0",
+    "source_hash": "cd600b47ca54f45587340db37b0db76ae2a885dfef300261cc9613ead203262a",
+    "source_schema": "contracts/schemas/session_state_snapshot.schema.json"
   },
   "SkillPackManifest": {
     "schema_id": "https://schemas.axtro.ai/v2/skill_pack_manifest.schema.json",

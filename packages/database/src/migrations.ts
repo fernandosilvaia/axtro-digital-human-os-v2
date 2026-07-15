@@ -121,6 +121,27 @@ const OUTBOX_EVENT_DOCUMENT_IDENTITY_SIGNATURES = [
   "notevent_documentevent_idtextappuuid_v7uuidisdistinctfromevent_iduuid",
   "notevent_documenttenant_idtextisdistinctfromtenant_idtext",
 ] as const;
+const TIMELINE_EVENT_DOCUMENT_IDENTITY_CHECK = "session_timeline_event_document_identity_check";
+const TIMELINE_EVENT_DOCUMENT_IDENTITY_SIGNATURES = [
+  "jsonb_typeofevent_documentobjecttext",
+  "event_documentarray",
+  "jsonb",
+  "notevent_documentschema_versiontextisdistinctfrom200text",
+  "notevent_documenttenant_idtextisdistinctfromtenant_idtext",
+  "notevent_documentsession_idtextisdistinctfromsession_idtext",
+  "notevent_documentaggregate_typetextisdistinctfrominteraction_sessiontext",
+  "notevent_documentaggregate_idtextisdistinctfromsession_idtext",
+  "notevent_documentevent_idtextappuuid_v7uuidisdistinctfromevent_iduuid",
+  "notevent_documentaggregate_versiontextbigintisdistinctfromaggregate_version",
+  "notevent_documentevent_typetextisdistinctfromevent_type",
+  "notevent_documentevent_versiontextintegerisdistinctfromevent_version",
+  "notevent_documenttrace_idtextisdistinctfromtrace_id",
+  "notevent_documentcorrelation_idtextappuuid_v7uuidisdistinctfromcorrelation_iduuid",
+  "notevent_documentcausation_idtextappuuid_v7uuidisdistinctfromcausation_iduuid",
+  "notevent_documentoccurred_attexttimestampwithtimezoneisdistinctfromoccurred_at",
+  "jsonb_typeofevent_documentpayload_jsontextstringtext",
+  "jsonb_typeofevent_documentpayload_jsontextjsonbobjecttext",
+] as const;
 const COST_EVENT_CHECK_CONSTRAINTS = [
   { name: "cost_events_currency_check", signatures: ["currencyusd"] },
   { name: "cost_events_provider_id_length_check", signatures: ["char_lengthprovider_id1andchar_lengthprovider_id120"] },
@@ -165,6 +186,7 @@ const SENTINEL_SQL_BY_VERSION: Readonly<Record<number, string>> = {
   7: "SELECT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'session_participants_tenant_session_id_id_key')::int;",
   8: "SELECT (EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'events_outbox_tenant_event_id_key') AND EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'events_outbox_event_document_identity_check'))::int;",
   9: "SELECT (EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'cost_events_amount_reconciliation_check') AND EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'cost_events_tenant_id_reconciles_cost_event_id_fkey') AND to_regclass('public.cost_events_tenant_source_provider_request_ref_unique') IS NOT NULL)::int;",
+  10: "SELECT (EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'session_timeline_tenant_event_id_key') AND EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'session_timeline_event_document_identity_check'))::int;",
 };
 
 const EXPECTED_PUBLIC_TABLES = [
@@ -298,6 +320,11 @@ const EXPECTED_RELATIONAL_CONSTRAINTS = [
     name: "events_outbox_tenant_event_id_key",
     definition: "unique(tenant_id,event_id)",
   },
+  {
+    table: "session_timeline",
+    name: "session_timeline_tenant_event_id_key",
+    definition: "unique(tenant_id,event_id)",
+  },
 ] as const;
 
 const HISTORY_BOOTSTRAP_SQL = `
@@ -400,6 +427,18 @@ actual_outbox_event_document_identity_check AS (
   WHERE namespace.nspname = 'public'
     AND relation.relname = 'events_outbox'
     AND table_constraint.conname = '${OUTBOX_EVENT_DOCUMENT_IDENTITY_CHECK}'
+    AND table_constraint.contype = 'c'
+),
+actual_timeline_event_document_identity_check AS (
+  SELECT
+    regexp_replace(lower(pg_get_constraintdef(table_constraint.oid)), '[^a-z0-9_]+', '', 'g') AS definition,
+    regexp_replace(lower(pg_get_constraintdef(table_constraint.oid)), '[^a-z0-9_?&=-]+', '', 'g') AS operator_definition
+  FROM pg_constraint table_constraint
+  JOIN pg_class relation ON relation.oid = table_constraint.conrelid
+  JOIN pg_namespace namespace ON namespace.oid = relation.relnamespace
+  WHERE namespace.nspname = 'public'
+    AND relation.relname = 'session_timeline'
+    AND table_constraint.conname = '${TIMELINE_EVENT_DOCUMENT_IDENTITY_CHECK}'
     AND table_constraint.contype = 'c'
 ),
 expected_cost_event_check_signatures(constraint_name, signature) AS (
@@ -544,6 +583,14 @@ SELECT CASE WHEN
     FROM actual_outbox_event_document_identity_check
     WHERE ${OUTBOX_EVENT_DOCUMENT_IDENTITY_SIGNATURES.map((signature) => `definition LIKE '%${signature}%'`).join("\n      AND ")}
   )
+  AND EXISTS (
+    SELECT 1
+    FROM actual_timeline_event_document_identity_check
+    WHERE ${TIMELINE_EVENT_DOCUMENT_IDENTITY_SIGNATURES.map((signature) => `definition LIKE '%${signature}%'`).join("\n      AND ")}
+      AND operator_definition LIKE '%event_document?&arrayschema_versiontext%'
+      AND operator_definition LIKE '%event_document-arrayschema_versiontext%'
+      AND operator_definition LIKE '%occurred_attext=jsonb%'
+  )
   AND NOT EXISTS (
     SELECT 1
     FROM expected_cost_event_check_signatures expected
@@ -614,7 +661,7 @@ FROM (
   JOIN pg_class relation ON relation.oid = table_constraint.conrelid
   JOIN pg_namespace namespace ON namespace.oid = relation.relnamespace
   WHERE namespace.nspname = 'public'
-    AND table_constraint.conname IN (${[...EXPECTED_RELATIONAL_CONSTRAINTS.map((constraint) => `'${constraint.name}'`), `'${OUTBOX_EVENT_DOCUMENT_IDENTITY_CHECK}'`, ...COST_EVENT_CHECK_CONSTRAINTS.map((constraint) => `'${constraint.name}'`)].join(", ")})
+    AND table_constraint.conname IN (${[...EXPECTED_RELATIONAL_CONSTRAINTS.map((constraint) => `'${constraint.name}'`), `'${OUTBOX_EVENT_DOCUMENT_IDENTITY_CHECK}'`, `'${TIMELINE_EVENT_DOCUMENT_IDENTITY_CHECK}'`, ...COST_EVENT_CHECK_CONSTRAINTS.map((constraint) => `'${constraint.name}'`)].join(", ")})
   UNION ALL
   SELECT 'index:' || index_class.relname || ':' || regexp_replace(lower(pg_get_indexdef(index_class.oid)), '[^a-z0-9_]+', '', 'g')
   FROM pg_index index

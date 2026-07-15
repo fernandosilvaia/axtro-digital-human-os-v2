@@ -17,6 +17,7 @@ EXPECTED = [
     "0007_relational_tenancy_integrity.sql",
     "0008_outbox_event_identity.sql",
     "0009_cost_event_reconciliation.sql",
+    "0010_session_timeline_event_identity.sql",
 ]
 
 
@@ -54,6 +55,15 @@ def main() -> int:
         errors.append("Outbox envelope tenant check must be null-safe")
     if "(event_document ->> 'event_id')::app.uuid_v7 IS NOT DISTINCT FROM event_id" not in all_sql:
         errors.append("Outbox envelope event identity check must be null-safe")
+    if "session_timeline_event_document_identity_check" not in all_sql:
+        errors.append("Session timeline canonical envelope identity check is missing")
+    if "event_document - ARRAY[" not in all_sql or "] = '{}'::jsonb" not in all_sql:
+        errors.append("Session timeline envelope must remain closed")
+    timeline_identity_migration = (MIGRATIONS / "0010_session_timeline_event_identity.sql").read_text(encoding="utf-8")
+    if "DISABLE TRIGGER session_timeline_append_only" not in timeline_identity_migration:
+        errors.append("Session timeline backfill must explicitly suspend its append-only trigger")
+    if "ENABLE TRIGGER session_timeline_append_only" not in timeline_identity_migration:
+        errors.append("Session timeline backfill must restore its append-only trigger")
     for constraint_name in (
         "session_participants_tenant_session_id_id_key",
         "sessions_active_presenter_fk",
@@ -61,6 +71,8 @@ def main() -> int:
         "handoffs_tenant_id_session_id_from_presenter_id_fkey",
         "events_outbox_tenant_event_id_key",
         "events_outbox_event_document_identity_check",
+        "session_timeline_tenant_event_id_key",
+        "session_timeline_event_document_identity_check",
         "cost_events_tenant_id_reconciles_cost_event_id_fkey",
     ):
         if constraint_name not in all_sql:

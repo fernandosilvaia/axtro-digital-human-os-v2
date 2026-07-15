@@ -1,0 +1,91 @@
+{
+  "schema_version": "2.0.0",
+  "snapshot_id": "018c471a-fc64-7102-8304-05060708090a",
+  "tenant_id": "018bcfe5-6800-7abc-bf01-020304050607",
+  "session_id": "018bcfe5-6801-7abc-bf01-020304050607",
+  "aggregate_version": 5,
+  "state": {
+    "schema_version": "2.0.0",
+    "session": {
+      "schema_version": "2.0.0",
+      "session_id": "018bcfe5-6801-7abc-bf01-020304050607",
+      "tenant_id": "018bcfe5-6800-7abc-bf01-020304050607",
+      "agent_id": "018bcfe5-6802-7abc-bf01-020304050607",
+      "status": "active",
+      "active_presenter_id": "018bcfe5-6803-7abc-bf01-020304050607",
+      "channel": {
+        "type": "api",
+        "external_session_ref": null,
+        "region": "us-east-1"
+      },
+      "state_version": 5,
+      "consent_status": "not_required",
+      "disclosure_status": "delivered",
+      "capabilities": {
+        "audio": false,
+        "video": false,
+        "avatar": false,
+        "screen_share": false,
+        "tools": true,
+        "handoff": true
+      },
+      "degradation_level": "none",
+      "started_at": "2026-07-14T12:00:03.000Z",
+      "updated_at": "2026-07-14T12:00:03.000Z"
+    },
+    "conversation": {
+      "schema_version": "2.0.0",
+      "session_id": "018bcfe5-6801-7abc-bf01-020304050607",
+      "tenant_id": "018bcfe5-6800-7abc-bf01-020304050607",
+      "turn_index": 0,
+      "active_topic": null,
+      "language": "en-US",
+      "open_questions": [],
+      "confirmed_facts": [],
+      "incremental_summary": "",
+      "repair_state": "none",
+      "updated_at": "2026-07-14T12:00:00.000Z"
+    },
+    "role": {
+      "schema_version": "2.0.0",
+      "session_id": "018bcfe5-6801-7abc-bf01-020304050607",
+      "tenant_id": "018bcfe5-6800-7abc-bf01-020304050607",
+      "role_pack_id": "generic-assistant",
+      "role_pack_version": "1.0.0",
+      "objective": "Assist the participant with confirmed information.",
+      "stage": "opening",
+      "milestones": [],
+      "missing_fields": [
+        "participant_goal"
+      ],
+      "next_best_action": {
+        "action_code": "listen",
+        "reason": "Collect the participant goal before proposing a next step.",
+        "confidence": 1,
+        "expires_at": "2026-07-14T12:30:00.000Z"
+      },
+      "updated_at": "2026-07-14T12:00:00.000Z"
+    },
+    "quality": {
+      "schema_version": "2.0.0",
+      "session_id": "018bcfe5-6801-7abc-bf01-020304050607",
+      "tenant_id": "018bcfe5-6800-7abc-bf01-020304050607",
+      "dimensions": [
+        {
+          "name": "system_confidence",
+          "value": 1,
+          "confidence": 1,
+          "rationale": "Session initialized",
+          "evidence_refs": [],
+          "updated_at": "2026-07-14T12:00:00.000Z",
+          "expires_at": null
+        }
+      ],
+      "aggregate_confidence": 1,
+      "updated_at": "2026-07-14T12:00:00.000Z"
+    },
+    "extensions": {}
+  },
+  "state_hash": "dc8e5f48ded4e91107577002bb3dcbb0a081753cc549efdcbfe3cdbf203ea650",
+  "created_at": "2026-07-15T00:00:00.000Z"
+}

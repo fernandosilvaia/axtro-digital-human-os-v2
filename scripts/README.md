@@ -18,7 +18,7 @@ python3 scripts/validate_migration_inventory.py
 python3 scripts/secret_scan.py
 ```
 
-Eles validam documentação, task graph, 40 schemas e exemplos, OpenAPI/AsyncAPI, invariantes do banco, configuração nativa do Codex, inventário da V1 e padrões comuns de segredo.
+Eles validam documentação, task graph, 41 schemas e exemplos, OpenAPI/AsyncAPI, invariantes do banco, configuração nativa do Codex, inventário da V1 e padrões comuns de segredo.
 
 ## Tipos gerados de contratos
 

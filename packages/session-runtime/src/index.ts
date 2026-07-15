@@ -2,7 +2,7 @@ import {
   getAuthorizedTenantContext,
   type AuthorizedRequestContext,
 } from "@axtro/auth";
-import type { EventEnvelope } from "@axtro/contracts-ts";
+import type { EventEnvelope, SessionStateSnapshot } from "@axtro/contracts-ts";
 import {
   canonicalJson,
   deepFreeze,
@@ -16,12 +16,27 @@ import {
   type TenantId,
   type UuidV7,
 } from "@axtro/domain";
-import { decodeInteractionEvent } from "@axtro/events";
+import {
+  SessionTimelineAuthorizationError,
+  decodeInteractionEvent,
+  type SessionTimelineRepository,
+} from "@axtro/events";
 
 export interface SessionActorSnapshot {
   readonly aggregate_version: number;
   readonly state: InteractionAggregateState;
   readonly state_hash: string;
+}
+
+export interface SessionReplayVerificationResult {
+  readonly tenant_id: TenantId;
+  readonly session_id: SessionId;
+  readonly aggregate_version: number;
+  readonly state: InteractionAggregateState;
+  readonly state_hash: string;
+  readonly snapshot_version: number | null;
+  readonly full_event_count: number;
+  readonly tail_event_count: number;
 }
 
 /**
@@ -184,6 +199,11 @@ export class SessionActorNotFoundError extends Error {
     super("Session actor source has no canonical session history");
     this.name = "SessionActorNotFoundError";
   }
+}
+
+interface InternalReplayVerification {
+  readonly result: SessionReplayVerificationResult;
+  readonly replay: ReplayResult;
 }
 
 export class SessionActorCapacityError extends Error {
@@ -359,6 +379,60 @@ export function createDeterministicSessionActorReplaySource(): DeterministicSess
   } satisfies DeterministicSessionActorReplaySource;
   DETERMINISTIC_SOURCES.set(source, { snapshots: new Map(), timelines: new Map() });
   return Object.freeze(source);
+}
+
+/** Adapt the tenant-scoped timeline repository without giving the Actor a write port. */
+export function createSessionTimelineReplaySource(repositoryInput: SessionTimelineRepository): SessionActorReplaySource {
+  if (
+    repositoryInput === null
+    || typeof repositoryInput !== "object"
+    || typeof repositoryInput.listCanonicalEvents !== "function"
+    || typeof repositoryInput.loadLatestSnapshot !== "function"
+  ) throw new SessionActorValidationError();
+
+  const source: SessionActorReplaySource = {
+    async loadSnapshot(request, sessionIdInput, control): Promise<SessionActorSnapshot | null> {
+      assertReplayControlActive(control);
+      try {
+        const snapshot = repositoryInput.loadLatestSnapshot(request, sessionIdInput);
+        assertReplayControlActive(control);
+        if (snapshot === null) return null;
+        return actorSnapshotFromPersisted(snapshot, request, sessionIdInput);
+      } catch (error) {
+        if (error instanceof SessionTimelineAuthorizationError) throw new SessionActorAuthorizationError();
+        throw error;
+      }
+    },
+
+    async listTimeline(request, sessionIdInput, afterVersion, control): Promise<readonly EventEnvelope[]> {
+      assertReplayControlActive(control);
+      try {
+        const timeline = repositoryInput.listCanonicalEvents(request, sessionIdInput, afterVersion);
+        assertReplayControlActive(control);
+        return timeline;
+      } catch (error) {
+        if (error instanceof SessionTimelineAuthorizationError) throw new SessionActorAuthorizationError();
+        throw error;
+      }
+    },
+  };
+  return Object.freeze(source);
+}
+
+/**
+ * Prove that authoritative replay from zero equals an optional snapshot plus a
+ * separately read canonical tail. This function performs reads only.
+ */
+export async function verifySessionReplay(
+  request: AuthorizedRequestContext,
+  sessionIdInput: unknown,
+  sourceInput: SessionActorReplaySource,
+  control?: SessionActorReplayControl,
+): Promise<SessionReplayVerificationResult> {
+  const tenantId = requireTenantScope(request, "session:read");
+  const sessionId = parseSessionIdForActor(sessionIdInput, SessionActorValidationError);
+  const source = requireReplaySource(sourceInput);
+  return (await verifySessionReplayInternal(request, { tenantId, sessionId }, source, control)).result;
 }
 
 /** Creates the per-tenant, per-session actor registry without a global mailbox. */
@@ -602,25 +676,19 @@ class InProcessSessionActor implements SessionActor {
   }
 
   async #hydrate(request: AuthorizedRequestContext): Promise<void> {
-    let snapshotInput: SessionActorSnapshot | null;
-    let timelineInput: readonly EventEnvelope[];
+    let verification: InternalReplayVerification;
     try {
-      [snapshotInput, timelineInput] = await this.#readSourceWithDeadline((control) => Promise.all([
-        this.#source.loadSnapshot(request, this.#address.sessionId, control),
-        this.#source.listTimeline(request, this.#address.sessionId, 0, control),
-      ]));
+      verification = await this.#readSourceWithDeadline((control) => (
+        verifySessionReplayInternal(request, this.#address, this.#source, control)
+      ));
     } catch (error) {
       if (error instanceof SessionActorAuthorizationError || error instanceof SessionActorSourceTimeoutError) throw error;
+      if (error instanceof SessionActorCapacityError || error instanceof SessionActorNotFoundError) throw error;
       throw new SessionActorReplayError();
     }
-    const replay = replayTimeline(timelineInput, this.#address);
-    const snapshot = snapshotInput === null ? null : normalizeSnapshot(snapshotInput, this.#address);
-    if (snapshot !== null) assertSnapshotMatchesReplay(snapshot, replay);
-
-    const state = snapshot === null ? replay.state : replayFromSnapshot(snapshot, replay);
-    this.#state = state;
+    this.#state = verification.result.state;
     this.#deliveries.clear();
-    for (const entry of replay.entries.slice(-this.#maxDedupeEntries)) {
+    for (const entry of verification.replay.entries.slice(-this.#maxDedupeEntries)) {
       this.#deliveries.set(entry.parsed.eventId, {
         fingerprint: entry.parsed.fingerprint,
         result: Promise.resolve(entry.result),
@@ -1009,6 +1077,131 @@ function replayTimeline(
   return Object.freeze({ state, entries: Object.freeze(entries) });
 }
 
+async function verifySessionReplayInternal(
+  request: AuthorizedRequestContext,
+  address: ActorAddress,
+  source: SessionActorReplaySource,
+  control?: SessionActorReplayControl,
+): Promise<InternalReplayVerification> {
+  assertReplayControlActive(control);
+  let snapshotInput: SessionActorSnapshot | null;
+  let fullTimelineInput: readonly EventEnvelope[];
+  try {
+    [snapshotInput, fullTimelineInput] = await Promise.all([
+      source.loadSnapshot(request, address.sessionId, control),
+      source.listTimeline(request, address.sessionId, 0, control),
+    ]);
+  } catch (error) {
+    if (error instanceof SessionActorAuthorizationError || error instanceof SessionActorSourceTimeoutError) throw error;
+    throw new SessionActorReplayError();
+  }
+  assertReplayControlActive(control);
+  const fullReplay = replayTimeline(fullTimelineInput, address);
+  const snapshot = snapshotInput === null ? null : normalizeSnapshot(snapshotInput, address);
+  if (snapshot === null) {
+    return Object.freeze({
+      result: immutableCopy({
+        tenant_id: address.tenantId,
+        session_id: address.sessionId,
+        aggregate_version: fullReplay.state.session.state_version,
+        state: fullReplay.state,
+        state_hash: interactionStateHash(fullReplay.state),
+        snapshot_version: null,
+        full_event_count: fullReplay.entries.length,
+        tail_event_count: fullReplay.entries.length,
+      }),
+      replay: fullReplay,
+    });
+  }
+
+  assertSnapshotMatchesReplay(snapshot, fullReplay);
+  let tailTimelineInput: readonly EventEnvelope[];
+  try {
+    tailTimelineInput = await source.listTimeline(request, address.sessionId, snapshot.aggregate_version, control);
+  } catch (error) {
+    if (error instanceof SessionActorAuthorizationError || error instanceof SessionActorSourceTimeoutError) throw error;
+    throw new SessionActorReplayError();
+  }
+  assertReplayControlActive(control);
+  const snapshotReplay = replayTailFromSnapshot(snapshot, tailTimelineInput, address);
+  assertTailMatchesAuthoritativeReplay(snapshot, snapshotReplay, fullReplay);
+
+  const authoritativeHash = interactionStateHash(fullReplay.state);
+  const snapshotTailHash = interactionStateHash(snapshotReplay.state);
+  if (
+    authoritativeHash !== snapshotTailHash
+    || fullReplay.state.session.state_version !== snapshotReplay.state.session.state_version
+    || canonicalJson(fullReplay.state) !== canonicalJson(snapshotReplay.state)
+  ) throw new SessionActorReplayError();
+
+  return Object.freeze({
+    result: immutableCopy({
+      tenant_id: address.tenantId,
+      session_id: address.sessionId,
+      aggregate_version: fullReplay.state.session.state_version,
+      state: fullReplay.state,
+      state_hash: authoritativeHash,
+      snapshot_version: snapshot.aggregate_version,
+      full_event_count: fullReplay.entries.length,
+      tail_event_count: snapshotReplay.entries.length,
+    }),
+    replay: fullReplay,
+  });
+}
+
+function replayTailFromSnapshot(
+  snapshot: SessionActorSnapshot,
+  timelineInput: unknown,
+  address: ActorAddress,
+): ReplayResult {
+  if (!Array.isArray(timelineInput) || timelineInput.length > MAX_REPLAY_EVENTS) {
+    if (Array.isArray(timelineInput) && timelineInput.length > MAX_REPLAY_EVENTS) throw new SessionActorCapacityError();
+    throw new SessionActorReplayError();
+  }
+  const entries: ReplayEntry[] = [];
+  const eventIds = new Set<string>();
+  let state = snapshot.state;
+  for (const envelope of timelineInput) {
+    let parsed: ParsedCanonicalEnvelope & { readonly eventTenantId: TenantId };
+    try {
+      parsed = parseCanonicalEnvelope(envelope, address);
+    } catch {
+      throw new SessionActorReplayError();
+    }
+    if (eventIds.has(parsed.eventId)) throw new SessionActorReplayError();
+    eventIds.add(parsed.eventId);
+    try {
+      state = parsed.reduce(state);
+    } catch {
+      throw new SessionActorReplayError();
+    }
+    entries.push(Object.freeze({ parsed, state, result: createEventResult(parsed, state) }));
+  }
+  return Object.freeze({ state, entries: Object.freeze(entries) });
+}
+
+function assertTailMatchesAuthoritativeReplay(
+  snapshot: SessionActorSnapshot,
+  tailReplay: ReplayResult,
+  fullReplay: ReplayResult,
+): void {
+  const authoritativeTail = fullReplay.entries.filter(
+    (entry) => entry.parsed.aggregateVersion > snapshot.aggregate_version,
+  );
+  if (authoritativeTail.length !== tailReplay.entries.length) throw new SessionActorReplayError();
+  for (let index = 0; index < authoritativeTail.length; index += 1) {
+    const authoritative = authoritativeTail[index];
+    const tail = tailReplay.entries[index];
+    if (
+      authoritative === undefined
+      || tail === undefined
+      || authoritative.parsed.eventId !== tail.parsed.eventId
+      || authoritative.parsed.aggregateVersion !== tail.parsed.aggregateVersion
+      || authoritative.parsed.fingerprint !== tail.parsed.fingerprint
+    ) throw new SessionActorReplayError();
+  }
+}
+
 function normalizeSnapshot(value: unknown, address: ActorAddress | undefined): SessionActorSnapshot {
   const record = strictRecord(value, ["aggregate_version", "state", "state_hash"], SessionActorReplayError);
   const aggregateVersion = parseVersion(readRequired(record, "aggregate_version", SessionActorReplayError), 1, SessionActorReplayError);
@@ -1031,20 +1224,6 @@ function normalizeSnapshot(value: unknown, address: ActorAddress | undefined): S
 function assertSnapshotMatchesReplay(snapshot: SessionActorSnapshot, replay: ReplayResult): void {
   const atSnapshot = replay.entries.find((entry) => entry.parsed.aggregateVersion === snapshot.aggregate_version);
   if (atSnapshot === undefined || atSnapshot.result.state_hash !== snapshot.state_hash) throw new SessionActorReplayError();
-}
-
-function replayFromSnapshot(snapshot: SessionActorSnapshot, replay: ReplayResult): InteractionAggregateState {
-  let state = snapshot.state;
-  for (const entry of replay.entries) {
-    if (entry.parsed.aggregateVersion <= snapshot.aggregate_version) continue;
-    try {
-      state = entry.parsed.reduce(state);
-    } catch {
-      throw new SessionActorReplayError();
-    }
-  }
-  if (interactionStateHash(state) !== interactionStateHash(replay.state)) throw new SessionActorReplayError();
-  return state;
 }
 
 function createEventResult(parsed: ParsedCanonicalEnvelope, state: InteractionAggregateState): SessionActorEventResult {
@@ -1098,6 +1277,62 @@ function requireDeterministicSource(value: object): DeterministicReplaySourceSta
   const state = DETERMINISTIC_SOURCES.get(value);
   if (state === undefined) throw new SessionActorValidationError();
   return state;
+}
+
+function requireReplaySource(value: SessionActorReplaySource): SessionActorReplaySource {
+  if (
+    value === null
+    || typeof value !== "object"
+    || typeof value.loadSnapshot !== "function"
+    || typeof value.listTimeline !== "function"
+  ) throw new SessionActorValidationError();
+  return value;
+}
+
+function actorSnapshotFromPersisted(
+  snapshotInput: SessionStateSnapshot,
+  request: AuthorizedRequestContext,
+  sessionIdInput: unknown,
+): SessionActorSnapshot {
+  const tenantId = requireTenantScope(request, "session:read");
+  const sessionId = parseSessionIdForActor(sessionIdInput, SessionActorValidationError);
+  let snapshotId: UuidV7;
+  try {
+    snapshotId = parseUuidV7(snapshotInput.snapshot_id, "snapshot_id");
+  } catch {
+    throw new SessionActorReplayError();
+  }
+  if (
+    snapshotInput.schema_version !== "2.0.0"
+    || snapshotInput.tenant_id !== tenantId
+    || snapshotInput.session_id !== sessionId
+    || typeof snapshotInput.created_at !== "string"
+    || !Number.isFinite(Date.parse(snapshotInput.created_at))
+    || snapshotId.length < 1
+  ) throw new SessionActorReplayError();
+  const normalized = normalizeSnapshot({
+    aggregate_version: snapshotInput.aggregate_version,
+    state: snapshotInput.state,
+    state_hash: snapshotInput.state_hash,
+  }, { tenantId, sessionId });
+  if (
+    normalized.aggregate_version !== snapshotInput.aggregate_version
+    || normalized.state_hash !== snapshotInput.state_hash
+  ) throw new SessionActorReplayError();
+  return normalized;
+}
+
+function assertReplayControlActive(control: SessionActorReplayControl | undefined): void {
+  if (control === undefined) return;
+  if (
+    control === null
+    || typeof control !== "object"
+    || !(control.signal instanceof AbortSignal)
+    || typeof control.timeout_ms !== "number"
+    || !Number.isSafeInteger(control.timeout_ms)
+    || control.timeout_ms < 1
+    || control.signal.aborted
+  ) throw new SessionActorSourceTimeoutError();
 }
 
 function parseEventSessionId(parsed: ParsedCanonicalEnvelope & { readonly eventTenantId: TenantId }): SessionId {
