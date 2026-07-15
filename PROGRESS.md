@@ -3,8 +3,8 @@
 **Estado atual:** M0 Foundation, M1 Walking Skeleton e M2 Human Presence Spike concluídos (fake-first)
 
 **Marco atual:** M2 (concluído)
-**Tarefa atual:** M2-13 (última tarefa do marco)
-**Última evidência verde:** M1-11 com pipeline completa, 209 testes Node, 23 unittest Python, 23 pytest, 2 testes E2E, PostgreSQL local, RLS e 9 validadores verdes em 2026-07-15
+**Tarefa atual:** nenhuma (M2 encerrado; M3 não iniciado)
+**Última evidência verde:** pipeline completa de release M2 com 305 testes Node, 23 unittest Python, 23 pytest, 9 testes E2E (2 M1 + 7 M2), PostgreSQL local, RLS e 9 validadores verdes em 2026-07-15
 **Bloqueadores internos:** nenhum
 **Pendências externas:** consultar `PENDENCIAS_EXTERNAS.md`  
 
@@ -546,6 +546,17 @@
 - Reestimativa qualitativa de M3: os contratos e o fencing por geração de M2 (`RoomTransport`, `TurnCoordinator`, `AvatarSession`, `SceneDirector`) são tratados como estáveis para receber uma implementação real de provider sem redesenho; M3 deve orçar o bake-off credenciado (`PROVIDER_BENCHMARK_PROTOCOL.md`, gate humano) como item de escopo próprio, não incluído em M0-M2.
 - **M2 Human Presence Spike está concluído**: M2-01 a M2-13 done, 305 testes Node e 23 unittest Python verdes, `pnpm m1:e2e` e `pnpm m2:e2e` verdes, nenhuma credencial real, provider real, deploy ou migration remota acessados.
 
+### 2026-07-15, gate de release M2 completo
+
+- Pipeline completa executada e verde ao final da sessão: `pnpm install --frozen-lockfile`, `pnpm lint`, `pnpm contracts:check`, `pnpm typecheck`, `pnpm test` (305 Node + 23 unittest Python), `uv run pytest` (23), `pnpm build`, `pnpm db:test`, `pnpm db:rls`, `pnpm m1:e2e` (2, M1 permanece verde), `pnpm m2:e2e` (7), `python3 scripts/validate_all.py` (9 validadores) e `git diff --check`.
+- `pnpm db:test` e `pnpm db:rls` exigiram `LC_ALL=C LANG=C` explícitos neste ambiente para contornar um bug conhecido do PostgreSQL 17 via Homebrew no macOS (`postmaster became multithreaded during startup` quando `LC_ALL`/`LANG` ficam vazios em vez de ausentes) — nenhuma mudança de código ou script foi necessária, é puramente ambiental.
+- `FINAL_AUDIT_REPORT.md` atualizado para cobrir M0, M1 e M2 juntos: veredito, implementação auditada, comandos reproduzíveis, garantias arquiteturais, riscos aceitos e próxima sequência agora refletem o spike M2 completo e o gate de decisão de M2-13.
+- Working tree limpo, 13 commits de M2 (M2-01 a M2-13) mais este, todos com mensagem convencional e coautoria registrada.
+
 ## Próxima ação
 
-Rodar a suíte de validação completa (lint, contracts, typecheck, test, pytest, build, db:test, db:rls, m1:e2e, m2:e2e, validate_all.py) e produzir o relatório final da sessão. Depois, uma sessão futura pode iniciar M3 assumindo M0-M2 como baseline congelada, com o bake-off de provider como pré-requisito de gate humano.
+Nenhuma dentro do escopo autorizado desta sessão. Uma sessão futura pode
+iniciar M3 assumindo M0, M1 e M2 como baseline congelada fake-first, tratando
+o bake-off credenciado de provider (`PROVIDER_BENCHMARK_PROTOCOL.md`, gate
+humano) como pré-requisito de escopo próprio antes de qualquer demo com
+cliente real.
