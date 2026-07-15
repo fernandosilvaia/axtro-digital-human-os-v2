@@ -3,7 +3,7 @@
 **Estado atual:** M0 Foundation e M1 Walking Skeleton concluídos; M2 Human Presence Spike em execução autônoma controlada
 
 **Marco atual:** M2
-**Tarefa atual:** M2-02
+**Tarefa atual:** M2-04
 **Última evidência verde:** M1-11 com pipeline completa, 209 testes Node, 23 unittest Python, 23 pytest, 2 testes E2E, PostgreSQL local, RLS e 9 validadores verdes em 2026-07-15
 **Bloqueadores internos:** nenhum
 **Pendências externas:** consultar `PENDENCIAS_EXTERNAS.md`  
@@ -50,8 +50,8 @@
 | `M1-11` | M1 | done | M1 release gate | `M1-10` | pipeline completa verde, revisões sem P0, P1 ou P2, custo fake nominal USD 0.02 e baseline M1 congelados |
 | `M2-01` | M2 | done | Implement channel adapter and native-room transport boundary | `M1-11`, `M0-11` | `RoomTransport` local determinístico sobre `ChannelPort`, `apps/meeting-room` compõe fakes, 6 testes Node verdes |
 | `M2-02` | M2 | done | Build Turn Coordinator harness | `M2-01` | Máquina de estados pura, 4 perfis, geração cercada, 18 testes Node verdes cobrindo os 10 fixtures obrigatórios |
-| `M2-03` | M2 | pending | Implement modular STT, LLM and TTS path | `M2-02`, `M0-12` | pending |
-| `M2-04` | M2 | pending | Implement speech-to-speech experiment adapter | `M2-02`, `M0-11` | pending |
+| `M2-03` | M2 | done | Implement modular STT, LLM and TTS path | `M2-02`, `M0-12` | `runModularConversationPath` com timing por componente e modo exact-capture, 7 testes Node verdes |
+| `M2-04` | M2 | done | Implement speech-to-speech experiment adapter | `M2-02`, `M0-11` | Router `selectConversationPathMode` com fallback, sessão S2S com renovação antes do expiry, coberto nos mesmos 7 testes |
 | `M2-05` | M2 | pending | Implement Behavior and Presence Director | `M2-02`, `M0-03` | pending |
 | `M2-06` | M2 | pending | Implement avatar port, fake and cancellation semantics | `M2-01`, `M2-05`, `M0-12` | pending |
 | `M2-07` | M2 | pending | Implement Scene and Presentation Director | `M2-01`, `M0-03` | pending |
@@ -449,6 +449,16 @@
 - `pnpm lint`, `tsc --build` completo e `node scripts/test.mjs` (233 testes Node, 23 unittest Python) verdes.
 - Nenhuma credencial real, produção, provider real, deploy, migration remota ou M3 foi acessado ou iniciado.
 
+### 2026-07-15, M2-03 e M2-04 concluídos
+
+- `packages/model-gateway/src/conversation-path.ts` implementa `runModularConversationPath` (STT via `SpeechToTextPort` → LLM via um novo `TextGenerationPort` local → TTS via `TextToSpeechPort`), com `timing` por componente (`sttStartedAtMs`/`sttCompletedAtMs`/`llmCompletedAtMs`/`ttsCompletedAtMs`) e um modo `exactCapture` que produz uma referência determinística distinta do modo de paráfrase (números/e-mails).
+- `selectConversationPathMode` implementa o roteador de feature flag do ADR-002: com `s2sEnabled=false` nunca tenta abrir sessão; com `s2sEnabled=true`, tenta e cai para `modular` (`fallbackFromS2S=true`) se a sessão falhar, sem nunca bloquear a chamada.
+- `openS2SSession`/`renewS2SSessionIfNeeded` abrem sessão em modo `s2s` via `RealtimeModelPort` e renovam a sessão antes do `expiresAt` reportado pelo provider, fechando a sessão antiga somente depois que a nova abre.
+- `createDeterministicTextGenerationFake` é um fake local determinístico (seed + hash) para o passo de LLM; D-V2-046 registra que nenhum "llm" `ProviderPortKind` foi adicionado ao registry fechado de `provider-contracts` nesta etapa — a decisão de formalizar isso fica para M2-13/M3.
+- 7 testes novos em `tests/realtime/conversation-path.test.mjs`: pipeline modular ordenado com timing, exact-capture determinístico e distinto de paráfrase, cancelamento propagado, roteador S2S nos três casos (desligado, saudável, fallback) e sessão S2S com renovação.
+- `pnpm lint`, `tsc --build` completo e `node scripts/test.mjs` (240 testes Node, 23 unittest Python) verdes.
+- Nenhuma credencial real, produção, provider real, deploy, migration remota ou M3 foi acessado ou iniciado.
+
 ## Próxima ação
 
-Continuar M2 em modo autônomo controlado: M2-03/M2-04, caminho modular STT/LLM/TTS e adapter S2S, sobre o Turn Coordinator recém-criado.
+Continuar M2 em modo autônomo controlado: M2-05, Behavior and Presence Director, sobre o Turn Coordinator e a rota de conversação recém-criados.
