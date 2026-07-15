@@ -16,6 +16,17 @@ function replay(sequence = events) {
   return domain.replayInteraction(sequence);
 }
 
+function salesUninstalledEvent(aggregateVersion, eventId) {
+  return {
+    ...clone(events[3]),
+    event_id: eventId,
+    event_type: "sales.uninstalled",
+    aggregate_version: aggregateVersion,
+    occurred_at: `2026-07-14T12:01:${String(aggregateVersion).padStart(2, "0")}.000Z`,
+    payload: {},
+  };
+}
+
 function salesEvent(eventType, aggregateVersion, eventId, funnelStage = "opening") {
   return {
     ...clone(events[3]),
@@ -158,6 +169,28 @@ test("sales remains an opt-in extension and cannot alter the generic kernel befo
   const update = salesEvent("sales.updated", 7, "018bcfe5-6898-7abc-bf01-020304050607", "discovery");
   const afterUpdate = replay([...prelude, install, update]);
   assert.equal(afterUpdate.extensions.sales?.funnel_stage, "discovery");
+});
+
+test("sales can be removed per tenant, and cannot be removed or updated twice", () => {
+  const prelude = clone(events.slice(0, 5));
+  const uninstallBeforeInstall = salesUninstalledEvent(6, "018bcfe5-6899-7abc-bf01-020304050607");
+  assert.throws(() => replay([...prelude, uninstallBeforeInstall]), domain.InteractionTransitionError);
+
+  const install = salesEvent("sales.installed", 6, "018bcfe5-689a-7abc-bf01-020304050607");
+  const uninstall = salesUninstalledEvent(7, "018bcfe5-689b-7abc-bf01-020304050607");
+  const afterUninstall = replay([...prelude, install, uninstall]);
+  assert.equal("sales" in afterUninstall.extensions, false);
+
+  const updateAfterUninstall = salesEvent("sales.updated", 8, "018bcfe5-689c-7abc-bf01-020304050607", "discovery");
+  assert.throws(() => replay([...prelude, install, uninstall, updateAfterUninstall]), domain.InteractionTransitionError);
+
+  const doubleUninstall = salesUninstalledEvent(8, "018bcfe5-689d-7abc-bf01-020304050607");
+  assert.throws(() => replay([...prelude, install, uninstall, doubleUninstall]), domain.InteractionTransitionError);
+
+  // Reinstalling after removal is allowed — a tenant can re-enable the pack later.
+  const reinstall = salesEvent("sales.installed", 8, "018bcfe5-689e-7abc-bf01-020304050607", "qualification");
+  const afterReinstall = replay([...prelude, install, uninstall, reinstall]);
+  assert.equal(afterReinstall.extensions.sales?.funnel_stage, "qualification");
 });
 
 test("reducer does not mutate inputs and remains deterministic across a replay property loop", () => {

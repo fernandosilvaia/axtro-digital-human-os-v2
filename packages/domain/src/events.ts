@@ -30,6 +30,7 @@ export const INTERACTION_EVENT_TYPES = [
   "quality.updated",
   "sales.installed",
   "sales.updated",
+  "sales.uninstalled",
 ] as const;
 
 export type InteractionEventType = (typeof INTERACTION_EVENT_TYPES)[number];
@@ -76,6 +77,7 @@ export interface InteractionEventPayloads {
   "quality.updated": QualityUpdate;
   "sales.installed": { state: SalesUpdate };
   "sales.updated": { state: SalesUpdate };
+  "sales.uninstalled": Record<string, never>;
 }
 
 type InteractionEventBase = Omit<
@@ -235,6 +237,7 @@ function parsePayload<T extends InteractionEventType>(
     case "session.completed":
     case "session.failed":
     case "turn.interrupted":
+    case "sales.uninstalled":
       return emptyPayload(value, `payload for ${eventType}`) as InteractionEventPayloads[T];
     case "disclosure.delivered": {
       const payload = exactRecord(value, "payload for disclosure.delivered", ["status"]);

@@ -23,6 +23,7 @@
     { "path": "./packages/session-runtime" },
     { "path": "./packages/context-composer" },
     { "path": "./packages/turns" },
+    { "path": "./packages/role-packs/sales-closer" },
     { "path": "./packages/turn-coordinator" },
     { "path": "./packages/behavior-director" },
     { "path": "./packages/scene-director" },

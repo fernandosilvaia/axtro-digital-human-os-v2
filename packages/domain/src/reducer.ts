@@ -100,6 +100,8 @@ export function reduceInteractionState(
       return installSales(state, event);
     case "sales.updated":
       return updateSales(state, event);
+    case "sales.uninstalled":
+      return uninstallSales(state, event);
   }
 }
 
@@ -311,6 +313,13 @@ function updateSales(state: InteractionAggregateState, event: Extract<AnyInterac
     throw new InteractionTransitionError("sales.updated requires an installed sales extension");
   }
   return advance(state, event, { extensions: { sales: salesFromPayload(state, event) } });
+}
+
+function uninstallSales(state: InteractionAggregateState, event: Extract<AnyInteractionEvent, { event_type: "sales.uninstalled" }>): InteractionAggregateState {
+  if (state.extensions.sales === undefined) {
+    throw new InteractionTransitionError("sales.uninstalled requires an installed sales extension");
+  }
+  return advance(state, event, { extensions: {} });
 }
 
 function salesFromPayload(

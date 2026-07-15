@@ -5,6 +5,8 @@ packages:
   - apps/web
   - apps/workflow-worker
   - packages/*
+  - packages/role-packs/*
+  - packages/tool-adapters/*
 
 autoInstallPeers: false
 strictPeerDependencies: true

@@ -1,10 +1,10 @@
 # Progresso de implementação
 
-**Estado atual:** M0 Foundation, M1 Walking Skeleton e M2 Human Presence Spike concluídos (fake-first)
+**Estado atual:** M0, M1 e M2 concluídos; M3 Sales Closer Alpha em execução autônoma controlada (fake-first/dry-run em M3-01 a M3-09, bake-off de provider e piloto real ficam fora do escopo autônomo)
 
-**Marco atual:** M2 (concluído)
-**Tarefa atual:** nenhuma (M2 encerrado; M3 não iniciado)
-**Última evidência verde:** pipeline completa de release M2 com 305 testes Node, 23 unittest Python, 23 pytest, 9 testes E2E (2 M1 + 7 M2), PostgreSQL local, RLS e 9 validadores verdes em 2026-07-15
+**Marco atual:** M3
+**Tarefa atual:** M3-01
+**Última evidência verde:** 316 testes Node, 23 unittest Python, 23 pytest, 9 testes E2E (2 M1 + 7 M2) verdes em 2026-07-15 após M3-01
 **Bloqueadores internos:** nenhum
 **Pendências externas:** consultar `PENDENCIAS_EXTERNAS.md`  
 
@@ -61,7 +61,7 @@
 | `M2-11` | M2 | done | Instrument realtime latency, quality and cost | `M2-03`, `M2-06`, `M2-07`, `M0-16` | Recorder p50/p95 por span, orçamentos de `LATENCY_BUDGETS.md`, reconciliação de custo, 11 testes Node verdes |
 | `M2-12` | M2 | done | Run mandatory ten-minute Human Presence scenario | `M2-05`, `M2-08`, `M2-09`, `M2-10`, `M2-11` | Cenário determinístico de 600.000ms simulados, 11/11 itens do checklist, `artifacts/m2/evidence.json` congelado, 7 testes Node verdes |
 | `M2-13` | M2 | done | M2 architecture and provider decision gate | `M2-12` | `artifacts/m2/DECISION.md`: 12 áreas de arquitetura `continue`/`tune`, 11 candidates de provider `blocked` por ausência de credencial real |
-| `M3-01` | M3 | pending | Implement Sales Closer Role Pack | `M2-13` | pending |
+| `M3-01` | M3 | done | Implement Sales Closer Role Pack | `M2-13` | Manifesto, `sales.uninstalled` no reducer, `TenantRolePackRegistry` process-local, 11 testes Node verdes |
 | `M3-02` | M3 | pending | Implement authorized knowledge ingestion and RAG | `M3-01`, `M0-08` | pending |
 | `M3-03` | M3 | pending | Add CRM-lite read adapter | `M3-01`, `M0-14` | pending |
 | `M3-04` | M3 | pending | Add calendar proposal in dry-run | `M3-01`, `M0-14` | pending |
@@ -553,10 +553,15 @@
 - `FINAL_AUDIT_REPORT.md` atualizado para cobrir M0, M1 e M2 juntos: veredito, implementação auditada, comandos reproduzíveis, garantias arquiteturais, riscos aceitos e próxima sequência agora refletem o spike M2 completo e o gate de decisão de M2-13.
 - Working tree limpo, 13 commits de M2 (M2-01 a M2-13) mais este, todos com mensagem convencional e coautoria registrada.
 
+### 2026-07-15, M3 iniciado — M3-01 concluído
+
+- Escopo de M3 confirmado antes de codar: `AGENTS.md` isenta apenas M0-M2 de bloqueio por credencial ausente; `HANDOFF_TO_CODEX.md` classifica M3 como "Sales Closer Alpha interno. Não declarar pronto para cliente sem auditoria, provider bake-off, segurança, privacidade e aprovação de lançamento." M3-01 a M3-09 permanecem fake-first/dry-run porque é exatamente isso que o texto de aceite de cada uma já exige; o bake-off credenciado e os 20 chamados internos reais de M3-10 são tratados como itens de escopo próprios fora da execução autônoma (D-V2-049).
+- `@axtro/domain` ganhou o evento `sales.uninstalled` (payload vazio) e o reducer `uninstallSales`, fechando a lacuna que impedia "pack can be enabled or removed" no nível de sessão — reinstalar após remover é permitido (D-V2-050). Diferente do vocabulário próprio usado em M2 (spike), aqui estender `packages/domain` é a continuação correta porque o Role Pack é exatamente o extension point que o pacote já antecipava (`extensions.sales?`).
+- `@axtro/role-pack-sales-closer` (`packages/role-packs/sales-closer/`): manifesto `SALES_CLOSER_MANIFEST` validado contra `contracts/schemas/role_pack_manifest.schema.json`, helpers puros `createInitialSalesState`/`applySalesUpdate` (nunca mintam evento, ID ou timestamp — essa autoridade fica em session-application) e `TenantRolePackRegistry` process-local para habilitar/desabilitar por tenant, independente do estado de extensão por sessão (D-V2-051).
+- 11 testes novos (1 em `tests/domain/reducers.test.mjs` para `sales.uninstalled`, 10 em `tests/role-packs/sales-closer.test.mjs`): manifesto válido/rejeitado, seed de qualificação, merge de update e rejeição pós-fechamento, wiring end-to-end install→uninstall pelo reducer real, sessão genérica sem o pack, e registry por tenant (instalar antes de habilitar, isolamento entre tenants, remoção de pack nunca habilitado rejeitada, reabilitação após remoção).
+- `pnpm lint`, `pnpm contracts:check`, `tsc --build` completo, `node scripts/test.mjs` (316 testes Node, 23 unittest Python), `pnpm m1:e2e` e `pnpm m2:e2e` verdes.
+- Nenhuma credencial real, produção, provider real, deploy ou migration remota foi acessado.
+
 ## Próxima ação
 
-Nenhuma dentro do escopo autorizado desta sessão. Uma sessão futura pode
-iniciar M3 assumindo M0, M1 e M2 como baseline congelada fake-first, tratando
-o bake-off credenciado de provider (`PROVIDER_BENCHMARK_PROTOCOL.md`, gate
-humano) como pré-requisito de escopo próprio antes de qualquer demo com
-cliente real.
+Continuar M3 em modo autônomo controlado: M3-02, ingestão de conhecimento autorizada e RAG — provavelmente exige uma nova ADR própria (ADR-025 já reserva isso: "A durable cache or RAG retrieval requires its own ADR, revocation semantics, and multi-tenant test matrix").
