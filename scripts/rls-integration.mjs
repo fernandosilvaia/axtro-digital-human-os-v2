@@ -5,6 +5,7 @@ import { createServer } from "node:net";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import process from "node:process";
+import { fileURLToPath } from "node:url";
 
 const database = await import(new URL("../packages/database/dist/index.js", import.meta.url));
 const domain = await import(new URL("../packages/domain/dist/index.js", import.meta.url));
@@ -12,6 +13,9 @@ const externalDatabaseUrl = process.env.AXTRO_LOCAL_DATABASE_URL;
 const postgresBin = resolvePostgresBin();
 const psqlPath = process.env.AXTRO_PSQL_PATH ?? (postgresBin === null ? "psql" : join(postgresBin, "psql"));
 const fixture = createFixture();
+const developmentSeedScript = fileURLToPath(new URL("./development-seed.mjs", import.meta.url));
+const developmentTenantAlpha = "0197c000-0000-7000-8000-000000000001";
+const developmentTenantBeta = "0197c000-0000-7000-8000-000000000002";
 
 const TENANT_TABLES = [
   "tenants",
@@ -76,10 +80,13 @@ try {
   const testDatabaseUrl = databaseUrlFor(baseDatabaseUrl, testDatabaseName);
   const migrated = database.applyLocalMigrations({ databaseUrl: testDatabaseUrl, psqlPath });
   assert.equal(migrated.history.length, 9);
+  assertSucceeded(runDevelopmentSeed(testDatabaseUrl), "deterministic development seed");
   assertSucceeded(runSql(testDatabaseUrl, psqlPath, seedSql(fixture)), "deterministic tenant fixture seed");
   assertSucceeded(provisionRuntimeRole(baseDatabaseUrl, testDatabaseUrl, psqlPath, runtimeRole), "least-privilege runtime role");
   const runtimeUrl = databaseUrlWithUser(testDatabaseUrl, runtimeRole);
 
+  assert.notEqual(runDevelopmentSeed(runtimeUrl).status, 0, "runtime role must not execute the development seed");
+  assertDevelopmentSeedIsolation(runtimeUrl);
   assertRlsMatrix(runtimeUrl);
   assertServiceIdentityIsolation(runtimeUrl);
   assertMissingContextFailsClosed(runtimeUrl);
@@ -180,6 +187,72 @@ function assertServiceIdentityIsolation(runtimeUrl) {
   );
   assertSucceeded(crossTenant, "tenant beta service identity query");
   assert.equal(crossTenant.stdout.trim(), "", "tenant beta must not resolve tenant alpha service identity");
+}
+
+function assertDevelopmentSeedIsolation(runtimeUrl) {
+  const alphaPack = withTenant(
+    runtimeUrl,
+    developmentTenantAlpha,
+    `SELECT count(*) FROM role_pack_installations WHERE tenant_id = '${developmentTenantAlpha}' AND role_pack_id = 'sales-closer';`,
+  );
+  assertSucceeded(alphaPack, "development tenant alpha reads its Sales Closer pack");
+  assert.equal(alphaPack.stdout.trim(), "1");
+  const betaPack = withTenant(
+    runtimeUrl,
+    developmentTenantBeta,
+    `SELECT count(*) FROM role_pack_installations WHERE tenant_id = '${developmentTenantBeta}' AND role_pack_id = 'sales-closer';`,
+  );
+  assertSucceeded(betaPack, "development tenant beta reads its Sales Closer pack");
+  assert.equal(betaPack.stdout.trim(), "1");
+  const betaProvider = withTenant(
+    runtimeUrl,
+    developmentTenantBeta,
+    `SELECT count(*) FROM provider_connections WHERE tenant_id = '${developmentTenantBeta}' AND provider_id IN ('fake-realtime', 'fake-catalog');`,
+  );
+  assertSucceeded(betaProvider, "development tenant beta reads its fake providers");
+  assert.equal(betaProvider.stdout.trim(), "2");
+  const betaIdentity = withTenant(
+    runtimeUrl,
+    developmentTenantBeta,
+    `SELECT count(*) FROM service_identities WHERE tenant_id = '${developmentTenantBeta}' AND name = 'tenant-zero-workflow';`,
+  );
+  assertSucceeded(betaIdentity, "development tenant beta reads its service identity");
+  assert.equal(betaIdentity.stdout.trim(), "1");
+  const betaAgent = withTenant(
+    runtimeUrl,
+    developmentTenantBeta,
+    `SELECT count(*) FROM agents WHERE tenant_id = '${developmentTenantBeta}' AND name = 'Tenant Zero Sales Closer';`,
+  );
+  assertSucceeded(betaAgent, "development tenant beta reads its agent");
+  assert.equal(betaAgent.stdout.trim(), "1");
+  const betaCannotReadAlphaPack = withTenant(
+    runtimeUrl,
+    developmentTenantBeta,
+    `SELECT count(*) FROM role_pack_installations WHERE tenant_id = '${developmentTenantAlpha}' AND role_pack_id = 'sales-closer';`,
+  );
+  assertSucceeded(betaCannotReadAlphaPack, "development tenant beta cross-tenant pack query");
+  assert.equal(betaCannotReadAlphaPack.stdout.trim(), "0");
+  const betaCannotReadAlphaProvider = withTenant(
+    runtimeUrl,
+    developmentTenantBeta,
+    `SELECT count(*) FROM provider_connections WHERE tenant_id = '${developmentTenantAlpha}' AND provider_id = 'fake-realtime';`,
+  );
+  assertSucceeded(betaCannotReadAlphaProvider, "development tenant beta cross-tenant provider query");
+  assert.equal(betaCannotReadAlphaProvider.stdout.trim(), "0");
+  const alphaCannotReadBetaIdentity = withTenant(
+    runtimeUrl,
+    developmentTenantAlpha,
+    `SELECT count(*) FROM service_identities WHERE tenant_id = '${developmentTenantBeta}' AND name = 'tenant-zero-workflow';`,
+  );
+  assertSucceeded(alphaCannotReadBetaIdentity, "development tenant alpha cross-tenant identity query");
+  assert.equal(alphaCannotReadBetaIdentity.stdout.trim(), "0");
+  const alphaCannotReadBetaAgent = withTenant(
+    runtimeUrl,
+    developmentTenantAlpha,
+    `SELECT count(*) FROM agents WHERE tenant_id = '${developmentTenantBeta}' AND name = 'Tenant Zero Sales Closer';`,
+  );
+  assertSucceeded(alphaCannotReadBetaAgent, "development tenant alpha cross-tenant agent query");
+  assert.equal(alphaCannotReadBetaAgent.stdout.trim(), "0");
 }
 
 function assertPoolContextReset(runtimeUrl) {
@@ -403,6 +476,18 @@ function runSql(databaseUrl, executable, sql) {
     "--command",
     sql,
   ], { encoding: "utf8", env: database.createSanitizedPsqlEnvironment(process.env) });
+}
+
+function runDevelopmentSeed(databaseUrl) {
+  return spawnSync(process.execPath, [developmentSeedScript], {
+    encoding: "utf8",
+    env: {
+      ...database.createSanitizedPsqlEnvironment(process.env),
+      AXTRO_ALLOW_LOCAL_DATABASE_URL: "1",
+      AXTRO_LOCAL_DATABASE_URL: databaseUrl,
+      AXTRO_PSQL_PATH: psqlPath,
+    },
+  });
 }
 
 function assertSucceeded(result, phase) {

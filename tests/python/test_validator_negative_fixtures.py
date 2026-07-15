@@ -49,7 +49,7 @@ class ValidatorNegativeFixtureTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
             candidate = "sk-" + ("A" * 20)
-            (root / "fixture.txt").write_text(f"token={candidate}\n", encoding="utf-8")
+            (root / "fixture.mjs").write_text(f"const token = '{candidate}';\n", encoding="utf-8")
             with patch.object(secret_scan, "ROOT", root), redirect_stdout(io.StringIO()):
                 self.assertEqual(1, secret_scan.main())
 

@@ -7,7 +7,7 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 EXCLUDED_PARTS = {"legacy", ".git", "node_modules", ".venv", "dist", "build"}
-TEXT_SUFFIXES = {".md", ".yaml", ".yml", ".json", ".sql", ".py", ".ts", ".tsx", ".js", ".jsx", ".toml", ".env", ".txt"}
+TEXT_SUFFIXES = {".md", ".yaml", ".yml", ".json", ".sql", ".py", ".ts", ".tsx", ".js", ".mjs", ".jsx", ".toml", ".env", ".txt"}
 PATTERNS = {
     "OpenAI-style key": re.compile(r"\bsk-[A-Za-z0-9_-]{20,}\b"),
     "GitHub token": re.compile(r"\bgh[pousr]_[A-Za-z0-9]{20,}\b"),

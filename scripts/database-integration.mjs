@@ -5,12 +5,18 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import process from "node:process";
 import { spawnSync } from "node:child_process";
+import { fileURLToPath } from "node:url";
 
 const database = await import(new URL("../packages/database/dist/index.js", import.meta.url));
 const domain = await import(new URL("../packages/domain/dist/index.js", import.meta.url));
 const externalDatabaseUrl = process.env.AXTRO_LOCAL_DATABASE_URL;
 const postgresBin = resolvePostgresBin();
 const psqlPath = process.env.AXTRO_PSQL_PATH ?? (postgresBin === null ? "psql" : join(postgresBin, "psql"));
+const developmentSeedScript = fileURLToPath(new URL("./development-seed.mjs", import.meta.url));
+const developmentSeedTenantIds = [
+  "0197c000-0000-7000-8000-000000000001",
+  "0197c000-0000-7000-8000-000000000002",
+];
 
 let cluster;
 let temporaryDirectory;
@@ -72,6 +78,44 @@ try {
   const cleanResult = database.applyLocalMigrations({ databaseUrl: cleanUrl, psqlPath });
   assert.equal(cleanResult.applied.length, 9);
   const cleanDrift = database.checkLocalSchemaDrift({ databaseUrl: cleanUrl, psqlPath });
+  assert.equal(runDevelopmentSeed(cleanUrl).status, 0);
+  const firstSeedComposition = readDevelopmentSeedComposition(cleanUrl);
+  assert.equal(runDevelopmentSeed(cleanUrl).status, 0);
+  assert.deepEqual(readDevelopmentSeedComposition(cleanUrl), firstSeedComposition);
+  assert.deepEqual(firstSeedComposition, [
+    "0197c000-0000-7000-8000-000000000001:1:1:1:1:1:1:2:0:fake-catalog,fake-realtime",
+    "0197c000-0000-7000-8000-000000000002:1:1:1:1:1:1:2:0:fake-catalog,fake-realtime",
+  ]);
+  assert.equal(runSql(
+    cleanUrl,
+    psqlPath,
+    "UPDATE provider_connections SET secret_handle = 'ref_unexpected' WHERE tenant_id = '0197c000-0000-7000-8000-000000000001' AND id = '0197c000-0000-7000-8000-000000000061';",
+  ).status, 0);
+  assert.notEqual(runDevelopmentSeed(cleanUrl).status, 0);
+  assert.equal(
+    queryScalar(
+      cleanUrl,
+      psqlPath,
+      "SELECT secret_handle FROM provider_connections WHERE tenant_id = '0197c000-0000-7000-8000-000000000001' AND id = '0197c000-0000-7000-8000-000000000061';",
+    ),
+    "ref_unexpected",
+  );
+  assert.equal(runSql(
+    cleanUrl,
+    psqlPath,
+    "UPDATE provider_connections SET secret_handle = 'ref_fake_tenant_zero_alpha_realtime' WHERE tenant_id = '0197c000-0000-7000-8000-000000000001' AND id = '0197c000-0000-7000-8000-000000000061';",
+  ).status, 0);
+  assert.equal(runDevelopmentSeed(cleanUrl).status, 0);
+  assert.deepEqual(readDevelopmentSeedComposition(cleanUrl), firstSeedComposition);
+  assert.equal(runSql(cleanUrl, psqlPath, "DROP INDEX cost_events_tenant_source_provider_request_ref_unique;").status, 0);
+  assert.notEqual(runDevelopmentSeed(cleanUrl).status, 0);
+  assert.deepEqual(readDevelopmentSeedComposition(cleanUrl), firstSeedComposition);
+  assert.equal(runSql(
+    cleanUrl,
+    psqlPath,
+    "CREATE UNIQUE INDEX cost_events_tenant_source_provider_request_ref_unique ON cost_events (tenant_id, source, provider_request_ref) WHERE provider_request_ref IS NOT NULL;",
+  ).status, 0);
+  assert.equal(runDevelopmentSeed(cleanUrl).status, 0);
 
   const upgradePrelude = database.applyLocalMigrations({ databaseUrl: upgradeUrl, psqlPath, targetVersion: 5 });
   assert.equal(upgradePrelude.history.length, 5);
@@ -704,4 +748,33 @@ function run(executable, args, phase) {
 
 function childEnvironment() {
   return database.createSanitizedPsqlEnvironment(process.env);
+}
+
+function readDevelopmentSeedComposition(databaseUrl) {
+  return developmentSeedTenantIds.map((tenantId) => queryScalar(
+    databaseUrl,
+    psqlPath,
+    `SELECT '${tenantId}' || ':'
+      || (SELECT count(*) FROM tenant_settings WHERE tenant_id = '${tenantId}') || ':'
+      || (SELECT count(*) FROM service_identities WHERE tenant_id = '${tenantId}') || ':'
+      || (SELECT count(*) FROM agents WHERE tenant_id = '${tenantId}') || ':'
+      || (SELECT count(*) FROM agent_deployments WHERE tenant_id = '${tenantId}') || ':'
+      || (SELECT count(*) FROM role_pack_installations WHERE tenant_id = '${tenantId}') || ':'
+      || (SELECT count(*) FROM skill_pack_installations WHERE tenant_id = '${tenantId}') || ':'
+      || (SELECT count(*) FROM provider_connections WHERE tenant_id = '${tenantId}') || ':'
+      || (SELECT count(*) FROM contact_profiles WHERE tenant_id = '${tenantId}') || ':'
+      || (SELECT string_agg(provider_id, ',' ORDER BY provider_id) FROM provider_connections WHERE tenant_id = '${tenantId}');`,
+  ));
+}
+
+function runDevelopmentSeed(databaseUrl) {
+  return spawnSync(process.execPath, [developmentSeedScript], {
+    encoding: "utf8",
+    env: {
+      ...childEnvironment(),
+      AXTRO_ALLOW_LOCAL_DATABASE_URL: "1",
+      AXTRO_LOCAL_DATABASE_URL: databaseUrl,
+      AXTRO_PSQL_PATH: psqlPath,
+    },
+  });
 }

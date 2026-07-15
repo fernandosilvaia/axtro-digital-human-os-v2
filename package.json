@@ -18,6 +18,7 @@
     "contracts:check": "python3 scripts/generate_contract_types.py --check",
     "db:migrate": "pnpm build && node scripts/database.mjs migrate",
     "db:drift": "pnpm build && node scripts/database.mjs drift",
+    "db:seed": "pnpm build && node scripts/development-seed.mjs",
     "db:test": "pnpm build && node scripts/database-integration.mjs",
     "db:rls": "pnpm build && node scripts/rls-integration.mjs"
   },

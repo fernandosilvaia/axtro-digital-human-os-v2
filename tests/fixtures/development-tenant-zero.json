@@ -1,0 +1,26 @@
+{
+  "fixture_version": "1.0.0",
+  "tenants": [
+    {
+      "id": "0197c000-0000-7000-8000-000000000001",
+      "slug": "tenant-zero-alpha"
+    },
+    {
+      "id": "0197c000-0000-7000-8000-000000000002",
+      "slug": "tenant-zero-beta"
+    }
+  ],
+  "role_pack": {
+    "id": "sales-closer",
+    "version": "1.0.0"
+  },
+  "provider_ids": [
+    "fake-realtime",
+    "fake-catalog"
+  ],
+  "constraints": {
+    "uses_only_fake_providers": true,
+    "contains_customer_pii": false,
+    "contains_real_credentials": false
+  }
+}
