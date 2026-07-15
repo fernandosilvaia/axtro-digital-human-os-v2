@@ -27,6 +27,7 @@
     { "path": "./packages/behavior-director" },
     { "path": "./packages/scene-director" },
     { "path": "./packages/specialist-fabric" },
+    { "path": "./packages/perception" },
     { "path": "./packages/ui" },
     { "path": "./apps/api" },
     { "path": "./apps/event-relay" },

@@ -3,7 +3,7 @@
 **Estado atual:** M0 Foundation e M1 Walking Skeleton concluídos; M2 Human Presence Spike em execução autônoma controlada
 
 **Marco atual:** M2
-**Tarefa atual:** M2-08
+**Tarefa atual:** M2-09
 **Última evidência verde:** M1-11 com pipeline completa, 209 testes Node, 23 unittest Python, 23 pytest, 2 testes E2E, PostgreSQL local, RLS e 9 validadores verdes em 2026-07-15
 **Bloqueadores internos:** nenhum
 **Pendências externas:** consultar `PENDENCIAS_EXTERNAS.md`  
@@ -56,7 +56,7 @@
 | `M2-06` | M2 | done | Implement avatar port, fake and cancellation semantics | `M2-01`, `M2-05`, `M0-12` | `AvatarSession` com resultado tipado (nunca exceção), 4 testes Node verdes |
 | `M2-07` | M2 | done | Implement Scene and Presentation Director | `M2-01`, `M0-03` | `SceneManifestRegistry` fechado + `SceneDirector` com fencing por geração, 10 testes Node verdes |
 | `M2-08` | M2 | done | Implement silent Specialist Fabric | `M1-04`, `M0-12` | Fila bounded + bulkhead por tipo, deadline racing, One Mouth por omissão de API, 8 testes Node verdes |
-| `M2-09` | M2 | pending | Implement perception signal bus and quality state | `M2-02`, `M0-03` | pending |
+| `M2-09` | M2 | done | Implement perception signal bus and quality state | `M2-02`, `M0-03` | Vocabulário fechado de sinal/hipótese, TTL e consentimento aplicados, 8 testes Node verdes |
 | `M2-10` | M2 | pending | Implement degradation and recovery controller | `M2-03`, `M2-04`, `M2-06`, `M2-07` | pending |
 | `M2-11` | M2 | pending | Instrument realtime latency, quality and cost | `M2-03`, `M2-06`, `M2-07`, `M0-16` | pending |
 | `M2-12` | M2 | pending | Run mandatory ten-minute Human Presence scenario | `M2-05`, `M2-08`, `M2-09`, `M2-10`, `M2-11` | pending |
@@ -498,6 +498,16 @@
 - `pnpm lint`, `tsc --build` completo e `node scripts/test.mjs` (272 testes Node, 23 unittest Python) verdes.
 - Nenhuma credencial real, produção, provider real, deploy, migration remota ou M3 foi acessado ou iniciado.
 
+### 2026-07-15, M2-09 concluído
+
+- `@axtro/perception` implementa exatamente as três categorias permitidas em M2 (dialogue, technical, visual_presence opt-in) como vocabulário fechado de `PerceptionSignalType` — não existe forma de construir um sinal de mentira, diagnóstico, atributo protegido, risco/solvência, biometria ou emoção-como-fato, porque esses tipos simplesmente não estão na lista.
+- Todo `PerceptionSignal` carrega evidence, confidence, detector e versão, purpose, privacyClass, `observedAtMs` e `expiresAtMs` (Art. 4). `RECOMMENDED_SIGNAL_TTL_MS` espelha a tabela do documento (áudio baixo 10s, vídeo congelado 5s, etc.); o chamador pode sobrescrever o TTL dentro de um teto de 4h.
+- Sinais de `visual_presence` exigem `requiredConsentPurpose` do detector estar presente em `grantedConsentPurposes`; sem o consentimento correspondente o sinal é rejeitado com motivo explícito, nunca descartado silenciosamente.
+- `deriveHypothesis` só aceita os 4 tipos de hipótese fechados, exige ao menos uma evidência, e rejeita evidência inexistente ou já expirada — uma hipótese nunca é mais forte que o sinal que a sustenta.
+- 8 testes novos em `tests/realtime/perception-bus.test.mjs`: contrato completo do sinal, rejeição e aceite por consentimento visual, detector emitindo tipo não registrado, seis tipos de inferência proibida comprovadamente inconstrutíveis, expiração por TTL, hipótese com evidência válida/ausente/tipo desconhecido/expirada, e detector/confidence inválidos.
+- `pnpm lint`, `tsc --build` completo e `node scripts/test.mjs` (280 testes Node, 23 unittest Python) verdes.
+- Nenhuma credencial real, produção, provider real, deploy, migration remota ou M3 foi acessado ou iniciado.
+
 ## Próxima ação
 
-Continuar M2 em modo autônomo controlado: M2-09, Perception signal bus, sobre a Specialist Fabric recém-criada.
+Continuar M2 em modo autônomo controlado: M2-10, controlador de degradação e recuperação, integrando os componentes M2-01 a M2-09.

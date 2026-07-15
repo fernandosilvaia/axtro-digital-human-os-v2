@@ -226,6 +226,8 @@ importers:
         specifier: workspace:*
         version: link:../security
 
+  packages/perception: {}
+
   packages/policy:
     dependencies:
       '@axtro/contracts-ts':
