@@ -299,6 +299,8 @@ importers:
         specifier: workspace:*
         version: link:../policy
 
+  packages/turn-coordinator: {}
+
   packages/turns:
     dependencies:
       '@axtro/auth':

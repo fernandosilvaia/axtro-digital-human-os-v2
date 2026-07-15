@@ -3,7 +3,7 @@
 **Estado atual:** M0 Foundation e M1 Walking Skeleton concluídos; M2 Human Presence Spike em execução autônoma controlada
 
 **Marco atual:** M2
-**Tarefa atual:** M2-01
+**Tarefa atual:** M2-02
 **Última evidência verde:** M1-11 com pipeline completa, 209 testes Node, 23 unittest Python, 23 pytest, 2 testes E2E, PostgreSQL local, RLS e 9 validadores verdes em 2026-07-15
 **Bloqueadores internos:** nenhum
 **Pendências externas:** consultar `PENDENCIAS_EXTERNAS.md`  
@@ -49,7 +49,7 @@
 | `M1-10` | M1 | done | Walking Skeleton E2E and failure suite | `M1-04`, `M1-05`, `M1-06`, `M1-07`, `M1-08`, `M1-09` | `pnpm m1:e2e` executa lifecycle, turnos, ação governada, relay, replay, workflow e console; goldens incluem 12 eventos, replay hash e matriz de falhas verde |
 | `M1-11` | M1 | done | M1 release gate | `M1-10` | pipeline completa verde, revisões sem P0, P1 ou P2, custo fake nominal USD 0.02 e baseline M1 congelados |
 | `M2-01` | M2 | done | Implement channel adapter and native-room transport boundary | `M1-11`, `M0-11` | `RoomTransport` local determinístico sobre `ChannelPort`, `apps/meeting-room` compõe fakes, 6 testes Node verdes |
-| `M2-02` | M2 | pending | Build Turn Coordinator harness | `M2-01` | pending |
+| `M2-02` | M2 | done | Build Turn Coordinator harness | `M2-01` | Máquina de estados pura, 4 perfis, geração cercada, 18 testes Node verdes cobrindo os 10 fixtures obrigatórios |
 | `M2-03` | M2 | pending | Implement modular STT, LLM and TTS path | `M2-02`, `M0-12` | pending |
 | `M2-04` | M2 | pending | Implement speech-to-speech experiment adapter | `M2-02`, `M0-11` | pending |
 | `M2-05` | M2 | pending | Implement Behavior and Presence Director | `M2-02`, `M0-03` | pending |
@@ -439,6 +439,16 @@
 - D-V2-043 registra o padrão de validação mais leve adotado nos pacotes M2 (spike fake-first) frente ao padrão M0/M1.
 - Nenhuma credencial real, produção, provider real, deploy, migration remota ou M3 foi acessado ou iniciado.
 
+### 2026-07-15, M2-02 concluído
+
+- Adicionado `@axtro/turn-coordinator`: máquina de estados pura (`idle → user_speaking → endpoint_candidate → committed`, mais `agent_interrupted` e `recovered_false_interrupt`) em `state-machine.ts`, fiel a `docs/architecture/TURN_COORDINATOR.md`, com notas de interpretação explícitas para os trechos ambíguos do diagrama ASCII.
+- `coordinator.ts` combina sinais (`speech_energy`, `transcript_update`, push-to-talk, `presenter_turn_completed`, `network_jitter_observed`) com a política de endpoint e barge-in por perfil, cerca geração por `generationId` monotônico, e emite diretivas (`generation_committed`, `generation_cancelled`, `playback_paused`, `playback_resumed`, `scene_cancelled`, `crosstalk_ignored`, `false_start_abandoned`) para os consumidores de M2-03/M2-06/M2-07 cancelarem mídia tardia.
+- Quatro perfis (`conversational`, `presentation`, `noisy_phone`, `accessibility`) implementam a tabela de configuração do documento; `accessibility` expõe `withPushToTalkRequired` para push-to-talk opcional.
+- 18 testes novos em `tests/realtime/`: máquina de estados pura (4 testes) e harness do coordenador (14 testes) cobrindo os dez fixtures obrigatórios — pausa no meio da frase, backchannel, crosstalk, ruído/música, sotaque PT-BR e números/e-mails, falso início, interrupção durante preamble, rede lenta e agente falando demais — mais recuperação de falsa interrupção, timeout de utterance máxima, push-to-talk e perfil `noisy_phone`.
+- Dois bugs de encadeamento de estado foram corrigidos durante o TDD: (1) um silêncio único que já satisfaz `pauseSilenceMs` e `endpointSilenceMs` no mesmo sinal agora comita na mesma chamada, em vez de esperar um segundo sinal; (2) um `max_utterance_timeout` forçado agora comita imediatamente ao ouvir fala contínua, em vez de ser cancelado como se fosse um `speech_resumed` comum.
+- `pnpm lint`, `tsc --build` completo e `node scripts/test.mjs` (233 testes Node, 23 unittest Python) verdes.
+- Nenhuma credencial real, produção, provider real, deploy, migration remota ou M3 foi acessado ou iniciado.
+
 ## Próxima ação
 
-Continuar M2 em modo autônomo controlado: M2-02, Turn Coordinator harness, sobre a fronteira `RoomTransport` recém-criada.
+Continuar M2 em modo autônomo controlado: M2-03/M2-04, caminho modular STT/LLM/TTS e adapter S2S, sobre o Turn Coordinator recém-criado.
