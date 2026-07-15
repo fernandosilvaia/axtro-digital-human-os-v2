@@ -23,7 +23,9 @@ for wiring the outbox relay to the timeline writer.
 - `@axtro/events` owns a tenant-scoped session timeline repository. The M1
   implementation is a deterministic local persistence model behind a repository
   interface; it does not claim to be a PostgreSQL client. Append requires an
-  authenticated `session:write` scope, and reads require `session:read`.
+  authenticated `session:write` scope, reads require `session:read`, and both
+  require the `essential_processing` purpose. Replay and snapshot operations
+  inherit the same purpose boundary.
 - Canonical events use the existing generated `event_envelope` contract. The
   repository preserves insertion order and a canonical envelope fingerprint,
   enforces contiguous aggregate versions, and indexes both

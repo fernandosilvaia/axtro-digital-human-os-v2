@@ -6,7 +6,7 @@ O primeiro produto é o **Sales Closer Role Pack**, mas o kernel não é acoplad
 
 ## Estado real da entrega
 
-**M0 concluído e M1 em execução, com a Foundation verde e o Walking Skeleton E2E determinístico concluído na M1-10.**
+**M0 Foundation e M1 Walking Skeleton concluídos, auditados e verdes.**
 
 O repositório já contém:
 
@@ -15,9 +15,12 @@ O repositório já contém:
 - tenancy, RLS, autenticação fake e audit trail;
 - lifecycle, Session Actor, turnos textuais, contexto bounded, ações governadas, timeline, relay e workflow pós-call fake;
 - console SSR tenant-safe com estado, timeline, receipts e custos;
+- purpose limitation por `essential_processing` em todas as fronteiras de sessão;
 - provider fakes para desenvolver sem credenciais.
 
-M1-11 ainda precisa congelar o release gate e a evidência final do marco. M2 não foi iniciado.
+M1-11 congelou o release gate com pipeline completa, PostgreSQL e RLS locais,
+baseline fake de USD 0.02 e revisões sem P0, Critical ou High. M2 e M3 não foram
+iniciados.
 
 A demo completa da M1 roda com um único comando, somente com fakes locais:
 
@@ -33,7 +36,9 @@ A produção com providers reais continua condicionada a credenciais, termos com
 
 ## Auditoria final
 
-Leia `FINAL_AUDIT_REPORT.md` para o veredito, as provas reproduzíveis, os limites e a ordem de execução.
+Leia `FINAL_AUDIT_REPORT.md` para o veredito atual e
+`artifacts/m1/README.md` para a pipeline, checklist, hashes, custo e limites do
+release M1.
 
 ## Comece por aqui
 
@@ -96,7 +101,7 @@ ficam fora do caminho crítico de áudio para áudio.
 ## Estrutura
 
 ```text
-apps/                 aplicações e workers a implementar
+apps/                 aplicações e workers M0-M1; canais realtime permanecem em M2
 packages/             domínio, contratos, segurança, providers e UI
 contracts/            47 JSON Schemas + OpenAPI + AsyncAPI + exemplos
 backlog/              task graph executável e workstreams
@@ -129,12 +134,17 @@ python3 scripts/secret_scan.py
 ## Bootstrap local
 
 ```bash
-UV_CACHE_DIR="$PWD/.uv-cache" uv sync
-pnpm install
+UV_CACHE_DIR="$PWD/.uv-cache" uv sync --locked --all-groups
+pnpm install --frozen-lockfile
 pnpm lint
+pnpm contracts:check
 pnpm typecheck
 pnpm test
+UV_CACHE_DIR="$PWD/.uv-cache" uv run pytest
 pnpm build
+pnpm db:test
+pnpm db:rls
+pnpm m1:e2e
 python3 scripts/validate_all.py
 ```
 
@@ -145,4 +155,4 @@ A V1 inteira permanece em `legacy/v1/`, com 62 arquivos hash-verificados e mapea
 
 ## Limite de prontidão
 
-Este pacote libera implementação M0-M2 com fakes e adapters. Não libera lançamento em produção, não comprova o bake-off dos providers, não certifica segurança e não aprova juridicamente usos regulados.
+Este pacote conclui M0 e M1 e preserva a baseline necessária para considerar M2 em trabalho separado. Não libera lançamento em produção, não comprova o bake-off dos providers, não certifica segurança de produção e não aprova juridicamente usos regulados.

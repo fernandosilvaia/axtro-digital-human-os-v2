@@ -1,88 +1,129 @@
-# Auditoria final para início da implementação no Codex
+# Auditoria final de M0 e M1
 
-**Data:** 2026-07-14  
-**Veredito:** `READY FOR CODEX M0-M2`  
-**Escopo excluído:** lançamento em produção, certificação de segurança, aprovação jurídica ou provider definitivo.
+**Data:** 2026-07-15
+
+**Veredito:** `M0 FOUNDATION COMPLETE | M1 WALKING SKELETON COMPLETE`
+
+**Não iniciado:** M2 Human Presence Spike e M3 Sales Closer Alpha
+
+**Escopo excluído:** produção, deploy, banco remoto, provider real, execução de
+canal de áudio ou avatar e certificação de segurança e aprovação jurídica
 
 ## Resposta executiva
 
-O pacote parcial do Fable 5 foi convertido em uma especificação implementável. O Codex pode começar hoje por `M0-01` e avançar autonomamente por M0, M1 e M2, respeitando o task graph, os contratos e os gates.
+A Foundation e o Walking Skeleton foram implementados em tarefas pequenas,
+ordenadas pelo task graph e separadas por commits convencionais. A baseline usa
+somente fakes determinísticos, preserva isolamento multi-tenant, One Mouth Rule,
+ações receipt-backed e o Axtro Agent fora do caminho crítico.
 
-Não existe bloqueio arquitetural para M0 ou M1. M2 também pode ser implementado com provider fakes. Credenciais reais são opcionais para benchmark e não podem bloquear a correção da arquitetura.
+O cenário completo de M1 cria e ativa uma sessão, executa três turnos textuais do
+participante com três respostas de um único Presenter, realiza uma consulta de
+catálogo governada, conclui a sessão, entrega a timeline por outbox, recupera um
+crash pós-efeito, executa o workflow pós-call, verifica replay e renderiza o
+console operacional tenant-safe.
 
-## O que foi auditado e corrigido
+## Implementação auditada
 
-- 62 arquivos da V1 preservados, hash-verificados e mapeados individualmente;
-- retorno parcial do Fable preservado como evidência;
-- Digital Human OS separado do Sales Closer Role Pack;
-- Axtro Agent mantido fora do caminho crítico de áudio;
-- One Mouth Rule e handoff atômico;
-- Session Actor, Turn Coordinator e generation fencing;
-- Perception, Behavior, Scene e Specialist Fabric definidos como subsistemas;
-- 31 contratos estritos, exemplos positivos e negativos;
-- OpenAPI 3.1 e AsyncAPI 3;
-- data model de referência com UUIDv7, RLS, tenant FKs e append-only evidence;
-- ActionIntent, PolicyDecision e ToolExecutionReceipt;
-- event outbox separado de durable workflows;
-- provider adapters, fakes, capability registry, fallback e circuit breakers;
-- provider-session renewal para limites como 60 minutos do Realtime;
-- segurança, privacidade, disclosure e consentimento por finalidade;
-- task graph com 52 tarefas e dependências acíclicas;
-- setup nativo do Codex com oito subagentes e quatro skills;
-- unit economics com 14 abas, inputs datados e fórmulas validadas;
-- sete gates automatizados e CI documental.
+- 28 workspaces pnpm e workspace Python com gates canônicos;
+- 47 JSON Schemas com tipos TypeScript e Python gerados deterministicamente;
+- domínio com UUIDv7, tenant e trace explícitos, reducers puros e hash canônico;
+- configuração fake-only, handles opacos, redaction e egress default deny;
+- 42 tabelas normativas, 11 migrations forward-only e RLS forçada;
+- autenticação de desenvolvimento fail-closed e purpose limitation;
+- telemetria tenant-safe sem payload restrito;
+- nove provider ports e fakes locais determinísticos;
+- outbox transacional, relay bounded e timeline autoritativa;
+- Action Runtime por `ActionIntent`, `PolicyDecision` e
+  `ToolExecutionReceipt`;
+- Cost Ledger decimal e baseline nominal de USD 0.02 por sessão fake;
+- lifecycle, Session Actor, Turn Driver textual e Context Composer bounded;
+- workflow pós-call checkpointed sem follow-up externo;
+- console SSR interno, read-only e tenant-safe;
+- E2E determinístico e artefatos metadata-only em `artifacts/m1/`.
 
 ## Provas reproduzíveis
 
 Execute na raiz:
 
 ```bash
+pnpm install --frozen-lockfile
+UV_CACHE_DIR=/private/tmp/axtro-uv-cache uv sync --locked --all-groups
+pnpm lint
+pnpm contracts:check
+pnpm typecheck
+pnpm test
+UV_CACHE_DIR=/private/tmp/axtro-uv-cache uv run pytest
+pnpm build
+pnpm db:test
+pnpm db:rls
+pnpm m1:e2e
 python3 scripts/validate_all.py
+git diff --check
 ```
 
-Resultado esperado:
+O gate final passou com 209 testes Node, 23 unittest Python, 23 testes pytest,
+2 testes E2E, 47 schemas, 42 tabelas, 11 migrations e 9 validadores. PostgreSQL
+e RLS foram exercitados somente em instâncias temporárias locais.
 
-```text
-DOCUMENTATION QA PASSED
-CONTRACT VALIDATION PASSED
-SPEC VALIDATION PASSED
-DATABASE CONTRACT VALIDATION PASSED
-CODEX SETUP VALIDATION PASSED
-MIGRATION INVENTORY VALIDATION PASSED
-SECRET SCAN PASSED
-VALIDATION SUITE PASSED
-```
+## Garantias arquiteturais
 
-Ver detalhes em `docs/operations/VALIDATION_EVIDENCE.md`.
+- A One Mouth Rule é validada no reducer, cercada no Turn Driver e comprovada
+  pelos seis eventos reais do golden.
+- Nenhum texto de modelo executa ferramenta. O comando estruturado deriva a
+  cadeia governada no servidor e somente receipt de sucesso confirma efeito.
+- Lifecycle, timeline, Session Actor, outbox, custo e projeção operacional
+  exigem scope de sessão mais `essential_processing`.
+- A timeline append-only é autoridade; snapshot é cache reconstruível e replay
+  de zero converge com snapshot mais tail.
+- Axtro Agent, workflows deliberativos e qualquer integração externa ficam fora
+  do caminho crítico dos turnos.
+- M0 contém somente contratos, ports e fakes locais para mídia, avatar, meeting
+  e telephony. M1 não integra nem executa canal realtime, provider real, rede,
+  credencial, produção ou deploy.
 
-## Primeira execução no Codex
+## Auditoria de segurança e tenancy
 
-1. Abrir esta pasta como projeto confiável.
-2. Manter `workspace-write`, approvals `on-request` e rede desabilitada por padrão.
-3. Rodar `python3 scripts/validate_all.py`.
-4. Colar `docs/playbooks/PROMPT_EXECUCAO_AUTONOMA_CODEX.md`.
-5. Começar em `M0-01`.
-6. Não iniciar M3 antes dos gates M0-M2.
+Revisões read-only independentes confirmaram ausência de P0, Critical e High.
+A matriz cobre tenant estrangeiro em API, console, catálogo, relay, timeline,
+workflow, banco, cache e objetos. O finding Medium de finalidade insuficiente
+foi corrigido em todos os guards compartilhados e recebeu testes negativos por
+bounded context.
 
-## Riscos que continuam reais
+Secret scan e dependency scan passaram. Artefatos não contêm payload,
+transcript, argumentos, resultado bruto, token, segredo, PII ou referência local
+de máquina.
 
-- provider real pode não atingir naturalidade, custo ou latência esperados;
-- avatar pode falhar em PT-BR, calls longas ou interrupções;
-- Google Meet e Zoom podem mudar admission, bot e mídia;
-- regras de gravação, biometria, telemarketing e setor regulado variam por mercado;
-- um produto humano na aparência não pode ocultar que é IA;
-- custo de vídeo e concorrência podem reduzir margem;
-- segurança de produção exige threat testing sobre código real.
+## Riscos e débitos aceitos
 
-Esses riscos estão registrados e possuem gates. Eles não justificam atrasar Foundation e Walking Skeleton.
+- stores, actors, relay, workflow e projeções são process-local;
+- o console não possui servidor HTTP ou browser auth;
+- alertas M1 são condições bloqueantes locais, sem transporte operacional;
+- o baseline de USD 0.02 cobre somente uma lookup nominal instrumentada;
+- não existe provider definitivo, benchmark humano nem voz, avatar ou sala
+  nativa integrados;
+- segurança de produção, pen test, identidade real e políticas jurídicas seguem
+  pendentes.
 
-## Ordem recomendada
+Esses limites são explícitos e não invalidam M0 ou M1, mas bloqueiam qualquer
+alegação de prontidão para produção.
 
-- Hoje: M0 Foundation.
-- Depois: M1 Walking Skeleton por texto e fakes.
-- Em seguida: M2 Human Presence Spike com voz, turnos, avatar substituível e cena.
-- Somente após M2-13: escolher providers e reestimar M3.
+## Próxima sequência recomendada
+
+Somente em uma sessão posterior e após preservar este baseline:
+
+1. M2-01, channel adapter e transporte local substituível;
+2. M2-02, Turn Coordinator com cancelamento, barge-in e late-output fencing;
+3. M2-03 e M2-04 em paralelo controlado, caminhos modular e S2S fake-first;
+4. M2-05 a M2-09, presença, avatar, cena, especialistas e sinais;
+5. M2-10 e M2-11, degradação, telemetria realtime e custo;
+6. M2-12, cenário obrigatório de dez minutos;
+7. M2-13, decisão arquitetural e de providers baseada em evidência.
+
+Esta ordem é recomendação, não início de M2.
 
 ## Decisão final
 
-Enviar a pasta inteira ao Codex. Não enviar apenas o prompt. Contratos, migrations, task graph, AGENTS, subagentes, skills, unit economics e scripts fazem parte da especificação executável.
+M0 e M1 estão concluídos e congelados como baseline local, fake-only e
+multi-tenant. O resultado autoriza apenas considerar o início de M2 em trabalho
+separado. Não autoriza produção, credenciais reais, migration remota, deploy ou
+seleção definitiva de provider.

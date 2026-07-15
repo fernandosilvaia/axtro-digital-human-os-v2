@@ -189,6 +189,18 @@ function artifactCostBuckets(aggregation) {
   }));
 }
 
+function sumUsdDecimals(values) {
+  const scale = 100_000_000n;
+  const total = values.reduce((sum, value) => {
+    assert.match(value, /^\d+(?:\.\d{1,8})?$/);
+    const [whole, fraction = ""] = value.split(".");
+    return sum + (BigInt(whole) * scale) + BigInt(fraction.padEnd(8, "0"));
+  }, 0n);
+  const whole = total / scale;
+  const fraction = (total % scale).toString().padStart(8, "0").replace(/0+$/, "");
+  return fraction.length === 0 ? whole.toString() : `${whole}.${fraction}`;
+}
+
 export function canonicalArtifactJson(value) {
   return `${JSON.stringify(value, null, 2)}\n`;
 }
@@ -959,11 +971,16 @@ export async function runM1WalkingSkeleton() {
       follow_up_external_effect: workflowResult.follow_up_guard.external_effect,
     },
     cost: {
+      accounting_scope: "nominal_catalog_lookup_only",
       buckets: artifactCostBuckets(costAggregation),
-      total_estimated_usd_decimal: costAggregation.buckets
-        .filter((bucket) => bucket.source === "estimated")
-        .map((bucket) => bucket.amount_usd_decimal)
-        .at(0) ?? "0",
+      included_fake_invocation_count: catalogFlow.readFakeCatalogInvocationCount(actionPresenter),
+      excluded_failure_injection_invocation_count: unknownFlow.readFakeCatalogInvocationCount(actionPresenter),
+      other_local_fake_attributed_cost_usd_decimal: "0",
+      total_estimated_usd_decimal: sumUsdDecimals(
+        costAggregation.buckets
+          .filter((bucket) => bucket.source === "estimated")
+          .map((bucket) => bucket.amount_usd_decimal),
+      ),
     },
     operations_console: {
       http_status: consoleResponse.status,

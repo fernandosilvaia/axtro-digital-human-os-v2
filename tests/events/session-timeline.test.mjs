@@ -36,13 +36,19 @@ function runtimeConfiguration() {
   });
 }
 
-function requestFor(tenantId, actorId, token, scopes = ["session:read", "session:write"]) {
+function requestFor(
+  tenantId,
+  actorId,
+  token,
+  scopes = ["session:read", "session:write"],
+  purposes = ["essential_processing"],
+) {
   const verifier = auth.createDevelopmentIdentityVerifier(runtimeConfiguration(), [{
     token,
     actorId,
     actorType: "workflow",
     identityKind: "service",
-    tenantGrants: [{ tenantId, grantedScopes: scopes, purposes: ["essential_processing"] }],
+    tenantGrants: [{ tenantId, grantedScopes: scopes, purposes }],
   }]);
   return auth.resolveAuthorizedRequestContext({ authorization: `Bearer ${token}`, requestedTenantId: tenantId }, verifier);
 }
@@ -51,6 +57,13 @@ const alphaRequest = requestFor(tenantAlpha, id(10), "dev_timeline_alpha_0001");
 const betaRequest = requestFor(tenantBeta, id(11), "dev_timeline_beta_0001");
 const alphaReadOnly = requestFor(tenantAlpha, id(12), "dev_timeline_read_only_0001", ["session:read"]);
 const alphaWriteOnly = requestFor(tenantAlpha, id(13), "dev_timeline_write_only_0001", ["session:write"]);
+const alphaWrongPurpose = requestFor(
+  tenantAlpha,
+  id(14),
+  "dev_timeline_wrong_purpose_0001",
+  ["session:read", "session:write"],
+  ["provider_auth"],
+);
 
 function clone(value) {
   return JSON.parse(JSON.stringify(value));
@@ -200,6 +213,14 @@ test("tenant and scope boundaries fail closed without creating buckets for unaut
   );
   assert.throws(
     () => repository.listCanonicalEvents(alphaWriteOnly, sessionAlpha, 0),
+    events.SessionTimelineAuthorizationError,
+  );
+  assert.throws(
+    () => repository.listCanonicalEvents(alphaWrongPurpose, sessionAlpha, 0),
+    events.SessionTimelineAuthorizationError,
+  );
+  assert.throws(
+    () => repository.appendCanonicalEvent(alphaWrongPurpose, alphaFirst),
     events.SessionTimelineAuthorizationError,
   );
   assert.throws(

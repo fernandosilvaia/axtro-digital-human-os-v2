@@ -445,7 +445,10 @@ export function createDeterministicSessionLifecycleApplication(
 
   const requireScope = (request: AuthorizedRequestContext, scope: "session:read" | "session:write"): TenantId => {
     const context = getAuthorizedTenantContext(request);
-    if (!context.grantedScopes.includes(scope)) throw new SessionLifecycleAuthorizationError();
+    if (
+      !context.grantedScopes.includes(scope)
+      || !context.purposes.includes("essential_processing")
+    ) throw new SessionLifecycleAuthorizationError();
     return context.tenantId;
   };
 

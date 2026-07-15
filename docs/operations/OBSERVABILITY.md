@@ -92,6 +92,24 @@ Cancellation and late result spans are retained to diagnose wasted cost.
 5. Sales pack outcomes.
 6. Workflows and Axtro Agent.
 
+## M1 release alerts
+
+M1 evaluates these conditions deterministically in tests and release gates. It
+does not deploy a pager, hosted dashboard or production alert transport.
+
+| Code | Condition | Severity | Safe response |
+|---|---|---|---|
+| `tenant_isolation_regression` | any cross-tenant negative test returns data, changes foreign state or performs a secondary console read | Critical | block release and disable the affected read or write path |
+| `one_mouth_violation` | more than one Presenter speaks, or a Presenter does not own the active floor | Critical | block release and stop the Presenter publication path |
+| `action_receipt_violation` | an action is confirmed without policy allow, successful receipt and effect hash, or a candidate is published automatically | Critical | block release and keep the action effect unconfirmed |
+| `sensitive_telemetry_detected` | a token, synthetic turn text, secret handle or restricted payload marker reaches telemetry or a release artifact | Critical | block release and discard the unsafe artifact |
+| `outbox_delivery_exhausted` | a delivery reaches dead letter, exceeds its pinned attempt budget or duplicates the timeline or workflow effect | High | stop the affected aggregate lane and retain the PII-free receipt for review |
+| `workflow_terminal_failure` | the deterministic post-call run does not finish its four checkpoints or reports an external follow-up effect | High | keep follow-up disabled and block the milestone gate |
+| `fake_cost_baseline_drift` | the nominal M1 catalog lookup differs from USD 0.02 estimated, or measured or provider-reported cost appears | High | block golden promotion and review cost attribution |
+
+Alert transport, SLO windows and operator routing require a later deployment
+decision. Their absence in M1 cannot weaken the blocking local conditions.
+
 ## Sampling
 
 100% for errors, policy violations, action writes and pilot sessions. Lower sampling may apply to ordinary media spans at scale, preserving aggregated metrics.

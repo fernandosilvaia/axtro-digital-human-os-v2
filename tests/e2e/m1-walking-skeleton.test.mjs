@@ -52,6 +52,11 @@ test("one deterministic command proves the complete M1 walking skeleton and froz
   assert.equal(first.evidence.safeguards.governed_action_chain_verified, true);
   assert.equal(first.evidence.safeguards.external_follow_up_sent, false);
   assert.equal(first.evidence.safeguards.telemetry_sensitive_data_found, false);
+  assert.equal(first.evidence.cost.accounting_scope, "nominal_catalog_lookup_only");
+  assert.equal(first.evidence.cost.included_fake_invocation_count, 1);
+  assert.equal(first.evidence.cost.excluded_failure_injection_invocation_count, 2);
+  assert.equal(first.evidence.cost.other_local_fake_attributed_cost_usd_decimal, "0");
+  assert.equal(first.evidence.cost.total_estimated_usd_decimal, "0.02");
 });
 
 test("tracked M1 artifacts contain only allowlisted metadata and no restricted or operational material", () => {

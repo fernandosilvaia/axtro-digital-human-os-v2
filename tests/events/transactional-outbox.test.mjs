@@ -46,6 +46,7 @@ function authorizedRequest(
   actorId,
   token,
   scopes = ["session:read", "session:write", "event:relay", "event:observe"],
+  purposes = ["essential_processing"],
 ) {
   const verifier = auth.createDevelopmentIdentityVerifier(runtimeConfiguration(), [{
     token,
@@ -55,7 +56,7 @@ function authorizedRequest(
     tenantGrants: [{
       tenantId,
       grantedScopes: scopes,
-      purposes: ["essential_processing"],
+      purposes,
     }],
   }]);
   return auth.resolveAuthorizedRequestContext({ authorization: `Bearer ${token}`, requestedTenantId: tenantId }, verifier);
@@ -333,6 +334,13 @@ test("tenant scope encloses commits, reads, relay delivery and consumer deduplic
   const alpha = authorizedRequest(tenantAlpha, actorAlpha, "dev_outbox_isolation_alpha");
   const beta = authorizedRequest(tenantBeta, actorBeta, "dev_outbox_isolation_beta");
   const alphaReadOnly = authorizedRequest(tenantAlpha, actorAlpha, "dev_outbox_readonly_alpha", ["session:read"]);
+  const alphaWrongPurpose = authorizedRequest(
+    tenantAlpha,
+    id(5),
+    "dev_outbox_wrong_purpose_0001",
+    ["session:read", "session:write", "event:relay", "event:observe"],
+    ["tool_auth"],
+  );
   const alphaEvent = eventFor({ tenantId: tenantAlpha, aggregateId: aggregateAlpha, eventId: alphaEventOne, aggregateVersion: 1 });
   const betaEvent = eventFor({ tenantId: tenantBeta, aggregateId: aggregateBeta, eventId: alphaEventOne, aggregateVersion: 1 });
 
@@ -341,6 +349,11 @@ test("tenant scope encloses commits, reads, relay delivery and consumer deduplic
   assert.equal(repository.readInteractionAggregate(beta, aggregateAlpha), null);
   await assert.rejects(repository.commitInteractionEvent(beta, alphaEvent), domain.TenantBoundaryError);
   await assert.rejects(repository.commitInteractionEvent(alphaReadOnly, alphaEvent), events.TransactionalOutboxAuthorizationError);
+  assert.throws(() => repository.listOutbox(alphaWrongPurpose), events.TransactionalOutboxAuthorizationError);
+  await assert.rejects(
+    repository.commitInteractionEvent(alphaWrongPurpose, alphaEvent),
+    events.TransactionalOutboxAuthorizationError,
+  );
   assert.throws(() => repository.listOutbox({}), auth.TenantAuthorizationError);
 
   await repository.commitInteractionEvent(beta, betaEvent);

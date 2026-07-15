@@ -79,6 +79,16 @@ the scaled-decimal evidence. M0 does not ingest real invoices or call provider
 billing APIs. Invoice reconciliation requires a later contract-first provider
 integration.
 
+## M1 fake session baseline
+
+The frozen M1 Walking Skeleton attributes one nominal catalog lookup at USD
+0.02 per fake session. Lifecycle, textual turns, replay, workflow and console
+use local deterministic fakes with zero external attributed cost. The two
+catalog invocations used only by the `unknown_tool_effect` failure injection
+are excluded from the nominal baseline and recorded separately in
+`artifacts/m1/evidence.json`. There is no measured or provider-reported cost.
+This value proves the ledger and console path; it is not a production forecast.
+
 ## Spreadsheet
 
 `spreadsheets/UNIT_ECONOMICS_V2.xlsx` contains editable provider catalog, scenarios, capacity, plans, sensitivity and actual-vs-model. Prices are dated inputs and must be refreshed before procurement.

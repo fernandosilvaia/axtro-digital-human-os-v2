@@ -29,6 +29,10 @@ handling and must not duplicate the actor or reducer in this milestone.
   `@axtro/events`, and applies the existing pure domain reducer. It never
   creates an event, calls the outbox, writes a timeline or snapshot, calls a
   provider, invokes the Axtro Agent, or publishes media.
+- Actor lookup, state reads, canonical delivery and cancellation require
+  `essential_processing` in addition to the corresponding session scope. The
+  Actor never treats a tenant grant issued only for provider or tool
+  authentication as conversation authority.
 - Canonical event delivery is idempotent by `event_id` plus a canonical
   envelope fingerprint. An identical hot re-delivery returns the prior reduced
   result. When the bounded hot ledger has evicted a delivery, the actor reads

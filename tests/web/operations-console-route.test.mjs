@@ -367,6 +367,20 @@ test("timeline corruption and internal errors produce sanitized unavailable page
 
 test("action projection rejects cross-tenant, intent and policy bindings before opening a read index", async () => {
   const f = await fixture();
+  const standalone = web.createDeterministicOperationsActionEvidenceProjection([
+    actionEvidence(f.state.session_id),
+  ]);
+  const wrongPurpose = requestFor({
+    tenantId: tenantAlpha,
+    token: "dev_web_action_wrong_purpose_0001",
+    purposes: ["tool_auth"],
+  });
+  assert.throws(
+    () => standalone.listBySession(wrongPurpose, f.state.session_id),
+    web.OperationsConsoleAuthorizationError,
+  );
+  assert.equal(standalone.listBySession(f.alphaRequest, f.state.session_id).length, 1);
+
   const evidence = actionEvidence(f.state.session_id);
   evidence.tool_execution_receipt.tenant_id = tenantBeta;
   assert.throws(

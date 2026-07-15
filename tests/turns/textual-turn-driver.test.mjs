@@ -153,15 +153,18 @@ async function fixture({ fastLane, contextComposer: injectedContextComposer, tim
   const alpha = requestFor(tenantAlpha, actorAlpha, "dev_turn_alpha_0001", {
     ...(purposeAlpha === undefined ? {} : { purposes: purposeAlpha }),
   });
+  const bootstrapAlpha = purposeAlpha === undefined
+    ? alpha
+    : requestFor(tenantAlpha, actorAlpha, "dev_turn_alpha_bootstrap_0001");
   const beta = requestFor(tenantBeta, actorBeta, "dev_turn_beta_0001");
-  const created = await application.createSession(alpha, {
+  const created = await application.createSession(bootstrapAlpha, {
     agent_id: agentAlpha,
     role_pack_id: "sales-closer",
     role_pack_version: "1.0.0",
     channel: "api",
     language: "en-US",
   }, "create-turn-session-0001", trace);
-  await application.activateSession(alpha, created.session_id, {
+  await application.activateSession(bootstrapAlpha, created.session_id, {
     presenter_id: presenterAlpha,
     expected_state_version: created.state_version,
   }, "activate-turn-session-0001", trace);
@@ -210,6 +213,7 @@ async function fixture({ fastLane, contextComposer: injectedContextComposer, tim
     actors,
     driver,
     alpha,
+    bootstrapAlpha,
     beta,
     sessionId: created.session_id,
     betaSessionId: betaCreated.session_id,
@@ -730,7 +734,7 @@ test("forged speaker, wrong tenant, missing read scope, and missing essential pu
     noPurpose.driver.submitTurn(noPurpose.alpha, noPurpose.sessionId, submitInput("No purpose", "client-purpose-0001"), "idempotency-purpose-01", trace),
     turns.TurnDriverAuthorizationError,
   );
-  assert.equal(timeline(value.outbox, value.alpha, value.sessionId).length, 5);
+  assert.equal(timeline(noPurpose.outbox, noPurpose.bootstrapAlpha, noPurpose.sessionId).length, 5);
 });
 
 test("Fast Lane timeout and invalid output leave the participant turn auditably committed without a Presenter response", async () => {

@@ -352,7 +352,10 @@ function parseSnapshotMetadata(value: SessionSnapshotMetadata): Readonly<{ snaps
 function requireScope(request: AuthorizedRequestContext, scope: "session:read" | "session:write"): TenantId {
   try {
     const context = getAuthorizedTenantContext(request);
-    if (!context.grantedScopes.includes(scope)) throw new SessionTimelineAuthorizationError();
+    if (
+      !context.grantedScopes.includes(scope)
+      || !context.purposes.includes("essential_processing")
+    ) throw new SessionTimelineAuthorizationError();
     return context.tenantId;
   } catch (error) {
     if (error instanceof SessionTimelineAuthorizationError) throw error;

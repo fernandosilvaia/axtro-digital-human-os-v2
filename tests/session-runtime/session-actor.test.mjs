@@ -73,13 +73,19 @@ function runtimeConfiguration() {
   });
 }
 
-function requestFor(tenantId, actorId, token, scopes = ["session:read", "session:write"]) {
+function requestFor(
+  tenantId,
+  actorId,
+  token,
+  scopes = ["session:read", "session:write"],
+  purposes = ["essential_processing"],
+) {
   const verifier = auth.createDevelopmentIdentityVerifier(runtimeConfiguration(), [{
     token,
     actorId,
     actorType: "workflow",
     identityKind: "service",
-    tenantGrants: [{ tenantId, grantedScopes: scopes, purposes: ["essential_processing"] }],
+    tenantGrants: [{ tenantId, grantedScopes: scopes, purposes }],
   }]);
   return auth.resolveAuthorizedRequestContext({ authorization: `Bearer ${token}`, requestedTenantId: tenantId }, verifier);
 }
@@ -215,6 +221,18 @@ test("event identity conflict, mailbox capacity, and tenant access fail closed w
   );
   await pending;
   assert.equal((await constrainedActor.getState(alphaRequest)).session.state_version, 6);
+  const wrongPurpose = requestFor(
+    tenantAlpha,
+    id(812),
+    "dev_actor_runtime_wrong_purpose_0001",
+    ["session:read", "session:write"],
+    ["tool_auth"],
+  );
+  await assert.rejects(actor.getState(wrongPurpose), runtime.SessionActorAuthorizationError);
+  await assert.rejects(
+    runtime.createSessionActorRegistry({ source: sourceWith(sequenceFor()) }).getActor(wrongPurpose, sessionAlpha),
+    runtime.SessionActorAuthorizationError,
+  );
   await assert.rejects(actor.getState(betaRequest), runtime.SessionActorAuthorizationError);
   await assert.rejects(constrained.getActor(betaRequest, sessionAlpha), runtime.SessionActorNotFoundError);
 

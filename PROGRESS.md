@@ -1,10 +1,10 @@
 # Progresso de implementação
 
-**Estado atual:** implementação de M1 em andamento
+**Estado atual:** M0 Foundation e M1 Walking Skeleton concluídos
 
 **Marco atual:** M1
-**Tarefa atual:** M1-10
-**Última evidência verde:** M1-10 com Walking Skeleton determinístico, 209 testes Node, 23 testes Python, 2 testes E2E e 9 validadores verdes em 2026-07-15
+**Tarefa atual:** M1-11
+**Última evidência verde:** M1-11 com pipeline completa, 209 testes Node, 23 unittest Python, 23 pytest, 2 testes E2E, PostgreSQL local, RLS e 9 validadores verdes em 2026-07-15
 **Bloqueadores internos:** nenhum
 **Pendências externas:** consultar `PENDENCIAS_EXTERNAS.md`  
 
@@ -47,7 +47,7 @@
 | `M1-08` | M1 | done | Implement fake post-call workflow | `M1-07` | consumer composto, quatro checkpoints, resumo e avaliação fake, follow-up noop idempotente, resume, retry, cancelamento, migration 0011, RLS e 191 testes Node mais 23 Python verdes |
 | `M1-09` | M1 | done | Build minimal operations console | `M1-01`, `M1-06` | lifecycle-first, replay canônico, receipts governados, custos exatos, 404 cross-tenant sem leituras secundárias, CSP hash-pinned, accessibility smoke e 206 testes Node mais 23 Python verdes |
 | `M1-10` | M1 | done | Walking Skeleton E2E and failure suite | `M1-04`, `M1-05`, `M1-06`, `M1-07`, `M1-08`, `M1-09` | `pnpm m1:e2e` executa lifecycle, turnos, ação governada, relay, replay, workflow e console; goldens incluem 12 eventos, replay hash e matriz de falhas verde |
-| `M1-11` | M1 | pending | M1 release gate | `M1-10` | pending |
+| `M1-11` | M1 | done | M1 release gate | `M1-10` | pipeline completa verde, revisões sem P0, P1 ou P2, custo fake nominal USD 0.02 e baseline M1 congelados |
 | `M2-01` | M2 | pending | Implement channel adapter and native-room transport boundary | `M1-11`, `M0-11` | pending |
 | `M2-02` | M2 | pending | Build Turn Coordinator harness | `M2-01` | pending |
 | `M2-03` | M2 | pending | Implement modular STT, LLM and TTS path | `M2-02`, `M0-12` | pending |
@@ -406,6 +406,23 @@
 - Riscos não bloqueantes: repositories, evidência de ação e execução E2E permanecem process-local; os goldens retêm somente metadata; o console ainda é SSR interno sem servidor ou browser auth; esta tarefa não reaplicou PostgreSQL e RLS porque não alterou banco, e o gate M1-11 executará a pipeline local completa.
 - Nenhuma credencial real, ambiente de produção, banco remoto, deploy, provider real, ação externa, M2 ou M3 foi acessado ou iniciado.
 
+### 2026-07-15, M1-11 iniciado
+
+- Dependência M1-10 concluída, validada e commitada em `436466b` antes do início desta tarefa.
+- Escopo fechado ao release gate de M1: revisar as evidências congeladas, executar a pipeline local completa incluindo PostgreSQL e RLS, confirmar ausência de P0 de segurança ou tenancy e registrar o custo baseline da sessão fake.
+- Nenhum código de áudio, provider real, credencial, produção, deploy, banco remoto, M2 ou M3 será iniciado.
+
+### 2026-07-15, M1-11 concluído
+
+- A pipeline limpa foi repetida com `pnpm install --frozen-lockfile`, `UV_CACHE_DIR=/private/tmp/axtro-uv-cache uv sync --locked --all-groups`, `pnpm lint`, `pnpm contracts:check`, `pnpm typecheck`, `pnpm test`, `UV_CACHE_DIR=/private/tmp/axtro-uv-cache uv run pytest`, `pnpm build`, `pnpm db:test`, `pnpm db:rls`, `pnpm m1:e2e`, `python3 scripts/validate_all.py` e `git diff --check`.
+- Todos os gates passaram: 209 testes Node, 23 unittest Python, 23 pytest, 2 testes E2E, 47 schemas, 42 tabelas, 11 migrations e 9 validadores. PostgreSQL e RLS foram exercitados somente em instâncias temporárias locais, sem banco remoto.
+- A decisão D-V2-042 e os ADRs aplicáveis registram a exigência conjunta de scope de sessão e `essential_processing` em lifecycle, timeline, outbox, Session Actor, Cost Ledger e projeção operacional. Testes negativos comprovam rejeição antes de leitura, alocação ou mutação.
+- O bundle `artifacts/m1/` foi congelado com 12 eventos, replay hash `5b61e69e9c9b9d8af7a15ef5e2358be06544b7b7cfa46b3d4335b1d9f9e425b5`, hash canônico da timeline `beffbdd11a04b74889afe2159fcce4bab53b1eef8d9ef7f0cc107a92be4cffee` e hash canônico da evidência `1eca0ecb0689994ac2202636b108f066e04695622983c06e94f51ab203521274`.
+- O custo baseline da sessão fake nominal é USD 0.02 para uma única consulta de catálogo. Duas invocações da injeção negativa de efeito desconhecido ficam explicitamente excluídas; lifecycle, turnos, replay, workflow e console têm atribuição externa zero neste cenário.
+- Revisões independentes finais de arquitetura, segurança e release aprovaram o snapshot sem P0, P1 ou P2. One Mouth, isolamento multi-tenant, ação obrigatoriamente receipt-backed, fakes determinísticos e Axtro Agent fora do caminho crítico permanecem preservados.
+- Limitações aceitas: stores e workers process-local, console SSR interno sem browser auth, alertas sem transporte operacional, custo somente nominal e ausência de integração realtime ou provider real. M0 contém apenas contratos, ports e fakes locais para essas capacidades futuras.
+- M0 e M1 estão concluídos como baseline local e fake-only. Nenhuma credencial real, produção, provider real, deploy, migration remota, ação externa, M2 ou M3 foi acessado ou iniciado.
+
 ### 2026-07-14, baseline arquitetural
 
 - 31 schemas estritos e 62 exemplos de contrato preparados.
@@ -414,4 +431,4 @@
 
 ## Próxima ação
 
-Criar o commit convencional de M1-10 e iniciar M1-11 como tarefa separada para revisar e congelar o release gate do Walking Skeleton, sem iniciar M2 ou M3.
+Preservar a baseline de M0 e M1. Em uma sessão posterior, iniciar M2-01 pela fronteira de channel adapter e transporte local substituível; não iniciar M2 ou M3 nesta sessão.

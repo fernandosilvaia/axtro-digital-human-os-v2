@@ -604,7 +604,10 @@ function requireProviderRequest(value: unknown): NormalizedProviderRequest {
 
 function requireScope(request: AuthorizedRequestContext, scope: string): TenantContext {
   const context = getAuthorizedTenantContext(request);
-  if (!context.grantedScopes.includes(scope)) throw new CostLedgerAuthorizationError();
+  if (
+    !context.grantedScopes.includes(scope)
+    || !context.purposes.includes("essential_processing")
+  ) throw new CostLedgerAuthorizationError();
   return context;
 }
 

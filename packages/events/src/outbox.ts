@@ -419,10 +419,7 @@ function requireScope(
 ): TenantId {
   const context = getAuthorizedTenantContext(request);
   if (!context.grantedScopes.includes(scope)) throw new TransactionalOutboxAuthorizationError();
-  if (
-    (scope === "event:relay" || scope === "event:observe")
-    && !context.purposes.includes("essential_processing")
-  ) throw new TransactionalOutboxAuthorizationError();
+  if (!context.purposes.includes("essential_processing")) throw new TransactionalOutboxAuthorizationError();
   return context.tenantId;
 }
 

@@ -91,6 +91,7 @@
     "follow_up_external_effect": false
   },
   "cost": {
+    "accounting_scope": "nominal_catalog_lookup_only",
     "buckets": [
       {
         "source": "estimated",
@@ -101,6 +102,9 @@
         "amount_usd_decimal": "0.02"
       }
     ],
+    "included_fake_invocation_count": 1,
+    "excluded_failure_injection_invocation_count": 2,
+    "other_local_fake_attributed_cost_usd_decimal": "0",
     "total_estimated_usd_decimal": "0.02"
   },
   "operations_console": {

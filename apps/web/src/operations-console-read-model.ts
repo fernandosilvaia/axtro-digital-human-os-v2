@@ -263,7 +263,10 @@ function requireConsoleOperator(request: AuthorizedRequestContext) {
 function requireReadContext(request: AuthorizedRequestContext) {
   try {
     const context = getAuthorizedTenantContext(request);
-    if (!context.grantedScopes.includes("session:read")) throw new Error();
+    if (
+      !context.grantedScopes.includes("session:read")
+      || !context.purposes.includes("essential_processing")
+    ) throw new Error();
     return context;
   } catch {
     throw new OperationsConsoleAuthorizationError();

@@ -31,6 +31,10 @@ participant belonging to the same tenant and session before the state gains an
   validation, and closed problem responses. An authenticated operation uses
   its telemetry trace; an ingress or authentication rejection receives a new
   server-generated trace ID and never accepts a public trace carrier.
+- Every lifecycle command and read requires the `essential_processing` purpose
+  together with its `session:write` or `session:read` scope. A valid tenant
+  grant minted only for provider or tool authentication cannot observe or
+  mutate session lifecycle state.
 - Extend the deterministic outbox with an all-or-nothing event batch. Create
   appends `session.created`, `session.prepared`, `disclosure.delivered`, and
   `consent.recorded` in continuous aggregate order. The session application

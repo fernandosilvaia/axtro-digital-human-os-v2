@@ -57,7 +57,9 @@ the outbox remains the delivery authority.
   Add `event:observe` for tenant-scoped delivery and dead-letter reads. Neither
   scope grants session lifecycle writes, and both require the
   `essential_processing` purpose at the repository boundary. The timeline
-  consumer still requires its existing `session:write` scope.
+  consumer still requires its existing `session:write` scope, and all outbox
+  reads and writes protected by `session:read` or `session:write` require that
+  same purpose rather than accepting a scope minted only for another purpose.
 - Add the closed generated `event_delivery_receipt` contract. It contains only
   tenant and event identity, aggregate ordering, consumer name, canonical
   fingerprint, trace and correlation identity, status, bounded attempts, closed

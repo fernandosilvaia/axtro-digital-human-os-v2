@@ -44,6 +44,12 @@ Camadas:
 
 O bearer verificado produz actor, tipo, grants, escopos e finalidades server-side. `X-Tenant-Id` apenas seleciona um grant já presente para service identities. M0 rejeita o seletor para users, até existir um contrato claim-based específico. O middleware rejeita tenants não concedidos antes de abrir uma transação ou chamar um serviço.
 
+Scopes e finalidades são cumulativos, não alternativos. Toda operação que lê ou
+altera lifecycle, timeline, Session Actor, outbox, workflow ou custo de uma
+sessão exige `essential_processing` no guard do bounded context. Um grant com
+`session:read` ou `session:write` emitido somente para `provider_auth` ou
+`tool_auth` falha antes de leitura, alocação ou mutação.
+
 ## Data protection
 
 - TLS em trânsito.

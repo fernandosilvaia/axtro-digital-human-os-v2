@@ -40,7 +40,13 @@ function runtimeConfiguration() {
   });
 }
 
-function authorizedRequest(tenantId, actorId, token, scopes = ["provider:use", "session:read"]) {
+function authorizedRequest(
+  tenantId,
+  actorId,
+  token,
+  scopes = ["provider:use", "session:read"],
+  purposes = ["essential_processing", "provider_auth"],
+) {
   const verifier = auth.createDevelopmentIdentityVerifier(runtimeConfiguration(), [{
     token,
     actorId,
@@ -49,7 +55,7 @@ function authorizedRequest(tenantId, actorId, token, scopes = ["provider:use", "
     tenantGrants: [{
       tenantId,
       grantedScopes: scopes,
-      purposes: ["essential_processing", "provider_auth"],
+      purposes,
     }],
   }]);
   return auth.resolveAuthorizedRequestContext({ authorization: `Bearer ${token}`, requestedTenantId: tenantId }, verifier);
@@ -199,6 +205,13 @@ test("ledger fails closed for invalid precision, overflow, forged capabilities, 
   const requestReference = providerRequest(authority, card, tenantAlpha, sessionAlpha);
   const writer = authorizedRequest(tenantAlpha, actorAlpha, "dev_cost_validation_alpha");
   const readOnly = authorizedRequest(tenantAlpha, actorAlpha, "dev_cost_readonly_alpha", ["session:read"]);
+  const wrongPurpose = authorizedRequest(
+    tenantAlpha,
+    actorAlpha,
+    "dev_cost_wrong_purpose_alpha",
+    ["provider:use", "session:read"],
+    ["provider_auth"],
+  );
   const ledger = costing.createDeterministicCostLedger();
   const valid = costInput({
     eventId: id(50), tenantId: tenantAlpha, sessionId: sessionAlpha, source: "estimated", quantity: 1,
@@ -216,6 +229,8 @@ test("ledger fails closed for invalid precision, overflow, forged capabilities, 
     assert.throws(() => ledger.record(writer, invalid), costing.CostLedgerValidationError);
   }
   assert.throws(() => ledger.record(readOnly, valid), costing.CostLedgerAuthorizationError);
+  assert.throws(() => ledger.record(wrongPurpose, valid), costing.CostLedgerAuthorizationError);
+  assert.throws(() => ledger.aggregate(wrongPurpose, { session_id: sessionAlpha }), costing.CostLedgerAuthorizationError);
   assert.equal(ledger.list(writer).length, 0);
 
   assert.throws(() => ledger.record(writer, costInput({

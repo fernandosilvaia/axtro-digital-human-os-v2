@@ -49,8 +49,9 @@ Derived hypotheses are explicitly uncertain and must never look like receipts.
   a matching `ActionIntent`, `PolicyDecision` and `ToolExecutionReceipt` with
   the same tenant and intent identity. The intent supplies the trusted session
   relation. Its startup input is capped at 10,000 records, 100 rows per session
-  and 5 MB cumulative UTF-8 evidence. The route never receives an Action
-  Runtime execution method.
+  and 5 MB cumulative UTF-8 evidence. Standalone projection reads require
+  `session:read` plus `essential_processing`; the route never receives an
+  Action Runtime execution method.
 - A receipt is labelled as a confirmed effect only when its status is
   `succeeded`, the policy outcome is `allow`, and a valid effect hash is
   present. Every derived hypothesis is labelled as unverified, including a

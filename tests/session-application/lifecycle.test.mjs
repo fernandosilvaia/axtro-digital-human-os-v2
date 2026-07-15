@@ -42,13 +42,19 @@ function runtimeConfiguration() {
   });
 }
 
-function requestFor(tenantId, actorId, token, scopes = ["session:read", "session:write"]) {
+function requestFor(
+  tenantId,
+  actorId,
+  token,
+  scopes = ["session:read", "session:write"],
+  purposes = ["essential_processing"],
+) {
   const verifier = auth.createDevelopmentIdentityVerifier(runtimeConfiguration(), [{
     token,
     actorId,
     actorType: "workflow",
     identityKind: "service",
-    tenantGrants: [{ tenantId, grantedScopes: scopes, purposes: ["essential_processing"] }],
+    tenantGrants: [{ tenantId, grantedScopes: scopes, purposes }],
   }]);
   return auth.resolveAuthorizedRequestContext({ authorization: `Bearer ${token}`, requestedTenantId: tenantId }, verifier);
 }
@@ -334,6 +340,22 @@ test("a stale command control cannot mutate after it waited behind an idempotenc
 test("tenant boundaries, fresh evidence stores, and denied essential consent fail closed", async () => {
   const shared = fixture();
   const first = await shared.application.createSession(shared.alpha, createInput(), "create-alpha-0003", trace);
+  const wrongPurpose = requestFor(
+    tenantAlpha,
+    id(5),
+    "dev_session_wrong_purpose_0001",
+    ["session:read", "session:write"],
+    ["tool_auth"],
+  );
+  assert.throws(
+    () => shared.application.getSession(wrongPurpose, first.session_id),
+    sessions.SessionLifecycleAuthorizationError,
+  );
+  await assert.rejects(
+    shared.application.createSession(wrongPurpose, createInput(agentOther), "create-wrong-purpose", trace),
+    sessions.SessionLifecycleAuthorizationError,
+  );
+  assert.equal(shared.outbox.listOutbox(shared.alpha).length, 4);
   await assert.throws(() => shared.application.getSession(shared.beta, first.session_id), sessions.SessionLifecycleNotFoundError);
   await assert.throws(() => shared.application.listTimeline(shared.beta, first.session_id, 0), sessions.SessionLifecycleNotFoundError);
   await assert.rejects(

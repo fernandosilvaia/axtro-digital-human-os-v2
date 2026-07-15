@@ -45,6 +45,9 @@ provider billing API.
 - The database trigger accepts a reconciliation only when its target is an
   estimated event with the same tenant, session, provider, service, and unit.
 - The deterministic M0 repository accepts only an authenticated request context.
+  Every request-context read or write requires `essential_processing` in
+  addition to its `session:read` or `provider:use` scope; a scope issued for a
+  different purpose is not sufficient to observe or attribute session cost.
   A future SQL writer must execute inside the existing transaction-local tenant
   context before it inserts the same append-only event.
 - M0 reconciliation means deterministic comparison and aggregation of ledger
