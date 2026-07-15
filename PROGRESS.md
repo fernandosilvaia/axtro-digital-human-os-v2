@@ -3,8 +3,8 @@
 **Estado atual:** implementação de M1 em andamento
 
 **Marco atual:** M1
-**Tarefa atual:** M1-02 concluída, M1-03 pendente
-**Última evidência verde:** M1-02 com Session Actor tenant e sessão scoped, mailbox bounded, replay fail-closed e pipeline limpo em 2026-07-14
+**Tarefa atual:** M1-03 concluída
+**Última evidência verde:** M1-03 com Turn Driver textual canônico, Fast Lane fake cancelável, One Mouth e pipeline limpo em 2026-07-14
 **Bloqueadores internos:** nenhum
 **Pendências externas:** consultar `PENDENCIAS_EXTERNAS.md`  
 
@@ -39,7 +39,7 @@
 | `M0-18` | M0 | done | M0 release gate | `M0-02`, `M0-03`, `M0-05`, `M0-08`, `M0-09`, `M0-10`, `M0-12`, `M0-13`, `M0-14`, `M0-15`, `M0-16`, `M0-17` | bundle de evidências, pipeline limpo, limitações e commit verde registrados |
 | `M1-01` | M1 | done | Implement session lifecycle API | `M0-18` | cinco operações OpenAPI, lote lifecycle atômico, CAS, idempotência bounded, disclosure com receipt fake, controles de deadline e isolamento tenant validados |
 | `M1-02` | M1 | done | Implement Session Actor and mailbox | `M1-01` | actor único por tenant e sessão, mailbox bounded, dedupe canônico, replay snapshot e timeline, cancelamento e deadlines de source validados |
-| `M1-03` | M1 | pending | Implement textual turn driver | `M1-02`, `M0-12` | pending |
+| `M1-03` | M1 | done | Implement textual turn driver | `M1-02`, `M0-12` | turnos canônicos participant e Presenter, Fast Lane fake, One Mouth, interrupção, cancelamento, isolamento e API validados |
 | `M1-04` | M1 | pending | Implement context composer | `M1-03` | pending |
 | `M1-05` | M1 | pending | Complete fake Action Runtime flow | `M1-03`, `M0-14` | pending |
 | `M1-06` | M1 | pending | Implement timeline, snapshots and replay verifier | `M1-02`, `M0-13` | pending |
@@ -284,6 +284,17 @@
 - Evidências verdes: `pnpm lint`, `pnpm contracts:check`, `pnpm typecheck`, `pnpm test` (120 Node e 21 unittest Python), `pnpm build`, `UV_CACHE_DIR=/private/tmp/axtro-uv-cache uv run pytest` (21), `pnpm db:test`, `pnpm db:rls`, `python3 scripts/validate_all.py` (9 checks) e `git diff --check`.
 - Risco não bloqueante: cache miss histórico custa replay O(n), limitado a 10.000 eventos e a um lookup por actor. M1-06 deve substituir por adapter durável de snapshot mais tail e lookup indexado, atrás dos limites de ingress autenticados existentes.
 - Próxima tarefa: M1-03, textual turn driver com providers fake e sem colocar Axtro Agent no caminho crítico.
+
+### 2026-07-14, M1-03 concluído
+
+- Criado `@axtro/turns` como escritor canônico TypeScript. Ele valida contrato de submissão, identidade participante server-side, `session:write` e `essential_processing`; confirma primeiro o turno participant `restricted`, projeta o envelope retornado no Actor, inicia uma geração e chama a Fast Lane fake somente fora da lane de sessão.
+- A resposta Presenter agora é outro `turn.committed` canônico e inclui speaker, papel e geração. O schema e o parser exigem generation nula para participant e positiva para Presenter. Antes do commit, o driver verifica geração, Presenter ativo e reducer/outbox, preservando One Mouth de forma atômica.
+- O diretório local rejeita autoridade duplicada por tenant, sessão e participante. O ledger de idempotência é bounded e separado por tenant, sessão e participante, com hash canônico de texto restrito. A API expõe somente `202 Accepted`, command ID e trace ID, sem ecoar transcript.
+- Interrupção só persiste marcador quando a geração pendente correspondente é cancelada no Actor. A fence local é definida antes do primeiro `await`, vence o caso `release()` seguido de interrupção e faz o estado entrar em `recovering_interruption`. Timeout, erro, saída inválida e cancelamento de request invalidam e limpam a geração; o sinal confiável da API alcança a Fast Lane.
+- ADR-024, D-V2-034, arquitetura de eventos, matriz de rastreabilidade e a boundary do worker foram atualizados. Não há provider real, rede, credencial, tool, mídia, Action Runtime nem Axtro Agent no caminho síncrono.
+- Revisões independentes de arquitetura, segurança e testes aprovaram o patch final. As evidências verdes são: `pnpm lint`, `pnpm contracts:check`, `pnpm typecheck`, `pnpm test` (133 Node e 22 Python unittest), `pnpm build`, `UV_CACHE_DIR=/private/tmp/axtro-uv-cache uv run pytest` (22), `pnpm db:test`, `pnpm db:rls`, `python3 scripts/validate_all.py` (9 checks) e `git diff --check`.
+- Risco não bloqueante: se uma falha excepcional ocorrer entre a fence de interrupção e o cancelamento do Actor, a saída continua bloqueada pela fence local, mas uma limpeza defensiva adicional poderá ser considerada quando a interface de cancelamento durável for introduzida.
+- Próxima tarefa dependente: M1-04, context composer determinístico, seguida por M1-05 em lane paralela de dependência.
 
 ### 2026-07-14, baseline arquitetural
 

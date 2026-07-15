@@ -225,14 +225,30 @@ function commitTurn(state: InteractionAggregateState, event: Extract<AnyInteract
   if (event.payload.turn_index !== expectedTurn) {
     throw new InteractionTransitionError(`turn.committed expected turn index ${expectedTurn}`);
   }
+  if (event.payload.speaker_role === "presenter"
+    && event.payload.speaker_participant_id !== state.session.active_presenter_id) {
+    throw new InteractionTransitionError("turn.committed presenter does not own the active floor");
+  }
+  if (event.payload.speaker_role === "participant"
+    && event.payload.speaker_participant_id === state.session.active_presenter_id) {
+    throw new InteractionTransitionError("turn.committed participant cannot claim the presenter identity");
+  }
+  const {
+    schema_version: _payloadSchemaVersion,
+    speaker_participant_id: _speakerParticipantId,
+    speaker_role: _speakerRole,
+    transcript_text: _transcriptText,
+    generation_id: _generationId,
+    ...conversationPayload
+  } = event.payload;
   return advance(state, event, {
     conversation: {
       schema_version: event.schema_version,
       session_id: state.session.session_id,
       tenant_id: state.session.tenant_id,
-      ...event.payload,
-      open_questions: [...event.payload.open_questions],
-      confirmed_facts: event.payload.confirmed_facts.map((fact) => ({ ...fact })),
+      ...conversationPayload,
+      open_questions: [...conversationPayload.open_questions],
+      confirmed_facts: conversationPayload.confirmed_facts.map((fact) => ({ ...fact })),
       updated_at: event.occurred_at,
     },
   });
@@ -492,7 +508,7 @@ function validateSnapshotPayloads(state: InteractionAggregateState, schemaVersio
     trace_id: "0123456789abcdef0123456789abcdef",
     correlation_id: state.session.session_id,
     causation_id: null,
-    data_classification: "internal",
+    data_classification: eventType === "turn.committed" ? "restricted" : "internal",
     occurred_at: state.session.updated_at,
     payload,
   });
@@ -516,6 +532,11 @@ function validateSnapshotPayloads(state: InteractionAggregateState, schemaVersio
   }));
   parseInteractionEvent(envelope("role.updated", rolePayload));
   parseInteractionEvent(envelope("turn.committed", {
+    schema_version: state.schema_version,
+    speaker_participant_id: state.session.active_presenter_id ?? state.session.agent_id,
+    speaker_role: "presenter",
+    transcript_text: "Snapshot validation turn.",
+    generation_id: 1,
     turn_index: Math.max(1, state.conversation.turn_index),
     active_topic: state.conversation.active_topic,
     language: state.conversation.language,

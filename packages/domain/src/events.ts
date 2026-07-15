@@ -36,6 +36,13 @@ export type InteractionEventType = (typeof INTERACTION_EVENT_TYPES)[number];
 
 type RoleSeed = Omit<RoleState, "schema_version" | "session_id" | "tenant_id" | "updated_at">;
 type ConversationCommit = Omit<ConversationState, "schema_version" | "session_id" | "tenant_id" | "updated_at">;
+export interface TurnCommittedPayload extends ConversationCommit {
+  readonly schema_version: SchemaVersion;
+  readonly speaker_participant_id: string;
+  readonly speaker_role: "participant" | "presenter";
+  readonly transcript_text: string;
+  readonly generation_id: number | null;
+}
 type QualityDimensionUpdate = Omit<InteractionQualityState["dimensions"][number], "updated_at">;
 interface QualityUpdate {
   dimensions: QualityDimensionUpdate[];
@@ -63,7 +70,7 @@ export interface InteractionEventPayloads {
   "session.degraded": { level: Exclude<InteractionSessionState["degradation_level"], "none" | "terminated"> };
   "session.completed": Record<string, never>;
   "session.failed": Record<string, never>;
-  "turn.committed": ConversationCommit;
+  "turn.committed": TurnCommittedPayload;
   "turn.interrupted": Record<string, never>;
   "role.updated": RoleSeed;
   "quality.updated": QualityUpdate;
@@ -128,6 +135,7 @@ const REPAIR_STATES = [
   "recovering_tool_failure",
   "recovering_connection",
 ] as const;
+const TURN_SPEAKER_ROLES = ["participant", "presenter"] as const;
 const EVIDENCE_KINDS = [
   "explicit_user_statement",
   "tool_verified",
@@ -190,7 +198,10 @@ export function parseInteractionEvent(value: unknown): AnyInteractionEvent {
 
   const producer = stringValue(event.producer, "event.producer", 1, 200);
   const dataClassification = parseDataClassification(stringValue(event.data_classification, "event.data_classification", 1, 20));
-  const parsedPayload = parsePayload(eventType, event.payload);
+  const parsedPayload = parsePayload(eventType, event.payload, schemaVersion);
+  if (eventType === "turn.committed" && dataClassification !== "restricted") {
+    throw new DomainEventValidationError("turn.committed must use restricted data classification");
+  }
 
   return {
     schema_version: schemaVersion,
@@ -212,7 +223,11 @@ export function parseInteractionEvent(value: unknown): AnyInteractionEvent {
   } as AnyInteractionEvent;
 }
 
-function parsePayload<T extends InteractionEventType>(eventType: T, value: unknown): InteractionEventPayloads[T] {
+function parsePayload<T extends InteractionEventType>(
+  eventType: T,
+  value: unknown,
+  schemaVersion: SchemaVersion,
+): InteractionEventPayloads[T] {
   switch (eventType) {
     case "session.created":
       return parseSessionCreated(value) as InteractionEventPayloads[T];
@@ -246,7 +261,7 @@ function parsePayload<T extends InteractionEventType>(eventType: T, value: unkno
       return { level: enumValue(payload.level, DEGRADATION_LEVELS, "payload.level") } as InteractionEventPayloads[T];
     }
     case "turn.committed":
-      return parseConversationCommit(value) as InteractionEventPayloads[T];
+      return parseConversationCommit(value, schemaVersion) as InteractionEventPayloads[T];
     case "role.updated":
       return parseRoleSeed(value) as InteractionEventPayloads[T];
     case "quality.updated":
@@ -344,8 +359,13 @@ function parseRoleSeed(value: unknown): RoleSeed {
   };
 }
 
-function parseConversationCommit(value: unknown): ConversationCommit {
+function parseConversationCommit(value: unknown, schemaVersion: SchemaVersion): TurnCommittedPayload {
   const payload = exactRecord(value, "payload for turn.committed", [
+    "schema_version",
+    "speaker_participant_id",
+    "speaker_role",
+    "transcript_text",
+    "generation_id",
     "turn_index",
     "active_topic",
     "language",
@@ -354,6 +374,18 @@ function parseConversationCommit(value: unknown): ConversationCommit {
     "repair_state",
     "incremental_summary",
   ]);
+  const payloadSchemaVersion = parseSchemaVersion(stringValue(payload.schema_version, "turn.schema_version", 1, 20));
+  if (payloadSchemaVersion !== schemaVersion) {
+    throw new DomainEventValidationError("turn.committed payload schema_version must equal event schema_version");
+  }
+  const speakerRole = enumValue(payload.speaker_role, TURN_SPEAKER_ROLES, "turn.speaker_role");
+  const generationId = payload.generation_id === null
+    ? null
+    : integerValue(payload.generation_id, "turn.generation_id", 1);
+  if ((speakerRole === "participant" && generationId !== null)
+    || (speakerRole === "presenter" && generationId === null)) {
+    throw new DomainEventValidationError("turn generation_id must match speaker_role");
+  }
   const confirmedFacts = arrayValue(payload.confirmed_facts, "conversation.confirmed_facts", 200).map((item, index) => {
     const fact = exactRecord(item, `conversation.confirmed_facts[${index}]`, [
       "evidence_id",
@@ -379,6 +411,11 @@ function parseConversationCommit(value: unknown): ConversationCommit {
     };
   });
   return {
+    schema_version: payloadSchemaVersion,
+    speaker_participant_id: parseUuidV7(payload.speaker_participant_id, "turn.speaker_participant_id"),
+    speaker_role: speakerRole,
+    transcript_text: restrictedTextValue(payload.transcript_text, "turn.transcript_text"),
+    generation_id: generationId,
     turn_index: integerValue(payload.turn_index, "conversation.turn_index", 1),
     active_topic: payload.active_topic === null ? null : stringValue(payload.active_topic, "conversation.active_topic", 0, 300),
     language: languageValue(payload.language, "conversation.language"),
@@ -483,6 +520,14 @@ function stringValue(value: unknown, label: string, minimum: number, maximum: nu
     throw new DomainEventValidationError(`${label} must be a string between ${minimum} and ${maximum} characters`);
   }
   return value;
+}
+
+function restrictedTextValue(value: unknown, label: string): string {
+  const text = stringValue(value, label, 1, 8_000);
+  if (text.includes("\u0000") || new TextEncoder().encode(text).byteLength > 20_000) {
+    throw new DomainEventValidationError(`${label} exceeds restricted text limits`);
+  }
+  return text;
 }
 
 function languageValue(value: unknown, label: string): string {

@@ -20,6 +20,7 @@
     { "path": "./packages/costing" },
     { "path": "./packages/session-application" },
     { "path": "./packages/session-runtime" },
+    { "path": "./packages/turns" },
     { "path": "./apps/api" }
   ]
 }

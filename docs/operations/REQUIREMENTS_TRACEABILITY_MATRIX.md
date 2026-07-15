@@ -10,7 +10,7 @@ This matrix covers P0 requirements at architecture level. Task IDs reference `ba
 | REQ-RT-001 | Turn Coordinator | conversation_state | conversation turns | M2-02 | replay suite | false endpoint rate |
 | REQ-RT-002 | Cancellation | session_health_state | timeline | M2-02 | delayed output | barge-in p95; hard mute |
 | REQ-RT-003 | Model Gateway | provider_capability | deployments | M2-04 | dual adapter | switch to modular |
-| REQ-RT-004 | Cognitive Fabric | agent_suggestion | timeline refs | M1-03 | daemon kill | ignore async lanes |
+| REQ-RT-004 | Textual Turn Driver Fast Lane | turn_submission/turn_committed | canonical timeline | M1-03 | deterministic three-turn, timeout, cancellation and late-output tests | local fake stays independent from daemon and specialists |
 | REQ-STATE-001 | Reducers | interaction_session_state/event_envelope | snapshots/timeline | M0-05 | replay hash | rebuild from timeline |
 | REQ-STATE-002 | Role architecture | role_state/sales_state | role states | M0-05 | no-sales kernel test | remove pack |
 | REQ-STATE-003 | Quality state | interaction_quality_state | session state | M0-05 | evidence validation | omit low confidence |
@@ -32,4 +32,4 @@ This matrix covers P0 requirements at architecture level. Task IDs reference `ba
 | REQ-OBS-001 | OTel conventions | event envelope | logs/traces | M0-10 | correlation test | reject missing |
 | REQ-OBS-002 | Cost ledger | cost_event | cost events | M0-16 | deterministic decimal reconciliation, precision rejection, source buckets, request capability binding and cross-tenant denial | budget degrade; no invoice integration in M0 |
 | REQ-OBS-003 | Health manager | session_health_state | health | M2-10 | threshold chaos | degradation mode |
-| REQ-AXTRO-001 | Axtro Bridge | agent_suggestion | outbox/bridge | M1-03 | sync dependency scan | daemon disabled |
+| REQ-AXTRO-001 | Textual Turn Driver boundary | turn_submission/turn_committed | canonical timeline | M1-03 | static dependency scan and fake-only Fast Lane tests | no synchronous Axtro Agent bridge |

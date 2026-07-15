@@ -21,6 +21,13 @@
 ### Conversation
 `turn.started`, `turn.committed`, `turn.interrupted`, `turn.response_started`, `turn.response_completed`.
 
+M1-03 materializes `turn.committed` for both the authorized participant and
+the active Presenter. Its explicit payload carries the speaker participant ID,
+speaker role, restricted transcript text, generation ID, and structured
+conversation patch. The reducer accepts a Presenter turn only when its speaker
+matches the active floor. `turn.interrupted` remains a canonical marker after
+the runtime safety lane has fenced the generation.
+
 ### Presenter and handoff
 `presenter.floor_requested`, `presenter.changed`, `handoff.requested`, `handoff.accepted`, `handoff.expired`.
 

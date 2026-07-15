@@ -49,7 +49,7 @@ class ContractGenerationTests(unittest.TestCase):
             self.assertEqual(0, second.returncode, second.stdout + second.stderr)
             self.assertEqual(first_ts, generated_ts.read_bytes())
             self.assertEqual(first_py, generated_py.read_bytes())
-            self.assertEqual(36, generated_ts.read_text(encoding="utf-8").count('"source_schema"'))
+            self.assertEqual(38, generated_ts.read_text(encoding="utf-8").count('"source_schema"'))
             generated_python = generated_py.read_text(encoding="utf-8")
             self.assertIn("schema_version", generated_python)
             self.assertIn("class _FakeProviderScenarioRequired(TypedDict):", generated_python)
@@ -66,7 +66,7 @@ class ContractGenerationTests(unittest.TestCase):
             errors = list(Draft202012Validator(schema, registry=registry).iter_errors(example))
             self.assertTrue(errors, f"{example_path.relative_to(ROOT)} unexpectedly passed")
             rejected += 1
-        self.assertEqual(36, rejected)
+        self.assertEqual(38, rejected)
 
     def test_runtime_configuration_contract_rejects_live_mode_and_secret_like_handles(self) -> None:
         schema_path = SCHEMAS / "runtime_configuration.schema.json"
@@ -76,6 +76,20 @@ class ContractGenerationTests(unittest.TestCase):
         for key, value in (("provider_mode", "live"), ("secret_broker_handle", "secret://local/sk-handle")):
             candidate = {**valid, key: value}
             self.assertTrue(list(validator.iter_errors(candidate)), f"{key}={value} unexpectedly passed")
+
+    def test_turn_committed_contract_couples_speaker_role_to_generation(self) -> None:
+        schema_path = SCHEMAS / "turn_committed.schema.json"
+        schema = json.loads(schema_path.read_text(encoding="utf-8"))
+        valid = json.loads((VALID / "turn_committed.json").read_text(encoding="utf-8"))
+        validator = Draft202012Validator(schema)
+        participant_with_generation = {**valid, "generation_id": 1}
+        presenter_without_generation = {
+            **valid,
+            "speaker_role": "presenter",
+            "generation_id": None,
+        }
+        for candidate in (participant_with_generation, presenter_without_generation):
+            self.assertTrue(list(validator.iter_errors(candidate)), "role and generation unexpectedly passed")
 
 
 if __name__ == "__main__":

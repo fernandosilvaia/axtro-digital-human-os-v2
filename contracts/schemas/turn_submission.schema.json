@@ -1,0 +1,39 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://schemas.axtro.ai/v2/turn_submission.schema.json",
+  "title": "Textual Turn Submission",
+  "description": "Restricted participant text submitted through an authenticated, server-authorized channel.",
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "schema_version": {
+      "type": "string",
+      "const": "2.0.0"
+    },
+    "speaker_participant_id": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$"
+    },
+    "text": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 8000,
+      "pattern": "^[^\\u0000]+$"
+    },
+    "language": {
+      "type": "string",
+      "pattern": "^[a-z]{2}(-[A-Z]{2})?$"
+    },
+    "client_turn_id": {
+      "type": "string",
+      "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]{7,199}$"
+    }
+  },
+  "required": [
+    "schema_version",
+    "speaker_participant_id",
+    "text",
+    "language",
+    "client_turn_id"
+  ]
+}

@@ -514,6 +514,29 @@ class ToolExecutionReceipt(TypedDict):
     started_at: str
     completed_at: str | None
 
+# Source: contracts/schemas/turn_committed.schema.json; schema: https://schemas.axtro.ai/v2/turn_committed.schema.json; version: 2.0.0.
+class TurnCommitted(TypedDict):
+    schema_version: Literal['2.0.0']
+    speaker_participant_id: str
+    speaker_role: Literal['participant', 'presenter']
+    transcript_text: str
+    generation_id: int | None
+    turn_index: int
+    active_topic: str | None
+    language: str
+    open_questions: list[str]
+    confirmed_facts: list[dict[str, object]]
+    repair_state: Literal['none', 'clarifying', 'recovering_interruption', 'recovering_tool_failure', 'recovering_connection']
+    incremental_summary: str
+
+# Source: contracts/schemas/turn_submission.schema.json; schema: https://schemas.axtro.ai/v2/turn_submission.schema.json; version: 2.0.0.
+class TurnSubmission(TypedDict):
+    schema_version: Literal['2.0.0']
+    speaker_participant_id: str
+    text: str
+    language: str
+    client_turn_id: str
+
 # Source: contracts/schemas/workflow_command.schema.json; schema: https://schemas.axtro.ai/v2/workflow_command.schema.json; version: 2.0.0.
 class WorkflowCommand(TypedDict):
     schema_version: Literal['2.0.0']
@@ -748,6 +771,18 @@ CONTRACT_METADATA: dict[str, dict[str, str]] = {
     "source_hash": "597cd7829d0e32a52b79826fe93d8a932478af71ff772e9e9280d97b093bc377",
     "source_schema": "contracts/schemas/tool_execution_receipt.schema.json"
   },
+  "TurnCommitted": {
+    "schema_id": "https://schemas.axtro.ai/v2/turn_committed.schema.json",
+    "schema_version": "2.0.0",
+    "source_hash": "7f490c188c3b700454ef15aa36503c5e25d9b30d14644a32b962e24653ba4b1d",
+    "source_schema": "contracts/schemas/turn_committed.schema.json"
+  },
+  "TurnSubmission": {
+    "schema_id": "https://schemas.axtro.ai/v2/turn_submission.schema.json",
+    "schema_version": "2.0.0",
+    "source_hash": "42d3f539f3f1c8743e227fbd1d7401d51a9c4e134eb76ea6ef996f88e2806de4",
+    "source_schema": "contracts/schemas/turn_submission.schema.json"
+  },
   "WorkflowCommand": {
     "schema_id": "https://schemas.axtro.ai/v2/workflow_command.schema.json",
     "schema_version": "2.0.0",
@@ -799,6 +834,8 @@ __all__ = [
     'SpecialistResult',
     'ToolContract',
     'ToolExecutionReceipt',
+    'TurnCommitted',
+    'TurnSubmission',
     'WorkflowCommand',
     'WorkflowStatus',
 ]

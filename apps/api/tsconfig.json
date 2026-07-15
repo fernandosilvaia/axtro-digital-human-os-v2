@@ -13,6 +13,7 @@
     { "path": "../../packages/domain" },
     { "path": "../../packages/observability" },
     { "path": "../../packages/session-application" },
+    { "path": "../../packages/turns" },
     { "path": "../../packages/security" }
   ]
 }

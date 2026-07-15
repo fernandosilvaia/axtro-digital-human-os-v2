@@ -1,5 +1,5 @@
 {
-  "name": "@axtro/api",
+  "name": "@axtro/turns",
   "version": "0.1.0",
   "private": true,
   "type": "module",
@@ -11,12 +11,9 @@
   },
   "dependencies": {
     "@axtro/auth": "workspace:*",
-    "@axtro/config": "workspace:*",
     "@axtro/contracts-ts": "workspace:*",
     "@axtro/domain": "workspace:*",
-    "@axtro/observability": "workspace:*",
-    "@axtro/session-application": "workspace:*",
-    "@axtro/turns": "workspace:*",
-    "@axtro/security": "workspace:*"
+    "@axtro/events": "workspace:*",
+    "@axtro/session-runtime": "workspace:*"
   }
 }

@@ -13,7 +13,7 @@ ROOT = Path(__file__).resolve().parents[1]
 SCHEMAS = ROOT / "contracts" / "schemas"
 VALID = ROOT / "contracts" / "examples" / "valid"
 INVALID = ROOT / "contracts" / "examples" / "invalid"
-EXPECTED_COUNT = 36
+EXPECTED_COUNT = 38
 
 
 def load_json(path: Path) -> Any:
@@ -23,17 +23,25 @@ def load_json(path: Path) -> Any:
         raise AssertionError(f"Invalid JSON in {path.relative_to(ROOT)}: {exc}") from exc
 
 
-def walk_closed_objects(node: Any, pointer: str = "$") -> list[str]:
+def walk_closed_objects(node: Any, pointer: str = "$", conditional_fragment: bool = False) -> list[str]:
     errors: list[str] = []
     if isinstance(node, dict):
-        is_object_schema = node.get("type") == "object" or "properties" in node or "patternProperties" in node
+        # Conditional branches may constrain selected fields of an enclosing,
+        # closed object. All independently declared object shapes remain closed.
+        is_object_schema = not conditional_fragment and (
+            node.get("type") == "object" or "properties" in node or "patternProperties" in node
+        )
         if is_object_schema and node.get("additionalProperties") is not False:
             errors.append(f"{pointer}: object schema must set additionalProperties=false")
         for key, value in node.items():
-            errors.extend(walk_closed_objects(value, f"{pointer}/{key}"))
+            errors.extend(walk_closed_objects(
+                value,
+                f"{pointer}/{key}",
+                key in {"if", "then", "else", "not"},
+            ))
     elif isinstance(node, list):
         for index, value in enumerate(node):
-            errors.extend(walk_closed_objects(value, f"{pointer}/{index}"))
+            errors.extend(walk_closed_objects(value, f"{pointer}/{index}", conditional_fragment))
     return errors
 
 

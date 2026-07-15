@@ -1,7 +1,7 @@
 /*
  * GENERATED FILE. DO NOT EDIT.
  * generator: scripts/generate_contract_types.py@1.0.0
- * source: 36 JSON Schema Draft 2020-12 documents under contracts/schemas/
+ * source: 38 JSON Schema Draft 2020-12 documents under contracts/schemas/
  */
 
 export const CONTRACT_GENERATOR_VERSION = "1.0.0" as const;
@@ -641,6 +641,39 @@ export interface ToolExecutionReceipt {
   completed_at: string | null;
 }
 
+/** Source: contracts/schemas/turn_committed.schema.json; schema: https://schemas.axtro.ai/v2/turn_committed.schema.json; version: 2.0.0. */
+export interface TurnCommitted {
+  schema_version: "2.0.0";
+  speaker_participant_id: string;
+  speaker_role: "participant" | "presenter";
+  transcript_text: string;
+  generation_id: number | null;
+  turn_index: number;
+  active_topic: string | null;
+  language: string;
+  open_questions: Array<string>;
+  confirmed_facts: Array<{
+    evidence_id: string;
+    kind: "explicit_user_statement" | "tool_verified" | "knowledge_source" | "derived_hypothesis" | "operator_input" | "system_observation";
+    summary: string;
+    source_ref: string;
+    confidence: number;
+    observed_at: string;
+    expires_at: string | null;
+  }>;
+  repair_state: "none" | "clarifying" | "recovering_interruption" | "recovering_tool_failure" | "recovering_connection";
+  incremental_summary: string;
+}
+
+/** Source: contracts/schemas/turn_submission.schema.json; schema: https://schemas.axtro.ai/v2/turn_submission.schema.json; version: 2.0.0. */
+export interface TurnSubmission {
+  schema_version: "2.0.0";
+  speaker_participant_id: string;
+  text: string;
+  language: string;
+  client_turn_id: string;
+}
+
 /** Source: contracts/schemas/workflow_command.schema.json; schema: https://schemas.axtro.ai/v2/workflow_command.schema.json; version: 2.0.0. */
 export interface WorkflowCommand {
   schema_version: "2.0.0";
@@ -881,6 +914,18 @@ export const CONTRACT_METADATA = {
     "schema_version": "2.0.0",
     "source_hash": "597cd7829d0e32a52b79826fe93d8a932478af71ff772e9e9280d97b093bc377",
     "source_schema": "contracts/schemas/tool_execution_receipt.schema.json"
+  },
+  "TurnCommitted": {
+    "schema_id": "https://schemas.axtro.ai/v2/turn_committed.schema.json",
+    "schema_version": "2.0.0",
+    "source_hash": "7f490c188c3b700454ef15aa36503c5e25d9b30d14644a32b962e24653ba4b1d",
+    "source_schema": "contracts/schemas/turn_committed.schema.json"
+  },
+  "TurnSubmission": {
+    "schema_id": "https://schemas.axtro.ai/v2/turn_submission.schema.json",
+    "schema_version": "2.0.0",
+    "source_hash": "42d3f539f3f1c8743e227fbd1d7401d51a9c4e134eb76ea6ef996f88e2806de4",
+    "source_schema": "contracts/schemas/turn_submission.schema.json"
   },
   "WorkflowCommand": {
     "schema_id": "https://schemas.axtro.ai/v2/workflow_command.schema.json",

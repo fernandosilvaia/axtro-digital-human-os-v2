@@ -1,0 +1,14 @@
+{
+  "schema_version": "2.0.0",
+  "speaker_participant_id": "018f1e2d-3c4b-7a08-8c9d-00112233445c",
+  "speaker_role": "presenter",
+  "transcript_text": "I would like to understand the next step.",
+  "generation_id": null,
+  "turn_index": 1,
+  "active_topic": "next_step",
+  "language": "en-US",
+  "open_questions": [],
+  "confirmed_facts": [],
+  "repair_state": "none",
+  "incremental_summary": "Participant asked about the next step."
+}

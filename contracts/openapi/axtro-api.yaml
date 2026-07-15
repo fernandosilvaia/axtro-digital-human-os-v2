@@ -172,8 +172,26 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/AcceptedCommand'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
         '409':
           $ref: '#/components/responses/Conflict'
+        '408':
+          $ref: '#/components/responses/RequestTimeout'
+        '413':
+          $ref: '#/components/responses/PayloadTooLarge'
+        '429':
+          $ref: '#/components/responses/TooManyRequests'
+        '431':
+          $ref: '#/components/responses/RequestHeaderFieldsTooLarge'
+        '422':
+          $ref: '#/components/responses/ValidationError'
+        '500':
+          $ref: '#/components/responses/InternalServerError'
   /sessions/{session_id}/action-intents:
     post:
       tags: [Actions]
@@ -614,23 +632,7 @@ components:
           minimum: 0
           maximum: 9007199254740991
     SubmitTurnRequest:
-      type: object
-      additionalProperties: false
-      required: [speaker_participant_id, text, language, client_turn_id]
-      properties:
-        speaker_participant_id:
-          $ref: '#/components/schemas/UuidV7'
-        text:
-          type: string
-          minLength: 1
-          maxLength: 20000
-        language:
-          type: string
-          pattern: '^[a-z]{2}(-[A-Z]{2})?$'
-        client_turn_id:
-          type: string
-          minLength: 8
-          maxLength: 200
+      $ref: '../schemas/turn_submission.schema.json'
     CompleteSessionRequest:
       type: object
       additionalProperties: false
