@@ -184,6 +184,8 @@ importers:
         specifier: workspace:*
         version: link:../domain
 
+  packages/degradation-controller: {}
+
   packages/domain:
     dependencies:
       '@axtro/contracts-ts':

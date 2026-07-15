@@ -3,7 +3,7 @@
 **Estado atual:** M0 Foundation e M1 Walking Skeleton concluídos; M2 Human Presence Spike em execução autônoma controlada
 
 **Marco atual:** M2
-**Tarefa atual:** M2-09
+**Tarefa atual:** M2-10
 **Última evidência verde:** M1-11 com pipeline completa, 209 testes Node, 23 unittest Python, 23 pytest, 2 testes E2E, PostgreSQL local, RLS e 9 validadores verdes em 2026-07-15
 **Bloqueadores internos:** nenhum
 **Pendências externas:** consultar `PENDENCIAS_EXTERNAS.md`  
@@ -57,7 +57,7 @@
 | `M2-07` | M2 | done | Implement Scene and Presentation Director | `M2-01`, `M0-03` | `SceneManifestRegistry` fechado + `SceneDirector` com fencing por geração, 10 testes Node verdes |
 | `M2-08` | M2 | done | Implement silent Specialist Fabric | `M1-04`, `M0-12` | Fila bounded + bulkhead por tipo, deadline racing, One Mouth por omissão de API, 8 testes Node verdes |
 | `M2-09` | M2 | done | Implement perception signal bus and quality state | `M2-02`, `M0-03` | Vocabulário fechado de sinal/hipótese, TTL e consentimento aplicados, 8 testes Node verdes |
-| `M2-10` | M2 | pending | Implement degradation and recovery controller | `M2-03`, `M2-04`, `M2-06`, `M2-07` | pending |
+| `M2-10` | M2 | done | Implement degradation and recovery controller | `M2-03`, `M2-04`, `M2-06`, `M2-07` | Matriz de 10 linhas executável, recuperação explícita, fencing anti-duplicidade, 7 testes Node verdes |
 | `M2-11` | M2 | pending | Instrument realtime latency, quality and cost | `M2-03`, `M2-06`, `M2-07`, `M0-16` | pending |
 | `M2-12` | M2 | pending | Run mandatory ten-minute Human Presence scenario | `M2-05`, `M2-08`, `M2-09`, `M2-10`, `M2-11` | pending |
 | `M2-13` | M2 | pending | M2 architecture and provider decision gate | `M2-12` | pending |
@@ -508,6 +508,16 @@
 - `pnpm lint`, `tsc --build` completo e `node scripts/test.mjs` (280 testes Node, 23 unittest Python) verdes.
 - Nenhuma credencial real, produção, provider real, deploy, migration remota ou M3 foi acessado ou iniciado.
 
+### 2026-07-15, M2-10 concluído
+
+- `@axtro/degradation-controller` executa as 10 linhas de `docs/operations/CAPABILITY_DEGRADATION_MATRIX.md` como dados tipados e imutáveis (`CAPABILITY_DEGRADATION_MATRIX`, `ruleFor`), em vez de prosa: cada falha (`avatar_unavailable`, `tts_primary_down`, `stt_degraded`, `s2s_down`, `rag_down`, `tool_timeout`, `axtro_daemon_down`, `meeting_bot_removed`, `network_poor`, `budget_reached`) mapeia para um `systemAction` e `dataAction` fechados.
+- `handleFailure`/`recover`/`isDegraded` seguem Art. 14 (degradação declarada): uma falha fica ativa até uma chamada explícita de `recover`, nunca se autolimpa silenciosamente.
+- `markPresented`/`shouldSuppressDuplicatePresentation` fecham o requisito de "recuperação sem output duplicado do Presenter": ao cair de S2S para modular (ou qualquer fallback), uma geração já apresentada, ou qualquer geração mais antiga que a já apresentada, é marcada para supressão — testado com um cenário de output tardio de uma geração S2S cancelada chegando depois do fallback modular já ter sido entregue.
+- Optei por um pacote novo em vez de tocar `packages/session-runtime` (alvo listado no task graph): a integração final desse controlador com o Session Actor real fica para quando M3 promover alguma capability M2 além do spike, evitando risco desnecessário sobre o M1 congelado nesta sessão.
+- 7 testes novos em `tests/realtime/degradation-controller.test.mjs`, incluindo um teste de integração real com `selectConversationPathMode` do M2-04.
+- `pnpm lint`, `tsc --build` completo e `node scripts/test.mjs` (287 testes Node, 23 unittest Python) verdes.
+- Nenhuma credencial real, produção, provider real, deploy, migration remota ou M3 foi acessado ou iniciado.
+
 ## Próxima ação
 
-Continuar M2 em modo autônomo controlado: M2-10, controlador de degradação e recuperação, integrando os componentes M2-01 a M2-09.
+Continuar M2 em modo autônomo controlado: M2-11, telemetria de latência/qualidade/custo, sobre o Degradation Controller recém-criado.
