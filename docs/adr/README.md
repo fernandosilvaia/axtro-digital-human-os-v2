@@ -29,3 +29,4 @@ Accepted decisions for V2. The Constitution has precedence. A change to an accep
 | `ADR-023-session-actor-mailbox-projection.md` | Session Actor mailbox as a canonical-event projection | Accepted |
 | `ADR-024-textual-turn-driver.md` | Canonical textual turn driver with fenced Presenter responses | Accepted |
 | `ADR-025-bounded-context-composer.md` | Bounded context composition with provenance and TTL | Accepted |
+| `ADR-026-receipt-backed-catalog-lookup.md` | Receipt-backed catalog lookup outside the Fast Lane | Accepted |

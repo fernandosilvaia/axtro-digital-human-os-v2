@@ -3,8 +3,8 @@
 **Estado atual:** implementação de M1 em andamento
 
 **Marco atual:** M1
-**Tarefa atual:** transição concluída de M1-04 para M1-05
-**Última evidência verde:** M1-04 com Context Composer bounded, Turn Driver com fence de freshness e pipeline limpo em 2026-07-14
+**Tarefa atual:** M1-05 concluída; M1-06 ainda não iniciada
+**Última evidência verde:** M1-05 com fluxo Action Runtime fake receipt-backed, timeout reconciliável e pipeline limpo em 2026-07-14
 **Bloqueadores internos:** nenhum
 **Pendências externas:** consultar `PENDENCIAS_EXTERNAS.md`  
 
@@ -41,7 +41,7 @@
 | `M1-02` | M1 | done | Implement Session Actor and mailbox | `M1-01` | actor único por tenant e sessão, mailbox bounded, dedupe canônico, replay snapshot e timeline, cancelamento e deadlines de source validados |
 | `M1-03` | M1 | done | Implement textual turn driver | `M1-02`, `M0-12` | turnos canônicos participant e Presenter, Fast Lane fake, One Mouth, interrupção, cancelamento, isolamento e API validados |
 | `M1-04` | M1 | done | Implement context composer | `M1-03` | 39º contrato gerado, snapshot opaco, budget UTF-8, provenance, TTL, freshness no Turn Driver e suíte de injeção validados |
-| `M1-05` | M1 | pending | Complete fake Action Runtime flow | `M1-03`, `M0-14` | pending |
+| `M1-05` | M1 | done | Complete fake Action Runtime flow | `M1-03`, `M0-14` | comando fechado, ActionIntent e policy derivados server-side, receipt-backed candidate, timeout fake por tenant, reconciliação exata, ledgers bounded e 154 testes Node mais 23 Python verdes |
 | `M1-06` | M1 | pending | Implement timeline, snapshots and replay verifier | `M1-02`, `M0-13` | pending |
 | `M1-07` | M1 | pending | Implement outbox relay and idempotent consumers | `M0-13`, `M1-06` | pending |
 | `M1-08` | M1 | pending | Implement fake post-call workflow | `M1-07` | pending |
@@ -306,6 +306,18 @@
 - Evidências verdes: `pnpm lint`, `pnpm contracts:check`, `pnpm typecheck`, `pnpm test` (146 Node e 23 Python unittest), `pnpm build`, `UV_CACHE_DIR=/private/tmp/axtro-uv-cache uv run pytest` (23), `python3 scripts/validate_all.py` (9 checks) e `git diff --check`.
 - Risco não bloqueante: a capability de captura continua limitada ao fluxo server-side pós-Actor. Um consumidor futuro deve receber uma porta autoritativa, não um objeto de estado bruto.
 - Próxima tarefa: M1-05, completar o fluxo Action Runtime fake por `ActionIntent`, `PolicyDecision` e `ToolExecutionReceipt`.
+
+### 2026-07-14, M1-05 concluído
+
+- Criado o contrato fechado `catalog_lookup_command`, elevando o conjunto a 40 schemas gerados para TypeScript e Python. O comando aceita somente `question_id`, `session_id` e `starter` ou `growth`; não aceita texto, tenant, ator, ferramenta, provider, policy, idempotência, timeout, receipt ou resultado do caller.
+- Implementado o Catalog Lookup Coordinator server-side em `@axtro/tool-runtime`, fora de `@axtro/turns`, Fast Lane, mailbox do Session Actor, mídia, timeline e publicação Presenter. Ele exige `session:read`, `session:write`, `tool:use`, `essential_processing` e `tool_auth`, valida a registry fake de sessão, deriva `ActionIntent` e passa pela policy e pela fake privada já governada.
+- A resposta é uma candidata tenant-scoped e confirma disponibilidade somente de receipt `succeeded` com intent, tenant, JSON canônico e effect hash coerentes. Ela cita o receipt, mas não produz fala, evento Presenter, timeline ou estado automático. `ToolPort` permanece fail-closed, sem SDK, rede, credencial ou adapter aberto.
+- O modo fake fechado `timeout_once` gera `unknown` com evidência normalizada de timeout para a operação real, isolado por tenant. A reconciliação aceita apenas o mesmo comando autenticado e limpa a barreira privada e a barreira do coordenador após validar tenant, sessão, ator, fingerprint, intent e receipt. Repetição, comando alterado, tenant cruzado e retry cego permanecem bloqueados.
+- Ambos os ledgers de ação e de comando são bounded por tenant e preservam replay anterior. A suíte cobre happy path receipt-cited, injeção e campos forjados, cada scope e purpose obrigatório, aprovação pendente sem confirmação, timeout alpha e beta independente, reconciliação, capacidade, replay, tenants cruzados e ausência estática de Action Runtime na Fast Lane.
+- ADR-026 e D-V2-036 registram a decisão. A matriz de rastreabilidade, boundary do worker, arquitetura de actions, exemplos e tipos gerados foram atualizados. Revisões independentes de arquitetura, segurança e testes aprovaram o patch.
+- Evidências verdes: `pnpm lint`, `pnpm contracts:check` (40 schemas), `pnpm typecheck`, `pnpm test` (154 testes Node e 23 unittest Python), `pnpm build`, `UV_CACHE_DIR=/private/tmp/axtro-uv-cache uv run pytest` (23), `python3 scripts/validate_all.py` (9 checks) e `git diff --check`. Não houve mudança de migrations, banco ou RLS nesta tarefa.
+- Risco não bloqueante: a registry de sessão continua fake e a candidata não é publicação. M1-06 e posteriores devem trocar a autoridade pela fonte durável de floor/estado antes de timeline ou fala Presenter.
+- Próxima tarefa pendente: M1-06, timeline, snapshots e replay verifier. Nenhuma tarefa de M2 ou M3 foi iniciada.
 
 ### 2026-07-14, baseline arquitetural
 

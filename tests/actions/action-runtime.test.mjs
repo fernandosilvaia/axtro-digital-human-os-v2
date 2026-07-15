@@ -366,3 +366,38 @@ test("hostile ActionIntent shapes, invalid arguments and inactive windows fail c
   assert.equal(deniedArguments.effect_confirmed, false);
   assert.equal(actionRuntime.readM0FixtureInvocationCount(request), 0);
 });
+
+test("per-tenant Action Runtime ledger capacity preserves replays and rejects a new execution before the fixture", async () => {
+  const actionRuntime = runtimeModule.createDeterministicActionRuntime({
+    clock: { now: () => NOW },
+    policy_fixture_mode: "default",
+    max_ledger_entries_per_tenant: 1,
+  });
+  const alpha = authorizedRequest({ token: "dev_action_capacity_alpha_0001" });
+  const beta = authorizedRequest({
+    tenantId: tenantBeta,
+    actorId: actorBeta,
+    token: "dev_action_capacity_beta_0001",
+  });
+  const alphaIntent = actionIntent({ intentId: id(62), idempotencyKey: "action-runtime-capacity-alpha-0001" });
+
+  const first = await actionRuntime.submitActionIntent(alpha, alphaIntent);
+  const replay = await actionRuntime.submitActionIntent(alpha, structuredClone(alphaIntent));
+  assert.strictEqual(replay, first);
+  await assert.rejects(
+    actionRuntime.submitActionIntent(alpha, actionIntent({
+      intentId: id(63),
+      idempotencyKey: "action-runtime-capacity-alpha-0002",
+    })),
+    runtimeModule.ActionRuntimeLedgerCapacityError,
+  );
+  const betaResult = await actionRuntime.submitActionIntent(beta, actionIntent({
+    intentId: id(62),
+    tenantId: tenantBeta,
+    actorId: actorBeta,
+    idempotencyKey: "action-runtime-capacity-beta-0001",
+  }));
+  assert.equal(betaResult.effect_confirmed, true);
+  assert.equal(actionRuntime.readM0FixtureInvocationCount(alpha), 1);
+  assert.equal(actionRuntime.readM0FixtureInvocationCount(beta), 1);
+});

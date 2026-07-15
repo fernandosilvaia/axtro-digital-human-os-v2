@@ -37,3 +37,9 @@ M1-06 replaces the temporary outbox replay source with durable snapshots and
 timeline persistence. M2 owns a verified participant channel adapter plus
 audio, TTS, avatar, and channel cancellation propagation beyond the textual
 request boundary.
+
+M1-05's explicit catalog lookup coordinator is intentionally outside this
+boundary. The Fast Lane neither emits `action_intent` nor imports Action
+Runtime. A receipt-backed catalog candidate is not automatic speech, a
+Presenter event, or a timeline entry; a later durable publication boundary
+must apply its own floor and generation fences.

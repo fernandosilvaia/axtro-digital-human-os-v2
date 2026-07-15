@@ -1,7 +1,7 @@
 /*
  * GENERATED FILE. DO NOT EDIT.
  * generator: scripts/generate_contract_types.py@1.0.0
- * source: 39 JSON Schema Draft 2020-12 documents under contracts/schemas/
+ * source: 40 JSON Schema Draft 2020-12 documents under contracts/schemas/
  */
 
 export const CONTRACT_GENERATOR_VERSION = "1.0.0" as const;
@@ -63,6 +63,14 @@ export interface BehaviorDirective {
   priority: number;
   generated_at: string;
   expires_at: string;
+}
+
+/** Source: contracts/schemas/catalog_lookup_command.schema.json; schema: https://schemas.axtro.ai/v2/catalog_lookup_command.schema.json; version: 2.0.0. */
+export interface CatalogLookupCommand {
+  schema_version: "2.0.0";
+  question_id: string;
+  session_id: string;
+  plan_id: "starter" | "growth";
 }
 
 /** Source: contracts/schemas/consent_evidence.schema.json; schema: https://schemas.axtro.ai/v2/consent_evidence.schema.json; version: 2.0.0. */
@@ -757,6 +765,12 @@ export const CONTRACT_METADATA = {
     "schema_version": "2.0.0",
     "source_hash": "c39247db6b39501972745ca9e0920416751e92bbdeb1c83f7b3445405fe7454c",
     "source_schema": "contracts/schemas/behavior_directive.schema.json"
+  },
+  "CatalogLookupCommand": {
+    "schema_id": "https://schemas.axtro.ai/v2/catalog_lookup_command.schema.json",
+    "schema_version": "2.0.0",
+    "source_hash": "c4a96b99df44cd0cc22f400288f979989500e5c19430371fdedbfff834d0058f",
+    "source_schema": "contracts/schemas/catalog_lookup_command.schema.json"
   },
   "ConsentEvidence": {
     "schema_id": "https://schemas.axtro.ai/v2/consent_evidence.schema.json",

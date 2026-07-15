@@ -22,8 +22,8 @@ This matrix covers P0 requirements at architecture level. Task IDs reference `ba
 | REQ-PRIV-002 | Session lifecycle application | consent_evidence | consents/timeline | M1-01 | server-side essential consent policy | disable capability |
 | REQ-PRIV-003 | Perception | perception_signal/derived_hypothesis | timeline | M2-09 | expiry | discard expired |
 | REQ-ACT-001 | Action Runtime | tool_contract/action_intent | tool registry | M0-14 | unknown tool | deny |
-| REQ-ACT-002 | Execution ledger | tool_execution_receipt | tool executions | M0-14, M1-05 | retry storm | return prior receipt |
-| REQ-ACT-003 | Presenter gate | receipt | timeline | M1-05 | announcement eval | state pending |
+| REQ-ACT-002 | Execution ledger | action_intent/policy_decision/tool_execution_receipt/catalog_lookup_command | bounded action ledger | M0-14, M1-05 | replay, capacity, unknown and authenticated reconciliation | return prior receipt; block retry until reconciliation |
+| REQ-ACT-003 | Receipt-backed catalog coordinator | tool_execution_receipt/catalog_lookup_command | candidate only, no timeline write | M1-05 | successful receipt citation and non-success no-confirmation | no automatic speech or state change |
 | REQ-HANDOFF-001 | Floor Manager | handoff_packet | handoffs | M3-06 | concurrent accept | single winner |
 | REQ-TENANT-001 | RLS | all tenant contracts | tenant tables | M0-08 | cross-tenant suite | build fails |
 | REQ-TENANT-002 | Context middleware | event envelope | DB/cache | M0-09 | pool/cache collision | clear context |

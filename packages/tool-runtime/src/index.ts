@@ -5,14 +5,24 @@ import {
   getAuthorizedTenantContext,
   type AuthorizedRequestContext,
 } from "@axtro/auth";
-import type { ActionIntent, PolicyDecision, ToolExecutionReceipt } from "@axtro/contracts-ts";
+import type {
+  ActionIntent,
+  CatalogLookupCommand,
+  PolicyDecision,
+  ToolExecutionReceipt,
+} from "@axtro/contracts-ts";
 import {
   canonicalJson,
+  parseActorId,
+  parseSessionId,
   parseTenantId,
   parseUuidV7,
   sha256Canonical,
+  type ActorId,
+  type SessionId,
   type TenantContext,
   type TenantId,
+  type UuidV7,
 } from "@axtro/domain";
 import {
   assertActionIntentActive,
@@ -35,6 +45,8 @@ export interface DeterministicActionRuntimeOptions {
   readonly clock: ActionRuntimeClock;
   /** Closed composition profile used only to exercise a stricter approval branch. */
   readonly policy_fixture_mode?: "default" | "require_approval";
+  /** Trusted per-tenant bound for retained idempotency and unknown-effect entries. */
+  readonly max_ledger_entries_per_tenant?: number;
 }
 
 export interface ActionRuntimeResult {
@@ -50,6 +62,60 @@ export interface DeterministicActionRuntime {
   submitActionIntent(request: AuthorizedRequestContext, intent: unknown): Promise<ActionRuntimeResult>;
   /** Local fake inspection seam. It exposes no adapter, arguments, receipt or provider authority. */
   readM0FixtureInvocationCount(request: AuthorizedRequestContext): number;
+}
+
+/** Server-owned binding between an authorized Presenter and one session. */
+export interface CatalogLookupSessionAuthority {
+  readonly tenant_id: string;
+  readonly session_id: string;
+  readonly presenter_actor_id: string;
+}
+
+/**
+ * Trusted composition inputs for the M1 coordinator. None are accepted from
+ * the catalog command, model output, or a provider result.
+ */
+export interface DeterministicCatalogLookupCommandFlowOptions {
+  readonly clock: ActionRuntimeClock;
+  readonly sessions: readonly CatalogLookupSessionAuthority[];
+  readonly policy_fixture_mode?: "default" | "require_approval";
+  readonly fake_execution_mode?: "default" | "timeout_once";
+  readonly max_ledger_entries_per_tenant?: number;
+}
+
+/** Candidate for a later conversation boundary. It does not publish speech or timeline state. */
+export interface ReceiptBackedCatalogAnswer {
+  readonly tenant_id: string;
+  readonly question_id: string;
+  readonly session_id: string;
+  readonly confirmed: boolean;
+  readonly response_text: string;
+  readonly receipt: Readonly<{
+    execution_id: string;
+    effect_hash: string | null;
+    error_code: string | null;
+    catalog_version: string | null;
+    plan_id: "starter" | "growth" | null;
+    status: ToolExecutionReceipt["status"];
+  }>;
+}
+
+/** Result of the internal fake reconciliation after an unknown receipt. */
+export interface CatalogLookupReconciliation {
+  readonly reconciliation_id: string;
+  readonly question_id: string;
+  readonly session_id: string;
+  readonly receipt_execution_id: string;
+  readonly status: "not_applied";
+}
+
+export interface DeterministicCatalogLookupCommandFlow {
+  /** Parses a structured command, derives an ActionIntent, and returns a receipt-backed candidate. */
+  submitCatalogLookup(request: AuthorizedRequestContext, command: unknown): Promise<ReceiptBackedCatalogAnswer>;
+  /** Clears only the authenticated command's exact fake unknown-effect barrier. */
+  reconcileUnknownCatalogLookup(request: AuthorizedRequestContext, command: unknown): Promise<CatalogLookupReconciliation>;
+  /** Local fake inspection seam. It reveals no adapter, provider, arguments, or execution authority. */
+  readFakeCatalogInvocationCount(request: AuthorizedRequestContext): number;
 }
 
 export class ActionRuntimeConfigurationError extends Error {
@@ -101,9 +167,74 @@ export class ActionRuntimeInvariantError extends Error {
   }
 }
 
+export class ActionRuntimeLedgerCapacityError extends Error {
+  constructor() {
+    super("Action Runtime ledger capacity is exhausted");
+    this.name = "ActionRuntimeLedgerCapacityError";
+  }
+}
+
+export class CatalogLookupCommandValidationError extends Error {
+  constructor() {
+    super("Catalog lookup command is invalid");
+    this.name = "CatalogLookupCommandValidationError";
+  }
+}
+
+export class CatalogLookupCommandConflictError extends Error {
+  constructor() {
+    super("Catalog lookup question conflicts with a prior command");
+    this.name = "CatalogLookupCommandConflictError";
+  }
+}
+
 interface ExecutionLedgerEntry {
   readonly fingerprint: string;
   readonly promise: Promise<ActionRuntimeResult>;
+}
+
+type PrivateFixtureExecutionMode = "default" | "timeout_once";
+
+interface DeterministicActionRuntimeCore extends DeterministicActionRuntime {
+  /** Module-private only. A coordinator may reconcile the exact runtime barrier it created. */
+  reconcilePrivateUnknown(request: AuthorizedRequestContext, intent: ActionIntent): ToolExecutionReceipt;
+}
+
+interface CatalogLookupSessionBinding {
+  readonly tenantId: TenantId;
+  readonly sessionId: SessionId;
+  readonly presenterActorId: ActorId;
+}
+
+interface CatalogLookupExecution {
+  readonly command: CatalogLookupCommand;
+  readonly actionIntent: ActionIntent;
+  readonly actionResult: ActionRuntimeResult;
+  readonly answer: ReceiptBackedCatalogAnswer;
+}
+
+interface CatalogLookupLedgerEntry {
+  readonly fingerprint: string;
+  readonly operationKey: string;
+  readonly promise: Promise<CatalogLookupExecution>;
+}
+
+interface CatalogUnknownBarrier {
+  readonly questionKey: string;
+  readonly fingerprint: string;
+  readonly tenantId: TenantId;
+  readonly sessionId: SessionId;
+  readonly actorId: ActorId;
+  readonly actionIntent: ActionIntent;
+  readonly receipt: ToolExecutionReceipt;
+}
+
+interface NormalizedCatalogLookupFlowOptions {
+  readonly clock: ActionRuntimeClock;
+  readonly policyFixtureMode: "default" | "require_approval";
+  readonly fakeExecutionMode: "default" | "timeout_once";
+  readonly maxLedgerEntriesPerTenant: number;
+  readonly sessions: ReadonlyMap<SessionId, CatalogLookupSessionBinding>;
 }
 
 interface PrivateFixtureOutcome {
@@ -111,7 +242,20 @@ interface PrivateFixtureOutcome {
   readonly result: Readonly<Record<string, string>> | null;
 }
 
-const RUNTIME_OPTION_KEYS = ["clock", "policy_fixture_mode"] as const;
+const RUNTIME_OPTION_KEYS = ["clock", "max_ledger_entries_per_tenant", "policy_fixture_mode"] as const;
+const CATALOG_FLOW_OPTION_KEYS = [
+  "clock",
+  "fake_execution_mode",
+  "max_ledger_entries_per_tenant",
+  "policy_fixture_mode",
+  "sessions",
+] as const;
+const CATALOG_COMMAND_KEYS = ["plan_id", "question_id", "schema_version", "session_id"] as const;
+const CATALOG_COMMAND_PLAN_IDS = ["starter", "growth"] as const;
+const CATALOG_COMMAND_TTL_MS = 5 * 60 * 1_000;
+const DEFAULT_LEDGER_ENTRIES_PER_TENANT = 128;
+const MAX_LEDGER_ENTRIES_PER_TENANT = 4_096;
+const MAX_CATALOG_SESSION_AUTHORITIES = 256;
 const RECEIPT_KEYS = [
   "schema_version",
   "execution_id",
@@ -136,6 +280,17 @@ const RFC3339_UTC_PATTERN = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/;
  * fixture; no provider ToolPort or authorization factory is opened here.
  */
 export function createDeterministicActionRuntime(optionsInput: unknown): DeterministicActionRuntime {
+  const core = createDeterministicActionRuntimeCore(optionsInput, "default");
+  return Object.freeze({
+    submitActionIntent: core.submitActionIntent,
+    readM0FixtureInvocationCount: core.readM0FixtureInvocationCount,
+  });
+}
+
+function createDeterministicActionRuntimeCore(
+  optionsInput: unknown,
+  fixtureExecutionMode: PrivateFixtureExecutionMode,
+): DeterministicActionRuntimeCore {
   const options = normalizeRuntimeOptions(optionsInput);
   const { clock } = options;
   const policy = createDeterministicPolicyEngine({
@@ -146,6 +301,8 @@ export function createDeterministicActionRuntime(optionsInput: unknown): Determi
   const operationsInFlight = new Map<string, ExecutionLedgerEntry>();
   const unknownOperations = new Map<string, ToolExecutionReceipt>();
   const fixtureInvocationCounts = new Map<TenantId, number>();
+  const ledgerEntryCounts = new Map<TenantId, number>();
+  const timeoutUnknownDispatchedTenants = new Set<TenantId>();
 
   async function submitActionIntent(request: AuthorizedRequestContext, intentInput: unknown): Promise<ActionRuntimeResult> {
     const intent = parseActionIntent(intentInput);
@@ -165,6 +322,8 @@ export function createDeterministicActionRuntime(optionsInput: unknown): Determi
       if (existingIntent.fingerprint !== fingerprint) throw new ActionRuntimeIntentConflictError();
       return existingIntent.promise;
     }
+
+    assertLedgerCapacity(ledgerEntryCounts, context.tenantId, options.maxLedgerEntriesPerTenant);
 
     const now = clock.now();
     assertActionIntentActive(intent, now);
@@ -188,6 +347,7 @@ export function createDeterministicActionRuntime(optionsInput: unknown): Determi
     executions.set(idempotencyKey, entry);
     executionsByIntent.set(intentKey, entry);
     operationsInFlight.set(operationKey, entry);
+    incrementLedgerCount(ledgerEntryCounts, context.tenantId);
     void promise.then(
       () => {
         if (operationsInFlight.get(operationKey) === entry) operationsInFlight.delete(operationKey);
@@ -196,6 +356,7 @@ export function createDeterministicActionRuntime(optionsInput: unknown): Determi
         if (executions.get(idempotencyKey) === entry) executions.delete(idempotencyKey);
         if (executionsByIntent.get(intentKey) === entry) executionsByIntent.delete(intentKey);
         if (operationsInFlight.get(operationKey) === entry) operationsInFlight.delete(operationKey);
+        decrementLedgerCount(ledgerEntryCounts, context.tenantId);
       },
     );
     return promise;
@@ -236,14 +397,24 @@ export function createDeterministicActionRuntime(optionsInput: unknown): Determi
     const operation = resolveM0ReadOnlyCatalogLookup(intent);
     if (operation === null) throw new ActionRuntimeInvariantError();
     incrementFixtureInvocation(fixtureInvocationCounts, parseTenantId(intent.tenant_id));
-    const outcome = executePrivateReadOnlyCatalogFixture(operation);
+    const tenantId = parseTenantId(intent.tenant_id);
+    const forceTimeoutUnknown = fixtureExecutionMode === "timeout_once" && !timeoutUnknownDispatchedTenants.has(tenantId);
+    if (forceTimeoutUnknown) {
+      if (timeoutUnknownDispatchedTenants.size >= MAX_LEDGER_ENTRIES_PER_TENANT) {
+        throw new ActionRuntimeLedgerCapacityError();
+      }
+      timeoutUnknownDispatchedTenants.add(tenantId);
+    }
+    const outcome = executePrivateReadOnlyCatalogFixture(operation, forceTimeoutUnknown);
     if (outcome.status === "unknown") {
       const receipt = createReceipt({
         intent,
         status: "unknown",
         providerId: M0_RUNTIME_CATALOG_PROVIDER_ID,
         resultJson: null,
-        error: normalizedError("unknown_effect", "Execution effect requires reconciliation", false, "m0_unknown_fixture"),
+        error: forceTimeoutUnknown
+          ? normalizedError("timeout", "Execution outcome requires reconciliation after timeout", false, "m1_timeout_once")
+          : normalizedError("unknown_effect", "Execution effect requires reconciliation", false, "m0_unknown_fixture"),
         effectHash: null,
         startedAt,
         completedAt: startedAt,
@@ -271,7 +442,434 @@ export function createDeterministicActionRuntime(optionsInput: unknown): Determi
       const context = requireFixtureInspectionContext(request);
       return fixtureInvocationCounts.get(context.tenantId) ?? 0;
     },
+    reconcilePrivateUnknown(request: AuthorizedRequestContext, intentInput: ActionIntent): ToolExecutionReceipt {
+      const intent = parseActionIntent(intentInput);
+      const context = requireAuthorizedToolContext(request, intent);
+      const operationKey = canonicalOperationKey(intent);
+      const receipt = unknownOperations.get(operationKey);
+      if (
+        receipt === undefined
+        || receipt.intent_id !== intent.intent_id
+        || receipt.tenant_id !== context.tenantId
+        || receipt.status !== "unknown"
+      ) {
+        throw new ActionRuntimeUnknownEffectError();
+      }
+      unknownOperations.delete(operationKey);
+      return receipt;
+    },
   });
+}
+
+/**
+ * M1's server-owned command coordinator. It deliberately stays outside the
+ * Turn Driver and exposes a receipt-backed response candidate only.
+ */
+export function createDeterministicCatalogLookupCommandFlow(
+  optionsInput: unknown,
+): DeterministicCatalogLookupCommandFlow {
+  const options = normalizeCatalogLookupFlowOptions(optionsInput);
+  const actionRuntime = createDeterministicActionRuntimeCore({
+    clock: options.clock,
+    policy_fixture_mode: options.policyFixtureMode,
+    max_ledger_entries_per_tenant: options.maxLedgerEntriesPerTenant,
+  }, options.fakeExecutionMode);
+  const commandsByQuestion = new Map<string, CatalogLookupLedgerEntry>();
+  const operationsInFlight = new Map<string, CatalogLookupLedgerEntry>();
+  const unknownOperations = new Map<string, CatalogUnknownBarrier>();
+  const ledgerEntryCounts = new Map<TenantId, number>();
+
+  async function submitCatalogLookup(
+    request: AuthorizedRequestContext,
+    commandInput: unknown,
+  ): Promise<ReceiptBackedCatalogAnswer> {
+    const command = parseCatalogLookupCommand(commandInput);
+    const context = requireCatalogCommandContext(request);
+    const session = requireCatalogSessionAuthority(options.sessions, command.session_id, context);
+    const questionId = parseUuidV7(command.question_id, "question_id");
+    const questionKey = tenantQuestionKey(context.tenantId, questionId);
+    const fingerprint = catalogCommandFingerprint(command, context);
+    const existing = commandsByQuestion.get(questionKey);
+    if (existing !== undefined) {
+      if (existing.fingerprint !== fingerprint) throw new CatalogLookupCommandConflictError();
+      return (await existing.promise).answer;
+    }
+
+    const operationKey = catalogOperationKey(context.tenantId, command.plan_id);
+    if (unknownOperations.has(operationKey)) throw new ActionRuntimeUnknownEffectError();
+    if (operationsInFlight.has(operationKey)) throw new ActionRuntimeOperationInProgressError();
+    assertLedgerCapacity(ledgerEntryCounts, context.tenantId, options.maxLedgerEntriesPerTenant);
+
+    const now = options.clock.now();
+    const actionIntent = deriveCatalogLookupIntent(
+      command,
+      context,
+      now,
+      command.plan_id,
+    );
+    const promise = Promise.resolve().then(async () => {
+      const actionResult = await actionRuntime.submitActionIntent(request, actionIntent);
+      const answer = createReceiptBackedCatalogAnswer(command, context, actionIntent, actionResult);
+      if (actionResult.tool_execution_receipt.status === "unknown") {
+        const barrier: CatalogUnknownBarrier = Object.freeze({
+          questionKey,
+          fingerprint,
+          tenantId: context.tenantId,
+          sessionId: session.sessionId,
+          actorId: context.actorId,
+          actionIntent,
+          receipt: actionResult.tool_execution_receipt,
+        });
+        unknownOperations.set(operationKey, barrier);
+      }
+      return Object.freeze({ command, actionIntent, actionResult, answer });
+    });
+    const entry: CatalogLookupLedgerEntry = Object.freeze({ fingerprint, operationKey, promise });
+    commandsByQuestion.set(questionKey, entry);
+    operationsInFlight.set(operationKey, entry);
+    incrementLedgerCount(ledgerEntryCounts, context.tenantId);
+    void promise.then(
+      () => {
+        if (operationsInFlight.get(operationKey) === entry) operationsInFlight.delete(operationKey);
+      },
+      () => {
+        if (commandsByQuestion.get(questionKey) === entry) {
+          commandsByQuestion.delete(questionKey);
+          decrementLedgerCount(ledgerEntryCounts, context.tenantId);
+        }
+        if (operationsInFlight.get(operationKey) === entry) operationsInFlight.delete(operationKey);
+      },
+    );
+    return (await promise).answer;
+  }
+
+  async function reconcileUnknownCatalogLookup(
+    request: AuthorizedRequestContext,
+    commandInput: unknown,
+  ): Promise<CatalogLookupReconciliation> {
+    const command = parseCatalogLookupCommand(commandInput);
+    const context = requireCatalogCommandContext(request);
+    const session = requireCatalogSessionAuthority(options.sessions, command.session_id, context);
+    const questionId = parseUuidV7(command.question_id, "question_id");
+    const questionKey = tenantQuestionKey(context.tenantId, questionId);
+    const fingerprint = catalogCommandFingerprint(command, context);
+    const entry = commandsByQuestion.get(questionKey);
+    if (entry === undefined) throw new ActionRuntimeUnknownEffectError();
+    if (entry.fingerprint !== fingerprint) throw new CatalogLookupCommandConflictError();
+
+    const execution = await entry.promise;
+    const barrier = unknownOperations.get(entry.operationKey);
+    if (
+      barrier === undefined
+      || barrier.questionKey !== questionKey
+      || barrier.fingerprint !== fingerprint
+      || barrier.tenantId !== context.tenantId
+      || barrier.sessionId !== session.sessionId
+      || barrier.actorId !== context.actorId
+      || barrier.actionIntent !== execution.actionIntent
+      || barrier.receipt.intent_id !== execution.actionIntent.intent_id
+      || barrier.receipt.tenant_id !== context.tenantId
+      || barrier.receipt.status !== "unknown"
+    ) {
+      throw new ActionRuntimeUnknownEffectError();
+    }
+
+    const reconciledReceipt = actionRuntime.reconcilePrivateUnknown(request, execution.actionIntent);
+    if (canonicalJson(reconciledReceipt) !== canonicalJson(barrier.receipt)) {
+      throw new ActionRuntimeInvariantError();
+    }
+    unknownOperations.delete(entry.operationKey);
+    return Object.freeze({
+      reconciliation_id: deriveDeterministicActionUuid(barrier.receipt.execution_id, "catalog-reconcile"),
+      question_id: command.question_id,
+      session_id: command.session_id,
+      receipt_execution_id: barrier.receipt.execution_id,
+      status: "not_applied",
+    });
+  }
+
+  return Object.freeze({
+    submitCatalogLookup,
+    reconcileUnknownCatalogLookup,
+    readFakeCatalogInvocationCount(request: AuthorizedRequestContext): number {
+      requireCatalogCommandContext(request);
+      return actionRuntime.readM0FixtureInvocationCount(request);
+    },
+  });
+}
+
+/** Parse the generated M1 command at the untrusted application boundary. */
+export function parseCatalogLookupCommand(value: unknown): CatalogLookupCommand {
+  try {
+    const record = exactRecord(value, CATALOG_COMMAND_KEYS);
+    const questionId = parseUuidV7(readValue(record, "question_id"), "question_id");
+    const sessionId = parseSessionId(readValue(record, "session_id"));
+    const planId = enumValue(readValue(record, "plan_id"), CATALOG_COMMAND_PLAN_IDS);
+    if (readValue(record, "schema_version") !== "2.0.0") throw new ReceiptNormalizationError();
+    return Object.freeze({
+      schema_version: "2.0.0",
+      question_id: questionId,
+      session_id: sessionId,
+      plan_id: planId,
+    });
+  } catch {
+    throw new CatalogLookupCommandValidationError();
+  }
+}
+
+function requireCatalogCommandContext(request: AuthorizedRequestContext): TenantContext {
+  const context = getAuthorizedTenantContext(request);
+  if (
+    context.actorType !== "presenter"
+    || !context.grantedScopes.includes("session:read")
+    || !context.grantedScopes.includes("session:write")
+    || !context.grantedScopes.includes("tool:use")
+    || !context.purposes.includes("essential_processing")
+    || !context.purposes.includes("tool_auth")
+  ) {
+    throw new ActionRuntimeAuthorizationError();
+  }
+  return context;
+}
+
+function requireCatalogSessionAuthority(
+  sessions: ReadonlyMap<SessionId, CatalogLookupSessionBinding>,
+  sessionIdInput: unknown,
+  context: TenantContext,
+): CatalogLookupSessionBinding {
+  const sessionId = parseSessionId(sessionIdInput);
+  const session = sessions.get(sessionId);
+  if (
+    session === undefined
+    || session.tenantId !== context.tenantId
+    || session.presenterActorId !== context.actorId
+  ) {
+    throw new ActionRuntimeAuthorizationError();
+  }
+  return session;
+}
+
+function deriveCatalogLookupIntent(
+  command: CatalogLookupCommand,
+  context: TenantContext,
+  now: number,
+  planId: M0CatalogLookup["plan_id"],
+): ActionIntent {
+  const intentId = deriveDeterministicActionUuid(command.question_id, "catalog-command-intent");
+  return parseActionIntent({
+    schema_version: "2.0.0",
+    intent_id: intentId,
+    session_id: command.session_id,
+    tenant_id: context.tenantId,
+    actor_id: context.actorId,
+    actor_type: context.actorType,
+    tool_contract_id: "catalog.lookup",
+    action: "get_plan",
+    arguments_json: canonicalJson({ plan_id: planId }),
+    purpose: "answer_explicit_catalog_question",
+    idempotency_key: `catalog-question-${command.question_id}`,
+    requested_at: timestampFromMilliseconds(now),
+    expires_at: timestampFromMilliseconds(now + CATALOG_COMMAND_TTL_MS),
+  });
+}
+
+function createReceiptBackedCatalogAnswer(
+  command: CatalogLookupCommand,
+  context: TenantContext,
+  actionIntent: ActionIntent,
+  actionResult: ActionRuntimeResult,
+): ReceiptBackedCatalogAnswer {
+  const receipt = actionResult.tool_execution_receipt;
+  if (receipt.intent_id !== actionIntent.intent_id || receipt.tenant_id !== context.tenantId) {
+    throw new ActionRuntimeInvariantError();
+  }
+  if (actionResult.effect_confirmed) {
+    if (
+      receipt.status !== "succeeded"
+      || receipt.result_json === null
+      || receipt.effect_hash === null
+      || canonicalJson(actionResult.action_intent) !== canonicalJson(actionIntent)
+    ) {
+      throw new ActionRuntimeInvariantError();
+    }
+    const result = parseCatalogReceiptResult(receipt.result_json);
+    if (
+      result.planId !== command.plan_id
+      || sha256Canonical(result.raw) !== receipt.effect_hash
+      || canonicalJson(result.raw) !== receipt.result_json
+    ) {
+      throw new ActionRuntimeInvariantError();
+    }
+    const receiptSummary = Object.freeze({
+      execution_id: receipt.execution_id,
+      effect_hash: receipt.effect_hash,
+      error_code: null,
+      catalog_version: result.catalogVersion,
+      plan_id: result.planId,
+      status: receipt.status,
+    });
+    return Object.freeze({
+      tenant_id: context.tenantId,
+      question_id: command.question_id,
+      session_id: command.session_id,
+      confirmed: true,
+      response_text: `Catalog receipt ${receipt.execution_id} confirms ${result.planId} is available in catalog ${result.catalogVersion} with effect ${receipt.effect_hash}.`,
+      receipt: receiptSummary,
+    });
+  }
+
+  return Object.freeze({
+    tenant_id: context.tenantId,
+    question_id: command.question_id,
+    session_id: command.session_id,
+    confirmed: false,
+    response_text: `Catalog availability is not confirmed because receipt ${receipt.execution_id} is ${receipt.status}.`,
+    receipt: Object.freeze({
+      execution_id: receipt.execution_id,
+      effect_hash: null,
+      error_code: receipt.error?.code ?? null,
+      catalog_version: null,
+      plan_id: null,
+      status: receipt.status,
+    }),
+  });
+}
+
+function parseCatalogReceiptResult(resultJson: string): Readonly<{
+  raw: Readonly<Record<string, string>>;
+  catalogVersion: string;
+  planId: "starter" | "growth";
+}> {
+  try {
+    const parsed = JSON.parse(resultJson);
+    const record = exactRecord(parsed, ["catalog_version", "plan_id", "status"]);
+    const catalogVersion = boundedString(readValue(record, "catalog_version"), 1, 80);
+    const planId = enumValue(readValue(record, "plan_id"), CATALOG_COMMAND_PLAN_IDS);
+    if (readValue(record, "status") !== "available") throw new ReceiptNormalizationError();
+    return Object.freeze({
+      raw: Object.freeze({ catalog_version: catalogVersion, plan_id: planId, status: "available" }),
+      catalogVersion,
+      planId,
+    });
+  } catch {
+    throw new ActionRuntimeInvariantError();
+  }
+}
+
+function catalogCommandFingerprint(command: CatalogLookupCommand, context: TenantContext): string {
+  return sha256(canonicalJson({
+    question_id: command.question_id,
+    session_id: command.session_id,
+    plan_id: command.plan_id,
+    actor_id: context.actorId,
+    actor_type: context.actorType,
+  }));
+}
+
+function catalogOperationKey(tenantId: TenantId, planId: "starter" | "growth"): string {
+  return sha256(canonicalJson({
+    tenant_id: tenantId,
+    tool_contract_id: "catalog.lookup",
+    action: "get_plan",
+    arguments_json: canonicalJson({ plan_id: planId }),
+  }));
+}
+
+function tenantQuestionKey(tenantId: TenantId, questionId: UuidV7): string {
+  return `${tenantId}\u0000${questionId}`;
+}
+
+function normalizeCatalogLookupFlowOptions(value: unknown): NormalizedCatalogLookupFlowOptions {
+  try {
+    const record = catalogFlowOptionsRecord(value);
+    const runtimeInput: Record<string, unknown> = { clock: readValue(record, "clock") };
+    const policyFixtureMode = Object.getOwnPropertyDescriptor(record, "policy_fixture_mode");
+    const ledgerCapacity = Object.getOwnPropertyDescriptor(record, "max_ledger_entries_per_tenant");
+    if (policyFixtureMode !== undefined) runtimeInput.policy_fixture_mode = policyFixtureMode.value;
+    if (ledgerCapacity !== undefined) runtimeInput.max_ledger_entries_per_tenant = ledgerCapacity.value;
+    const runtimeOptions = normalizeRuntimeOptions(runtimeInput);
+    const fakeModeDescriptor = Object.getOwnPropertyDescriptor(record, "fake_execution_mode");
+    const fakeExecutionMode = fakeModeDescriptor === undefined
+      ? "default"
+      : enumValue(fakeModeDescriptor.value, ["default", "timeout_once"] as const);
+    if (fakeExecutionMode === "timeout_once" && runtimeOptions.policyFixtureMode !== "default") {
+      throw new ActionRuntimeConfigurationError();
+    }
+    const sessions = normalizeCatalogSessionAuthorities(readValue(record, "sessions"));
+    return Object.freeze({
+      clock: runtimeOptions.clock,
+      policyFixtureMode: runtimeOptions.policyFixtureMode,
+      fakeExecutionMode,
+      maxLedgerEntriesPerTenant: runtimeOptions.maxLedgerEntriesPerTenant,
+      sessions,
+    });
+  } catch (error) {
+    if (error instanceof ActionRuntimeConfigurationError) throw error;
+    throw new ActionRuntimeConfigurationError();
+  }
+}
+
+function catalogFlowOptionsRecord(value: unknown): Record<string, unknown> {
+  if (value === null || typeof value !== "object" || Array.isArray(value) || Object.getPrototypeOf(value) !== Object.prototype) {
+    throw new ReceiptNormalizationError();
+  }
+  if (Object.getOwnPropertySymbols(value).length > 0) throw new ReceiptNormalizationError();
+  const keys = Object.getOwnPropertyNames(value).sort();
+  if (
+    keys.length < 2
+    || keys.length > CATALOG_FLOW_OPTION_KEYS.length
+    || !keys.includes("clock")
+    || !keys.includes("sessions")
+    || keys.some((key) => !(CATALOG_FLOW_OPTION_KEYS as readonly string[]).includes(key))
+  ) {
+    throw new ReceiptNormalizationError();
+  }
+  for (const key of keys) {
+    const descriptor = Object.getOwnPropertyDescriptor(value, key);
+    if (descriptor === undefined || !("value" in descriptor)) throw new ReceiptNormalizationError();
+  }
+  return value as Record<string, unknown>;
+}
+
+function normalizeCatalogSessionAuthorities(value: unknown): ReadonlyMap<SessionId, CatalogLookupSessionBinding> {
+  const values = strictArray(value);
+  if (values.length === 0 || values.length > MAX_CATALOG_SESSION_AUTHORITIES) {
+    throw new ActionRuntimeConfigurationError();
+  }
+  const sessions = new Map<SessionId, CatalogLookupSessionBinding>();
+  for (const raw of values) {
+    try {
+      const record = exactRecord(raw, ["presenter_actor_id", "session_id", "tenant_id"]);
+      const binding: CatalogLookupSessionBinding = Object.freeze({
+        tenantId: parseTenantId(readValue(record, "tenant_id")),
+        sessionId: parseSessionId(readValue(record, "session_id")),
+        presenterActorId: parseActorId(readValue(record, "presenter_actor_id")),
+      });
+      if (sessions.has(binding.sessionId)) throw new ReceiptNormalizationError();
+      sessions.set(binding.sessionId, binding);
+    } catch {
+      throw new ActionRuntimeConfigurationError();
+    }
+  }
+  return sessions;
+}
+
+function strictArray(value: unknown): readonly unknown[] {
+  if (!Array.isArray(value) || Object.getPrototypeOf(value) !== Array.prototype || Object.getOwnPropertySymbols(value).length > 0) {
+    throw new ReceiptNormalizationError();
+  }
+  const names = Object.getOwnPropertyNames(value).sort();
+  const expectedNames = ["length", ...Array.from({ length: value.length }, (_, index) => String(index))].sort();
+  if (names.length !== expectedNames.length || names.some((name, index) => name !== expectedNames[index])) {
+    throw new ReceiptNormalizationError();
+  }
+  const normalized: unknown[] = [];
+  for (let index = 0; index < value.length; index += 1) {
+    const descriptor = Object.getOwnPropertyDescriptor(value, String(index));
+    if (descriptor === undefined || !("value" in descriptor)) throw new ReceiptNormalizationError();
+    normalized.push(descriptor.value);
+  }
+  return Object.freeze(normalized);
 }
 
 function requireAuthorizedToolContext(request: AuthorizedRequestContext, intent: ActionIntent): TenantContext {
@@ -295,8 +893,11 @@ function requireFixtureInspectionContext(request: AuthorizedRequestContext): Ten
   return context;
 }
 
-function executePrivateReadOnlyCatalogFixture(operation: M0CatalogLookup): PrivateFixtureOutcome {
-  if (operation.plan_id === "unknown_effect") {
+function executePrivateReadOnlyCatalogFixture(
+  operation: M0CatalogLookup,
+  forceTimeoutUnknown = false,
+): PrivateFixtureOutcome {
+  if (forceTimeoutUnknown || operation.plan_id === "unknown_effect") {
     return Object.freeze({ status: "unknown", result: null });
   }
   return Object.freeze({
@@ -311,6 +912,36 @@ function executePrivateReadOnlyCatalogFixture(operation: M0CatalogLookup): Priva
 
 function incrementFixtureInvocation(counts: Map<TenantId, number>, tenantId: TenantId): void {
   counts.set(tenantId, (counts.get(tenantId) ?? 0) + 1);
+}
+
+function parseLedgerCapacity(value: unknown): number {
+  if (
+    typeof value !== "number"
+    || !Number.isSafeInteger(value)
+    || value < 1
+    || value > MAX_LEDGER_ENTRIES_PER_TENANT
+  ) {
+    throw new ActionRuntimeConfigurationError();
+  }
+  return value;
+}
+
+function assertLedgerCapacity(counts: ReadonlyMap<TenantId, number>, tenantId: TenantId, maximum: number): void {
+  if ((counts.get(tenantId) ?? 0) >= maximum) throw new ActionRuntimeLedgerCapacityError();
+}
+
+function incrementLedgerCount(counts: Map<TenantId, number>, tenantId: TenantId): void {
+  counts.set(tenantId, (counts.get(tenantId) ?? 0) + 1);
+}
+
+function decrementLedgerCount(counts: Map<TenantId, number>, tenantId: TenantId): void {
+  const current = counts.get(tenantId);
+  if (current === undefined || current < 1) throw new ActionRuntimeInvariantError();
+  if (current === 1) {
+    counts.delete(tenantId);
+    return;
+  }
+  counts.set(tenantId, current - 1);
 }
 
 function createRuntimeResult(
@@ -423,6 +1054,7 @@ function sha256(value: string): string {
 function normalizeRuntimeOptions(value: unknown): Readonly<{
   clock: ActionRuntimeClock;
   policyFixtureMode: "default" | "require_approval";
+  maxLedgerEntriesPerTenant: number;
 }> {
   try {
     const record = runtimeOptionsRecord(value);
@@ -440,6 +1072,10 @@ function normalizeRuntimeOptions(value: unknown): Readonly<{
     const policyFixtureMode = fixtureModeDescriptor === undefined
       ? "default"
       : enumValue(fixtureModeDescriptor.value, ["default", "require_approval"] as const);
+    const capacityDescriptor = Object.getOwnPropertyDescriptor(record, "max_ledger_entries_per_tenant");
+    const maxLedgerEntriesPerTenant = capacityDescriptor === undefined
+      ? DEFAULT_LEDGER_ENTRIES_PER_TENANT
+      : parseLedgerCapacity(capacityDescriptor.value);
     return Object.freeze({
       clock: Object.freeze({
         now(): number {
@@ -452,6 +1088,7 @@ function normalizeRuntimeOptions(value: unknown): Readonly<{
         },
       }),
       policyFixtureMode,
+      maxLedgerEntriesPerTenant,
     });
   } catch (error) {
     if (error instanceof ActionRuntimeConfigurationError) throw error;

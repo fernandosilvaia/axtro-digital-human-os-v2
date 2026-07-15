@@ -8,12 +8,12 @@ O LLM não possui autoridade. Ele produz `action_intent`. O runtime resolve poli
 
 ```mermaid
 sequenceDiagram
-  participant L as Presenter/Fast Lane
+  participant C as Catalog Coordinator
   participant A as Action Runtime
   participant P as Policy Engine
   participant H as Human Approval
   participant T as Tool Adapter
-  L->>A: action_intent
+  C->>A: server-derived action_intent
   A->>A: schema + precondition validation
   A->>P: evaluate intent and actor
   P-->>A: policy_decision
@@ -23,7 +23,7 @@ sequenceDiagram
   end
   A->>T: idempotent execute
   T-->>A: tool_execution_receipt
-  A-->>L: confirmed result for next turn
+  A-->>C: receipt-backed candidate for a later turn
 ```
 
 ## Risk classes
@@ -49,6 +49,23 @@ M0 usa uma fixture de catálogo determinística dentro de `@axtro/tool-runtime`.
 O runtime aceita somente contexto de request autenticado e `ActionIntent`. Ele cria o `PolicyDecision` e o `ToolExecutionReceipt`. Um intent negado produz receipt sem sucesso, exigência de approval produz receipt `pending`, e nenhum deles chega à fixture. Replay usa fingerprint canônico por tenant. Um resultado `unknown` bloqueia retry automático da mesma operação canônica, mesmo com nova chave de idempotência, até existir reconciliação.
 
 O perfil de approval de M0 é uma opção fechada de composição que somente torna a policy mais restritiva para teste. Não é enviado pelo modelo nem deriva de `purpose`, argumentos ou receipt. A fixture padrão mantém o contrato `catalog.lookup` ativo: `tenant_installation`, `read_tenant`, `internal`, sem side effects e atores `presenter` ou `workflow`.
+
+### Consulta explícita M1
+
+M1-05 adiciona somente o `catalog_lookup_command` fechado e um coordenador
+server-side fora do Turn Driver, Fast Lane, Session Actor, mídia e publicação
+Presenter. O comando não aceita texto, tenant, ator, ferramenta, provider,
+policy, receipt, key de idempotência, timeout ou resultado. O coordenador usa
+o contexto autenticado e uma autoridade de sessão server-side para derivar um
+`ActionIntent`, submetê-lo a Policy e retornar uma candidata baseada no
+`ToolExecutionReceipt`.
+
+Uma candidata só confirma disponibilidade quando o receipt é `succeeded`,
+pertence ao tenant e intent derivados, tem resultado canônico e hash de efeito
+correspondente. Ela cita os dados do próprio receipt, mas não grava timeline e
+não produz fala automática. O modo fake de timeout é fechado na composição;
+`unknown` bloqueia nova pergunta para a mesma operação até reconciliação
+autenticada que determina `not_applied`. O `ToolPort` continua fechado.
 
 ## State reduction
 

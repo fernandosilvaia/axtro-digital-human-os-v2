@@ -55,6 +55,13 @@ class BehaviorDirective(TypedDict):
     generated_at: str
     expires_at: str
 
+# Source: contracts/schemas/catalog_lookup_command.schema.json; schema: https://schemas.axtro.ai/v2/catalog_lookup_command.schema.json; version: 2.0.0.
+class CatalogLookupCommand(TypedDict):
+    schema_version: Literal['2.0.0']
+    question_id: str
+    session_id: str
+    plan_id: Literal['starter', 'growth']
+
 # Source: contracts/schemas/consent_evidence.schema.json; schema: https://schemas.axtro.ai/v2/consent_evidence.schema.json; version: 2.0.0.
 class ConsentEvidence(TypedDict):
     schema_version: Literal['2.0.0']
@@ -598,6 +605,12 @@ CONTRACT_METADATA: dict[str, dict[str, str]] = {
     "source_hash": "c39247db6b39501972745ca9e0920416751e92bbdeb1c83f7b3445405fe7454c",
     "source_schema": "contracts/schemas/behavior_directive.schema.json"
   },
+  "CatalogLookupCommand": {
+    "schema_id": "https://schemas.axtro.ai/v2/catalog_lookup_command.schema.json",
+    "schema_version": "2.0.0",
+    "source_hash": "c4a96b99df44cd0cc22f400288f979989500e5c19430371fdedbfff834d0058f",
+    "source_schema": "contracts/schemas/catalog_lookup_command.schema.json"
+  },
   "ConsentEvidence": {
     "schema_id": "https://schemas.axtro.ai/v2/consent_evidence.schema.json",
     "schema_version": "2.0.0",
@@ -822,6 +835,7 @@ __all__ = [
     'ActionIntent',
     'AgentSuggestion',
     'BehaviorDirective',
+    'CatalogLookupCommand',
     'ConsentEvidence',
     'ContextComposition',
     'ConversationState',
