@@ -44,7 +44,7 @@ flowchart LR
 
 | Processo | Linguagem recomendada | Responsabilidade | Escala |
 |---|---|---|---|
-| `apps/web` | TypeScript/Next.js | console, sala, administração | request based |
+| `apps/web` | TypeScript SSR framework-neutral em M1; shell Next.js opcional depois de browser auth | console, sala, administração | request based |
 | `apps/api` | TypeScript/NestJS ou Fastify modular | Control Plane e APIs | stateless |
 | `apps/realtime-worker` | Python/LiveKit Agents | Session Actor e media loop | por sessão/job |
 | `apps/event-relay` | TypeScript determinístico | claim bounded do outbox e consumer idempotente da timeline | uma tentativa por job |

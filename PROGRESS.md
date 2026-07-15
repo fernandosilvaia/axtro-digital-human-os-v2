@@ -3,8 +3,8 @@
 **Estado atual:** implementação de M1 em andamento
 
 **Marco atual:** M1
-**Tarefa atual:** M1-08
-**Última evidência verde:** M1-08 com workflow pós-call fake resumível, PostgreSQL e RLS locais, 191 testes Node, 23 testes Python e 9 validadores verdes em 2026-07-15
+**Tarefa atual:** M1-09
+**Última evidência verde:** M1-09 com console SSR tenant-safe, PostgreSQL e RLS locais, 206 testes Node, 23 testes Python e 9 validadores verdes em 2026-07-15
 **Bloqueadores internos:** nenhum
 **Pendências externas:** consultar `PENDENCIAS_EXTERNAS.md`  
 
@@ -45,7 +45,7 @@
 | `M1-06` | M1 | done | Implement timeline, snapshots and replay verifier | `M1-02`, `M0-13` | timeline append-only tenant-scoped, snapshot derivado do replay, equivalência zero versus snapshot mais tail, migration 0010, rollback, drift, RLS e 166 testes Node mais 23 Python verdes |
 | `M1-07` | M1 | done | Implement outbox relay and idempotent consumers | `M0-13`, `M1-06` | state machine bounded, token histórico, lease exclusivo, budget pinado, timeline idempotente, DLQ PII-free, telemetria tenant-safe e 180 testes Node mais 23 Python verdes |
 | `M1-08` | M1 | done | Implement fake post-call workflow | `M1-07` | consumer composto, quatro checkpoints, resumo e avaliação fake, follow-up noop idempotente, resume, retry, cancelamento, migration 0011, RLS e 191 testes Node mais 23 Python verdes |
-| `M1-09` | M1 | pending | Build minimal operations console | `M1-01`, `M1-06` | pending |
+| `M1-09` | M1 | done | Build minimal operations console | `M1-01`, `M1-06` | lifecycle-first, replay canônico, receipts governados, custos exatos, 404 cross-tenant sem leituras secundárias, CSP hash-pinned, accessibility smoke e 206 testes Node mais 23 Python verdes |
 | `M1-10` | M1 | pending | Walking Skeleton E2E and failure suite | `M1-04`, `M1-05`, `M1-06`, `M1-07`, `M1-08`, `M1-09` | pending |
 | `M1-11` | M1 | pending | M1 release gate | `M1-10` | pending |
 | `M2-01` | M2 | pending | Implement channel adapter and native-room transport boundary | `M1-11`, `M0-11` | pending |
@@ -366,6 +366,26 @@
 - Riscos não bloqueantes: o store TypeScript é process-local e prova restart de worker sobre o mesmo estado, não recuperação após perda do processo. Um adapter PostgreSQL futuro precisa de ledger histórico de claims abandonados antes de poder ser declarado seguro. O consumer composto é propositalmente específico, não um mecanismo geral de fanout.
 - Nenhuma credencial real, ambiente de produção, banco remoto, deploy, provider real, M2 ou M3 foi acessado ou iniciado.
 
+### 2026-07-15, M1-09 iniciado
+
+- Dependências M1-01 e M1-06 já estão concluídas e validadas. M1-08 foi concluída separadamente no commit `cc4e1af` antes deste início.
+- Escopo fechado ao console operacional mínimo definido no task graph, usando somente autoridades locais de lifecycle e timeline, dados fake determinísticos e isolamento tenant. Nenhum deploy, provider real, M2 ou M3 será iniciado.
+
+### 2026-07-15, M1-09 concluído
+
+- Criados `@axtro/ui` e `apps/web` sem framework, servidor, socket ou dependência de produção nova. O renderer SSR produz documentos sem script para estados populated, empty, loading e error, com landmarks semânticos, skip link, foco visível, timeline ordenada, tabelas navegáveis e labels de receipt e hipótese distintas por texto, símbolo, borda e cor.
+- A rota privada `/operations/sessions/:session_id` recebe somente um `AuthorizedRequestContext` já resolvido, exige `human_operator`, `session:read` e `essential_processing`, rejeita tenant selector e consulta `SessionLifecycleApplication.getSession()` antes de toda fonte secundária. Sessão estrangeira e inexistente compartilham o mesmo 404 e os testes provam zero chamadas de timeline, actions e costs após a negação.
+- O read model usa exclusivamente a timeline autoritativa M1-06, rejeita gaps, inversões, duplicatas e divergência com lifecycle, refaz o replay e o state hash, limita cada página a 100 itens e o replay a 10.000 envelopes e 5 MB UTF-8. Cursor 100/101, overflow e budget agregado possuem provas positivas e negativas.
+- A projeção de ações é somente leitura e retém apenas campos allowlisted. Cada linha valida `ActionIntent`, `PolicyDecision` e `ToolExecutionReceipt` por tenant, sessão derivada do intent, identidade, janela temporal, outcome `allow` para sucesso, JSON canônico e hash criptográfico do resultado. A entrada é limitada a 10.000 registros, 100 por sessão e 5 MB cumulativos; nenhum método do Action Runtime ou ToolPort chega à UI.
+- Custos são consultados somente após autorização da sessão, validados contra tenant e sessão exatos, limitados a 100 buckets e somados com `BigInt` em escala fixa. Totais estimados, medidos e reportados pelo provider permanecem separados e são reconciliados pelo renderer com os buckets.
+- O renderer copia somente data descriptors para snapshot imutável, rejeita getters, proxies inconsistentes, controles bidi, timestamps inválidos, enums herdados, páginas que ocultam remanescente e totais contraditórios. Texto dinâmico é escapado e payload, transcript, arguments, result, erro bruto, provider code, external refs e rate-card refs não entram no HTML.
+- A resposta envia CSP fechada com hash exato do stylesheet, `private, no-store`, `nosniff`, frame denial, permissions policy e referrer policy. A telemetria web usa valores fechados e trace root tenant-only com `session_id=null`, impedindo que um deep link estrangeiro associe a sessão não autorizada ao tenant solicitante em spans ou logs.
+- ADR-030, D-V2-040, arquitetura de sistema, matriz de rastreabilidade, README e índice de ADRs registram a escolha reversível por SSR framework-neutral, a ausência deliberada de browser auth e a inexistência de contrato wire novo.
+- Revisões independentes finais de arquitetura, segurança e testes aprovaram o snapshot. Achados intermediários sobre telemetria pré-autorização, hash de receipt, budgets, policy deny com sucesso, página vazia e caps simultâneos foram corrigidos e ganharam testes de regressão. O veredito final não deixou P0, P1 ou P2 arquitetural aberto.
+- Evidências verdes: `pnpm lint`; `pnpm contracts:check` com 47 schemas; `pnpm typecheck`; `pnpm test` com 206 testes Node e 23 unittest Python; `uv run pytest` com 23 testes; `pnpm build`; `pnpm db:test`; `pnpm db:rls`; `python3 scripts/validate_all.py` com 9 checks, 42 tabelas e 11 migrations; e `git diff --check`.
+- Riscos não bloqueantes: a rota é um adapter SSR interno, não um servidor HTTP nem browser auth; a projeção de receipts é process-local e injetada no bootstrap; a M1-10 deve provar o produtor real do Action Runtime até o console; o teste de acessibilidade é smoke estrutural, não auditoria WCAG com browser; cada refresh ainda refaz até 5 MB de replay e deve migrar para snapshot mais tail e admission control antes de exposição HTTP real.
+- Nenhuma credencial real, ambiente de produção, banco remoto, deploy, provider real, execução direta de ferramenta, M2 ou M3 foi acessado ou iniciado.
+
 ### 2026-07-14, baseline arquitetural
 
 - 31 schemas estritos e 62 exemplos de contrato preparados.
@@ -374,4 +394,4 @@
 
 ## Próxima ação
 
-Iniciar M1-09 em uma atualização separada: console operacional mínimo sobre as autoridades de lifecycle e timeline já concluídas, sem iniciar M2 ou M3.
+Iniciar M1-10 em uma atualização separada: suíte E2E completa do Walking Skeleton e matriz de falhas, sem iniciar M2 ou M3.

@@ -25,6 +25,7 @@ export const TELEMETRY_SCHEMA_VERSION = "1.0.0" as const;
 
 export const TELEMETRY_SERVICE_NAMES = [
   "api",
+  "web",
   "realtime-worker",
   "provider-fake",
   "workflow-worker",
@@ -36,6 +37,7 @@ export type TelemetryServiceName = (typeof TELEMETRY_SERVICE_NAMES)[number];
 
 export const TELEMETRY_SPAN_NAMES = [
   "api.request",
+  "web.request",
   "api.authentication",
   "session.command",
   "session.reduce",
@@ -60,6 +62,9 @@ export const TELEMETRY_EVENT_CODES = [
   "api.request.started",
   "api.request.completed",
   "api.request.failed",
+  "web.request.started",
+  "web.request.completed",
+  "web.request.failed",
   "worker.turn.started",
   "worker.turn.completed",
   "worker.turn.failed",
@@ -117,6 +122,10 @@ export interface InternalTraceCarrier {
 }
 
 export interface PublicApiTraceInput {
+  readonly tenantId: unknown;
+}
+
+export interface PublicWebTraceInput {
   readonly tenantId: unknown;
 }
 
@@ -265,6 +274,7 @@ const LOCAL_PROVIDER_REFERENCE_PATTERN = /^local-[0-9a-f]{16}$/;
 const ATTRIBUTE_VALUE_REGISTRY: Readonly<Record<EnumeratedTelemetryAttributeKey, readonly string[]>> = Object.freeze({
   component: [
     "api",
+    "operations_console",
     "authentication",
     "turn_coordinator",
     "realtime_worker",
@@ -274,6 +284,7 @@ const ATTRIBUTE_VALUE_REGISTRY: Readonly<Record<EnumeratedTelemetryAttributeKey,
     "action_runtime",
   ],
   route_template: [
+    "/operations/sessions/:session_id",
     "/v1/sessions",
     "/v1/sessions/:session_id",
     "/v1/sessions/:session_id/activate",
@@ -299,6 +310,7 @@ const ATTRIBUTE_VALUE_REGISTRY: Readonly<Record<EnumeratedTelemetryAttributeKey,
   outcome: ["success", "failure", "cancelled", "timeout", "denied"],
   error_code: TELEMETRY_ERROR_CODES,
   operation: [
+    "view_operations_session",
     "create_session",
     "activate_session",
     "submit_turn",
@@ -400,6 +412,22 @@ export class TelemetryRuntime {
     return freezeContext({
       serviceName: "api",
       tenantId,
+      sessionId: null,
+      traceId: this.#newTraceId(),
+      traceFlags: "01",
+      correlationId: this.#newCorrelationId(),
+      causationId: null,
+      parentSpanId: null,
+    });
+  }
+
+  /** Authorized server-side web views receive their own server-minted root trace. */
+  startPublicWebTrace(input: PublicWebTraceInput): TelemetryContext {
+    const record = plainRecord(input);
+    assertAllowedKeys(record, ["tenantId"]);
+    return freezeContext({
+      serviceName: "web",
+      tenantId: parseTenant(readRequired(record, "tenantId")),
       sessionId: null,
       traceId: this.#newTraceId(),
       traceFlags: "01",

@@ -23,8 +23,10 @@
     { "path": "./packages/session-runtime" },
     { "path": "./packages/context-composer" },
     { "path": "./packages/turns" },
+    { "path": "./packages/ui" },
     { "path": "./apps/api" },
     { "path": "./apps/event-relay" },
+    { "path": "./apps/web" },
     { "path": "./apps/workflow-worker" }
   ]
 }

@@ -6,16 +6,18 @@ O primeiro produto é o **Sales Closer Role Pack**, mas o kernel não é acoplad
 
 ## Estado real da entrega
 
-**Pronto para implementação dos marcos M0, M1 e M2 pelo Codex.**
+**M0 concluído e M1 em execução, com a Foundation verde e o Walking Skeleton implementado até o console operacional M1-09.**
 
-Isso significa que a equipe pode iniciar hoje:
+O repositório já contém:
 
-- fundação do monorepo e CI;
-- contratos e code generation;
-- tenancy, RLS e audit trail;
-- Walking Skeleton de uma sessão;
-- Human Presence Spike com voz, interrupção, avatar substituível e cena controlada;
+- fundação modular, gates locais e CI;
+- 47 contratos com code generation determinístico;
+- tenancy, RLS, autenticação fake e audit trail;
+- lifecycle, Session Actor, turnos textuais, contexto bounded, ações governadas, timeline, relay e workflow pós-call fake;
+- console SSR tenant-safe com estado, timeline, receipts e custos;
 - provider fakes para desenvolver sem credenciais.
+
+M1-10 e M1-11 ainda precisam fechar a demo E2E e o release gate. M2 não foi iniciado.
 
 A produção com providers reais continua condicionada a credenciais, termos comerciais, bake-off de qualidade e validações regulatórias listadas em `PENDENCIAS_EXTERNAS.md`.
 

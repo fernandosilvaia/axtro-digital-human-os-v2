@@ -33,3 +33,4 @@ Accepted decisions for V2. The Constitution has precedence. A change to an accep
 | `ADR-027-authoritative-session-timeline-replay.md` | Authoritative session timeline and replay verification | Accepted |
 | `ADR-028-bounded-outbox-relay-and-idempotent-timeline-consumer.md` | Bounded outbox relay and idempotent timeline consumer | Accepted |
 | `ADR-029-checkpointed-post-call-workflow-fake.md` | Checkpointed post-call workflow fake | Accepted |
+| `ADR-030-framework-neutral-operations-console.md` | Framework-neutral read-only operations console | Accepted |

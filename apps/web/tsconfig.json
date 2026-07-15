@@ -1,0 +1,20 @@
+{
+  "extends": "../../tsconfig.package.json",
+  "compilerOptions": {
+    "rootDir": "src",
+    "outDir": "dist",
+    "tsBuildInfoFile": "dist/.tsbuildinfo"
+  },
+  "include": ["src/**/*.ts"],
+  "references": [
+    { "path": "../../packages/auth" },
+    { "path": "../../packages/contracts-ts" },
+    { "path": "../../packages/costing" },
+    { "path": "../../packages/domain" },
+    { "path": "../../packages/events" },
+    { "path": "../../packages/observability" },
+    { "path": "../../packages/policy" },
+    { "path": "../../packages/session-application" },
+    { "path": "../../packages/ui" }
+  ]
+}

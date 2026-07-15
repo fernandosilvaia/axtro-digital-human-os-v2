@@ -63,6 +63,36 @@ importers:
         specifier: workspace:*
         version: link:../../packages/workflows
 
+  apps/web:
+    dependencies:
+      '@axtro/auth':
+        specifier: workspace:*
+        version: link:../../packages/auth
+      '@axtro/contracts-ts':
+        specifier: workspace:*
+        version: link:../../packages/contracts-ts
+      '@axtro/costing':
+        specifier: workspace:*
+        version: link:../../packages/costing
+      '@axtro/domain':
+        specifier: workspace:*
+        version: link:../../packages/domain
+      '@axtro/events':
+        specifier: workspace:*
+        version: link:../../packages/events
+      '@axtro/observability':
+        specifier: workspace:*
+        version: link:../../packages/observability
+      '@axtro/policy':
+        specifier: workspace:*
+        version: link:../../packages/policy
+      '@axtro/session-application':
+        specifier: workspace:*
+        version: link:../../packages/session-application
+      '@axtro/ui':
+        specifier: workspace:*
+        version: link:../../packages/ui
+
   apps/workflow-worker:
     dependencies:
       '@axtro/auth':
@@ -277,6 +307,8 @@ importers:
       '@axtro/session-runtime':
         specifier: workspace:*
         version: link:../session-runtime
+
+  packages/ui: {}
 
   packages/voice-gateway:
     dependencies:
