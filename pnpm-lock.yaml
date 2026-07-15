@@ -288,6 +288,8 @@ importers:
         specifier: workspace:*
         version: link:../events
 
+  packages/specialist-fabric: {}
+
   packages/tool-runtime:
     dependencies:
       '@axtro/auth':

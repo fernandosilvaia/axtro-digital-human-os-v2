@@ -3,7 +3,7 @@
 **Estado atual:** M0 Foundation e M1 Walking Skeleton concluídos; M2 Human Presence Spike em execução autônoma controlada
 
 **Marco atual:** M2
-**Tarefa atual:** M2-07
+**Tarefa atual:** M2-08
 **Última evidência verde:** M1-11 com pipeline completa, 209 testes Node, 23 unittest Python, 23 pytest, 2 testes E2E, PostgreSQL local, RLS e 9 validadores verdes em 2026-07-15
 **Bloqueadores internos:** nenhum
 **Pendências externas:** consultar `PENDENCIAS_EXTERNAS.md`  
@@ -55,7 +55,7 @@
 | `M2-05` | M2 | done | Implement Behavior and Presence Director | `M2-02`, `M0-03` | 10 estados canônicos, `BehaviorIntent` fechado, scheduler determinístico por seed, 10 testes Node verdes |
 | `M2-06` | M2 | done | Implement avatar port, fake and cancellation semantics | `M2-01`, `M2-05`, `M0-12` | `AvatarSession` com resultado tipado (nunca exceção), 4 testes Node verdes |
 | `M2-07` | M2 | done | Implement Scene and Presentation Director | `M2-01`, `M0-03` | `SceneManifestRegistry` fechado + `SceneDirector` com fencing por geração, 10 testes Node verdes |
-| `M2-08` | M2 | pending | Implement silent Specialist Fabric | `M1-04`, `M0-12` | pending |
+| `M2-08` | M2 | done | Implement silent Specialist Fabric | `M1-04`, `M0-12` | Fila bounded + bulkhead por tipo, deadline racing, One Mouth por omissão de API, 8 testes Node verdes |
 | `M2-09` | M2 | pending | Implement perception signal bus and quality state | `M2-02`, `M0-03` | pending |
 | `M2-10` | M2 | pending | Implement degradation and recovery controller | `M2-03`, `M2-04`, `M2-06`, `M2-07` | pending |
 | `M2-11` | M2 | pending | Instrument realtime latency, quality and cost | `M2-03`, `M2-06`, `M2-07`, `M0-16` | pending |
@@ -488,6 +488,16 @@
 - `pnpm lint`, `tsc --build` completo e `node scripts/test.mjs` (264 testes Node, 23 unittest Python) verdes.
 - Nenhuma credencial real, produção, provider real, deploy, migration remota ou M3 foi acessado ou iniciado.
 
+### 2026-07-15, M2-08 concluído
+
+- `@axtro/specialist-fabric` implementa os 7 tipos do catálogo (`product`, `pricing`, `compliance`, `research`, `proposal`, `tool_planner`, `fact_checker`) com `SpecialistRequest`/`SpecialistResult` fechados; todo resultado carrega `untrusted: true`, `expiresAtMs` e nunca um campo de fala — a superfície pública da fábrica (`registerHandler`, `request`, `metrics`) mecanicamente não tem método de publicação, então o One Mouth Rule é garantido por omissão de API, não por convenção.
+- Bulkhead e fila bounded por `specialistType`: acima de `maxConcurrencyPerType` as requisições entram numa fila bounded por `maxQueueDepthPerType`; excedido isso, `rejected_queue_full` imediato — um especialista lento nunca consome todos os workers de outro tipo.
+- Toda requisição corre contra o próprio `deadlineMs` via `Promise.race`; ao vencer o prazo o handler é abortado e a chamada retorna `timeout` no tempo do deadline, não no tempo real do handler. Uma resolução tardia após o timeout nunca é entregue nem contabilizada como `completed`.
+- Saída do handler é validada estruturalmente (`confidence` em 0..1, `ttlMs` positivo e limitado, arrays de fontes/assumções/claims fechados); saída malformada vira `invalid_result` em vez de propagar um resultado corrompido.
+- 8 testes novos em `tests/realtime/specialist-fabric.test.mjs`: resultado completo e expirável, timeout no prazo do request, descarte de resolução tardia, resultado inválido, bulkhead com fila e overflow, ausência mecânica de superfície de publicação, tipo não registrado como erro de wiring, e requisição malformada rejeitada antes do handler.
+- `pnpm lint`, `tsc --build` completo e `node scripts/test.mjs` (272 testes Node, 23 unittest Python) verdes.
+- Nenhuma credencial real, produção, provider real, deploy, migration remota ou M3 foi acessado ou iniciado.
+
 ## Próxima ação
 
-Continuar M2 em modo autônomo controlado: M2-08, Silent Specialist Fabric, sobre o Scene Director recém-criado.
+Continuar M2 em modo autônomo controlado: M2-09, Perception signal bus, sobre a Specialist Fabric recém-criada.
