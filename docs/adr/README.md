@@ -25,3 +25,4 @@ Accepted decisions for V2. The Constitution has precedence. A change to an accep
 | `ADR-019-relational-tenancy-and-floor-integrity.md` | Forward-only repair of composite session references and optional session deletion | Accepted |
 | `ADR-020-application-ingress-and-egress-baseline.md` | Fail-closed application ingress and adapter egress baseline | Accepted for M0-M1 |
 | `ADR-021-cost-ledger-reconciliation.md` | Deterministic append-only cost attribution and reconciliation | Accepted |
+| `ADR-022-session-lifecycle-command-boundary.md` | Framework-neutral lifecycle commands, atomic event batches and HTTP idempotency | Accepted |

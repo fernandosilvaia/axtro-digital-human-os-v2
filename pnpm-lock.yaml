@@ -23,6 +23,9 @@ importers:
       '@axtro/config':
         specifier: workspace:*
         version: link:../../packages/config
+      '@axtro/contracts-ts':
+        specifier: workspace:*
+        version: link:../../packages/contracts-ts
       '@axtro/domain':
         specifier: workspace:*
         version: link:../../packages/domain
@@ -32,6 +35,9 @@ importers:
       '@axtro/security':
         specifier: workspace:*
         version: link:../../packages/security
+      '@axtro/session-application':
+        specifier: workspace:*
+        version: link:../../packages/session-application
 
   packages/auth:
     dependencies:
@@ -151,6 +157,21 @@ importers:
       '@axtro/domain':
         specifier: workspace:*
         version: link:../domain
+
+  packages/session-application:
+    dependencies:
+      '@axtro/auth':
+        specifier: workspace:*
+        version: link:../auth
+      '@axtro/contracts-ts':
+        specifier: workspace:*
+        version: link:../contracts-ts
+      '@axtro/domain':
+        specifier: workspace:*
+        version: link:../domain
+      '@axtro/events':
+        specifier: workspace:*
+        version: link:../events
 
   packages/tool-runtime:
     dependencies:

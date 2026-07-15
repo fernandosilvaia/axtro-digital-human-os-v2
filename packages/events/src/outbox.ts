@@ -13,6 +13,7 @@ import {
   parseSessionId,
   parseUuidV7,
   reduceInteractionState,
+  type AnyInteractionEvent,
   type InteractionAggregateState,
   type TenantId,
 } from "@axtro/domain";
@@ -51,6 +52,17 @@ export interface TransactionalOutboxCommitResult {
   readonly outbox: TransactionalOutboxRecord;
 }
 
+/** A contiguous aggregate event batch committed with its pending outbox rows. */
+export interface TransactionalOutboxBatchCommitResult {
+  readonly aggregate: InteractionAggregateState;
+  readonly outbox: readonly TransactionalOutboxRecord[];
+}
+
+/** Trusted command fence used by an upstream request deadline before local commit. */
+export interface TransactionalOutboxCommitControl {
+  assertActive(): void;
+}
+
 export interface TransactionalOutboxRelayResult {
   readonly outcome: TransactionalOutboxRelayOutcome;
   readonly event_id: string | null;
@@ -74,7 +86,13 @@ export interface TransactionalOutboxRepository {
   commitInteractionEvent(
     request: AuthorizedRequestContext,
     eventInput: unknown,
+    control?: TransactionalOutboxCommitControl,
   ): Promise<TransactionalOutboxCommitResult>;
+  commitInteractionEvents(
+    request: AuthorizedRequestContext,
+    eventInputs: unknown,
+    control?: TransactionalOutboxCommitControl,
+  ): Promise<TransactionalOutboxBatchCommitResult>;
   readInteractionAggregate(
     request: AuthorizedRequestContext,
     aggregateId: unknown,
@@ -137,6 +155,7 @@ interface ConsumerEffectState {
 const CONSUMER_EFFECTS = new WeakMap<object, ConsumerEffectState>();
 const CONSUMER_NAME_PATTERN = /^[a-z][a-z0-9_-]{2,63}$/;
 const MAX_FAULT_POINTS = 16;
+const MAX_BATCH_EVENTS = 16;
 
 /**
  * A deterministic M0 fake for an atomic aggregate-plus-outbox write. It uses
@@ -156,19 +175,28 @@ export function createDeterministicTransactionalOutboxRepository(
     },
   };
 
-  const repository: TransactionalOutboxRepository = {
-    async commitInteractionEvent(request, eventInput): Promise<TransactionalOutboxCommitResult> {
-      const tenantId = requireScope(request, "session:write");
-      const event = parseInteractionEvent(eventInput);
-      assertAuthorizedTenantMatch(request, event.tenant_id);
-      if (event.tenant_id !== tenantId) throw new TransactionalOutboxAuthorizationError();
-      const canonicalEvent = decodeInteractionEvent(encodeInteractionEvent(event));
-      const eventKey = tenantEventKey(tenantId, canonicalEvent.event_id);
-      const aggregateKey = tenantAggregateKey(tenantId, canonicalEvent.aggregate_id);
+  const commitInteractionEvents = async (
+    request: AuthorizedRequestContext,
+    eventInputs: unknown,
+    controlInput?: TransactionalOutboxCommitControl,
+  ): Promise<TransactionalOutboxBatchCommitResult> => {
+    const control = normalizeCommitControl(controlInput);
+    control.assertActive();
+    const tenantId = requireScope(request, "session:write");
+    const canonicalEvents = normalizeInteractionEventBatch(request, tenantId, eventInputs);
 
-      return coordinator.execute(participant, () => {
+    return coordinator.execute(participant, () => {
+      control.assertActive();
+      const records: TransactionalOutboxRecord[] = [];
+      let aggregate: InteractionAggregateState | undefined;
+      for (const canonicalEvent of canonicalEvents) {
+        control.assertActive();
+        const eventKey = tenantEventKey(tenantId, canonicalEvent.event_id);
+        const aggregateKey = tenantAggregateKey(tenantId, canonicalEvent.aggregate_id);
         if (state.outbox.has(eventKey)) throw new TransactionalOutboxConflictError();
-        const aggregate = reduceInteractionState(state.aggregates.get(aggregateKey), canonicalEvent);
+
+        aggregate = reduceInteractionState(state.aggregates.get(aggregateKey), canonicalEvent);
+        control.assertActive();
         state.aggregates.set(aggregateKey, immutableCopy(aggregate));
         throwAtFaultPoint(faultPoints, "after_aggregate_write");
 
@@ -184,12 +212,25 @@ export function createDeterministicTransactionalOutboxRepository(
         });
         state.outbox.set(eventKey, record);
         addOutboxIndex(state, tenantId, aggregateKey, eventKey);
+        records.push(record);
         throwAtFaultPoint(faultPoints, "after_outbox_insert");
-        throwAtFaultPoint(faultPoints, "before_commit");
+      }
+      control.assertActive();
+      throwAtFaultPoint(faultPoints, "before_commit");
+      if (aggregate === undefined) throw new TransactionalOutboxConfigurationError();
+      return immutableCopy({ aggregate, outbox: records });
+    });
+  };
 
-        return immutableCopy({ aggregate, outbox: record });
-      });
+  const repository: TransactionalOutboxRepository = {
+    async commitInteractionEvent(request, eventInput, control): Promise<TransactionalOutboxCommitResult> {
+      const result = await commitInteractionEvents(request, [eventInput], control);
+      const outbox = result.outbox[0];
+      if (outbox === undefined) throw new TransactionalOutboxConfigurationError();
+      return immutableCopy({ aggregate: result.aggregate, outbox });
     },
+
+    commitInteractionEvents,
 
     readInteractionAggregate(request, aggregateId): InteractionAggregateState | null {
       const tenantId = requireScope(request, "session:read");
@@ -264,6 +305,16 @@ function requireConsumer(consumer: DeterministicIdempotentConsumer): ConsumerEff
   return state;
 }
 
+const NOOP_COMMIT_CONTROL: TransactionalOutboxCommitControl = Object.freeze({ assertActive() {} });
+
+function normalizeCommitControl(value: TransactionalOutboxCommitControl | undefined): TransactionalOutboxCommitControl {
+  if (value === undefined) return NOOP_COMMIT_CONTROL;
+  if (value === null || typeof value !== "object" || typeof value.assertActive !== "function") {
+    throw new TransactionalOutboxConfigurationError();
+  }
+  return value;
+}
+
 function parseFaultPoints(optionsInput: DeterministicTransactionalOutboxOptions | undefined): TransactionalOutboxFaultPoint[] {
   if (optionsInput === undefined) return [];
   const record = strictPlainRecord(optionsInput, ["faultPoints"]);
@@ -278,6 +329,30 @@ function parseFaultPoints(optionsInput: DeterministicTransactionalOutboxOptions 
     parsed.push(value as TransactionalOutboxFaultPoint);
   }
   return parsed;
+}
+
+function normalizeInteractionEventBatch(
+  request: AuthorizedRequestContext,
+  tenantId: TenantId,
+  value: unknown,
+): readonly AnyInteractionEvent[] {
+  if (!Array.isArray(value) || value.length < 1 || value.length > MAX_BATCH_EVENTS) {
+    throw new TransactionalOutboxConfigurationError();
+  }
+  const events: AnyInteractionEvent[] = [];
+  let aggregateId: string | undefined;
+  for (const input of value) {
+    const event = parseInteractionEvent(input);
+    assertAuthorizedTenantMatch(request, event.tenant_id);
+    if (event.tenant_id !== tenantId) throw new TransactionalOutboxAuthorizationError();
+    const canonicalEvent = decodeInteractionEvent(encodeInteractionEvent(event));
+    if (aggregateId !== undefined && aggregateId !== canonicalEvent.aggregate_id) {
+      throw new TransactionalOutboxConfigurationError();
+    }
+    aggregateId = canonicalEvent.aggregate_id;
+    events.push(canonicalEvent);
+  }
+  return Object.freeze(events);
 }
 
 function strictPlainRecord(value: unknown, allowedKeys: readonly string[]): Record<string, unknown> {

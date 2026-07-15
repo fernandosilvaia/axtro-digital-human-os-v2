@@ -4,7 +4,7 @@ This matrix covers P0 requirements at architecture level. Task IDs reference `ba
 
 | Requirement | Component | Contract | Data | Task | Test | Metric/Fallback |
 |---|---|---|---|---|---|---|
-| REQ-SESSION-001 | Session Actor | interaction_session_state | sessions/timeline | M1-01 | state machine E2E | invalid transition count |
+| REQ-SESSION-001 | Session lifecycle application | interaction_session_state/event_envelope | sessions/timeline/outbox | M1-01 | OpenAPI-backed lifecycle API, CAS, idempotency, deadline and timeline tests | invalid transition, stale command or expiry produces no state write |
 | REQ-SESSION-002 | Floor Manager | handoff_packet | sessions.active_presenter | M1-02 | CAS concurrency | presenter conflict; fail closed |
 | REQ-SESSION-003 | Channel ports | provider_capability | provider catalog | M2-01 | adapter contract | native fake fallback |
 | REQ-RT-001 | Turn Coordinator | conversation_state | conversation turns | M2-02 | replay suite | false endpoint rate |
@@ -18,8 +18,8 @@ This matrix covers P0 requirements at architecture level. Task IDs reference `ba
 | REQ-PRES-001 | Behavior Director | behavior_directive | timeline | M2-05 | directive policy | neutral fallback |
 | REQ-PRES-002 | Scene Director | scene_manifest/scene_directive | scene versions | M2-07 | origin injection | avatar fallback |
 | REQ-PRES-003 | Avatar adapter | provider_capability | session health | M2-06 | provider crash | voice-only |
-| REQ-PRIV-001 | Disclosure gate | disclosure_record | disclosure records | M1-01 | session activation | block activation |
-| REQ-PRIV-002 | Consent engine | consent_evidence | consents | M1-01 | purpose matrix | disable capability |
+| REQ-PRIV-001 | Session lifecycle application | disclosure_record | disclosure records/timeline | M1-01 | deterministic delivery receipt, record proof and channel-policy negative tests | block activation and readiness before receipt |
+| REQ-PRIV-002 | Session lifecycle application | consent_evidence | consents/timeline | M1-01 | server-side essential consent policy | disable capability |
 | REQ-PRIV-003 | Perception | perception_signal/derived_hypothesis | timeline | M2-09 | expiry | discard expired |
 | REQ-ACT-001 | Action Runtime | tool_contract/action_intent | tool registry | M0-14 | unknown tool | deny |
 | REQ-ACT-002 | Execution ledger | tool_execution_receipt | tool executions | M0-14, M1-05 | retry storm | return prior receipt |

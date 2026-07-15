@@ -84,6 +84,8 @@ export interface ApiSecuredRequest {
   readonly timeoutMs: number;
   readonly signal: AbortSignal;
   readBody(): Uint8Array;
+  /** The lifecycle adapter may consume this one normalized, authenticated header. */
+  readIdempotencyKey(): string | null;
   assertActive(): void;
   dispose(): void;
 }
@@ -184,7 +186,8 @@ export function createApiSecurityPipeline(options: ApiSecurityPipelineOptions): 
 
   const authorize = (input: unknown): ApiSecuredRequest => {
     const ingress = securityGate.inspectInboundRequest(input);
-    const request = authentication.authenticate(securityGate.readInboundHeaders(ingress));
+    const headers = securityGate.readInboundHeaders(ingress);
+    const request = authentication.authenticate(headers);
     const tenantContext = getAuthorizedTenantContext(request);
     const budget = securityGate.admitAuthenticatedRequest({
       tenantId: tenantContext.tenantId,
@@ -199,6 +202,10 @@ export function createApiSecurityPipeline(options: ApiSecurityPipelineOptions): 
       readBody(): Uint8Array {
         budget.assertActive();
         return securityGate.readInboundBody(ingress);
+      },
+      readIdempotencyKey(): string | null {
+        budget.assertActive();
+        return headers["idempotency-key"] ?? null;
       },
       assertActive(): void {
         budget.assertActive();
@@ -354,3 +361,5 @@ function securityProblemDetail(code: string): string {
   if (code === "request_body_too_large" || code === "header_limit_exceeded") return "Request exceeded an application limit";
   return "Request was rejected by application security controls";
 }
+
+export * from "./session-lifecycle.js";

@@ -9,8 +9,10 @@
   "references": [
     { "path": "../../packages/auth" },
     { "path": "../../packages/config" },
+    { "path": "../../packages/contracts-ts" },
     { "path": "../../packages/domain" },
     { "path": "../../packages/observability" },
+    { "path": "../../packages/session-application" },
     { "path": "../../packages/security" }
   ]
 }

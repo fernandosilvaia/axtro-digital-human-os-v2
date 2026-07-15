@@ -44,6 +44,24 @@ paths:
           $ref: '#/components/responses/Conflict'
         '422':
           $ref: '#/components/responses/ValidationError'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '408':
+          $ref: '#/components/responses/RequestTimeout'
+        '413':
+          $ref: '#/components/responses/PayloadTooLarge'
+        '429':
+          $ref: '#/components/responses/TooManyRequests'
+        '431':
+          $ref: '#/components/responses/RequestHeaderFieldsTooLarge'
+        '503':
+          $ref: '#/components/responses/ServiceUnavailable'
+        '500':
+          $ref: '#/components/responses/InternalServerError'
   /sessions/{session_id}:
     get:
       tags: [Sessions]
@@ -55,12 +73,33 @@ paths:
       responses:
         '200':
           description: Current session state
+          headers:
+            X-Trace-Id:
+              $ref: '#/components/headers/TraceId'
           content:
             application/json:
               schema:
                 $ref: '../schemas/interaction_session_state.schema.json'
         '404':
           $ref: '#/components/responses/NotFound'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '408':
+          $ref: '#/components/responses/RequestTimeout'
+        '413':
+          $ref: '#/components/responses/PayloadTooLarge'
+        '429':
+          $ref: '#/components/responses/TooManyRequests'
+        '431':
+          $ref: '#/components/responses/RequestHeaderFieldsTooLarge'
+        '422':
+          $ref: '#/components/responses/ValidationError'
+        '500':
+          $ref: '#/components/responses/InternalServerError'
   /sessions/{session_id}/activate:
     post:
       tags: [Sessions]
@@ -79,12 +118,37 @@ paths:
       responses:
         '200':
           description: Session activated
+          headers:
+            X-Trace-Id:
+              $ref: '#/components/headers/TraceId'
           content:
             application/json:
               schema:
                 $ref: '../schemas/interaction_session_state.schema.json'
         '409':
           $ref: '#/components/responses/Conflict'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '408':
+          $ref: '#/components/responses/RequestTimeout'
+        '413':
+          $ref: '#/components/responses/PayloadTooLarge'
+        '429':
+          $ref: '#/components/responses/TooManyRequests'
+        '431':
+          $ref: '#/components/responses/RequestHeaderFieldsTooLarge'
+        '503':
+          $ref: '#/components/responses/ServiceUnavailable'
+        '422':
+          $ref: '#/components/responses/ValidationError'
+        '500':
+          $ref: '#/components/responses/InternalServerError'
   /sessions/{session_id}/turns:
     post:
       tags: [Sessions]
@@ -178,12 +242,37 @@ paths:
       responses:
         '200':
           description: Session completed
+          headers:
+            X-Trace-Id:
+              $ref: '#/components/headers/TraceId'
           content:
             application/json:
               schema:
                 $ref: '../schemas/interaction_session_state.schema.json'
         '409':
           $ref: '#/components/responses/Conflict'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '408':
+          $ref: '#/components/responses/RequestTimeout'
+        '413':
+          $ref: '#/components/responses/PayloadTooLarge'
+        '429':
+          $ref: '#/components/responses/TooManyRequests'
+        '431':
+          $ref: '#/components/responses/RequestHeaderFieldsTooLarge'
+        '503':
+          $ref: '#/components/responses/ServiceUnavailable'
+        '422':
+          $ref: '#/components/responses/ValidationError'
+        '500':
+          $ref: '#/components/responses/InternalServerError'
   /sessions/{session_id}/timeline:
     get:
       tags: [Sessions]
@@ -198,9 +287,13 @@ paths:
           schema:
             type: integer
             minimum: 0
+            maximum: 9007199254740991
       responses:
         '200':
           description: Ordered session event page
+          headers:
+            X-Trace-Id:
+              $ref: '#/components/headers/TraceId'
           content:
             application/json:
               schema:
@@ -215,6 +308,26 @@ paths:
                   next_after_version:
                     type: [integer, 'null']
                     minimum: 0
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '408':
+          $ref: '#/components/responses/RequestTimeout'
+        '413':
+          $ref: '#/components/responses/PayloadTooLarge'
+        '429':
+          $ref: '#/components/responses/TooManyRequests'
+        '431':
+          $ref: '#/components/responses/RequestHeaderFieldsTooLarge'
+        '422':
+          $ref: '#/components/responses/ValidationError'
+        '500':
+          $ref: '#/components/responses/InternalServerError'
   /role-pack-installations:
     post:
       tags: [Role Packs]
@@ -322,6 +435,7 @@ components:
         type: string
         minLength: 16
         maxLength: 200
+        pattern: '^[A-Za-z0-9][A-Za-z0-9._~-]{15,199}$'
   headers:
     TraceId:
       description: Distributed trace identifier
@@ -332,24 +446,108 @@ components:
   responses:
     NotFound:
       description: Resource not found within the authorized tenant
+      headers:
+        X-Trace-Id:
+          $ref: '#/components/headers/TraceId'
       content:
         application/problem+json:
           schema:
             $ref: '#/components/schemas/Problem'
     Forbidden:
       description: Request not authorized
+      headers:
+        X-Trace-Id:
+          $ref: '#/components/headers/TraceId'
       content:
         application/problem+json:
           schema:
             $ref: '#/components/schemas/Problem'
     Conflict:
       description: Aggregate version, floor ownership or idempotency conflict
+      headers:
+        X-Trace-Id:
+          $ref: '#/components/headers/TraceId'
       content:
         application/problem+json:
           schema:
             $ref: '#/components/schemas/Problem'
     ValidationError:
       description: Request failed contract validation
+      headers:
+        X-Trace-Id:
+          $ref: '#/components/headers/TraceId'
+      content:
+        application/problem+json:
+          schema:
+            $ref: '#/components/schemas/Problem'
+    BadRequest:
+      description: Request transport did not match the bounded API contract
+      headers:
+        X-Trace-Id:
+          $ref: '#/components/headers/TraceId'
+      content:
+        application/problem+json:
+          schema:
+            $ref: '#/components/schemas/Problem'
+    Unauthorized:
+      description: Request authentication failed
+      headers:
+        X-Trace-Id:
+          $ref: '#/components/headers/TraceId'
+      content:
+        application/problem+json:
+          schema:
+            $ref: '#/components/schemas/Problem'
+    RequestTimeout:
+      description: Request exceeded its server-owned deadline
+      headers:
+        X-Trace-Id:
+          $ref: '#/components/headers/TraceId'
+      content:
+        application/problem+json:
+          schema:
+            $ref: '#/components/schemas/Problem'
+    PayloadTooLarge:
+      description: Request body exceeded the bounded ingress limit
+      headers:
+        X-Trace-Id:
+          $ref: '#/components/headers/TraceId'
+      content:
+        application/problem+json:
+          schema:
+            $ref: '#/components/schemas/Problem'
+    TooManyRequests:
+      description: Authenticated request quota or local command receipt capacity was reached
+      headers:
+        X-Trace-Id:
+          $ref: '#/components/headers/TraceId'
+      content:
+        application/problem+json:
+          schema:
+            $ref: '#/components/schemas/Problem'
+    RequestHeaderFieldsTooLarge:
+      description: Request headers exceeded the bounded ingress limit
+      headers:
+        X-Trace-Id:
+          $ref: '#/components/headers/TraceId'
+      content:
+        application/problem+json:
+          schema:
+            $ref: '#/components/schemas/Problem'
+    ServiceUnavailable:
+      description: A required local deterministic capability was unavailable before lifecycle commit
+      headers:
+        X-Trace-Id:
+          $ref: '#/components/headers/TraceId'
+      content:
+        application/problem+json:
+          schema:
+            $ref: '#/components/schemas/Problem'
+    InternalServerError:
+      description: An unexpected application failure was contained by the API boundary
+      headers:
+        X-Trace-Id:
+          $ref: '#/components/headers/TraceId'
       content:
         application/problem+json:
           schema:
@@ -392,11 +590,11 @@ components:
           $ref: '#/components/schemas/UuidV7'
         role_pack_id:
           type: string
-          minLength: 1
+          pattern: '^[a-z][a-z0-9._-]{0,199}$'
           maxLength: 200
         role_pack_version:
           type: string
-          minLength: 1
+          pattern: '^[A-Za-z0-9][A-Za-z0-9._-]{0,49}$'
           maxLength: 50
         channel:
           type: string
@@ -414,6 +612,7 @@ components:
         expected_state_version:
           type: integer
           minimum: 0
+          maximum: 9007199254740991
     SubmitTurnRequest:
       type: object
       additionalProperties: false
@@ -441,9 +640,11 @@ components:
           type: string
           minLength: 1
           maxLength: 500
+          pattern: '^[^\u0000-\u001F\u007F]{1,500}$'
         expected_state_version:
           type: integer
           minimum: 0
+          maximum: 9007199254740991
     AcceptedCommand:
       type: object
       additionalProperties: false

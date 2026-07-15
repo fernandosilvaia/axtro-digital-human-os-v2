@@ -87,6 +87,31 @@ test("aggregate state and canonical outbox envelope commit atomically for an aut
   assert.deepEqual(repository.listOutbox(request), [result.outbox]);
 });
 
+test("a contiguous interaction batch commits or rolls back state and every pending outbox row together", async () => {
+  const request = authorizedRequest(tenantAlpha, actorAlpha, "dev_outbox_batch_0001");
+  const first = eventFor({ tenantId: tenantAlpha, aggregateId: aggregateAlpha, eventId: alphaEventOne, aggregateVersion: 1 });
+  const second = eventFor({ tenantId: tenantAlpha, aggregateId: aggregateAlpha, eventId: alphaEventTwo, aggregateVersion: 2 });
+  const repository = events.createDeterministicTransactionalOutboxRepository();
+
+  const committed = await repository.commitInteractionEvents(request, [first, second]);
+  assert.equal(committed.aggregate.session.state_version, 2);
+  assert.deepEqual(committed.outbox.map((record) => record.aggregate_version), [1, 2]);
+  assert.deepEqual(repository.listOutbox(request).map((record) => record.event_id), [alphaEventOne, alphaEventTwo]);
+
+  const rollbackRepository = events.createDeterministicTransactionalOutboxRepository({ faultPoints: ["after_outbox_insert"] });
+  await assert.rejects(
+    rollbackRepository.commitInteractionEvents(request, [first, second]),
+    events.TransactionalOutboxTransactionError,
+  );
+  assert.equal(rollbackRepository.readInteractionAggregate(request, aggregateAlpha), null);
+  assert.deepEqual(rollbackRepository.listOutbox(request), []);
+
+  await assert.rejects(
+    repository.commitInteractionEvents(request, [first, { ...second, aggregate_id: aggregateBeta, session_id: aggregateBeta }]),
+    events.TransactionalOutboxConfigurationError,
+  );
+});
+
 test("injected aggregate, outbox and commit failures restore both sides of the local transaction", async () => {
   const request = authorizedRequest(tenantAlpha, actorAlpha, "dev_outbox_rollback_0001");
   const event = eventFor({ tenantId: tenantAlpha, aggregateId: aggregateAlpha, eventId: alphaEventOne, aggregateVersion: 1 });
@@ -100,6 +125,25 @@ test("injected aggregate, outbox and commit failures restore both sides of the l
     assert.equal(repository.readInteractionAggregate(request, aggregateAlpha), null);
     assert.deepEqual(repository.listOutbox(request), []);
   }
+});
+
+test("a trusted deadline control fences a batch before its aggregate or outbox commit", async () => {
+  const repository = events.createDeterministicTransactionalOutboxRepository();
+  const request = authorizedRequest(tenantAlpha, actorAlpha, "dev_outbox_control_0001");
+  const event = eventFor({ tenantId: tenantAlpha, aggregateId: aggregateAlpha, eventId: alphaEventOne, aggregateVersion: 1 });
+  let checks = 0;
+  const expiredControl = {
+    assertActive() {
+      checks += 1;
+      if (checks >= 3) throw new Error("deadline-expired-before-commit");
+    },
+  };
+  await assert.rejects(
+    repository.commitInteractionEvent(request, event, expiredControl),
+    /deadline-expired-before-commit/,
+  );
+  assert.equal(repository.readInteractionAggregate(request, aggregateAlpha), null);
+  assert.deepEqual(repository.listOutbox(request), []);
 });
 
 test("duplicate event identities and stale aggregate versions fail without creating an outbox row", async () => {

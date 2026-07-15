@@ -3,8 +3,8 @@
 **Estado atual:** implementação de M1 em andamento
 
 **Marco atual:** M1
-**Tarefa atual:** M1-01
-**Última evidência verde:** M0-18 com pipeline limpo de Foundation, evidência reproduzível e release gate em 2026-07-14
+**Tarefa atual:** M1-02
+**Última evidência verde:** M1-01 com API lifecycle, CAS, isolamento tenant, OpenAPI executável e pipeline limpo em 2026-07-14
 **Bloqueadores internos:** nenhum
 **Pendências externas:** consultar `PENDENCIAS_EXTERNAS.md`  
 
@@ -37,8 +37,8 @@
 | `M0-16` | M0 | done | Implement cost event ledger | `M0-03`, `M0-07`, `M0-11` | custo decimal determinístico, reconciliação SQL, replay guard, RLS e migração histórica validados |
 | `M0-17` | M0 | done | Create development fixtures and tenant-zero seed | `M0-08`, `M0-12`, `M0-14` | seed local idempotente de alpha/beta, composição canônica fail-closed, fakes e isolamento RLS validados |
 | `M0-18` | M0 | done | M0 release gate | `M0-02`, `M0-03`, `M0-05`, `M0-08`, `M0-09`, `M0-10`, `M0-12`, `M0-13`, `M0-14`, `M0-15`, `M0-16`, `M0-17` | bundle de evidências, pipeline limpo, limitações e commit verde registrados |
-| `M1-01` | M1 | in_progress | Implement session lifecycle API | `M0-18` | início registrado antes de alterações |
-| `M1-02` | M1 | pending | Implement Session Actor and mailbox | `M1-01` | pending |
+| `M1-01` | M1 | done | Implement session lifecycle API | `M0-18` | cinco operações OpenAPI, lote lifecycle atômico, CAS, idempotência bounded, disclosure com receipt fake, controles de deadline e isolamento tenant validados |
+| `M1-02` | M1 | in_progress | Implement Session Actor and mailbox | `M1-01` | início registrado antes de alterações |
 | `M1-03` | M1 | pending | Implement textual turn driver | `M1-02`, `M0-12` | pending |
 | `M1-04` | M1 | pending | Implement context composer | `M1-03` | pending |
 | `M1-05` | M1 | pending | Complete fake Action Runtime flow | `M1-03`, `M0-14` | pending |
@@ -262,6 +262,17 @@
 - Revisão independente do bundle confirmou ausência de whitespace no conteúdo staged, coerência das alegações, limitações e o commit verde `47db095` para o conteúdo anterior. Sem bloqueadores restantes.
 - Próxima tarefa marcada antes de qualquer alteração: M1-01, API de lifecycle de sessão conforme OpenAPI, com versão otimista e isolamento tenant.
 
+### 2026-07-14, M1-01 concluído e M1-02 iniciado
+
+- Criado `@axtro/session-application` como boundary framework-neutral entre a API e o domínio/outbox. A API implementa `create`, `get`, `activate`, `complete` e `timeline` conforme OpenAPI, compõe ingress, autenticação, telemetria e Problems fechados, inclusive em rejeições pré-autenticação.
+- A criação confirma em lote `session.created`, `session.prepared`, `disclosure.delivered` e `consent.recorded`; mantém disclosure, consentimento, registry de presenter e receipt local no mesmo boundary determinístico. O catálogo server-side aceita apenas o canal `api` por padrão, e uma entrega fake indisponível não cria estado, evidence ou outbox.
+- Mutações exigem CAS por `expected_state_version`, ledger de idempotência tenant-scoped e bounded sem TTL, e hash canônico do motivo de conclusão sem armazenar o texto. O mesmo comando retorna a receipt anterior, payload diferente conflita e a capacidade excedida falha fechada.
+- `SessionCommandControl` é verificado antes e depois de aguardar lock e dentro da transação fake do outbox antes do commit. O teste de timeout prova que uma disclosure atrasada não produz efeito tardio. Read/write scope, tenants cruzados, transições inválidas, session inexistente, query inválida, input malformado e headers duplicados retornam Problems declarados, sem eco de token ou corpo.
+- ADR-022, D-V2-032, matriz de rastreabilidade e OpenAPI foram atualizados. O OpenAPI-backed test usa os schemas e respostas reais para validar casos positivos, negativos, status, headers e Problems.
+- Revisões independentes de arquitetura inicial, segurança final e testes final aprovaram. O risco não bloqueante para M1-02: o coordenador fake do outbox rejeita transações realmente sobrepostas de sessões independentes, portanto o mailbox deve serializar por sessão sem criar ordem global ou expor 500.
+- Evidências verdes: `pnpm lint`, `pnpm contracts:check`, `pnpm typecheck`, `pnpm test` (107 Node e 21 unittest Python), `pnpm build`, `UV_CACHE_DIR=/private/tmp/axtro-uv-cache uv run pytest` (21), `pnpm db:test`, `pnpm db:rls`, `python3 scripts/validate_all.py` (9 checks) e `git diff --check`.
+- Próxima tarefa marcada antes de qualquer alteração: M1-02, Session Actor e mailbox por sessão com reidratação, idempotência e sem daemon ou ordenação global.
+
 ### 2026-07-14, baseline arquitetural
 
 - 31 schemas estritos e 62 exemplos de contrato preparados.
@@ -270,4 +281,4 @@
 
 ## Próxima ação
 
-Implementar M1-01 a partir dos contratos OpenAPI: criar, obter, ativar, completar e consultar timeline de sessão com versionamento otimista e isolamento tenant.
+Implementar M1-02: Session Actor e mailbox por sessão, com serialização local, idempotência, reidratação por snapshot e timeline, sem daemon e sem ordenação global.
