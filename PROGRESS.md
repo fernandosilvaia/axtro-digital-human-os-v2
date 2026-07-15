@@ -1,9 +1,10 @@
 # Progresso de implementação
 
-**Estado atual:** implementação de M0 em andamento  
-**Marco atual:** M0  
-**Tarefa atual:** M0-18
-**Última evidência verde:** M0-17 com seed local canônico de dois tenants, providers fake e RLS cross-tenant em 2026-07-14
+**Estado atual:** implementação de M1 em andamento
+
+**Marco atual:** M1
+**Tarefa atual:** M1-01
+**Última evidência verde:** M0-18 com pipeline limpo de Foundation, evidência reproduzível e release gate em 2026-07-14
 **Bloqueadores internos:** nenhum
 **Pendências externas:** consultar `PENDENCIAS_EXTERNAS.md`  
 
@@ -35,8 +36,8 @@
 | `M0-15` | M0 | done | Add application security baseline | `M0-02`, `M0-06`, `M0-09` | ingress framework-neutral bounded, quota tenant-safe, deadline cancelável, egress capability-scoped e dependency gate validados |
 | `M0-16` | M0 | done | Implement cost event ledger | `M0-03`, `M0-07`, `M0-11` | custo decimal determinístico, reconciliação SQL, replay guard, RLS e migração histórica validados |
 | `M0-17` | M0 | done | Create development fixtures and tenant-zero seed | `M0-08`, `M0-12`, `M0-14` | seed local idempotente de alpha/beta, composição canônica fail-closed, fakes e isolamento RLS validados |
-| `M0-18` | M0 | in_progress | M0 release gate | `M0-02`, `M0-03`, `M0-05`, `M0-08`, `M0-09`, `M0-10`, `M0-12`, `M0-13`, `M0-14`, `M0-15`, `M0-16`, `M0-17` | início registrado antes de alterações |
-| `M1-01` | M1 | pending | Implement session lifecycle API | `M0-18` | pending |
+| `M0-18` | M0 | done | M0 release gate | `M0-02`, `M0-03`, `M0-05`, `M0-08`, `M0-09`, `M0-10`, `M0-12`, `M0-13`, `M0-14`, `M0-15`, `M0-16`, `M0-17` | bundle de evidências, pipeline limpo, limitações e commit verde registrados |
+| `M1-01` | M1 | in_progress | Implement session lifecycle API | `M0-18` | início registrado antes de alterações |
 | `M1-02` | M1 | pending | Implement Session Actor and mailbox | `M1-01` | pending |
 | `M1-03` | M1 | pending | Implement textual turn driver | `M1-02`, `M0-12` | pending |
 | `M1-04` | M1 | pending | Implement context composer | `M1-03` | pending |
@@ -253,6 +254,14 @@
 - Revisões independentes de segurança e testes aprovaram sem bloqueadores. Evidências verdes: `pnpm lint`, `pnpm contracts:check`, `pnpm typecheck`, `pnpm test` (92 Node e 18 Python unittest), `pnpm build`, `UV_CACHE_DIR=/private/tmp/axtro-uv-cache uv run pytest` (18), `pnpm db:test`, `pnpm db:rls`, `python3 scripts/validate_all.py` (9 checks) e `git diff --check`.
 - Próxima tarefa marcada antes de qualquer alteração: M0-18, consolidação da evidência de release de Foundation.
 
+### 2026-07-14, M0-18 concluído e M1-01 iniciado
+
+- Criado `artifacts/m0/README.md` como bundle de release de Foundation, com escopo comprovado, commit verde, comandos, resultados, garantias verificadas e limitações. A evidência não autoriza produção, provider real, credenciais reais, deploy nem os marcos M2 e M3.
+- Pipeline limpo repetido com `CI=true pnpm install --frozen-lockfile`, `UV_CACHE_DIR=/private/tmp/axtro-uv-cache uv sync --locked --all-groups`, `pnpm lint`, `pnpm contracts:check`, `pnpm typecheck`, `pnpm test`, `pnpm build`, `pnpm db:test`, `pnpm db:rls`, `UV_CACHE_DIR=/private/tmp/axtro-uv-cache uv run pytest`, `python3 scripts/validate_all.py` e checks de diff. Todos passaram, incluindo 92 testes Node, 18 unittest Python, 18 pytest e 9 validadores.
+- A integração PostgreSQL temporária validou migrations, upgrade, custo, seed, drift e UUIDv7. A matriz RLS confirmou contexto ausente, reset de pool, FKs, append-only e isolamento tenant. Não houve acesso a banco remoto, produção ou provider externo.
+- Revisão independente do bundle confirmou ausência de whitespace no conteúdo staged, coerência das alegações, limitações e o commit verde `47db095` para o conteúdo anterior. Sem bloqueadores restantes.
+- Próxima tarefa marcada antes de qualquer alteração: M1-01, API de lifecycle de sessão conforme OpenAPI, com versão otimista e isolamento tenant.
+
 ### 2026-07-14, baseline arquitetural
 
 - 31 schemas estritos e 62 exemplos de contrato preparados.
@@ -261,4 +270,4 @@
 
 ## Próxima ação
 
-Concluir M0-18 com evidência reproduzível de Foundation, limitações conhecidas e todos os gates verdes antes de iniciar M1.
+Implementar M1-01 a partir dos contratos OpenAPI: criar, obter, ativar, completar e consultar timeline de sessão com versionamento otimista e isolamento tenant.
