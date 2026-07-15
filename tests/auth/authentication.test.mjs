@@ -131,12 +131,12 @@ test("M0 rejects a tenant header selector for user identities", () => {
   );
 });
 
-test("M1 event scopes are restricted to workflow service identities", () => {
+test("M1 event and workflow scopes are restricted to workflow service identities", () => {
   const workflowRegistration = alphaRegistration({
     actorType: "workflow",
     tenantGrants: [{
       tenantId: tenantAlpha,
-      grantedScopes: ["event:relay", "event:observe", "session:write"],
+      grantedScopes: ["event:relay", "event:observe", "workflow:dispatch", "workflow:execute", "workflow:observe", "session:read", "session:write"],
       purposes: ["essential_processing"],
     }],
   });
@@ -145,7 +145,15 @@ test("M1 event scopes are restricted to workflow service identities", () => {
     authorization: `Bearer ${developmentToken}`,
     requestedTenantId: tenantAlpha,
   }, verifier);
-  assert.deepEqual(resolved.tenantContext.grantedScopes, ["event:relay", "event:observe", "session:write"]);
+  assert.deepEqual(resolved.tenantContext.grantedScopes, [
+    "event:relay",
+    "event:observe",
+    "workflow:dispatch",
+    "workflow:execute",
+    "workflow:observe",
+    "session:read",
+    "session:write",
+  ]);
   assert.equal(resolved.principal.actorType, "workflow");
   assert.equal(resolved.principal.identityKind, "service");
 
@@ -157,6 +165,17 @@ test("M1 event scopes are restricted to workflow service identities", () => {
       actorType: "workflow",
       identityKind: "user",
       tenantGrants: [{ tenantId: tenantAlpha, grantedScopes: ["event:observe"], purposes: ["essential_processing"] }],
+    }),
+    alphaRegistration({
+      tenantGrants: [{ tenantId: tenantAlpha, grantedScopes: ["workflow:dispatch"], purposes: ["essential_processing"] }],
+    }),
+    alphaRegistration({
+      tenantGrants: [{ tenantId: tenantAlpha, grantedScopes: ["workflow:execute"], purposes: ["essential_processing"] }],
+    }),
+    alphaRegistration({
+      actorType: "workflow",
+      identityKind: "user",
+      tenantGrants: [{ tenantId: tenantAlpha, grantedScopes: ["workflow:observe"], purposes: ["essential_processing"] }],
     }),
   ]) {
     assert.throws(

@@ -69,6 +69,12 @@ export const TELEMETRY_EVENT_CODES = [
   "outbox.relay.started",
   "outbox.relay.completed",
   "outbox.relay.failed",
+  "workflow.run.started",
+  "workflow.run.checkpointed",
+  "workflow.run.retry_scheduled",
+  "workflow.run.cancelled",
+  "workflow.run.completed",
+  "workflow.run.failed",
   "security.telemetry.rejected",
 ] as const;
 export type TelemetryEventCode = (typeof TELEMETRY_EVENT_CODES)[number];
@@ -243,6 +249,7 @@ const ATTRIBUTE_KEYS = [
   "queue_depth",
   "operation",
   "status",
+  "step",
 ] as const;
 type TelemetryAttributeKey = (typeof ATTRIBUTE_KEYS)[number];
 type NumericTelemetryAttributeKey = "duration_ms" | "attempt" | "retry_count" | "queue_depth";
@@ -263,6 +270,7 @@ const ATTRIBUTE_VALUE_REGISTRY: Readonly<Record<EnumeratedTelemetryAttributeKey,
     "realtime_worker",
     "provider_fake",
     "outbox_relay",
+    "workflow_worker",
     "action_runtime",
   ],
   route_template: [
@@ -296,11 +304,16 @@ const ATTRIBUTE_VALUE_REGISTRY: Readonly<Record<EnumeratedTelemetryAttributeKey,
     "submit_turn",
     "complete_session",
     "relay_event",
+    "run_workflow_step",
     "evaluate_action",
     "execute_action",
   ],
   status: [
     "accepted",
+    "queued",
+    "running",
+    "waiting",
+    "checkpointed",
     "completed",
     "failed",
     "pending",
@@ -309,6 +322,12 @@ const ATTRIBUTE_VALUE_REGISTRY: Readonly<Record<EnumeratedTelemetryAttributeKey,
     "published",
     "retry_scheduled",
     "dead_letter",
+  ],
+  step: [
+    "generate_summary",
+    "evaluate",
+    "record_follow_up_guard",
+    "finalize",
   ],
 });
 const DEVELOPMENT_BEARER_PATTERN = /(?:^|[^a-z0-9])dev_[a-z0-9][a-z0-9._-]{7,127}(?:$|[^a-z0-9])/i;

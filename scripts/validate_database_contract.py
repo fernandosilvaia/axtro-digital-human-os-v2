@@ -18,6 +18,7 @@ EXPECTED = [
     "0008_outbox_event_identity.sql",
     "0009_cost_event_reconciliation.sql",
     "0010_session_timeline_event_identity.sql",
+    "0011_post_call_workflow_persistence.sql",
 ]
 
 
@@ -73,6 +74,20 @@ def main() -> int:
         "events_outbox_event_document_identity_check",
         "session_timeline_tenant_event_id_key",
         "session_timeline_event_document_identity_check",
+        "session_timeline_completion_source_key",
+        "workflow_commands_source_completion_fkey",
+        "workflow_commands_receipt_source_key",
+        "workflow_runs_post_call_command_fkey",
+        "workflow_runs_receipt_reference_key",
+        "workflow_step_receipts_run_command_session_fkey",
+        "workflow_step_receipts_command_source_fkey",
+        "workflow_step_receipts_source_completion_fkey",
+        "post_call_workflow_results_run_command_session_fkey",
+        "post_call_workflow_results_command_source_fkey",
+        "post_call_workflow_results_source_completion_fkey",
+        "post_call_workflow_results_evidence_reference_key",
+        "post_call_workflow_result_evidence_result_session_fkey",
+        "post_call_workflow_result_evidence_timeline_fkey",
         "cost_events_tenant_id_reconciles_cost_event_id_fkey",
     ):
         if constraint_name not in all_sql:
@@ -94,16 +109,40 @@ def main() -> int:
         errors.append("Cost reconciliation target trigger is missing")
     if "CREATE UNIQUE INDEX cost_events_tenant_source_provider_request_ref_unique" not in cost_reconciliation_migration:
         errors.append("Cost provider request replay guard is missing")
+    workflow_migration = (MIGRATIONS / "0011_post_call_workflow_persistence.sql").read_text(encoding="utf-8")
+    for invariant in (
+        "workflow_commands_profile_check",
+        "workflow_runs_post_call_profile_check",
+        "workflow_runs_post_call_error_check",
+        "workflow_runs_post_call_lease_check",
+        "workflow_runs_post_call_waiting_check",
+        "workflow_runs_post_call_lifecycle_check",
+        "workflow_runs_post_call_terminal_check",
+        "workflow_runs_tenant_post_call_command_unique",
+        "workflow_step_receipts_shape_check",
+        "post_call_workflow_results_shape_check",
+        "follow_up_external_effect = false",
+        "post_call_workflow_result_evidence_ordinal_check",
+    ):
+        if invariant not in workflow_migration:
+            errors.append(f"Post-call workflow invariant is missing: {invariant}")
     if all_sql.count("ON DELETE RESTRICT") < 2:
         errors.append("Historical session references must reject hard deletion")
-    for immutable_table in ("session_timeline", "consent_evidence", "disclosure_records", "tool_receipts", "audit_log", "cost_events"):
+    for immutable_table in (
+        "session_timeline", "consent_evidence", "disclosure_records", "tool_receipts", "audit_log", "cost_events",
+        "workflow_commands", "workflow_step_receipts", "post_call_workflow_results", "post_call_workflow_result_evidence",
+    ):
         if f"{immutable_table}_append_only" not in all_sql:
             errors.append(f"Append-only trigger missing for {immutable_table}")
 
     create_table = set(re.findall(r"CREATE TABLE\s+([a-z_]+)", all_sql, re.IGNORECASE))
-    rls_array_match = re.search(r"tenant_tables\s+text\[\]\s*:=\s*ARRAY\[(.*?)\];", all_sql, re.IGNORECASE | re.DOTALL)
-    if rls_array_match:
-        rls_tables = set(re.findall(r"'([a-z_]+)'", rls_array_match.group(1)))
+    rls_array_matches = re.findall(r"tenant_tables\s+text\[\]\s*:=\s*ARRAY\[(.*?)\];", all_sql, re.IGNORECASE | re.DOTALL)
+    if rls_array_matches:
+        rls_tables = {
+            table
+            for array_body in rls_array_matches
+            for table in re.findall(r"'([a-z_]+)'", array_body)
+        }
         global_tables = {"schema_registry", "provider_catalog", "region_policy_catalog", "tenants"}
         expected_tenant_tables = create_table - global_tables
         missing_rls = expected_tenant_tables - rls_tables

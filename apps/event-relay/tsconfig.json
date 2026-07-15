@@ -11,6 +11,7 @@
     { "path": "../../packages/contracts-ts" },
     { "path": "../../packages/domain" },
     { "path": "../../packages/events" },
-    { "path": "../../packages/observability" }
+    { "path": "../../packages/observability" },
+    { "path": "../../packages/workflows" }
   ]
 }

@@ -13,7 +13,7 @@ Every table that stores or directly relates tenant data has `tenant_id`, forced 
 | Evidence | timeline, consent, disclosures | tenant policy | append-only |
 | Actions | intents, decisions, approvals, executions, receipts, handoffs | tenant policy | receipts append-only |
 | Knowledge | sources, versions, chunks, embeddings | tenant policy | source deletion graph |
-| Workflows and governance | workflows, audit, outbox, costs, usage, evaluations, experiments, promotions | tenant policy | audit and cost append-only |
+| Workflows and governance | workflow runs, post-call commands, step receipts, results, relational result evidence, audit, outbox, costs, usage, evaluations, experiments, promotions | tenant policy | commands, receipts, results, result evidence, audit and cost append-only |
 | Global catalog | schema, provider, region policy | no tenant RLS | privileged writes only |
 
 ## Application requirement
@@ -31,3 +31,5 @@ For each tenant table:
 5. Cache keys and object storage paths include tenant and environment.
 6. A presenter, turn participant or handoff presenter from another session is rejected.
 7. Hard deletion of a session with cost or evaluation history is rejected so append-only evidence remains linked.
+8. A post-call command cannot reference another tenant, session, source event, aggregate version or service identity.
+9. Post-call command, step receipt, result and result evidence updates or deletes are rejected.

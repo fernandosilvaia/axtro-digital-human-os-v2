@@ -1,7 +1,14 @@
 import { getAuthorizedTenantContext, type AuthorizedRequestContext } from "@axtro/auth";
 import type { EventDeliveryReceipt, EventEnvelope } from "@axtro/contracts-ts";
-import { parseUuidV7, sha256Canonical, type UuidV7 } from "@axtro/domain";
 import {
+  interactionStateHash,
+  parseUuidV7,
+  replayInteraction,
+  sha256Canonical,
+  type UuidV7,
+} from "@axtro/domain";
+import {
+  decodeInteractionEvent,
   SESSION_TIMELINE_CONSUMER_NAME,
   SessionTimelineAuthorizationError,
   SessionTimelineCapacityError,
@@ -12,6 +19,15 @@ import {
   type TransactionalOutboxRepository,
 } from "@axtro/events";
 import type { TelemetryRuntime, TelemetrySpan } from "@axtro/observability";
+import {
+  WorkflowAuthorizationError,
+  WorkflowCapacityError,
+  WorkflowConflictError,
+  WorkflowRetryableError,
+  WorkflowValidationError,
+  type SessionCompletionEvidenceSource,
+  type SessionCompletionWorkflowSink,
+} from "@axtro/workflows";
 
 export const EVENT_RELAY_FAULT_POINTS = [
   "after_claim_before_effect",
@@ -268,7 +284,28 @@ function requireRelayContext(request: AuthorizedRequestContext): void {
   }
 }
 
-export function createSessionTimelineConsumer(timeline: SessionTimelineRepository): CanonicalEventConsumer {
+export function createSessionTimelineConsumer(
+  timeline: SessionTimelineRepository,
+): CanonicalEventConsumer {
+  return createTimelineConsumer(timeline, null);
+}
+
+export function createSessionTimelineWorkflowConsumer(
+  timeline: SessionTimelineRepository,
+  workflowSink: SessionCompletionWorkflowSink,
+): CanonicalEventConsumer {
+  if (
+    workflowSink === null
+    || typeof workflowSink !== "object"
+    || typeof workflowSink.enqueueSessionCompletion !== "function"
+  ) throw new EventRelayConfigurationError();
+  return createTimelineConsumer(timeline, workflowSink);
+}
+
+function createTimelineConsumer(
+  timeline: SessionTimelineRepository,
+  workflowSink: SessionCompletionWorkflowSink | null,
+): CanonicalEventConsumer {
   if (
     timeline === null
     || typeof timeline !== "object"
@@ -277,7 +314,14 @@ export function createSessionTimelineConsumer(timeline: SessionTimelineRepositor
   const consumer: CanonicalEventConsumer = Object.freeze({
     name: SESSION_TIMELINE_CONSUMER_NAME,
     async consume(request: AuthorizedRequestContext, event: EventEnvelope): Promise<EventConsumerResult> {
+      const completionSink = workflowSink;
       try {
+        if (event.event_type === "session.completed") {
+          if (completionSink === null) {
+            return Object.freeze({ outcome: "failed", failure_code: "consumer_rejected", retryable: false });
+          }
+          requireWorkflowDispatchContext(request);
+        }
         const receipt = timeline.appendCanonicalEvent(request, event);
         if (
           receipt.tenant_id !== event.tenant_id
@@ -289,7 +333,32 @@ export function createSessionTimelineConsumer(timeline: SessionTimelineRepositor
         ) {
           return Object.freeze({ outcome: "failed", failure_code: "consumer_rejected", retryable: false });
         }
-        return Object.freeze({ outcome: "succeeded", effect_hash: receipt.state_hash });
+        if (event.event_type !== "session.completed") {
+          return Object.freeze({ outcome: "succeeded", effect_hash: receipt.state_hash });
+        }
+        if (completionSink === null) {
+          return Object.freeze({ outcome: "failed", failure_code: "consumer_rejected", retryable: false });
+        }
+        const workflowReceipt = await completionSink.enqueueSessionCompletion(request, event);
+        if (
+          event.session_id === null
+          || workflowReceipt.tenant_id !== event.tenant_id
+          || workflowReceipt.session_id !== event.session_id
+          || workflowReceipt.source_event_id !== event.event_id
+          || workflowReceipt.source_event_fingerprint !== sha256Canonical(event)
+          || workflowReceipt.trace_id !== event.trace_id
+          || workflowReceipt.correlation_id !== event.correlation_id
+          || !SHA256_PATTERN.test(workflowReceipt.command_fingerprint)
+        ) {
+          return Object.freeze({ outcome: "failed", failure_code: "consumer_rejected", retryable: false });
+        }
+        return Object.freeze({
+          outcome: "succeeded",
+          effect_hash: sha256Canonical({
+            timeline_state_hash: receipt.state_hash,
+            workflow_command_fingerprint: workflowReceipt.command_fingerprint,
+          }),
+        });
       } catch (error) {
         if (error instanceof SessionTimelineConflictError) {
           return Object.freeze({ outcome: "failed", failure_code: "timeline_conflict", retryable: false });
@@ -303,12 +372,88 @@ export function createSessionTimelineConsumer(timeline: SessionTimelineRepositor
         if (error instanceof SessionTimelineAuthorizationError) {
           return Object.freeze({ outcome: "failed", failure_code: "consumer_rejected", retryable: false });
         }
+        if (error instanceof WorkflowCapacityError || error instanceof WorkflowRetryableError) {
+          return Object.freeze({ outcome: "failed", failure_code: "consumer_retryable", retryable: true });
+        }
+        if (
+          error instanceof WorkflowAuthorizationError
+          || error instanceof WorkflowConflictError
+          || error instanceof WorkflowValidationError
+        ) {
+          return Object.freeze({ outcome: "failed", failure_code: "consumer_rejected", retryable: false });
+        }
         return Object.freeze({ outcome: "failed", failure_code: "consumer_retryable", retryable: true });
       }
     },
   });
   TRUSTED_CONSUMERS.add(consumer);
   return consumer;
+}
+
+function requireWorkflowDispatchContext(request: AuthorizedRequestContext): void {
+  try {
+    const context = getAuthorizedTenantContext(request);
+    if (
+      request.principal.actorType !== "workflow"
+      || request.principal.identityKind !== "service"
+      || !context.grantedScopes.includes("workflow:dispatch")
+      || !context.grantedScopes.includes("session:read")
+      || !context.purposes.includes("essential_processing")
+    ) throw new WorkflowAuthorizationError();
+  } catch (error) {
+    if (error instanceof WorkflowAuthorizationError) throw error;
+    throw new WorkflowAuthorizationError();
+  }
+}
+
+/**
+ * Narrow adapter from the authoritative timeline into structural workflow
+ * evidence. It never returns payload JSON or transcript text.
+ */
+export function createSessionTimelineWorkflowEvidenceSource(
+  timeline: SessionTimelineRepository,
+): SessionCompletionEvidenceSource {
+  if (
+    timeline === null
+    || typeof timeline !== "object"
+    || typeof timeline.listCanonicalEvents !== "function"
+  ) throw new EventRelayConfigurationError();
+  return Object.freeze({
+    readSessionCompletionEvidence(request: AuthorizedRequestContext, sessionId: string) {
+      try {
+        const events = timeline.listCanonicalEvents(request, sessionId, 0);
+        if (events.length < 1 || events.length > 10_000) throw new WorkflowConflictError();
+        const decoded = events.map((event) => decodeInteractionEvent(event));
+        const replayed = replayInteraction(decoded);
+        const completion = events.at(-1);
+        if (
+          completion === undefined
+          || completion.session_id === null
+          || completion.event_type !== "session.completed"
+          || replayed.session.status !== "completed"
+          || replayed.session.session_id !== sessionId
+          || replayed.session.state_version !== completion.aggregate_version
+          || events.length !== completion.aggregate_version
+        ) throw new WorkflowConflictError();
+        return Object.freeze({
+          tenant_id: completion.tenant_id,
+          session_id: completion.session_id,
+          source_event_id: completion.event_id,
+          source_event_fingerprint: sha256Canonical(completion),
+          source_aggregate_version: completion.aggregate_version,
+          source_state_hash: interactionStateHash(replayed),
+          final_status: "completed" as const,
+          canonical_event_count: events.length,
+          final_state_version: replayed.session.state_version,
+          evidence_event_ids: Object.freeze(events.slice(-16).map((event) => event.event_id)),
+        });
+      } catch (error) {
+        if (error instanceof WorkflowConflictError) throw error;
+        if (error instanceof SessionTimelineAuthorizationError) throw new WorkflowAuthorizationError();
+        throw new WorkflowRetryableError();
+      }
+    },
+  });
 }
 
 export function createManualEventRelayClock(initialTime: unknown): ManualEventRelayClock {

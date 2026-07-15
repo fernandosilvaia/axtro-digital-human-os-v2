@@ -14,7 +14,7 @@ const equivalentLocalUrl = "postgres://postgres@localhost:54329/axtro_m0_test";
 
 test("migration manifest is contiguous and local URLs cannot carry credentials or implicit identities", () => {
   const manifest = database.discoverMigrations();
-  assert.deepEqual(manifest.map((migration) => migration.version), [1, 2, 3, 4, 5, 6, 7, 8, 9, 10]);
+  assert.deepEqual(manifest.map((migration) => migration.version), [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11]);
   assert.equal(manifest.every((migration) => /^[0-9a-f]{64}$/.test(migration.checksumSha256)), true);
   assert.equal(database.parseLocalDatabaseUrl(localUrl), localUrl);
   assert.equal(database.parseLocalDatabaseUrl(equivalentLocalUrl), equivalentLocalUrl);
@@ -41,6 +41,37 @@ test("migration manifest is contiguous and local URLs cannot carry credentials o
   assert.match(timelineIdentityMigration, /aggregate_id' IS NOT DISTINCT FROM session_id::text/);
   assert.match(timelineIdentityMigration, /DISABLE TRIGGER session_timeline_append_only/);
   assert.match(timelineIdentityMigration, /ENABLE TRIGGER session_timeline_append_only/);
+  const workflowMigration = readFileSync(manifest.find((migration) => migration.version === 11).path, "utf8");
+  assert.match(workflowMigration, /CREATE TABLE workflow_commands/);
+  assert.match(workflowMigration, /CREATE TABLE workflow_step_receipts/);
+  assert.match(workflowMigration, /CREATE TABLE post_call_workflow_results/);
+  assert.match(workflowMigration, /CREATE TABLE post_call_workflow_result_evidence/);
+  assert.match(workflowMigration, /session_timeline_completion_source_key/);
+  assert.match(workflowMigration, /workflow_commands_source_completion_fkey/);
+  assert.match(workflowMigration, /workflow_step_receipts_run_command_session_fkey/);
+  assert.match(workflowMigration, /workflow_step_receipts_command_source_fkey/);
+  assert.match(workflowMigration, /post_call_workflow_results_run_command_session_fkey/);
+  assert.match(workflowMigration, /post_call_workflow_results_command_source_fkey/);
+  assert.match(workflowMigration, /post_call_workflow_result_evidence_result_session_fkey/);
+  assert.match(workflowMigration, /outcome = 'retry_scheduled'/);
+  assert.match(workflowMigration, /status = 'failed' AND last_error_code IN/);
+  assert.match(workflowMigration, /workflow_runs_post_call_lifecycle_check/);
+  assert.match(workflowMigration, /status = 'queued' AND attempts = 0/);
+  assert.match(workflowMigration, /status NOT IN \('running','waiting','completed','failed'\)[\s\S]*started_at IS NOT NULL/);
+  assert.match(workflowMigration, /status <> 'completed' OR current_step = 'finalize'/);
+  assert.match(workflowMigration, /status = 'completed'[\s\S]*cancelled_at IS NULL/);
+  assert.match(workflowMigration, /status = 'cancelled'[\s\S]*completed_at IS NULL/);
+  assert.match(workflowMigration, /workflow_runs_post_call_command_fkey[\s\S]*ON DELETE RESTRICT NOT VALID/);
+  assert.match(workflowMigration, /follow_up_external_effect = false/);
+  assert.match(workflowMigration, /CREATE UNIQUE INDEX workflow_runs_tenant_post_call_command_unique/);
+  for (const table of [
+    "workflow_commands",
+    "workflow_step_receipts",
+    "post_call_workflow_results",
+    "post_call_workflow_result_evidence",
+  ]) {
+    assert.match(workflowMigration, new RegExp(`${table}_append_only`));
+  }
 
   for (const value of [
     "postgresql://postgres@database.example.test/axtro_m0_test",

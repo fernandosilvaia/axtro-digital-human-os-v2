@@ -26,3 +26,7 @@ Deleting a source cascades versions, chunks and embeddings. Caches and indexes r
 ## Evidence under legal hold
 
 Legal hold is purpose-specific and time-bounded. It blocks deletion only for the referenced artifacts, not the entire tenant by default.
+
+## Post-call workflow evidence
+
+Post-call commands, checkpoint receipts, deterministic results and their timeline evidence are append-only and tenant-scoped. A result can contain restricted structural summary data, so retention or erasure must follow the session purpose and legal-hold policy. The relational evidence link must not be detached or reassigned to another tenant or session. M1 does not create external follow-up content or provider-side data to delete.

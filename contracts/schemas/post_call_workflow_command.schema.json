@@ -1,0 +1,41 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://schemas.axtro.ai/v2/post_call_workflow_command.schema.json",
+  "title": "Post Call Workflow Command",
+  "description": "Server-derived references that start the closed M1 post-call processing profile.",
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "schema_version": { "type": "string", "const": "2.0.0" },
+    "command_id": { "type": "string", "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$" },
+    "tenant_id": { "type": "string", "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$" },
+    "session_id": { "type": "string", "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$" },
+    "workflow_type": { "type": "string", "const": "post_call_processing" },
+    "workflow_version": { "type": "string", "const": "1.0.0" },
+    "aggregate_type": { "type": "string", "const": "interaction_session" },
+    "source_event_id": { "type": "string", "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$" },
+    "source_event_fingerprint": { "type": "string", "pattern": "^[0-9a-f]{64}$" },
+    "source_aggregate_version": { "type": "integer", "minimum": 1, "maximum": 10000000 },
+    "source_state_hash": { "type": "string", "pattern": "^[0-9a-f]{64}$" },
+    "trace_id": { "type": "string", "pattern": "^[0-9a-f]{16,64}$" },
+    "correlation_id": { "type": "string", "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$" },
+    "causation_id": {
+      "oneOf": [
+        { "type": "string", "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$" },
+        { "type": "null" }
+      ]
+    },
+    "idempotency_key": { "type": "string", "pattern": "^post-call-processing/v1/[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}/[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$", "maxLength": 128 },
+    "requested_by": { "type": "string", "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$" },
+    "scheduled_at": { "type": "string", "format": "date-time" },
+    "created_at": { "type": "string", "format": "date-time" },
+    "data_classification": { "type": "string", "const": "internal" }
+  },
+  "required": [
+    "schema_version", "command_id", "tenant_id", "session_id",
+    "workflow_type", "workflow_version", "aggregate_type", "source_event_id",
+    "source_event_fingerprint", "source_aggregate_version", "source_state_hash",
+    "trace_id", "correlation_id", "causation_id", "idempotency_key",
+    "requested_by", "scheduled_at", "created_at", "data_classification"
+  ]
+}

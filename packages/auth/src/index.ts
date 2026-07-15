@@ -120,8 +120,17 @@ const SUPPORTED_GRANTED_SCOPES = [
   "tool:use",
   "event:relay",
   "event:observe",
+  "workflow:dispatch",
+  "workflow:execute",
+  "workflow:observe",
 ] as const;
-const EVENT_SERVICE_SCOPES = ["event:relay", "event:observe"] as const;
+const WORKFLOW_SERVICE_SCOPES = [
+  "event:relay",
+  "event:observe",
+  "workflow:dispatch",
+  "workflow:execute",
+  "workflow:observe",
+] as const;
 const M0_PURPOSES = ["essential_processing", "provider_auth", "tool_auth"] as const;
 const AUTHORIZED_REQUESTS = new WeakSet<object>();
 
@@ -297,7 +306,7 @@ function normalizeVerifiedIdentity(input: unknown): VerifiedIdentity {
       purposes: normalizedLabels(readData(grantRecord, "purposes"), M0_PURPOSES),
     });
     if (
-      context.grantedScopes.some((scope) => EVENT_SERVICE_SCOPES.includes(scope as (typeof EVENT_SERVICE_SCOPES)[number]))
+      context.grantedScopes.some((scope) => WORKFLOW_SERVICE_SCOPES.includes(scope as (typeof WORKFLOW_SERVICE_SCOPES)[number]))
       && (identityKind !== "service" || actorType !== "workflow")
     ) throw new NormalizationError();
     if (tenantIds.has(context.tenantId)) throw new NormalizationError();

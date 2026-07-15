@@ -1,6 +1,7 @@
 packages:
   - apps/api
   - apps/event-relay
+  - apps/workflow-worker
   - packages/*
 
 autoInstallPeers: false

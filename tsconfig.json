@@ -8,6 +8,7 @@
     { "path": "./packages/auth" },
     { "path": "./packages/database" },
     { "path": "./packages/events" },
+    { "path": "./packages/workflows" },
     { "path": "./packages/observability" },
     { "path": "./packages/provider-contracts" },
     { "path": "./packages/model-gateway" },
@@ -23,6 +24,7 @@
     { "path": "./packages/context-composer" },
     { "path": "./packages/turns" },
     { "path": "./apps/api" },
-    { "path": "./apps/event-relay" }
+    { "path": "./apps/event-relay" },
+    { "path": "./apps/workflow-worker" }
   ]
 }

@@ -247,6 +247,7 @@ paths:
       tags: [Sessions]
       operationId: completeSession
       summary: Complete a session and enqueue post-call workflows
+      description: Completes the control-plane command synchronously. The canonical completion event is relayed asynchronously to the closed deterministic post-call workflow profile.
       parameters:
         - $ref: '#/components/parameters/SessionId'
         - $ref: '#/components/parameters/TenantId'

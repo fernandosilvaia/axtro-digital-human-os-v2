@@ -1,0 +1,141 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://schemas.axtro.ai/v2/post_call_workflow_status.schema.json",
+  "title": "Post Call Workflow Status",
+  "description": "PII-free checkpoint status for the closed M1 post-call workflow.",
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "schema_version": { "type": "string", "const": "2.0.0" },
+    "workflow_run_id": { "type": "string", "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$" },
+    "command_id": { "type": "string", "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$" },
+    "tenant_id": { "type": "string", "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$" },
+    "session_id": { "type": "string", "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$" },
+    "source_event_id": { "type": "string", "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$" },
+    "source_event_fingerprint": { "type": "string", "pattern": "^[0-9a-f]{64}$" },
+    "source_aggregate_version": { "type": "integer", "minimum": 1, "maximum": 10000000 },
+    "source_state_hash": { "type": "string", "pattern": "^[0-9a-f]{64}$" },
+    "trace_id": { "type": "string", "pattern": "^[0-9a-f]{16,64}$" },
+    "correlation_id": { "type": "string", "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$" },
+    "causation_id": {
+      "oneOf": [
+        { "type": "string", "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$" },
+        { "type": "null" }
+      ]
+    },
+    "status": { "type": "string", "enum": ["queued", "running", "waiting", "completed", "failed", "cancelled"] },
+    "current_step": { "type": "string", "enum": ["generate_summary", "evaluate", "record_follow_up_guard", "finalize"] },
+    "state_version": { "type": "integer", "minimum": 1, "maximum": 10000000 },
+    "attempts": { "type": "integer", "minimum": 0, "maximum": 64 },
+    "max_attempts": { "type": "integer", "minimum": 1, "maximum": 16 },
+    "next_attempt_at": { "oneOf": [{ "type": "string", "format": "date-time" }, { "type": "null" }] },
+    "last_error_code": {
+      "oneOf": [
+        { "type": "string", "enum": ["activity_retryable", "lease_expired", "max_attempts_exhausted", "invalid_source", "policy_denied", "internal_failure"] },
+        { "type": "null" }
+      ]
+    },
+    "result_hash": { "oneOf": [{ "type": "string", "pattern": "^[0-9a-f]{64}$" }, { "type": "null" }] },
+    "started_at": { "oneOf": [{ "type": "string", "format": "date-time" }, { "type": "null" }] },
+    "updated_at": { "type": "string", "format": "date-time" },
+    "completed_at": { "oneOf": [{ "type": "string", "format": "date-time" }, { "type": "null" }] },
+    "cancelled_at": { "oneOf": [{ "type": "string", "format": "date-time" }, { "type": "null" }] },
+    "data_classification": { "type": "string", "const": "internal" }
+  },
+  "required": [
+    "schema_version", "workflow_run_id", "command_id", "tenant_id", "session_id",
+    "source_event_id", "source_event_fingerprint", "source_aggregate_version",
+    "source_state_hash", "trace_id", "correlation_id", "causation_id", "status",
+    "current_step", "state_version", "attempts", "max_attempts", "next_attempt_at",
+    "last_error_code", "result_hash", "started_at", "updated_at", "completed_at",
+    "cancelled_at", "data_classification"
+  ],
+  "allOf": [
+    {
+      "if": { "properties": { "status": { "const": "queued" } }, "required": ["status"] },
+      "then": {
+        "properties": {
+          "attempts": { "const": 0 },
+          "next_attempt_at": { "type": "null" },
+          "last_error_code": { "type": "null" },
+          "result_hash": { "type": "null" },
+          "completed_at": { "type": "null" },
+          "cancelled_at": { "type": "null" }
+        }
+      }
+    },
+    {
+      "if": { "properties": { "status": { "const": "running" } }, "required": ["status"] },
+      "then": {
+        "properties": {
+          "attempts": { "type": "integer", "minimum": 1, "maximum": 64 },
+          "next_attempt_at": { "type": "null" },
+          "last_error_code": { "oneOf": [{ "type": "null" }, { "const": "lease_expired" }] },
+          "result_hash": { "type": "null" },
+          "started_at": { "type": "string", "format": "date-time" },
+          "completed_at": { "type": "null" },
+          "cancelled_at": { "type": "null" }
+        }
+      }
+    },
+    {
+      "if": { "properties": { "status": { "const": "waiting" } }, "required": ["status"] },
+      "then": {
+        "properties": {
+          "attempts": { "type": "integer", "minimum": 1, "maximum": 64 },
+          "next_attempt_at": { "type": "string", "format": "date-time" },
+          "last_error_code": { "const": "activity_retryable" },
+          "result_hash": { "type": "null" },
+          "started_at": { "type": "string", "format": "date-time" },
+          "completed_at": { "type": "null" },
+          "cancelled_at": { "type": "null" }
+        }
+      }
+    },
+    {
+      "if": { "properties": { "status": { "const": "completed" } }, "required": ["status"] },
+      "then": {
+        "properties": {
+          "attempts": { "type": "integer", "minimum": 1, "maximum": 64 },
+          "current_step": { "const": "finalize" },
+          "next_attempt_at": { "type": "null" },
+          "last_error_code": { "type": "null" },
+          "result_hash": { "type": "string", "pattern": "^[0-9a-f]{64}$" },
+          "started_at": { "type": "string", "format": "date-time" },
+          "completed_at": { "type": "string", "format": "date-time" },
+          "cancelled_at": { "type": "null" }
+        }
+      }
+    },
+    {
+      "if": { "properties": { "status": { "const": "failed" } }, "required": ["status"] },
+      "then": {
+        "properties": {
+          "attempts": { "type": "integer", "minimum": 1, "maximum": 64 },
+          "next_attempt_at": { "type": "null" },
+          "last_error_code": {
+            "type": "string",
+            "enum": ["max_attempts_exhausted", "invalid_source", "policy_denied", "internal_failure"]
+          },
+          "result_hash": { "type": "null" },
+          "started_at": { "type": "string", "format": "date-time" },
+          "completed_at": { "type": "null" },
+          "cancelled_at": { "type": "null" }
+        }
+      }
+    },
+    {
+      "if": { "properties": { "status": { "const": "cancelled" } }, "required": ["status"] },
+      "then": {
+        "properties": {
+          "attempts": { "type": "integer", "minimum": 1, "maximum": 64 },
+          "next_attempt_at": { "type": "null" },
+          "last_error_code": { "type": "null" },
+          "result_hash": { "type": "null" },
+          "completed_at": { "type": "null" },
+          "cancelled_at": { "type": "string", "format": "date-time" }
+        }
+      }
+    }
+  ]
+}

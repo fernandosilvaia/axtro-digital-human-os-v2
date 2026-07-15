@@ -3,8 +3,8 @@
 **Estado atual:** implementação de M1 em andamento
 
 **Marco atual:** M1
-**Tarefa atual:** M1-07 concluída; M1-08 ainda não iniciada
-**Última evidência verde:** M1-07 com relay bounded, consumer idempotente, DLQ observável e pipeline limpo em 2026-07-15
+**Tarefa atual:** M1-08
+**Última evidência verde:** M1-08 com workflow pós-call fake resumível, PostgreSQL e RLS locais, 191 testes Node, 23 testes Python e 9 validadores verdes em 2026-07-15
 **Bloqueadores internos:** nenhum
 **Pendências externas:** consultar `PENDENCIAS_EXTERNAS.md`  
 
@@ -44,7 +44,7 @@
 | `M1-05` | M1 | done | Complete fake Action Runtime flow | `M1-03`, `M0-14` | comando fechado, ActionIntent e policy derivados server-side, receipt-backed candidate, timeout fake por tenant, reconciliação exata, ledgers bounded e 154 testes Node mais 23 Python verdes |
 | `M1-06` | M1 | done | Implement timeline, snapshots and replay verifier | `M1-02`, `M0-13` | timeline append-only tenant-scoped, snapshot derivado do replay, equivalência zero versus snapshot mais tail, migration 0010, rollback, drift, RLS e 166 testes Node mais 23 Python verdes |
 | `M1-07` | M1 | done | Implement outbox relay and idempotent consumers | `M0-13`, `M1-06` | state machine bounded, token histórico, lease exclusivo, budget pinado, timeline idempotente, DLQ PII-free, telemetria tenant-safe e 180 testes Node mais 23 Python verdes |
-| `M1-08` | M1 | pending | Implement fake post-call workflow | `M1-07` | pending |
+| `M1-08` | M1 | done | Implement fake post-call workflow | `M1-07` | consumer composto, quatro checkpoints, resumo e avaliação fake, follow-up noop idempotente, resume, retry, cancelamento, migration 0011, RLS e 191 testes Node mais 23 Python verdes |
 | `M1-09` | M1 | pending | Build minimal operations console | `M1-01`, `M1-06` | pending |
 | `M1-10` | M1 | pending | Walking Skeleton E2E and failure suite | `M1-04`, `M1-05`, `M1-06`, `M1-07`, `M1-08`, `M1-09` | pending |
 | `M1-11` | M1 | pending | M1 release gate | `M1-10` | pending |
@@ -345,6 +345,27 @@
 - Riscos não bloqueantes: o repository continua process-local e com capacidade finita. A factory fake possui até 1.024 tokens e consome um por `runOnce`, inclusive idle; isso é adequado somente ao perfil local e por job de M1 e deve ser substituído antes de worker recorrente.
 - Próxima tarefa pendente: M1-08, workflow fake pós-call com resume, retry, cancelamento e idempotência, sem iniciar M2 ou M3.
 
+### 2026-07-15, M1-08 iniciado
+
+- Dependência M1-07 concluída, validada e commitada em `941fc12` antes do início desta tarefa.
+- Task graph, arquitetura de workflows duráveis, contratos `workflow_command` e `workflow_status`, AsyncAPI, instruções de contratos e skills de mudança arquitetural, contrato primeiro e segurança foram relidos antes da implementação.
+- Escopo fechado: consumir `session.completed`, gerar resumo e avaliação determinísticos, persistir status local resumível, provar retry, cancelamento e idempotência de follow-up sem provider, rede, credencial, ação externa, M2 ou M3.
+
+### 2026-07-15, M1-08 concluído
+
+- Criados cinco contratos fechados para comando, status, enqueue receipt, step receipt e resultado pós-call, elevando o catálogo a 47 schemas gerados para TypeScript e Python. As relações condicionais de lifecycle e outcome são validadas tanto nos JSON Schemas quanto na forma SQL.
+- Implementado `@axtro/workflows` com store determinístico tenant-scoped e bounded, clock confiável, IDs server-side, idempotência por completion, quatro checkpoints de uma etapa, leases exclusivos, fencing tokens históricos, budgets de tentativa pinados e classificação fechada de falhas. Resumo, avaliação estrutural e follow-up guard são fakes locais determinísticos.
+- Criado `apps/workflow-worker` com execução de uma etapa por `runOnce`, retomada por worker substituto, retry com backoff, cancelamento e telemetria PII-free. Claims expirados exauridos limpam a lease, registram receipt terminal e não consomem token substituto; checkpoints tardios permanecem bloqueados.
+- O event relay ganhou duas factories explícitas: a timeline-only rejeita `session.completed`, e a composta exige o sink de workflow no bootstrap. Completion só recebe ACK depois de append idempotente na timeline e enqueue idempotente do workflow, fechando as duas janelas de crash sem introduzir fanout genérico.
+- Autoridade foi separada em `workflow:dispatch`, `workflow:execute` e `workflow:observe`, restrita a service identity de workflow. Claims exigem também `session:read` antes de observar estado, e resultado `restricted` exige leitura de sessão. Cancelamento não concede observação implícita.
+- Adicionada a migration forward-only `0011_post_call_workflow_persistence.sql` com 42 tabelas totais e 11 migrations. Commands, receipts, results e evidence são append-only, forced-RLS e ligados por FKs compostas ao mesmo tenant, run, command, sessão e completion exata. Checks fecham lifecycle, terminalidade e semântica de receipts.
+- A matriz PostgreSQL prova clean apply, upgrade, backfill, drift estrutural, integridade de source e UUIDv7. A matriz RLS prova isolamento cross-tenant, mistura inválida dentro do mesmo tenant, lifecycle impossível, append-only, contexto ausente, reset de pool e namespaces isolados.
+- ADR-029 e D-V2-039 registram a escolha por workflow fake checkpointed, sem engine real, provider, rede, ferramenta, credencial ou efeito externo. O follow-up permanece `deterministic_noop`, `not_sent` e `external_effect=false`; Axtro Agent não participa do caminho crítico.
+- Revisões independentes finais de arquitetura, segurança e testes aprovaram o patch sem achados P0, P1 ou P2. Foram confirmados clock autoritativo, scopes mínimos, FKs compostas, fencing, classificação de erro, ausência de integração externa e preservação da Constituição.
+- Evidências verdes: `pnpm lint`; `pnpm contracts:check` com 47 schemas; `pnpm typecheck`; `pnpm test` com 191 testes Node e 23 unittest Python; `UV_CACHE_DIR=/private/tmp/axtro-uv-cache uv run pytest` com 23 testes; `pnpm build`; `pnpm db:test`; `pnpm db:rls`; `python3 scripts/validate_all.py` com 9 checks; e `git diff --check`.
+- Riscos não bloqueantes: o store TypeScript é process-local e prova restart de worker sobre o mesmo estado, não recuperação após perda do processo. Um adapter PostgreSQL futuro precisa de ledger histórico de claims abandonados antes de poder ser declarado seguro. O consumer composto é propositalmente específico, não um mecanismo geral de fanout.
+- Nenhuma credencial real, ambiente de produção, banco remoto, deploy, provider real, M2 ou M3 foi acessado ou iniciado.
+
 ### 2026-07-14, baseline arquitetural
 
 - 31 schemas estritos e 62 exemplos de contrato preparados.
@@ -353,4 +374,4 @@
 
 ## Próxima ação
 
-Implementar M1-08: workflow fake pós-call com resumo e avaliação determinísticos, retomada após restart, retry, cancelamento e idempotência de comando, sem iniciar M2 ou M3.
+Iniciar M1-09 em uma atualização separada: console operacional mínimo sobre as autoridades de lifecycle e timeline já concluídas, sem iniciar M2 ou M3.

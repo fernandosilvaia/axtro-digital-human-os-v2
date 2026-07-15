@@ -1,0 +1,36 @@
+{
+  "schema_version": "2.0.0",
+  "tenant_id": "018f1e2d-3c4b-7a01-8c9d-001122334455",
+  "session_id": "018f1e2d-3c4b-7a02-8c9d-001122334456",
+  "workflow_run_id": "018f1e2d-3c4b-7a15-8c9d-001122334465",
+  "command_id": "018f1e2d-3c4b-7a10-8c9d-001122334460",
+  "source_event_id": "018f1e2d-3c4b-7a11-8c9d-001122334461",
+  "source_event_fingerprint": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+  "source_aggregate_version": 5,
+  "source_state_hash": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+  "trace_id": "11111111111111112222222222222222",
+  "correlation_id": "018f1e2d-3c4b-7a12-8c9d-001122334462",
+  "causation_id": "018f1e2d-3c4b-7a13-8c9d-001122334463",
+  "summary": {
+    "template_code": "deterministic_session_summary_v1",
+    "text": "Session completed with 5 canonical events at aggregate version 5.",
+    "canonical_event_count": 5,
+    "final_state_version": 5
+  },
+  "evaluation": {
+    "evaluator_version": "fake-structural-v1",
+    "outcome": "passed",
+    "score_basis_points": 10000,
+    "evidence_event_ids": ["018f1e2d-3c4b-7a11-8c9d-001122334461"]
+  },
+  "follow_up_guard": {
+    "command_id": "018f1e2d-3c4b-7a16-8c9d-001122334466",
+    "mode": "deterministic_noop",
+    "status": "not_sent",
+    "external_effect": false,
+    "effect_hash": "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee"
+  },
+  "result_hash": "ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+  "completed_at": "2026-07-15T12:00:04Z",
+  "data_classification": "restricted"
+}

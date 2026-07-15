@@ -1,0 +1,14 @@
+{
+  "schema_version": "2.0.0",
+  "tenant_id": "018f1e2d-3c4b-7a01-8c9d-001122334455",
+  "session_id": "018f1e2d-3c4b-7a02-8c9d-001122334456",
+  "source_event_id": "018f1e2d-3c4b-7a11-8c9d-001122334461",
+  "source_event_fingerprint": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+  "command_id": "018f1e2d-3c4b-7a10-8c9d-001122334460",
+  "workflow_run_id": "018f1e2d-3c4b-7a15-8c9d-001122334465",
+  "command_fingerprint": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+  "trace_id": "11111111111111112222222222222222",
+  "correlation_id": "018f1e2d-3c4b-7a12-8c9d-001122334462",
+  "enqueued_at": "2026-07-15T12:00:00Z",
+  "data_classification": "internal"
+}

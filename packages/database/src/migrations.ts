@@ -171,6 +171,91 @@ const COST_EVENT_UNIQUE_INDEX = {
     "provider_request_refisnotnull",
   ],
 } as const;
+const WORKFLOW_CHECK_CONSTRAINTS = [
+  {
+    table: "workflow_commands",
+    name: "workflow_commands_profile_check",
+    signatures: ["post_call_processing", "100", "interaction_session", "sessioncompleted", "internal"],
+  },
+  {
+    table: "workflow_runs",
+    name: "workflow_runs_post_call_profile_check",
+    signatures: ["post_call_processing", "generate_summary", "record_follow_up_guard", "input_documentjsonb", "last_errorisnull"],
+  },
+  {
+    table: "workflow_runs",
+    name: "workflow_runs_post_call_lease_check",
+    signatures: ["statusrunning", "active_fencing_tokenisnotnull", "lease_expires_atupdated_at"],
+  },
+  {
+    table: "workflow_runs",
+    name: "workflow_runs_post_call_error_check",
+    signatures: ["statuswaiting", "last_error_codeactivity_retryable", "statusfailed", "internal_failure"],
+  },
+  {
+    table: "workflow_runs",
+    name: "workflow_runs_post_call_waiting_check",
+    signatures: ["statuswaiting", "next_attempt_atupdated_at", "statuswaitingtextandnext_attempt_atisnull"],
+  },
+  {
+    table: "workflow_runs",
+    name: "workflow_runs_post_call_lifecycle_check",
+    signatures: [
+      "statusqueuedtextandattempts0",
+      "attempts1andattempts64",
+      "started_atisnotnull",
+      "current_stepfinalizetext",
+    ],
+  },
+  {
+    table: "workflow_runs",
+    name: "workflow_runs_post_call_terminal_check",
+    signatures: [
+      "statuscompleted",
+      "completed_atisnotnullandcancelled_atisnull",
+      "statuscancelled",
+      "completed_atisnullandcancelled_atisnotnull",
+      "result_hash",
+    ],
+  },
+  {
+    table: "workflow_step_receipts",
+    name: "workflow_step_receipts_shape_check",
+    signatures: [
+      "record_follow_up_guard",
+      "state_version_afterstate_version_before1",
+      "completed_atstarted_at",
+      "outcomeretry_scheduled",
+      "failure_codeactivity_retryable",
+      "outcomecompletedtextandstepfinalizetext",
+    ],
+  },
+  {
+    table: "post_call_workflow_results",
+    name: "post_call_workflow_results_shape_check",
+    signatures: ["deterministic_session_summary_v1", "fakestructuralv1", "deterministic_noop", "not_sent", "follow_up_external_effectfalse", "restricted"],
+  },
+  {
+    table: "post_call_workflow_result_evidence",
+    name: "post_call_workflow_result_evidence_ordinal_check",
+    signatures: ["ordinal0andordinal15"],
+  },
+] as const;
+const WORKFLOW_CHECK_SIGNATURES = WORKFLOW_CHECK_CONSTRAINTS.flatMap(({ table, name, signatures }) => (
+  signatures.map((signature) => ({ table, name, signature }))
+));
+const WORKFLOW_UNIQUE_INDEXES = [
+  {
+    table: "workflow_runs",
+    name: "workflow_runs_tenant_active_fencing_token_unique",
+    signatures: ["createuniqueindex", "workflow_runs", "tenant_idactive_fencing_token", "active_fencing_tokenisnotnull"],
+  },
+  {
+    table: "workflow_runs",
+    name: "workflow_runs_tenant_post_call_command_unique",
+    signatures: ["createuniqueindex", "workflow_runs", "tenant_idpost_call_command_id", "workflow_typepost_call_processing"],
+  },
+] as const;
 const DEFAULT_MIGRATIONS_DIRECTORY = resolve(
   fileURLToPath(new URL("..", import.meta.url)),
   "../../database/migrations",
@@ -187,6 +272,7 @@ const SENTINEL_SQL_BY_VERSION: Readonly<Record<number, string>> = {
   8: "SELECT (EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'events_outbox_tenant_event_id_key') AND EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'events_outbox_event_document_identity_check'))::int;",
   9: "SELECT (EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'cost_events_amount_reconciliation_check') AND EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'cost_events_tenant_id_reconciles_cost_event_id_fkey') AND to_regclass('public.cost_events_tenant_source_provider_request_ref_unique') IS NOT NULL)::int;",
   10: "SELECT (EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'session_timeline_tenant_event_id_key') AND EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'session_timeline_event_document_identity_check'))::int;",
+  11: "SELECT (to_regclass('public.workflow_commands') IS NOT NULL AND to_regclass('public.workflow_step_receipts') IS NOT NULL AND to_regclass('public.post_call_workflow_results') IS NOT NULL AND to_regclass('public.post_call_workflow_result_evidence') IS NOT NULL)::int;",
 };
 
 const EXPECTED_PUBLIC_TABLES = [
@@ -221,6 +307,10 @@ const EXPECTED_PUBLIC_TABLES = [
   "knowledge_chunks",
   "knowledge_embeddings",
   "workflow_runs",
+  "workflow_commands",
+  "workflow_step_receipts",
+  "post_call_workflow_results",
+  "post_call_workflow_result_evidence",
   "audit_log",
   "events_outbox",
   "cost_events",
@@ -258,6 +348,10 @@ const EXPECTED_TENANT_TABLES = [
   "knowledge_chunks",
   "knowledge_embeddings",
   "workflow_runs",
+  "workflow_commands",
+  "workflow_step_receipts",
+  "post_call_workflow_results",
+  "post_call_workflow_result_evidence",
   "audit_log",
   "events_outbox",
   "cost_events",
@@ -277,6 +371,10 @@ const EXPECTED_TRIGGERS = [
   { table: "audit_log", name: "audit_log_append_only", triggerType: APPEND_ONLY_ROW_UPDATE_DELETE_TRIGGER_TYPE, functionName: "prevent_mutation" },
   { table: "cost_events", name: "cost_events_append_only", triggerType: APPEND_ONLY_ROW_UPDATE_DELETE_TRIGGER_TYPE, functionName: "prevent_mutation" },
   { table: "cost_events", name: "cost_events_reconciliation_target", triggerType: COST_RECONCILIATION_ROW_INSERT_TRIGGER_TYPE, functionName: "validate_cost_event_reconciliation" },
+  { table: "workflow_commands", name: "workflow_commands_append_only", triggerType: APPEND_ONLY_ROW_UPDATE_DELETE_TRIGGER_TYPE, functionName: "prevent_mutation" },
+  { table: "workflow_step_receipts", name: "workflow_step_receipts_append_only", triggerType: APPEND_ONLY_ROW_UPDATE_DELETE_TRIGGER_TYPE, functionName: "prevent_mutation" },
+  { table: "post_call_workflow_results", name: "post_call_workflow_results_append_only", triggerType: APPEND_ONLY_ROW_UPDATE_DELETE_TRIGGER_TYPE, functionName: "prevent_mutation" },
+  { table: "post_call_workflow_result_evidence", name: "post_call_workflow_result_evidence_append_only", triggerType: APPEND_ONLY_ROW_UPDATE_DELETE_TRIGGER_TYPE, functionName: "prevent_mutation" },
 ] as const;
 
 const EXPECTED_RELATIONAL_CONSTRAINTS = [
@@ -324,6 +422,76 @@ const EXPECTED_RELATIONAL_CONSTRAINTS = [
     table: "session_timeline",
     name: "session_timeline_tenant_event_id_key",
     definition: "unique(tenant_id,event_id)",
+  },
+  {
+    table: "session_timeline",
+    name: "session_timeline_completion_source_key",
+    definition: "unique(tenant_id,session_id,event_id,aggregate_version,event_type)",
+  },
+  {
+    table: "workflow_commands",
+    name: "workflow_commands_source_completion_fkey",
+    definition: "foreignkey(tenant_id,session_id,source_event_id,source_aggregate_version,source_event_type)referencessession_timeline(tenant_id,session_id,event_id,aggregate_version,event_type)ondeleterestrict",
+  },
+  {
+    table: "workflow_commands",
+    name: "workflow_commands_receipt_source_key",
+    definition: "unique(tenant_id,id,session_id,source_event_id,source_aggregate_version,source_event_type)",
+  },
+  {
+    table: "workflow_runs",
+    name: "workflow_runs_post_call_command_fkey",
+    definition: "foreignkey(tenant_id,post_call_command_id,workflow_type,workflow_version,aggregate_type,aggregate_id,idempotency_key)referencesworkflow_commands(tenant_id,id,workflow_type,workflow_version,aggregate_type,session_id,idempotency_key)ondeleterestrictnotvalid",
+  },
+  {
+    table: "workflow_runs",
+    name: "workflow_runs_receipt_reference_key",
+    definition: "unique(tenant_id,id,command_id,aggregate_id)",
+  },
+  {
+    table: "workflow_step_receipts",
+    name: "workflow_step_receipts_run_command_session_fkey",
+    definition: "foreignkey(tenant_id,workflow_run_id,command_id,session_id)referencesworkflow_runs(tenant_id,id,command_id,aggregate_id)ondeleterestrict",
+  },
+  {
+    table: "workflow_step_receipts",
+    name: "workflow_step_receipts_command_source_fkey",
+    definition: "foreignkey(tenant_id,command_id,session_id,source_event_id,source_aggregate_version,source_event_type)referencesworkflow_commands(tenant_id,id,session_id,source_event_id,source_aggregate_version,source_event_type)ondeleterestrict",
+  },
+  {
+    table: "workflow_step_receipts",
+    name: "workflow_step_receipts_source_completion_fkey",
+    definition: "foreignkey(tenant_id,session_id,source_event_id,source_aggregate_version,source_event_type)referencessession_timeline(tenant_id,session_id,event_id,aggregate_version,event_type)ondeleterestrict",
+  },
+  {
+    table: "post_call_workflow_results",
+    name: "post_call_workflow_results_source_completion_fkey",
+    definition: "foreignkey(tenant_id,session_id,source_event_id,source_aggregate_version,source_event_type)referencessession_timeline(tenant_id,session_id,event_id,aggregate_version,event_type)ondeleterestrict",
+  },
+  {
+    table: "post_call_workflow_results",
+    name: "post_call_workflow_results_run_command_session_fkey",
+    definition: "foreignkey(tenant_id,workflow_run_id,command_id,session_id)referencesworkflow_runs(tenant_id,id,command_id,aggregate_id)ondeleterestrict",
+  },
+  {
+    table: "post_call_workflow_results",
+    name: "post_call_workflow_results_command_source_fkey",
+    definition: "foreignkey(tenant_id,command_id,session_id,source_event_id,source_aggregate_version,source_event_type)referencesworkflow_commands(tenant_id,id,session_id,source_event_id,source_aggregate_version,source_event_type)ondeleterestrict",
+  },
+  {
+    table: "post_call_workflow_results",
+    name: "post_call_workflow_results_evidence_reference_key",
+    definition: "unique(tenant_id,workflow_run_id,session_id)",
+  },
+  {
+    table: "post_call_workflow_result_evidence",
+    name: "post_call_workflow_result_evidence_result_session_fkey",
+    definition: "foreignkey(tenant_id,workflow_run_id,session_id)referencespost_call_workflow_results(tenant_id,workflow_run_id,session_id)ondeleterestrict",
+  },
+  {
+    table: "post_call_workflow_result_evidence",
+    name: "post_call_workflow_result_evidence_timeline_fkey",
+    definition: "foreignkey(tenant_id,session_id,evidence_event_id,evidence_aggregate_version,evidence_event_type)referencessession_timeline(tenant_id,session_id,event_id,aggregate_version,event_type)ondeleterestrict",
   },
 ] as const;
 
@@ -456,6 +624,21 @@ actual_cost_event_check_constraints AS (
     AND table_constraint.contype = 'c'
     AND table_constraint.conname IN (${COST_EVENT_CHECK_CONSTRAINTS.map((constraint) => `'${constraint.name}'`).join(", ")})
 ),
+expected_workflow_check_signatures(table_name, constraint_name, signature) AS (
+  VALUES ${WORKFLOW_CHECK_SIGNATURES.map((entry) => `('${entry.table}', '${entry.name}', '${entry.signature}')`).join(", ")}
+),
+actual_workflow_check_constraints AS (
+  SELECT
+    relation.relname AS table_name,
+    table_constraint.conname AS constraint_name,
+    regexp_replace(lower(pg_get_constraintdef(table_constraint.oid)), '[^a-z0-9_]+', '', 'g') AS definition
+  FROM pg_constraint table_constraint
+  JOIN pg_class relation ON relation.oid = table_constraint.conrelid
+  JOIN pg_namespace namespace ON namespace.oid = relation.relnamespace
+  WHERE namespace.nspname = 'public'
+    AND table_constraint.contype = 'c'
+    AND table_constraint.conname IN (${WORKFLOW_CHECK_CONSTRAINTS.map((constraint) => `'${constraint.name}'`).join(", ")})
+),
 actual_cost_event_unique_index AS (
   SELECT
     index_class.relname AS index_name,
@@ -467,6 +650,18 @@ actual_cost_event_unique_index AS (
   WHERE namespace.nspname = 'public'
     AND relation.relname = 'cost_events'
     AND index_class.relname = '${COST_EVENT_UNIQUE_INDEX.name}'
+),
+actual_workflow_unique_indexes AS (
+  SELECT
+    relation.relname AS table_name,
+    index_class.relname AS index_name,
+    regexp_replace(lower(pg_get_indexdef(index_class.oid)), '[^a-z0-9_]+', '', 'g') AS definition
+  FROM pg_index index
+  JOIN pg_class index_class ON index_class.oid = index.indexrelid
+  JOIN pg_class relation ON relation.oid = index.indrelid
+  JOIN pg_namespace namespace ON namespace.oid = relation.relnamespace
+  WHERE namespace.nspname = 'public'
+    AND index_class.relname IN (${WORKFLOW_UNIQUE_INDEXES.map((index) => `'${index.name}'`).join(", ")})
 )
 SELECT CASE WHEN
   (SELECT count(*) FROM pg_extension WHERE extname IN ('vector', 'pgcrypto')) = 2
@@ -601,6 +796,15 @@ SELECT CASE WHEN
   )
   AND NOT EXISTS (
     SELECT 1
+    FROM expected_workflow_check_signatures expected
+    LEFT JOIN actual_workflow_check_constraints actual
+      ON actual.table_name = expected.table_name
+      AND actual.constraint_name = expected.constraint_name
+    WHERE actual.constraint_name IS NULL
+      OR actual.definition NOT LIKE '%' || expected.signature || '%'
+  )
+  AND NOT EXISTS (
+    SELECT 1
     FROM actual_cost_event_unique_index actual
     WHERE actual.index_name IS DISTINCT FROM '${COST_EVENT_UNIQUE_INDEX.name}'
       OR ${COST_EVENT_UNIQUE_INDEX.signatures.map((signature) => `actual.definition NOT LIKE '%${signature}%'`).join("\n      OR ")}
@@ -611,6 +815,12 @@ SELECT CASE WHEN
     WHERE actual.index_name = '${COST_EVENT_UNIQUE_INDEX.name}'
       AND ${COST_EVENT_UNIQUE_INDEX.signatures.map((signature) => `actual.definition LIKE '%${signature}%'`).join("\n      AND ")}
   )
+  AND ${WORKFLOW_UNIQUE_INDEXES.map((expected) => `EXISTS (
+    SELECT 1 FROM actual_workflow_unique_indexes actual
+    WHERE actual.table_name = '${expected.table}'
+      AND actual.index_name = '${expected.name}'
+      AND ${expected.signatures.map((signature) => `actual.definition LIKE '%${signature}%'`).join("\n      AND ")}
+  )`).join("\n  AND ")}
 THEN 'ok' ELSE 'drift' END;
 `;
 
@@ -661,7 +871,7 @@ FROM (
   JOIN pg_class relation ON relation.oid = table_constraint.conrelid
   JOIN pg_namespace namespace ON namespace.oid = relation.relnamespace
   WHERE namespace.nspname = 'public'
-    AND table_constraint.conname IN (${[...EXPECTED_RELATIONAL_CONSTRAINTS.map((constraint) => `'${constraint.name}'`), `'${OUTBOX_EVENT_DOCUMENT_IDENTITY_CHECK}'`, `'${TIMELINE_EVENT_DOCUMENT_IDENTITY_CHECK}'`, ...COST_EVENT_CHECK_CONSTRAINTS.map((constraint) => `'${constraint.name}'`)].join(", ")})
+    AND table_constraint.conname IN (${[...EXPECTED_RELATIONAL_CONSTRAINTS.map((constraint) => `'${constraint.name}'`), `'${OUTBOX_EVENT_DOCUMENT_IDENTITY_CHECK}'`, `'${TIMELINE_EVENT_DOCUMENT_IDENTITY_CHECK}'`, ...COST_EVENT_CHECK_CONSTRAINTS.map((constraint) => `'${constraint.name}'`), ...WORKFLOW_CHECK_CONSTRAINTS.map((constraint) => `'${constraint.name}'`)].join(", ")})
   UNION ALL
   SELECT 'index:' || index_class.relname || ':' || regexp_replace(lower(pg_get_indexdef(index_class.oid)), '[^a-z0-9_]+', '', 'g')
   FROM pg_index index
@@ -669,8 +879,10 @@ FROM (
   JOIN pg_class relation ON relation.oid = index.indrelid
   JOIN pg_namespace namespace ON namespace.oid = relation.relnamespace
   WHERE namespace.nspname = 'public'
-    AND relation.relname = 'cost_events'
-    AND index_class.relname = '${COST_EVENT_UNIQUE_INDEX.name}'
+    AND (
+      (relation.relname = 'cost_events' AND index_class.relname = '${COST_EVENT_UNIQUE_INDEX.name}')
+      OR index_class.relname IN (${WORKFLOW_UNIQUE_INDEXES.map((index) => `'${index.name}'`).join(", ")})
+    )
 ) catalog_entries
 ORDER BY entry;
 `;
@@ -718,6 +930,21 @@ FROM (
   WHERE namespace.nspname = 'public'
     AND relation.relname = 'cost_events'
     AND index_class.relname = '${COST_EVENT_UNIQUE_INDEX.name}'
+  UNION ALL
+  SELECT 'workflow_check:' || relation.relname || ':' || table_constraint.conname || ':' || regexp_replace(lower(pg_get_constraintdef(table_constraint.oid)), '[^a-z0-9_]+', '', 'g')
+  FROM pg_constraint table_constraint
+  JOIN pg_class relation ON relation.oid = table_constraint.conrelid
+  JOIN pg_namespace namespace ON namespace.oid = relation.relnamespace
+  WHERE namespace.nspname = 'public'
+    AND table_constraint.conname IN (${WORKFLOW_CHECK_CONSTRAINTS.map((constraint) => `'${constraint.name}'`).join(", ")})
+  UNION ALL
+  SELECT 'workflow_index:' || relation.relname || ':' || index_class.relname || ':' || regexp_replace(lower(pg_get_indexdef(index_class.oid)), '[^a-z0-9_]+', '', 'g')
+  FROM pg_index index
+  JOIN pg_class index_class ON index_class.oid = index.indexrelid
+  JOIN pg_class relation ON relation.oid = index.indrelid
+  JOIN pg_namespace namespace ON namespace.oid = relation.relnamespace
+  WHERE namespace.nspname = 'public'
+    AND index_class.relname IN (${WORKFLOW_UNIQUE_INDEXES.map((index) => `'${index.name}'`).join(", ")})
 ) diagnostics
 ORDER BY entry;
 `;

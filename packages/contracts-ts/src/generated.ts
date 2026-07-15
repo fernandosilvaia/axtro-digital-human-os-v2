@@ -1,7 +1,7 @@
 /*
  * GENERATED FILE. DO NOT EDIT.
  * generator: scripts/generate_contract_types.py@1.0.0
- * source: 42 JSON Schema Draft 2020-12 documents under contracts/schemas/
+ * source: 47 JSON Schema Draft 2020-12 documents under contracts/schemas/
  */
 
 export const CONTRACT_GENERATOR_VERSION = "1.0.0" as const;
@@ -407,6 +407,96 @@ export interface PolicyDecision {
   expires_at: string;
 }
 
+/** Source: contracts/schemas/post_call_workflow_command.schema.json; schema: https://schemas.axtro.ai/v2/post_call_workflow_command.schema.json; version: 2.0.0. */
+export interface PostCallWorkflowCommand {
+  schema_version: "2.0.0";
+  command_id: string;
+  tenant_id: string;
+  session_id: string;
+  workflow_type: "post_call_processing";
+  workflow_version: "1.0.0";
+  aggregate_type: "interaction_session";
+  source_event_id: string;
+  source_event_fingerprint: string;
+  source_aggregate_version: number;
+  source_state_hash: string;
+  trace_id: string;
+  correlation_id: string;
+  causation_id: (string) | (null);
+  idempotency_key: string;
+  requested_by: string;
+  scheduled_at: string;
+  created_at: string;
+  data_classification: "internal";
+}
+
+/** Source: contracts/schemas/post_call_workflow_result.schema.json; schema: https://schemas.axtro.ai/v2/post_call_workflow_result.schema.json; version: 2.0.0. */
+export interface PostCallWorkflowResult {
+  schema_version: "2.0.0";
+  tenant_id: string;
+  session_id: string;
+  workflow_run_id: string;
+  command_id: string;
+  source_event_id: string;
+  source_event_fingerprint: string;
+  source_aggregate_version: number;
+  source_state_hash: string;
+  trace_id: string;
+  correlation_id: string;
+  causation_id: (string) | (null);
+  summary: {
+    template_code: "deterministic_session_summary_v1";
+    text: string;
+    canonical_event_count: number;
+    final_state_version: number;
+  };
+  evaluation: {
+    evaluator_version: "fake-structural-v1";
+    outcome: "passed" | "review_required";
+    score_basis_points: number;
+    evidence_event_ids: Array<string>;
+  };
+  follow_up_guard: {
+    command_id: string;
+    mode: "deterministic_noop";
+    status: "not_sent";
+    external_effect: false;
+    effect_hash: string;
+  };
+  result_hash: string;
+  completed_at: string;
+  data_classification: "restricted";
+}
+
+/** Source: contracts/schemas/post_call_workflow_status.schema.json; schema: https://schemas.axtro.ai/v2/post_call_workflow_status.schema.json; version: 2.0.0. */
+export interface PostCallWorkflowStatus {
+  schema_version: "2.0.0";
+  workflow_run_id: string;
+  command_id: string;
+  tenant_id: string;
+  session_id: string;
+  source_event_id: string;
+  source_event_fingerprint: string;
+  source_aggregate_version: number;
+  source_state_hash: string;
+  trace_id: string;
+  correlation_id: string;
+  causation_id: (string) | (null);
+  status: "queued" | "running" | "waiting" | "completed" | "failed" | "cancelled";
+  current_step: "generate_summary" | "evaluate" | "record_follow_up_guard" | "finalize";
+  state_version: number;
+  attempts: number;
+  max_attempts: number;
+  next_attempt_at: (string) | (null);
+  last_error_code: ("activity_retryable" | "lease_expired" | "max_attempts_exhausted" | "invalid_source" | "policy_denied" | "internal_failure") | (null);
+  result_hash: (string) | (null);
+  started_at: (string) | (null);
+  updated_at: string;
+  completed_at: (string) | (null);
+  cancelled_at: (string) | (null);
+  data_classification: "internal";
+}
+
 /** Source: contracts/schemas/pre_call_briefing.schema.json; schema: https://schemas.axtro.ai/v2/pre_call_briefing.schema.json; version: 2.0.0. */
 export interface PreCallBriefing {
   schema_version: "2.0.0";
@@ -769,6 +859,22 @@ export interface WorkflowCommand {
   created_at: string;
 }
 
+/** Source: contracts/schemas/workflow_enqueue_receipt.schema.json; schema: https://schemas.axtro.ai/v2/workflow_enqueue_receipt.schema.json; version: 2.0.0. */
+export interface WorkflowEnqueueReceipt {
+  schema_version: "2.0.0";
+  tenant_id: string;
+  session_id: string;
+  source_event_id: string;
+  source_event_fingerprint: string;
+  command_id: string;
+  workflow_run_id: string;
+  command_fingerprint: string;
+  trace_id: string;
+  correlation_id: string;
+  enqueued_at: string;
+  data_classification: "internal";
+}
+
 /** Source: contracts/schemas/workflow_status.schema.json; schema: https://schemas.axtro.ai/v2/workflow_status.schema.json; version: 2.0.0. */
 export interface WorkflowStatus {
   schema_version: "2.0.0";
@@ -787,6 +893,26 @@ export interface WorkflowStatus {
   started_at: string | null;
   updated_at: string;
   completed_at: string | null;
+}
+
+/** Source: contracts/schemas/workflow_step_receipt.schema.json; schema: https://schemas.axtro.ai/v2/workflow_step_receipt.schema.json; version: 2.0.0. */
+export interface WorkflowStepReceipt {
+  schema_version: "2.0.0";
+  tenant_id: string;
+  session_id: string;
+  workflow_run_id: string;
+  command_id: string;
+  source_event_id: string;
+  step: "generate_summary" | "evaluate" | "record_follow_up_guard" | "finalize";
+  attempt: number;
+  outcome: "checkpointed" | "retry_scheduled" | "completed" | "cancelled" | "failed";
+  artifact_hash: (string) | (null);
+  failure_code: ("activity_retryable" | "lease_expired" | "max_attempts_exhausted" | "invalid_source" | "policy_denied" | "internal_failure") | (null);
+  trace_id: string;
+  correlation_id: string;
+  started_at: string;
+  completed_at: string;
+  data_classification: "internal";
 }
 
 export const CONTRACT_METADATA = {
@@ -922,6 +1048,24 @@ export const CONTRACT_METADATA = {
     "source_hash": "4832dfa5d90d69b7365eade438c32da0c4ef86210415974e425e8e6e38684b3b",
     "source_schema": "contracts/schemas/policy_decision.schema.json"
   },
+  "PostCallWorkflowCommand": {
+    "schema_id": "https://schemas.axtro.ai/v2/post_call_workflow_command.schema.json",
+    "schema_version": "2.0.0",
+    "source_hash": "0fdffe812b859616318646996c7f95b219e6bc46aeeee4467f3549a35627aff4",
+    "source_schema": "contracts/schemas/post_call_workflow_command.schema.json"
+  },
+  "PostCallWorkflowResult": {
+    "schema_id": "https://schemas.axtro.ai/v2/post_call_workflow_result.schema.json",
+    "schema_version": "2.0.0",
+    "source_hash": "5a3b803ba9c8e0598c0d6fa545cde750b8db38d9841aa92d5179b630b67a0827",
+    "source_schema": "contracts/schemas/post_call_workflow_result.schema.json"
+  },
+  "PostCallWorkflowStatus": {
+    "schema_id": "https://schemas.axtro.ai/v2/post_call_workflow_status.schema.json",
+    "schema_version": "2.0.0",
+    "source_hash": "b44cb08eb0bb6a6c0f50a2034d5f87d801bfc3882fb870e20521f1153e010a65",
+    "source_schema": "contracts/schemas/post_call_workflow_status.schema.json"
+  },
   "PreCallBriefing": {
     "schema_id": "https://schemas.axtro.ai/v2/pre_call_briefing.schema.json",
     "schema_version": "2.0.0",
@@ -1036,10 +1180,22 @@ export const CONTRACT_METADATA = {
     "source_hash": "a11b261743249b2e3afbccdc4185d504c26cdfd3fc4024c804959beaca53dfe4",
     "source_schema": "contracts/schemas/workflow_command.schema.json"
   },
+  "WorkflowEnqueueReceipt": {
+    "schema_id": "https://schemas.axtro.ai/v2/workflow_enqueue_receipt.schema.json",
+    "schema_version": "2.0.0",
+    "source_hash": "ba8b21575e77cd39cdd760cbeafadb6d99fc5448456520112342eee6e1038b63",
+    "source_schema": "contracts/schemas/workflow_enqueue_receipt.schema.json"
+  },
   "WorkflowStatus": {
     "schema_id": "https://schemas.axtro.ai/v2/workflow_status.schema.json",
     "schema_version": "2.0.0",
     "source_hash": "290e0011bbed957d83af4d12a5d720721a41077e9965553f5920bc8e2961599f",
     "source_schema": "contracts/schemas/workflow_status.schema.json"
+  },
+  "WorkflowStepReceipt": {
+    "schema_id": "https://schemas.axtro.ai/v2/workflow_step_receipt.schema.json",
+    "schema_version": "2.0.0",
+    "source_hash": "558c0cf2aea2ca30e1f24a173575f40bed7e0b4b2b04da9c2bf1e6dc5b88f45d",
+    "source_schema": "contracts/schemas/workflow_step_receipt.schema.json"
   }
 } as const satisfies Record<string, ContractMetadata>;

@@ -6,9 +6,9 @@ info:
 defaultContentType: application/json
 servers:
   development:
-    host: localhost:6379
-    protocol: redis
-    description: Development transport. Production transport is selected by ADR without changing message contracts.
+    host: local-process
+    protocol: in-memory
+    description: Logical M1 transport backed by an injected local deterministic store. It does not open a network connection.
 channels:
   domainEvents:
     address: axtro.v2.events.{tenantId}.{aggregateType}
@@ -27,7 +27,7 @@ channels:
         description: Authorized tenant UUIDv7
     messages:
       workflowCommand:
-        $ref: '#/components/messages/WorkflowCommand'
+        $ref: '#/components/messages/PostCallWorkflowCommand'
   workflowStatus:
     address: axtro.v2.status.{tenantId}.workflow
     parameters:
@@ -35,7 +35,7 @@ channels:
         description: Authorized tenant UUIDv7
     messages:
       workflowStatus:
-        $ref: '#/components/messages/WorkflowStatus'
+        $ref: '#/components/messages/PostCallWorkflowStatus'
 operations:
   publishDomainEvent:
     action: send
@@ -77,19 +77,19 @@ components:
         $ref: '../schemas/event_envelope.schema.json'
       correlationId:
         location: $message.payload#/correlation_id
-    WorkflowCommand:
-      name: WorkflowCommand
-      title: Durable workflow command
+    PostCallWorkflowCommand:
+      name: PostCallWorkflowCommand
+      title: Closed deterministic post-call workflow command
       contentType: application/json
       payload:
-        $ref: '../schemas/workflow_command.schema.json'
+        $ref: '../schemas/post_call_workflow_command.schema.json'
       correlationId:
-        location: $message.payload#/command_id
-    WorkflowStatus:
-      name: WorkflowStatus
-      title: Durable workflow status update
+        location: $message.payload#/correlation_id
+    PostCallWorkflowStatus:
+      name: PostCallWorkflowStatus
+      title: PII-free checkpointed post-call workflow status
       contentType: application/json
       payload:
-        $ref: '../schemas/workflow_status.schema.json'
+        $ref: '../schemas/post_call_workflow_status.schema.json'
       correlationId:
-        location: $message.payload#/command_id
+        location: $message.payload#/correlation_id

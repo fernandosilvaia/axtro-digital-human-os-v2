@@ -1,0 +1,88 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://schemas.axtro.ai/v2/workflow_step_receipt.schema.json",
+  "title": "Workflow Step Receipt",
+  "description": "PII-free checkpoint evidence for one fenced post-call workflow attempt.",
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "schema_version": { "type": "string", "const": "2.0.0" },
+    "tenant_id": { "type": "string", "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$" },
+    "session_id": { "type": "string", "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$" },
+    "workflow_run_id": { "type": "string", "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$" },
+    "command_id": { "type": "string", "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$" },
+    "source_event_id": { "type": "string", "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$" },
+    "step": { "type": "string", "enum": ["generate_summary", "evaluate", "record_follow_up_guard", "finalize"] },
+    "attempt": { "type": "integer", "minimum": 1, "maximum": 16 },
+    "outcome": { "type": "string", "enum": ["checkpointed", "retry_scheduled", "completed", "cancelled", "failed"] },
+    "artifact_hash": { "oneOf": [{ "type": "string", "pattern": "^[0-9a-f]{64}$" }, { "type": "null" }] },
+    "failure_code": {
+      "oneOf": [
+        { "type": "string", "enum": ["activity_retryable", "lease_expired", "max_attempts_exhausted", "invalid_source", "policy_denied", "internal_failure"] },
+        { "type": "null" }
+      ]
+    },
+    "trace_id": { "type": "string", "pattern": "^[0-9a-f]{16,64}$" },
+    "correlation_id": { "type": "string", "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$" },
+    "started_at": { "type": "string", "format": "date-time" },
+    "completed_at": { "type": "string", "format": "date-time" },
+    "data_classification": { "type": "string", "const": "internal" }
+  },
+  "required": [
+    "schema_version", "tenant_id", "session_id", "workflow_run_id", "command_id",
+    "source_event_id", "step", "attempt", "outcome", "artifact_hash",
+    "failure_code", "trace_id", "correlation_id", "started_at", "completed_at",
+    "data_classification"
+  ],
+  "allOf": [
+    {
+      "if": { "properties": { "outcome": { "const": "checkpointed" } }, "required": ["outcome"] },
+      "then": {
+        "properties": {
+          "artifact_hash": { "type": "string", "pattern": "^[0-9a-f]{64}$" },
+          "failure_code": { "type": "null" }
+        }
+      }
+    },
+    {
+      "if": { "properties": { "outcome": { "const": "retry_scheduled" } }, "required": ["outcome"] },
+      "then": {
+        "properties": {
+          "artifact_hash": { "type": "null" },
+          "failure_code": { "const": "activity_retryable" }
+        }
+      }
+    },
+    {
+      "if": { "properties": { "outcome": { "const": "completed" } }, "required": ["outcome"] },
+      "then": {
+        "properties": {
+          "step": { "const": "finalize" },
+          "artifact_hash": { "type": "null" },
+          "failure_code": { "type": "null" }
+        }
+      }
+    },
+    {
+      "if": { "properties": { "outcome": { "const": "cancelled" } }, "required": ["outcome"] },
+      "then": {
+        "properties": {
+          "artifact_hash": { "type": "null" },
+          "failure_code": { "type": "null" }
+        }
+      }
+    },
+    {
+      "if": { "properties": { "outcome": { "const": "failed" } }, "required": ["outcome"] },
+      "then": {
+        "properties": {
+          "artifact_hash": { "type": "null" },
+          "failure_code": {
+            "type": "string",
+            "enum": ["max_attempts_exhausted", "invalid_source", "policy_denied", "internal_failure"]
+          }
+        }
+      }
+    }
+  ]
+}

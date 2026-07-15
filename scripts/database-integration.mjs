@@ -78,7 +78,7 @@ try {
   const invalidUrl = databaseUrlFor(baseDatabaseUrl, invalidName);
   const invalidTimelineUrl = databaseUrlFor(baseDatabaseUrl, invalidTimelineName);
   const cleanResult = database.applyLocalMigrations({ databaseUrl: cleanUrl, psqlPath });
-  assert.equal(cleanResult.applied.length, 10);
+  assert.equal(cleanResult.applied.length, 11);
   const cleanDrift = database.checkLocalSchemaDrift({ databaseUrl: cleanUrl, psqlPath });
   assert.equal(runDevelopmentSeed(cleanUrl).status, 0);
   const firstSeedComposition = readDevelopmentSeedComposition(cleanUrl);
@@ -162,7 +162,7 @@ try {
     `${timelinePrerequisiteSql(historicalTimeline)} ${legacyTimelineInsertSql(historicalTimeline)}`,
   ).status, 0);
   const upgradeResult = database.applyLocalMigrations({ databaseUrl: upgradeUrl, psqlPath });
-  assert.deepEqual(upgradeResult.applied.map((migration) => migration.version), [10]);
+  assert.deepEqual(upgradeResult.applied.map((migration) => migration.version), [10, 11]);
   assert.equal(
     queryScalar(
       upgradeUrl,
@@ -475,6 +475,24 @@ try {
   assert.equal(timelineDocumentIdentityRestore.status, 0);
   assert.doesNotThrow(() => database.checkLocalSchemaDrift({ databaseUrl: cleanUrl, psqlPath }));
 
+  const workflowSourceForeignKeyDrift = runSql(
+    cleanUrl,
+    psqlPath,
+    "ALTER TABLE workflow_commands DROP CONSTRAINT workflow_commands_source_completion_fkey;",
+  );
+  assert.equal(workflowSourceForeignKeyDrift.status, 0);
+  assert.throws(
+    () => database.checkLocalSchemaDrift({ databaseUrl: cleanUrl, psqlPath }),
+    database.MigrationDriftError,
+  );
+  const workflowSourceForeignKeyRestore = runSql(
+    cleanUrl,
+    psqlPath,
+    "ALTER TABLE workflow_commands ADD CONSTRAINT workflow_commands_source_completion_fkey FOREIGN KEY (tenant_id, session_id, source_event_id, source_aggregate_version, source_event_type) REFERENCES session_timeline(tenant_id, session_id, event_id, aggregate_version, event_type) ON DELETE RESTRICT;",
+  );
+  assert.equal(workflowSourceForeignKeyRestore.status, 0);
+  assert.doesNotThrow(() => database.checkLocalSchemaDrift({ databaseUrl: cleanUrl, psqlPath }));
+
   const costReconciliationDrift = runSql(
     cleanUrl,
     psqlPath,
@@ -605,7 +623,7 @@ try {
     database.MigrationDriftError,
   );
 
-  console.log("DATABASE INTEGRATION PASSED: clean apply, upgrade backfill, cost reconciliation, structural drift, and UUIDv7 rejection");
+  console.log("DATABASE INTEGRATION PASSED: clean apply, upgrade backfill, workflow source integrity, cost reconciliation, structural drift, and UUIDv7 rejection");
 } catch (error) {
   primaryError = error;
   throw error;

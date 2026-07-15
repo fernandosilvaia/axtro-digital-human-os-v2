@@ -1,0 +1,21 @@
+{
+  "schema_version": "2.0.0",
+  "command_id": "018f1e2d-3c4b-7a10-8c9d-001122334460",
+  "tenant_id": "018f1e2d-3c4b-7a01-8c9d-001122334455",
+  "session_id": "018f1e2d-3c4b-7a02-8c9d-001122334456",
+  "workflow_type": "post_call_processing",
+  "workflow_version": "1.0.0",
+  "aggregate_type": "interaction_session",
+  "source_event_id": "018f1e2d-3c4b-7a11-8c9d-001122334461",
+  "source_event_fingerprint": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+  "source_aggregate_version": 5,
+  "source_state_hash": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+  "trace_id": "11111111111111112222222222222222",
+  "correlation_id": "018f1e2d-3c4b-7a12-8c9d-001122334462",
+  "causation_id": "018f1e2d-3c4b-7a13-8c9d-001122334463",
+  "idempotency_key": "post-call-processing/v1/018f1e2d-3c4b-7a01-8c9d-001122334455/018f1e2d-3c4b-7a11-8c9d-001122334461",
+  "requested_by": "018f1e2d-3c4b-7a14-8c9d-001122334464",
+  "scheduled_at": "2026-07-15T12:00:00Z",
+  "created_at": "2026-07-15T12:00:00Z",
+  "data_classification": "internal"
+}

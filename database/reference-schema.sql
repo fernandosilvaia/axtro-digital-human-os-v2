@@ -10,3 +10,4 @@
 \i migrations/0008_outbox_event_identity.sql
 \i migrations/0009_cost_event_reconciliation.sql
 \i migrations/0010_session_timeline_event_identity.sql
+\i migrations/0011_post_call_workflow_persistence.sql

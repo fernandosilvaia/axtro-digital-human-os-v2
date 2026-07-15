@@ -332,6 +332,77 @@ class PolicyDecision(TypedDict):
     evaluated_at: str
     expires_at: str
 
+# Source: contracts/schemas/post_call_workflow_command.schema.json; schema: https://schemas.axtro.ai/v2/post_call_workflow_command.schema.json; version: 2.0.0.
+class PostCallWorkflowCommand(TypedDict):
+    schema_version: Literal['2.0.0']
+    command_id: str
+    tenant_id: str
+    session_id: str
+    workflow_type: Literal['post_call_processing']
+    workflow_version: Literal['1.0.0']
+    aggregate_type: Literal['interaction_session']
+    source_event_id: str
+    source_event_fingerprint: str
+    source_aggregate_version: int
+    source_state_hash: str
+    trace_id: str
+    correlation_id: str
+    causation_id: (str) | (None)
+    idempotency_key: str
+    requested_by: str
+    scheduled_at: str
+    created_at: str
+    data_classification: Literal['internal']
+
+# Source: contracts/schemas/post_call_workflow_result.schema.json; schema: https://schemas.axtro.ai/v2/post_call_workflow_result.schema.json; version: 2.0.0.
+class PostCallWorkflowResult(TypedDict):
+    schema_version: Literal['2.0.0']
+    tenant_id: str
+    session_id: str
+    workflow_run_id: str
+    command_id: str
+    source_event_id: str
+    source_event_fingerprint: str
+    source_aggregate_version: int
+    source_state_hash: str
+    trace_id: str
+    correlation_id: str
+    causation_id: (str) | (None)
+    summary: dict[str, object]
+    evaluation: dict[str, object]
+    follow_up_guard: dict[str, object]
+    result_hash: str
+    completed_at: str
+    data_classification: Literal['restricted']
+
+# Source: contracts/schemas/post_call_workflow_status.schema.json; schema: https://schemas.axtro.ai/v2/post_call_workflow_status.schema.json; version: 2.0.0.
+class PostCallWorkflowStatus(TypedDict):
+    schema_version: Literal['2.0.0']
+    workflow_run_id: str
+    command_id: str
+    tenant_id: str
+    session_id: str
+    source_event_id: str
+    source_event_fingerprint: str
+    source_aggregate_version: int
+    source_state_hash: str
+    trace_id: str
+    correlation_id: str
+    causation_id: (str) | (None)
+    status: Literal['queued', 'running', 'waiting', 'completed', 'failed', 'cancelled']
+    current_step: Literal['generate_summary', 'evaluate', 'record_follow_up_guard', 'finalize']
+    state_version: int
+    attempts: int
+    max_attempts: int
+    next_attempt_at: (str) | (None)
+    last_error_code: (Literal['activity_retryable', 'lease_expired', 'max_attempts_exhausted', 'invalid_source', 'policy_denied', 'internal_failure']) | (None)
+    result_hash: (str) | (None)
+    started_at: (str) | (None)
+    updated_at: str
+    completed_at: (str) | (None)
+    cancelled_at: (str) | (None)
+    data_classification: Literal['internal']
+
 # Source: contracts/schemas/pre_call_briefing.schema.json; schema: https://schemas.axtro.ai/v2/pre_call_briefing.schema.json; version: 2.0.0.
 class PreCallBriefing(TypedDict):
     schema_version: Literal['2.0.0']
@@ -603,6 +674,21 @@ class WorkflowCommand(TypedDict):
     scheduled_at: str
     created_at: str
 
+# Source: contracts/schemas/workflow_enqueue_receipt.schema.json; schema: https://schemas.axtro.ai/v2/workflow_enqueue_receipt.schema.json; version: 2.0.0.
+class WorkflowEnqueueReceipt(TypedDict):
+    schema_version: Literal['2.0.0']
+    tenant_id: str
+    session_id: str
+    source_event_id: str
+    source_event_fingerprint: str
+    command_id: str
+    workflow_run_id: str
+    command_fingerprint: str
+    trace_id: str
+    correlation_id: str
+    enqueued_at: str
+    data_classification: Literal['internal']
+
 # Source: contracts/schemas/workflow_status.schema.json; schema: https://schemas.axtro.ai/v2/workflow_status.schema.json; version: 2.0.0.
 class WorkflowStatus(TypedDict):
     schema_version: Literal['2.0.0']
@@ -616,6 +702,25 @@ class WorkflowStatus(TypedDict):
     started_at: str | None
     updated_at: str
     completed_at: str | None
+
+# Source: contracts/schemas/workflow_step_receipt.schema.json; schema: https://schemas.axtro.ai/v2/workflow_step_receipt.schema.json; version: 2.0.0.
+class WorkflowStepReceipt(TypedDict):
+    schema_version: Literal['2.0.0']
+    tenant_id: str
+    session_id: str
+    workflow_run_id: str
+    command_id: str
+    source_event_id: str
+    step: Literal['generate_summary', 'evaluate', 'record_follow_up_guard', 'finalize']
+    attempt: int
+    outcome: Literal['checkpointed', 'retry_scheduled', 'completed', 'cancelled', 'failed']
+    artifact_hash: (str) | (None)
+    failure_code: (Literal['activity_retryable', 'lease_expired', 'max_attempts_exhausted', 'invalid_source', 'policy_denied', 'internal_failure']) | (None)
+    trace_id: str
+    correlation_id: str
+    started_at: str
+    completed_at: str
+    data_classification: Literal['internal']
 
 CONTRACT_METADATA: dict[str, dict[str, str]] = {
   "ActionIntent": {
@@ -750,6 +855,24 @@ CONTRACT_METADATA: dict[str, dict[str, str]] = {
     "source_hash": "4832dfa5d90d69b7365eade438c32da0c4ef86210415974e425e8e6e38684b3b",
     "source_schema": "contracts/schemas/policy_decision.schema.json"
   },
+  "PostCallWorkflowCommand": {
+    "schema_id": "https://schemas.axtro.ai/v2/post_call_workflow_command.schema.json",
+    "schema_version": "2.0.0",
+    "source_hash": "0fdffe812b859616318646996c7f95b219e6bc46aeeee4467f3549a35627aff4",
+    "source_schema": "contracts/schemas/post_call_workflow_command.schema.json"
+  },
+  "PostCallWorkflowResult": {
+    "schema_id": "https://schemas.axtro.ai/v2/post_call_workflow_result.schema.json",
+    "schema_version": "2.0.0",
+    "source_hash": "5a3b803ba9c8e0598c0d6fa545cde750b8db38d9841aa92d5179b630b67a0827",
+    "source_schema": "contracts/schemas/post_call_workflow_result.schema.json"
+  },
+  "PostCallWorkflowStatus": {
+    "schema_id": "https://schemas.axtro.ai/v2/post_call_workflow_status.schema.json",
+    "schema_version": "2.0.0",
+    "source_hash": "b44cb08eb0bb6a6c0f50a2034d5f87d801bfc3882fb870e20521f1153e010a65",
+    "source_schema": "contracts/schemas/post_call_workflow_status.schema.json"
+  },
   "PreCallBriefing": {
     "schema_id": "https://schemas.axtro.ai/v2/pre_call_briefing.schema.json",
     "schema_version": "2.0.0",
@@ -864,11 +987,23 @@ CONTRACT_METADATA: dict[str, dict[str, str]] = {
     "source_hash": "a11b261743249b2e3afbccdc4185d504c26cdfd3fc4024c804959beaca53dfe4",
     "source_schema": "contracts/schemas/workflow_command.schema.json"
   },
+  "WorkflowEnqueueReceipt": {
+    "schema_id": "https://schemas.axtro.ai/v2/workflow_enqueue_receipt.schema.json",
+    "schema_version": "2.0.0",
+    "source_hash": "ba8b21575e77cd39cdd760cbeafadb6d99fc5448456520112342eee6e1038b63",
+    "source_schema": "contracts/schemas/workflow_enqueue_receipt.schema.json"
+  },
   "WorkflowStatus": {
     "schema_id": "https://schemas.axtro.ai/v2/workflow_status.schema.json",
     "schema_version": "2.0.0",
     "source_hash": "290e0011bbed957d83af4d12a5d720721a41077e9965553f5920bc8e2961599f",
     "source_schema": "contracts/schemas/workflow_status.schema.json"
+  },
+  "WorkflowStepReceipt": {
+    "schema_id": "https://schemas.axtro.ai/v2/workflow_step_receipt.schema.json",
+    "schema_version": "2.0.0",
+    "source_hash": "558c0cf2aea2ca30e1f24a173575f40bed7e0b4b2b04da9c2bf1e6dc5b88f45d",
+    "source_schema": "contracts/schemas/workflow_step_receipt.schema.json"
   }
 }
 
@@ -897,6 +1032,9 @@ __all__ = [
     'InteractionSessionState',
     'PerceptionSignal',
     'PolicyDecision',
+    'PostCallWorkflowCommand',
+    'PostCallWorkflowResult',
+    'PostCallWorkflowStatus',
     'PreCallBriefing',
     'ProviderCapability',
     'ProviderRegistryEntry',
@@ -916,5 +1054,7 @@ __all__ = [
     'TurnCommitted',
     'TurnSubmission',
     'WorkflowCommand',
+    'WorkflowEnqueueReceipt',
     'WorkflowStatus',
+    'WorkflowStepReceipt',
 ]
