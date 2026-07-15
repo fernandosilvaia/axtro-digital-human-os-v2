@@ -173,6 +173,21 @@ importers:
         specifier: workspace:*
         version: link:../events
 
+  packages/session-runtime:
+    dependencies:
+      '@axtro/auth':
+        specifier: workspace:*
+        version: link:../auth
+      '@axtro/contracts-ts':
+        specifier: workspace:*
+        version: link:../contracts-ts
+      '@axtro/domain':
+        specifier: workspace:*
+        version: link:../domain
+      '@axtro/events':
+        specifier: workspace:*
+        version: link:../events
+
   packages/tool-runtime:
     dependencies:
       '@axtro/auth':

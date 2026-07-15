@@ -19,6 +19,7 @@
     { "path": "./packages/tool-runtime" },
     { "path": "./packages/costing" },
     { "path": "./packages/session-application" },
+    { "path": "./packages/session-runtime" },
     { "path": "./apps/api" }
   ]
 }

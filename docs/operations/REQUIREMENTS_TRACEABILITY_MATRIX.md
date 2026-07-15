@@ -5,7 +5,7 @@ This matrix covers P0 requirements at architecture level. Task IDs reference `ba
 | Requirement | Component | Contract | Data | Task | Test | Metric/Fallback |
 |---|---|---|---|---|---|---|
 | REQ-SESSION-001 | Session lifecycle application | interaction_session_state/event_envelope | sessions/timeline/outbox | M1-01 | OpenAPI-backed lifecycle API, CAS, idempotency, deadline and timeline tests | invalid transition, stale command or expiry produces no state write |
-| REQ-SESSION-002 | Floor Manager | handoff_packet | sessions.active_presenter | M1-02 | CAS concurrency | presenter conflict; fail closed |
+| REQ-SESSION-002 | Session Actor Floor Manager projection | event_envelope | hot actor state plus canonical timeline | M1-02 | canonical concurrent delivery, duplicate event, bounded historical replay, source deadline and presenter CAS reducer tests | version, presenter, source timeout or replay flood fails closed without media publish |
 | REQ-SESSION-003 | Channel ports | provider_capability | provider catalog | M2-01 | adapter contract | native fake fallback |
 | REQ-RT-001 | Turn Coordinator | conversation_state | conversation turns | M2-02 | replay suite | false endpoint rate |
 | REQ-RT-002 | Cancellation | session_health_state | timeline | M2-02 | delayed output | barge-in p95; hard mute |

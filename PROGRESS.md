@@ -3,8 +3,8 @@
 **Estado atual:** implementação de M1 em andamento
 
 **Marco atual:** M1
-**Tarefa atual:** M1-02
-**Última evidência verde:** M1-01 com API lifecycle, CAS, isolamento tenant, OpenAPI executável e pipeline limpo em 2026-07-14
+**Tarefa atual:** M1-02 concluída, M1-03 pendente
+**Última evidência verde:** M1-02 com Session Actor tenant e sessão scoped, mailbox bounded, replay fail-closed e pipeline limpo em 2026-07-14
 **Bloqueadores internos:** nenhum
 **Pendências externas:** consultar `PENDENCIAS_EXTERNAS.md`  
 
@@ -38,7 +38,7 @@
 | `M0-17` | M0 | done | Create development fixtures and tenant-zero seed | `M0-08`, `M0-12`, `M0-14` | seed local idempotente de alpha/beta, composição canônica fail-closed, fakes e isolamento RLS validados |
 | `M0-18` | M0 | done | M0 release gate | `M0-02`, `M0-03`, `M0-05`, `M0-08`, `M0-09`, `M0-10`, `M0-12`, `M0-13`, `M0-14`, `M0-15`, `M0-16`, `M0-17` | bundle de evidências, pipeline limpo, limitações e commit verde registrados |
 | `M1-01` | M1 | done | Implement session lifecycle API | `M0-18` | cinco operações OpenAPI, lote lifecycle atômico, CAS, idempotência bounded, disclosure com receipt fake, controles de deadline e isolamento tenant validados |
-| `M1-02` | M1 | in_progress | Implement Session Actor and mailbox | `M1-01` | início registrado antes de alterações |
+| `M1-02` | M1 | done | Implement Session Actor and mailbox | `M1-01` | actor único por tenant e sessão, mailbox bounded, dedupe canônico, replay snapshot e timeline, cancelamento e deadlines de source validados |
 | `M1-03` | M1 | pending | Implement textual turn driver | `M1-02`, `M0-12` | pending |
 | `M1-04` | M1 | pending | Implement context composer | `M1-03` | pending |
 | `M1-05` | M1 | pending | Complete fake Action Runtime flow | `M1-03`, `M0-14` | pending |
@@ -272,6 +272,18 @@
 - Revisões independentes de arquitetura inicial, segurança final e testes final aprovaram. O risco não bloqueante para M1-02: o coordenador fake do outbox rejeita transações realmente sobrepostas de sessões independentes, portanto o mailbox deve serializar por sessão sem criar ordem global ou expor 500.
 - Evidências verdes: `pnpm lint`, `pnpm contracts:check`, `pnpm typecheck`, `pnpm test` (107 Node e 21 unittest Python), `pnpm build`, `UV_CACHE_DIR=/private/tmp/axtro-uv-cache uv run pytest` (21), `pnpm db:test`, `pnpm db:rls`, `python3 scripts/validate_all.py` (9 checks) e `git diff --check`.
 - Próxima tarefa marcada antes de qualquer alteração: M1-02, Session Actor e mailbox por sessão com reidratação, idempotência e sem daemon ou ordenação global.
+
+### 2026-07-14, M1-02 concluído
+
+- Criado `@axtro/session-runtime` como o único Session Actor M1. A registry é indexada pelo par tenant e sessão, não contém fila, lock ou ordenação global, e observa somente `EventEnvelope` canônico já comprometido. O actor não cria eventos, não usa outbox, não grava timeline ou snapshot, não chama provider, não chama Axtro Agent e não publica mídia.
+- Cada mailbox é bounded, mantém FIFO entre itens da mesma prioridade, reserva uma vaga para safety e permite que cancelamento de geração preempte comandos normais. O reducer existente continua a única fonte de estado e de One Mouth; outputs tardios são bloqueados por `generation_id` e `canPublishGeneration`.
+- Dedupe usa `event_id` e fingerprint. Reentrega hot retorna o resultado original; após evicção, o actor consulta a fonte canônica com replay limitado a 10.000 envelopes. O lookup é tenant-scoped, coalescido por identidade e fingerprint e limitado a um por actor antes de I/O. Ausência de evidência produz `SessionActorReplayWindowError` sem mutação.
+- Reidratação valida tenant, sessão, versões, eventos repetidos, ordenação, hash de snapshot e equivalência de snapshot mais tail. Leitura da fonte recebe `AbortSignal`, deadline de 1.000 ms por padrão e máximo de 10.000 ms; timeout, falha de scheduler ou resultado tardio falham fechados e removem actor parcial da registry.
+- ADR-023 e D-V2-033 registram a fronteira, a ausência de contrato ou migration nova, e o limite operacional que M1-06 deverá substituir por snapshot mais tail e lookup durável. `apps/realtime-worker/SESSION_ACTOR_BOUNDARY.md` preserva o worker Python como fronteira de telemetria, sem segundo reducer ou mailbox.
+- Revisões de arquitetura, realtime, segurança e testes aprovaram o patch. Os testes novos cobrem concorrência mesma sessão, sessões independentes, conflito, RLS de identidade, capacidade de registry e mailbox, snapshot adulterado ou cross-tenant, ordem inválida, duplicate delivery após reidratação, lane safety, cancelamento, flood de replay, timeout, I/O tardio e falhas determinísticas de scheduler.
+- Evidências verdes: `pnpm lint`, `pnpm contracts:check`, `pnpm typecheck`, `pnpm test` (120 Node e 21 unittest Python), `pnpm build`, `UV_CACHE_DIR=/private/tmp/axtro-uv-cache uv run pytest` (21), `pnpm db:test`, `pnpm db:rls`, `python3 scripts/validate_all.py` (9 checks) e `git diff --check`.
+- Risco não bloqueante: cache miss histórico custa replay O(n), limitado a 10.000 eventos e a um lookup por actor. M1-06 deve substituir por adapter durável de snapshot mais tail e lookup indexado, atrás dos limites de ingress autenticados existentes.
+- Próxima tarefa: M1-03, textual turn driver com providers fake e sem colocar Axtro Agent no caminho crítico.
 
 ### 2026-07-14, baseline arquitetural
 
