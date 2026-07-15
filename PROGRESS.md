@@ -3,8 +3,8 @@
 **Estado atual:** M0, M1 e M2 concluídos; M3 Sales Closer Alpha em execução autônoma controlada (fake-first/dry-run em M3-01 a M3-09, bake-off de provider e piloto real ficam fora do escopo autônomo)
 
 **Marco atual:** M3
-**Tarefa atual:** M3-01
-**Última evidência verde:** 316 testes Node, 23 unittest Python, 23 pytest, 9 testes E2E (2 M1 + 7 M2) verdes em 2026-07-15 após M3-01
+**Tarefa atual:** M3-02
+**Última evidência verde:** 325 testes Node, 23 unittest Python, 23 pytest, 9 testes E2E (2 M1 + 7 M2), 9 validadores verdes em 2026-07-15 após M3-02
 **Bloqueadores internos:** nenhum
 **Pendências externas:** consultar `PENDENCIAS_EXTERNAS.md`  
 
@@ -62,7 +62,7 @@
 | `M2-12` | M2 | done | Run mandatory ten-minute Human Presence scenario | `M2-05`, `M2-08`, `M2-09`, `M2-10`, `M2-11` | Cenário determinístico de 600.000ms simulados, 11/11 itens do checklist, `artifacts/m2/evidence.json` congelado, 7 testes Node verdes |
 | `M2-13` | M2 | done | M2 architecture and provider decision gate | `M2-12` | `artifacts/m2/DECISION.md`: 12 áreas de arquitetura `continue`/`tune`, 11 candidates de provider `blocked` por ausência de credencial real |
 | `M3-01` | M3 | done | Implement Sales Closer Role Pack | `M2-13` | Manifesto, `sales.uninstalled` no reducer, `TenantRolePackRegistry` process-local, 11 testes Node verdes |
-| `M3-02` | M3 | pending | Implement authorized knowledge ingestion and RAG | `M3-01`, `M0-08` | pending |
+| `M3-02` | M3 | done | Implement authorized knowledge ingestion and RAG | `M3-01`, `M0-08` | ADR-031, `@axtro/knowledge-engine` + `apps/ingestion-worker`, 9 testes Node verdes (cross-tenant, stale, injection corpus) |
 | `M3-03` | M3 | pending | Add CRM-lite read adapter | `M3-01`, `M0-14` | pending |
 | `M3-04` | M3 | pending | Add calendar proposal in dry-run | `M3-01`, `M0-14` | pending |
 | `M3-05` | M3 | pending | Add proposal generation in dry-run | `M3-01`, `M0-14` | pending |
@@ -562,6 +562,17 @@
 - `pnpm lint`, `pnpm contracts:check`, `tsc --build` completo, `node scripts/test.mjs` (316 testes Node, 23 unittest Python), `pnpm m1:e2e` e `pnpm m2:e2e` verdes.
 - Nenhuma credencial real, produção, provider real, deploy ou migration remota foi acessado.
 
+### 2026-07-15, M3-02 concluído
+
+- `docs/adr/ADR-031-knowledge-and-rag-retrieval.md` registra a decisão que ADR-025 havia reservado: `@axtro/knowledge-engine` é um port puro e síncrono sobre um store em memória cujas formas espelham coluna-a-coluna `database/migrations/0004_knowledge_governance.sql` (já existente desde M0, nunca antes consultado por código de aplicação). Nenhum client `pg` ou provider de embedding real foi escolhido — consistente com M3 permanecer fake-first onde o próprio critério de aceite pede.
+- Pipeline de retrieval fechado e fail-closed em ordem fixa: tenant/role/produto/locale/validade → candidatos léxico+vetorial determinísticos (hash SHA-256, nunca `Math.random`) → rerank → policy hook injetável → orçamento de bytes UTF-8 exato (mesma disciplina do Context Composer de M1-04, omissão atômica em vez de corte de chunk) → citação obrigatória. Todo chunk retornado é `trusted: false`.
+- Revogação é estrutural, não cacheada: publicar uma nova versão da mesma fonte marca a versão anterior superada (`validToMs` = início de validade da nova versão) e a próxima consulta já reflete isso sem passo de invalidação.
+- `apps/ingestion-worker`: fonte → scan fake de malware/tamanho → extração/chunking determinístico por parágrafo → embedding fake por hash → publicação de versão, sempre pelo mesmo port que a leitura usa (ingestão nunca contorna as regras de validade/classificação).
+- Defesa contra prompt injection é estrutural: o pacote nunca concatena texto recuperado em algo que um consumidor a jusante possa interpretar como instrução. O teste do corpus adversarial prova que frases imperativas dentro do conteúdo não mudam filtragem, ranking ou citação — permanecem dado inerte.
+- 9 testes novos em `tests/knowledge/knowledge-engine.test.mjs`: fim a fim com citação e untrusted, retrieval cross-tenant zerado, fonte desabilitada excluída imediatamente, versão superada excluída a partir da janela de validade da nova, allowlist de role/produto/locale independentes, corpus de prompt injection como dado inerte, rejeição de malware/tamanho antes de gravar, truncamento atômico por orçamento de bytes, e policy hook customizado.
+- `pnpm lint`, `pnpm contracts:check`, `tsc --build` completo, `node scripts/test.mjs` (325 testes Node, 23 unittest Python), `pnpm m1:e2e`, `pnpm m2:e2e` e `python3 scripts/validate_all.py` (9 validadores) verdes.
+- Nenhuma credencial real, produção, provider real, deploy ou migration remota foi acessado.
+
 ## Próxima ação
 
-Continuar M3 em modo autônomo controlado: M3-02, ingestão de conhecimento autorizada e RAG — provavelmente exige uma nova ADR própria (ADR-025 já reserva isso: "A durable cache or RAG retrieval requires its own ADR, revocation semantics, and multi-tenant test matrix").
+Continuar M3 em modo autônomo controlado: M3-03, adaptador de leitura CRM-lite, sobre o Knowledge Engine e o Action Runtime (M0-14) já existentes.

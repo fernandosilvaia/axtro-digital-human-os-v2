@@ -1,6 +1,7 @@
 packages:
   - apps/api
   - apps/event-relay
+  - apps/ingestion-worker
   - apps/meeting-room
   - apps/web
   - apps/workflow-worker

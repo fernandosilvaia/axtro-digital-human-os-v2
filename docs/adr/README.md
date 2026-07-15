@@ -34,3 +34,4 @@ Accepted decisions for V2. The Constitution has precedence. A change to an accep
 | `ADR-028-bounded-outbox-relay-and-idempotent-timeline-consumer.md` | Bounded outbox relay and idempotent timeline consumer | Accepted |
 | `ADR-029-checkpointed-post-call-workflow-fake.md` | Checkpointed post-call workflow fake | Accepted |
 | `ADR-030-framework-neutral-operations-console.md` | Framework-neutral read-only operations console | Accepted |
+| `ADR-031-knowledge-and-rag-retrieval.md` | Tenant-scoped knowledge retrieval as a pure port over an in-memory store | Accepted |

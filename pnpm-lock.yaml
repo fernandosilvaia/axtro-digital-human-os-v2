@@ -63,6 +63,12 @@ importers:
         specifier: workspace:*
         version: link:../../packages/workflows
 
+  apps/ingestion-worker:
+    dependencies:
+      '@axtro/knowledge-engine':
+        specifier: workspace:*
+        version: link:../../packages/knowledge-engine
+
   apps/meeting-room:
     dependencies:
       '@axtro/meeting-gateway':
@@ -206,6 +212,8 @@ importers:
       '@axtro/domain':
         specifier: workspace:*
         version: link:../domain
+
+  packages/knowledge-engine: {}
 
   packages/meeting-gateway:
     dependencies:
