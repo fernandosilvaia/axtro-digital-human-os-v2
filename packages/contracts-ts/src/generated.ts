@@ -1,7 +1,7 @@
 /*
  * GENERATED FILE. DO NOT EDIT.
  * generator: scripts/generate_contract_types.py@1.0.0
- * source: 38 JSON Schema Draft 2020-12 documents under contracts/schemas/
+ * source: 39 JSON Schema Draft 2020-12 documents under contracts/schemas/
  */
 
 export const CONTRACT_GENERATOR_VERSION = "1.0.0" as const;
@@ -82,6 +82,35 @@ export interface ConsentEvidence {
   captured_at: string;
   expires_at: string | null;
   revoked_at: string | null;
+}
+
+/** Source: contracts/schemas/context_composition.schema.json; schema: https://schemas.axtro.ai/v2/context_composition.schema.json; version: 2.0.0. */
+export interface ContextComposition {
+  schema_version: "2.0.0";
+  tenant_id: string;
+  session_id: string;
+  context_version: number;
+  max_context_bytes: number;
+  content_bytes_used: number;
+  omitted_entry_count: number;
+  composed_at: string;
+  expires_at: string | null;
+  entries: Array<{
+    kind: "conversation_summary" | "confirmed_fact" | "approved_knowledge" | "suggestion" | "hypothesis";
+    trust_level: "confirmed" | "uncertain" | "untrusted";
+    content: string;
+    data_classification: "public" | "internal" | "confidential" | "restricted";
+    confidence: number | null;
+    provenance: {
+      source_kind: "interaction_state" | "approved_knowledge_catalog" | "server_owned_suggestion_snapshot";
+      source_id: string;
+      source_version: string;
+      checksum_sha256: string | null;
+      evidence_refs: Array<string>;
+      observed_at: string;
+      expires_at: string | null;
+    };
+  }>;
 }
 
 /** Source: contracts/schemas/conversation_state.schema.json; schema: https://schemas.axtro.ai/v2/conversation_state.schema.json; version: 2.0.0. */
@@ -734,6 +763,12 @@ export const CONTRACT_METADATA = {
     "schema_version": "2.0.0",
     "source_hash": "5d5fb9efb2451d34c774ef614ec6a0e499a288bc1e4d9c56de6574111f3b90a7",
     "source_schema": "contracts/schemas/consent_evidence.schema.json"
+  },
+  "ContextComposition": {
+    "schema_id": "https://schemas.axtro.ai/v2/context_composition.schema.json",
+    "schema_version": "2.0.0",
+    "source_hash": "3223132fff19d049280b8a9d96d5e0ceaf28109e201b175c7ac7c02a66b40104",
+    "source_schema": "contracts/schemas/context_composition.schema.json"
   },
   "ConversationState": {
     "schema_id": "https://schemas.axtro.ai/v2/conversation_state.schema.json",

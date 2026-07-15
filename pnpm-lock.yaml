@@ -66,6 +66,18 @@ importers:
         specifier: workspace:*
         version: link:../security
 
+  packages/context-composer:
+    dependencies:
+      '@axtro/auth':
+        specifier: workspace:*
+        version: link:../auth
+      '@axtro/contracts-ts':
+        specifier: workspace:*
+        version: link:../contracts-ts
+      '@axtro/domain':
+        specifier: workspace:*
+        version: link:../domain
+
   packages/contracts-ts: {}
 
   packages/costing:
@@ -211,6 +223,9 @@ importers:
       '@axtro/auth':
         specifier: workspace:*
         version: link:../auth
+      '@axtro/context-composer':
+        specifier: workspace:*
+        version: link:../context-composer
       '@axtro/contracts-ts':
         specifier: workspace:*
         version: link:../contracts-ts

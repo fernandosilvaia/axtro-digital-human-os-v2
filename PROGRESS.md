@@ -3,8 +3,8 @@
 **Estado atual:** implementação de M1 em andamento
 
 **Marco atual:** M1
-**Tarefa atual:** M1-03 concluída
-**Última evidência verde:** M1-03 com Turn Driver textual canônico, Fast Lane fake cancelável, One Mouth e pipeline limpo em 2026-07-14
+**Tarefa atual:** transição concluída de M1-04 para M1-05
+**Última evidência verde:** M1-04 com Context Composer bounded, Turn Driver com fence de freshness e pipeline limpo em 2026-07-14
 **Bloqueadores internos:** nenhum
 **Pendências externas:** consultar `PENDENCIAS_EXTERNAS.md`  
 
@@ -40,7 +40,7 @@
 | `M1-01` | M1 | done | Implement session lifecycle API | `M0-18` | cinco operações OpenAPI, lote lifecycle atômico, CAS, idempotência bounded, disclosure com receipt fake, controles de deadline e isolamento tenant validados |
 | `M1-02` | M1 | done | Implement Session Actor and mailbox | `M1-01` | actor único por tenant e sessão, mailbox bounded, dedupe canônico, replay snapshot e timeline, cancelamento e deadlines de source validados |
 | `M1-03` | M1 | done | Implement textual turn driver | `M1-02`, `M0-12` | turnos canônicos participant e Presenter, Fast Lane fake, One Mouth, interrupção, cancelamento, isolamento e API validados |
-| `M1-04` | M1 | pending | Implement context composer | `M1-03` | pending |
+| `M1-04` | M1 | done | Implement context composer | `M1-03` | 39º contrato gerado, snapshot opaco, budget UTF-8, provenance, TTL, freshness no Turn Driver e suíte de injeção validados |
 | `M1-05` | M1 | pending | Complete fake Action Runtime flow | `M1-03`, `M0-14` | pending |
 | `M1-06` | M1 | pending | Implement timeline, snapshots and replay verifier | `M1-02`, `M0-13` | pending |
 | `M1-07` | M1 | pending | Implement outbox relay and idempotent consumers | `M0-13`, `M1-06` | pending |
@@ -296,6 +296,17 @@
 - Risco não bloqueante: se uma falha excepcional ocorrer entre a fence de interrupção e o cancelamento do Actor, a saída continua bloqueada pela fence local, mas uma limpeza defensiva adicional poderá ser considerada quando a interface de cancelamento durável for introduzida.
 - Próxima tarefa dependente: M1-04, context composer determinístico, seguida por M1-05 em lane paralela de dependência.
 
+### 2026-07-14, M1-04 concluído
+
+- Criado `@axtro/context-composer` e o contrato fechado `context_composition`, elevando o conjunto a 39 schemas gerados para TypeScript e Python. O Composer é local, síncrono e sem cache, I/O, rede, provider, ferramenta, mídia, Actor, outbox ou Axtro Agent.
+- O Turn Driver captura um snapshot capability opaco depois da projeção do Session Actor e só então compõe contexto fora da lane e mailbox. Estado bruto, snapshot forjado, snapshot de outra instância, tenant, sessão, versão, `session:read`, purpose e dados de `system_observation` falham fechados.
+- Entradas são atômicas, ordenadas de modo determinístico e limitadas pelo JSON serializado em UTF-8. Conhecimento, sugestões e hipóteses preservam provenance sem se tornarem instruções; os três recusam `restricted`, knowledge exige checksum e receipt, e sugestões ou hipóteses exigem TTL e vínculo à versão do estado.
+- O parser runtime fecha a fronteira Composer para Fast Lane: valida shape, classificação, evidence, checksum, timestamps RFC3339 reais, lifetime interno, orçamento e expiry. O Turn Driver repete a fence com seu clock confiável e não chama a Fast Lane para uma composição injetada malformada, futura ou expirada.
+- ADR-025, D-V2-035, documentação de memória e boundary, matriz de rastreabilidade e exemplos foram atualizados. Revisões independentes de arquitetura, segurança e testes aprovaram após hardening de snapshot, clock, TTL, classificação externa e exemplo válido.
+- Evidências verdes: `pnpm lint`, `pnpm contracts:check`, `pnpm typecheck`, `pnpm test` (146 Node e 23 Python unittest), `pnpm build`, `UV_CACHE_DIR=/private/tmp/axtro-uv-cache uv run pytest` (23), `python3 scripts/validate_all.py` (9 checks) e `git diff --check`.
+- Risco não bloqueante: a capability de captura continua limitada ao fluxo server-side pós-Actor. Um consumidor futuro deve receber uma porta autoritativa, não um objeto de estado bruto.
+- Próxima tarefa: M1-05, completar o fluxo Action Runtime fake por `ActionIntent`, `PolicyDecision` e `ToolExecutionReceipt`.
+
 ### 2026-07-14, baseline arquitetural
 
 - 31 schemas estritos e 62 exemplos de contrato preparados.
@@ -304,4 +315,4 @@
 
 ## Próxima ação
 
-Implementar M1-02: Session Actor e mailbox por sessão, com serialização local, idempotência, reidratação por snapshot e timeline, sem daemon e sem ordenação global.
+Implementar M1-05: completar o fluxo fake Action Runtime por `ActionIntent`, `PolicyDecision` e `ToolExecutionReceipt`, sem chamada direta do modelo para ferramentas.

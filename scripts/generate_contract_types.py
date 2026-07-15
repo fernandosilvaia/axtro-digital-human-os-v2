@@ -13,7 +13,7 @@ from typing import Any
 
 ROOT = Path(__file__).resolve().parents[1]
 SCHEMAS_DIR = ROOT / "contracts" / "schemas"
-EXPECTED_SCHEMA_COUNT = 38
+EXPECTED_SCHEMA_COUNT = 39
 GENERATOR_VERSION = "1.0.0"
 IDENTIFIER = re.compile(r"^[A-Za-z_$][A-Za-z0-9_$]*$")
 
@@ -129,8 +129,6 @@ def ts_type(
     for union_key in ("oneOf", "anyOf"):
         if isinstance(node.get(union_key), list):
             return " | ".join(f"({ts_type(option, indent, current_document, documents_by_id)})" for option in node[union_key])
-    if isinstance(node.get("allOf"), list):
-        return " & ".join(f"({ts_type(option, indent, current_document, documents_by_id)})" for option in node["allOf"])
     declared_type = node.get("type")
     if isinstance(declared_type, list):
         return " | ".join(ts_type({**node, "type": item}, indent, current_document, documents_by_id) for item in declared_type)
@@ -155,6 +153,8 @@ def ts_type(
             lines.append(f"{indent}  {property_name(name)}{optional}: {ts_type(value, indent + '  ', current_document, documents_by_id)};")
         lines.append(f"{indent}}}")
         return "\n".join(lines)
+    if isinstance(node.get("allOf"), list):
+        return " & ".join(f"({ts_type(option, indent, current_document, documents_by_id)})" for option in node["allOf"])
     return "unknown"
 
 

@@ -8,10 +8,7 @@
   "include": ["src/**/*.ts"],
   "references": [
     { "path": "../auth" },
-    { "path": "../context-composer" },
     { "path": "../contracts-ts" },
-    { "path": "../domain" },
-    { "path": "../events" },
-    { "path": "../session-runtime" }
+    { "path": "../domain" }
   ]
 }

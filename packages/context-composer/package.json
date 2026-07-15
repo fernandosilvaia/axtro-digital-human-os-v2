@@ -1,5 +1,5 @@
 {
-  "name": "@axtro/turns",
+  "name": "@axtro/context-composer",
   "version": "0.1.0",
   "private": true,
   "type": "module",
@@ -11,10 +11,7 @@
   },
   "dependencies": {
     "@axtro/auth": "workspace:*",
-    "@axtro/context-composer": "workspace:*",
     "@axtro/contracts-ts": "workspace:*",
-    "@axtro/domain": "workspace:*",
-    "@axtro/events": "workspace:*",
-    "@axtro/session-runtime": "workspace:*"
+    "@axtro/domain": "workspace:*"
   }
 }

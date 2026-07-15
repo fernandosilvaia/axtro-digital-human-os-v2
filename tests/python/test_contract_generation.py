@@ -49,7 +49,7 @@ class ContractGenerationTests(unittest.TestCase):
             self.assertEqual(0, second.returncode, second.stdout + second.stderr)
             self.assertEqual(first_ts, generated_ts.read_bytes())
             self.assertEqual(first_py, generated_py.read_bytes())
-            self.assertEqual(38, generated_ts.read_text(encoding="utf-8").count('"source_schema"'))
+            self.assertEqual(39, generated_ts.read_text(encoding="utf-8").count('"source_schema"'))
             generated_python = generated_py.read_text(encoding="utf-8")
             self.assertIn("schema_version", generated_python)
             self.assertIn("class _FakeProviderScenarioRequired(TypedDict):", generated_python)
@@ -66,7 +66,7 @@ class ContractGenerationTests(unittest.TestCase):
             errors = list(Draft202012Validator(schema, registry=registry).iter_errors(example))
             self.assertTrue(errors, f"{example_path.relative_to(ROOT)} unexpectedly passed")
             rejected += 1
-        self.assertEqual(38, rejected)
+        self.assertEqual(39, rejected)
 
     def test_runtime_configuration_contract_rejects_live_mode_and_secret_like_handles(self) -> None:
         schema_path = SCHEMAS / "runtime_configuration.schema.json"
@@ -90,6 +90,59 @@ class ContractGenerationTests(unittest.TestCase):
         }
         for candidate in (participant_with_generation, presenter_without_generation):
             self.assertTrue(list(validator.iter_errors(candidate)), "role and generation unexpectedly passed")
+
+    def test_context_composition_contract_binds_kind_to_trust_and_provenance(self) -> None:
+        schema_path = SCHEMAS / "context_composition.schema.json"
+        schema = json.loads(schema_path.read_text(encoding="utf-8"))
+        valid = json.loads((VALID / "context_composition.json").read_text(encoding="utf-8"))
+        validator = Draft202012Validator(schema)
+        self.assertFalse(list(validator.iter_errors(valid)))
+
+        hypothesis_without_evidence = json.loads(json.dumps(valid))
+        entry = hypothesis_without_evidence["entries"][0]
+        entry["kind"] = "hypothesis"
+        entry["trust_level"] = "uncertain"
+        entry["data_classification"] = "internal"
+        entry["confidence"] = 0.5
+        entry["provenance"]["source_kind"] = "server_owned_suggestion_snapshot"
+        entry["provenance"]["checksum_sha256"] = None
+        entry["provenance"]["evidence_refs"] = []
+
+        knowledge_without_checksum = json.loads(json.dumps(valid))
+        entry = knowledge_without_checksum["entries"][0]
+        entry["kind"] = "approved_knowledge"
+        entry["trust_level"] = "untrusted"
+        entry["data_classification"] = "internal"
+        entry["confidence"] = None
+        entry["provenance"]["source_kind"] = "approved_knowledge_catalog"
+        entry["provenance"]["checksum_sha256"] = None
+
+        restricted_external = json.loads(json.dumps(valid))
+        entry = restricted_external["entries"][0]
+        entry["kind"] = "suggestion"
+        entry["trust_level"] = "uncertain"
+        entry["data_classification"] = "restricted"
+        entry["confidence"] = 0.5
+        entry["provenance"]["source_kind"] = "server_owned_suggestion_snapshot"
+        entry["provenance"]["checksum_sha256"] = None
+
+        knowledge_without_receipt = json.loads(json.dumps(valid))
+        entry = knowledge_without_receipt["entries"][0]
+        entry["kind"] = "approved_knowledge"
+        entry["trust_level"] = "untrusted"
+        entry["data_classification"] = "internal"
+        entry["confidence"] = None
+        entry["provenance"]["source_kind"] = "approved_knowledge_catalog"
+        entry["provenance"]["checksum_sha256"] = "a" * 64
+        entry["provenance"]["evidence_refs"] = []
+
+        for candidate in (
+            hypothesis_without_evidence,
+            knowledge_without_checksum,
+            restricted_external,
+            knowledge_without_receipt,
+        ):
+            self.assertTrue(list(validator.iter_errors(candidate)), "context entry binding unexpectedly passed")
 
 
 if __name__ == "__main__":

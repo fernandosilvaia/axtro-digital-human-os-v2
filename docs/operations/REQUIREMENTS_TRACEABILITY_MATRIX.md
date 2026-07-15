@@ -27,7 +27,7 @@ This matrix covers P0 requirements at architecture level. Task IDs reference `ba
 | REQ-HANDOFF-001 | Floor Manager | handoff_packet | handoffs | M3-06 | concurrent accept | single winner |
 | REQ-TENANT-001 | RLS | all tenant contracts | tenant tables | M0-08 | cross-tenant suite | build fails |
 | REQ-TENANT-002 | Context middleware | event envelope | DB/cache | M0-09 | pool/cache collision | clear context |
-| REQ-SEC-001 | Context Composer | source metadata | knowledge | M1-04 | RAG injection | ignore commands |
+| REQ-SEC-001 | Context Composer | context_composition | authorized opaque projected state and approved knowledge | M1-04 | byte budget, strict TTL, provenance, tenant, snapshot, injection and trusted-clock freshness suite | omit untrusted or stale source; no synchronous Agent or RAG |
 | REQ-SEC-002 | Secret broker | provider connection ref | secret refs | M0-06 | secret scan | block build |
 | REQ-OBS-001 | OTel conventions | event envelope | logs/traces | M0-10 | correlation test | reject missing |
 | REQ-OBS-002 | Cost ledger | cost_event | cost events | M0-16 | deterministic decimal reconciliation, precision rejection, source buckets, request capability binding and cross-tenant denial | budget degrade; no invoice integration in M0 |

@@ -6,6 +6,7 @@ import test from "node:test";
 
 const root = fileURLToPath(new URL("../..", import.meta.url));
 const auth = await import(pathToFileURL(join(root, "packages/auth/dist/index.js")).href);
+const contextComposer = await import(pathToFileURL(join(root, "packages/context-composer/dist/index.js")).href);
 const config = await import(pathToFileURL(join(root, "packages/config/dist/index.js")).href);
 const domain = await import(pathToFileURL(join(root, "packages/domain/dist/index.js")).href);
 const events = await import(pathToFileURL(join(root, "packages/events/dist/index.js")).href);
@@ -125,7 +126,7 @@ function deterministicResponse() {
   };
 }
 
-async function fixture({ fastLane, timeoutScheduler, fastLaneTimeoutMs, purposeAlpha, driverIds = ids(300) } = {}) {
+async function fixture({ fastLane, contextComposer: injectedContextComposer, timeoutScheduler, fastLaneTimeoutMs, purposeAlpha, driverIds = ids(300) } = {}) {
   const outbox = events.createDeterministicTransactionalOutboxRepository();
   const application = lifecycle.createDeterministicSessionLifecycleApplication({
     outbox,
@@ -149,7 +150,9 @@ async function fixture({ fastLane, timeoutScheduler, fastLaneTimeoutMs, purposeA
     clock: { now: () => 1_703_000_000_000 },
     store: lifecycle.createDeterministicSessionLifecycleStore(),
   });
-  const alpha = requestFor(tenantAlpha, actorAlpha, "dev_turn_alpha_0001", purposeAlpha === undefined ? {} : { purposes: purposeAlpha });
+  const alpha = requestFor(tenantAlpha, actorAlpha, "dev_turn_alpha_0001", {
+    ...(purposeAlpha === undefined ? {} : { purposes: purposeAlpha }),
+  });
   const beta = requestFor(tenantBeta, actorBeta, "dev_turn_beta_0001");
   const created = await application.createSession(alpha, {
     agent_id: agentAlpha,
@@ -195,6 +198,7 @@ async function fixture({ fastLane, timeoutScheduler, fastLaneTimeoutMs, purposeA
       },
     ]),
     fast_lane: fastLane ?? turns.createDeterministicFastLaneFake({ patch: deterministicResponse().patch }),
+    ...(injectedContextComposer === undefined ? {} : { context_composer: injectedContextComposer }),
     clock: { now: () => 1_703_000_000_000 },
     id_generator: driverIds,
     ...(timeoutScheduler === undefined ? {} : { timeout_scheduler: timeoutScheduler }),
@@ -316,6 +320,201 @@ test("three textual participant turns create a continuous canonical timeline and
     fast_lane_timeouts: 0,
     last_fast_lane_duration_ms: 0,
   });
+});
+
+test("the Turn Driver composes context from the projected participant state outside the session lane", async () => {
+  let receivedContext;
+  let composedVersion;
+  const deterministicComposer = contextComposer.createDeterministicContextComposer({
+    clock: { now: () => 1_703_000_000_000 },
+  });
+  const fastLane = {
+    async respond(request) {
+      receivedContext = request.context;
+      return deterministicResponse();
+    },
+  };
+  const injectedContextComposer = {
+    captureProjectedState(request, projectedState) {
+      composedVersion = projectedState.session.state_version;
+      return deterministicComposer.captureProjectedState(request, projectedState);
+    },
+    compose(request, input) {
+      return deterministicComposer.compose(request, input);
+    },
+  };
+  const value = await fixture({ fastLane, contextComposer: injectedContextComposer });
+  const submittedText = "Context must use the projected state, not this raw transcript.";
+  await value.driver.submitTurn(
+    value.alpha,
+    value.sessionId,
+    submitInput(submittedText, "client-context-0001"),
+    "idempotency-context-0001",
+    trace,
+  );
+
+  assert.equal(composedVersion, 6);
+  assert.equal(receivedContext.context_version, 6);
+  assert.equal(receivedContext.session_id, value.sessionId);
+  assert.equal(receivedContext.entries.some((entry) => entry.content === submittedText), false);
+  assert.deepEqual(receivedContext.entries.map((entry) => entry.kind), ["conversation_summary"]);
+});
+
+test("the default Context Composer inherits the deterministic Turn Driver clock", async () => {
+  const contexts = [];
+  const fastLane = {
+    async respond(request) {
+      contexts.push(request.context);
+      return deterministicResponse();
+    },
+  };
+  const first = await fixture({ fastLane });
+  const second = await fixture({ fastLane });
+  await first.driver.submitTurn(
+    first.alpha,
+    first.sessionId,
+    submitInput("First deterministic context", "client-context-clock-01"),
+    "idempotency-context-clock-01",
+    trace,
+  );
+  await second.driver.submitTurn(
+    second.alpha,
+    second.sessionId,
+    submitInput("Second deterministic context", "client-context-clock-02"),
+    "idempotency-context-clock-02",
+    trace,
+  );
+
+  assert.equal(contexts.length, 2);
+  assert.equal(contexts[0].composed_at, new Date(1_703_000_000_000).toISOString());
+  assert.deepEqual(contexts[0], contexts[1]);
+});
+
+test("an injected composer cannot hand malformed context to Fast Lane", async () => {
+  let fastLaneCalled = false;
+  const delegate = contextComposer.createDeterministicContextComposer({
+    clock: { now: () => 1_703_000_000_000 },
+  });
+  const malformedComposer = {
+    captureProjectedState(request, projectedState) {
+      return delegate.captureProjectedState(request, projectedState);
+    },
+    compose() {
+      const content = "Invalid hypothesis";
+      return {
+        schema_version: "2.0.0",
+        tenant_id: tenantAlpha,
+        session_id: id(999),
+        context_version: 1,
+        max_context_bytes: 1_024,
+        content_bytes_used: new TextEncoder().encode(content).byteLength,
+        omitted_entry_count: 0,
+        composed_at: "2026-07-14T12:00:00.000Z",
+        expires_at: "2026-07-14T12:10:00.000Z",
+        entries: [{
+          kind: "hypothesis",
+          trust_level: "confirmed",
+          content,
+          data_classification: "internal",
+          confidence: 0.5,
+          provenance: {
+            source_kind: "server_owned_suggestion_snapshot",
+            source_id: "malformed-hypothesis",
+            source_version: "snapshot-v1",
+            checksum_sha256: null,
+            evidence_refs: ["evidence-a"],
+            observed_at: "2026-07-14T12:00:00.000Z",
+            expires_at: "2026-07-14T12:10:00.000Z",
+          },
+        }],
+      };
+    },
+  };
+  const value = await fixture({
+    contextComposer: malformedComposer,
+    fastLane: {
+      async respond() {
+        fastLaneCalled = true;
+        return deterministicResponse();
+      },
+    },
+  });
+  await assert.rejects(
+    value.driver.submitTurn(
+      value.alpha,
+      value.sessionId,
+      submitInput("Reject malformed context", "client-context-invalid"),
+      "idempotency-context-invalid",
+      trace,
+    ),
+    turns.TurnDriverFastLaneError,
+  );
+  assert.equal(fastLaneCalled, false);
+  assert.deepEqual(timeline(value.outbox, value.alpha, value.sessionId).slice(-1).map((record) => record.event.event_type), ["turn.committed"]);
+  const actor = await value.actors.getActor(value.alpha, value.sessionId);
+  assert.equal(actor.canPublishGeneration(value.alpha, 1), false);
+});
+
+test("an injected composer cannot hand stale but structurally valid context to Fast Lane", async () => {
+  let fastLaneCalled = false;
+  const clockNow = 1_703_000_000_000;
+  const delegate = contextComposer.createDeterministicContextComposer({
+    clock: { now: () => clockNow },
+  });
+  const staleComposer = {
+    captureProjectedState(request, projectedState) {
+      return delegate.captureProjectedState(request, projectedState);
+    },
+    compose(request, input) {
+      const stale = JSON.parse(JSON.stringify(delegate.compose(request, input)));
+      const composedAt = new Date(clockNow - 20_000).toISOString();
+      const observedAt = new Date(clockNow - 19_000).toISOString();
+      const expiresAt = new Date(clockNow - 1).toISOString();
+      stale.composed_at = composedAt;
+      stale.expires_at = expiresAt;
+      stale.entries[0] = {
+        ...stale.entries[0],
+        kind: "suggestion",
+        trust_level: "uncertain",
+        data_classification: "internal",
+        confidence: 0.5,
+        provenance: {
+          source_kind: "server_owned_suggestion_snapshot",
+          source_id: "stale-suggestion",
+          source_version: "snapshot-v1",
+          checksum_sha256: null,
+          evidence_refs: [],
+          observed_at: observedAt,
+          expires_at: expiresAt,
+        },
+      };
+      return stale;
+    },
+  };
+  const value = await fixture({
+    contextComposer: staleComposer,
+    fastLane: {
+      async respond() {
+        fastLaneCalled = true;
+        return deterministicResponse();
+      },
+    },
+  });
+
+  await assert.rejects(
+    value.driver.submitTurn(
+      value.alpha,
+      value.sessionId,
+      submitInput("Reject stale context", "client-context-stale"),
+      "idempotency-context-stale",
+      trace,
+    ),
+    turns.TurnDriverFastLaneError,
+  );
+  assert.equal(fastLaneCalled, false);
+  assert.deepEqual(timeline(value.outbox, value.alpha, value.sessionId).slice(-1).map((record) => record.event.event_type), ["turn.committed"]);
+  const actor = await value.actors.getActor(value.alpha, value.sessionId);
+  assert.equal(actor.canPublishGeneration(value.alpha, 1), false);
 });
 
 test("floor change invalidates a delayed Fast Lane response and the reducer rejects an old Presenter atomically", async () => {
@@ -509,7 +708,7 @@ test("participant directory rejects duplicate speaking authority and stale inter
   assert.equal((await actor.getState(value.alpha)).conversation.repair_state, "none");
 });
 
-test("forged speaker, wrong tenant, and missing essential purpose fail before a canonical write", async () => {
+test("forged speaker, wrong tenant, missing read scope, and missing essential purpose fail before a canonical write", async () => {
   const value = await fixture();
   const forged = { ...submitInput("Forged speaker", "client-forged-0001"), speaker_participant_id: participantOther };
   await assert.rejects(
@@ -520,6 +719,12 @@ test("forged speaker, wrong tenant, and missing essential purpose fail before a 
     value.driver.submitTurn(value.beta, value.sessionId, submitInput("Wrong tenant", "client-tenant-0001"), "idempotency-tenant-01", trace),
     turns.TurnDriverAuthorizationError,
   );
+  const writeOnly = requestFor(tenantAlpha, actorAlpha, "dev_turn_write_only_0001", { scopes: ["session:write"] });
+  await assert.rejects(
+    value.driver.submitTurn(writeOnly, value.sessionId, submitInput("No read", "client-read-0001"), "idempotency-read-0001", trace),
+    turns.TurnDriverAuthorizationError,
+  );
+  assert.equal(timeline(value.outbox, value.alpha, value.sessionId).length, 5);
   const noPurpose = await fixture({ purposeAlpha: ["provider_auth"] });
   await assert.rejects(
     noPurpose.driver.submitTurn(noPurpose.alpha, noPurpose.sessionId, submitInput("No purpose", "client-purpose-0001"), "idempotency-purpose-01", trace),

@@ -1,0 +1,29 @@
+{
+  "schema_version": "2.0.0",
+  "tenant_id": "018f1e2d-3c4b-7a01-8c9d-001122334455",
+  "session_id": "018f1e2d-3c4b-7a02-8c9d-001122334456",
+  "context_version": 7,
+  "max_context_bytes": 4096,
+  "content_bytes_used": 107,
+  "omitted_entry_count": 0,
+  "composed_at": "2026-07-14T20:00:00Z",
+  "expires_at": "2026-07-14T21:00:00Z",
+  "entries": [
+    {
+      "kind": "hypothesis",
+      "trust_level": "confirmed",
+      "content": "A hypothesis cannot be marked as confirmed.",
+      "data_classification": "restricted",
+      "confidence": 0.4,
+      "provenance": {
+        "source_kind": "server_owned_suggestion_snapshot",
+        "source_id": "candidate-1",
+        "source_version": "7",
+        "checksum_sha256": null,
+        "evidence_refs": [],
+        "observed_at": "2026-07-14T19:59:00Z",
+        "expires_at": "2026-07-14T21:00:00Z"
+      }
+    }
+  ]
+}

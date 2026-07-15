@@ -13,7 +13,7 @@ ROOT = Path(__file__).resolve().parents[1]
 SCHEMAS = ROOT / "contracts" / "schemas"
 VALID = ROOT / "contracts" / "examples" / "valid"
 INVALID = ROOT / "contracts" / "examples" / "invalid"
-EXPECTED_COUNT = 38
+EXPECTED_COUNT = 39
 
 
 def load_json(path: Path) -> Any:
@@ -37,7 +37,7 @@ def walk_closed_objects(node: Any, pointer: str = "$", conditional_fragment: boo
             errors.extend(walk_closed_objects(
                 value,
                 f"{pointer}/{key}",
-                key in {"if", "then", "else", "not"},
+                conditional_fragment or key in {"if", "then", "else", "not"},
             ))
     elif isinstance(node, list):
         for index, value in enumerate(node):

@@ -73,6 +73,19 @@ class ConsentEvidence(TypedDict):
     expires_at: str | None
     revoked_at: str | None
 
+# Source: contracts/schemas/context_composition.schema.json; schema: https://schemas.axtro.ai/v2/context_composition.schema.json; version: 2.0.0.
+class ContextComposition(TypedDict):
+    schema_version: Literal['2.0.0']
+    tenant_id: str
+    session_id: str
+    context_version: int
+    max_context_bytes: int
+    content_bytes_used: int
+    omitted_entry_count: int
+    composed_at: str
+    expires_at: str | None
+    entries: list[dict[str, object]]
+
 # Source: contracts/schemas/conversation_state.schema.json; schema: https://schemas.axtro.ai/v2/conversation_state.schema.json; version: 2.0.0.
 class ConversationState(TypedDict):
     schema_version: Literal['2.0.0']
@@ -591,6 +604,12 @@ CONTRACT_METADATA: dict[str, dict[str, str]] = {
     "source_hash": "5d5fb9efb2451d34c774ef614ec6a0e499a288bc1e4d9c56de6574111f3b90a7",
     "source_schema": "contracts/schemas/consent_evidence.schema.json"
   },
+  "ContextComposition": {
+    "schema_id": "https://schemas.axtro.ai/v2/context_composition.schema.json",
+    "schema_version": "2.0.0",
+    "source_hash": "3223132fff19d049280b8a9d96d5e0ceaf28109e201b175c7ac7c02a66b40104",
+    "source_schema": "contracts/schemas/context_composition.schema.json"
+  },
   "ConversationState": {
     "schema_id": "https://schemas.axtro.ai/v2/conversation_state.schema.json",
     "schema_version": "2.0.0",
@@ -804,6 +823,7 @@ __all__ = [
     'AgentSuggestion',
     'BehaviorDirective',
     'ConsentEvidence',
+    'ContextComposition',
     'ConversationState',
     'CostEvent',
     'DeploymentPromotion',

@@ -2,7 +2,12 @@ import {
   getAuthorizedTenantContext,
   type AuthorizedRequestContext,
 } from "@axtro/auth";
-import type { EventEnvelope } from "@axtro/contracts-ts";
+import {
+  createDeterministicContextComposer,
+  parseContextComposition,
+  type ContextComposer,
+} from "@axtro/context-composer";
+import type { ContextComposition, EventEnvelope } from "@axtro/contracts-ts";
 import {
   CURRENT_SCHEMA_VERSION,
   createUuidV7,
@@ -87,6 +92,8 @@ export interface FastLaneRequest {
   readonly generation_id: number;
   readonly trace_id: string;
   readonly correlation_id: CorrelationId;
+  /** Bounded, structured data only. A renderer must not treat provenance as instruction text. */
+  readonly context: ContextComposition;
 }
 
 export interface FastLaneControl {
@@ -162,6 +169,7 @@ export interface TurnDriverOptions {
   readonly actors: SessionActorRegistry;
   readonly participants: TurnParticipantDirectory;
   readonly fast_lane: FastLanePort;
+  readonly context_composer?: ContextComposer;
   readonly clock?: TurnDriverClock;
   readonly id_generator?: TurnDriverIdGenerator;
   readonly timeout_scheduler?: SessionRuntimeTimeoutScheduler;
@@ -252,6 +260,7 @@ interface NormalizedOptions {
   readonly actors: SessionActorRegistry;
   readonly participants: TurnParticipantDirectory;
   readonly fastLane: FastLanePort;
+  readonly contextComposer: ContextComposer;
   readonly clock: TurnDriverClock;
   readonly idGenerator: TurnDriverIdGenerator;
   readonly timeoutScheduler: SessionRuntimeTimeoutScheduler;
@@ -599,7 +608,7 @@ export function createTurnDriver(optionsInput: TurnDriverOptions): TurnDriver {
     traceInput: TurnCommandTraceInput,
     controlInput?: TurnCommandControl,
   ): Promise<SubmitTurnResult> => {
-    const access = requireTurnAccess(request, "session:write");
+    const access = requireTurnAccess(request, "session:write", true);
     const sessionId = parseSessionIdOrValidation(sessionIdInput);
     const command = parseSubmitTurnCommand(input);
     const idempotencyKey = parseClientCommandId(idempotencyKeyInput);
@@ -663,6 +672,14 @@ export function createTurnDriver(optionsInput: TurnDriverOptions): TurnDriver {
         let fastLaneResponse: FastLaneResponse;
         const startedAt = options.clock.now();
         try {
+          const stateSnapshot = options.contextComposer.captureProjectedState(request, prepared.state);
+          const context = assertFastLaneContext(
+            options.contextComposer.compose(request, { state_snapshot: stateSnapshot }),
+            access.tenantId,
+            sessionId,
+            prepared.state.session.state_version,
+            checkedNow(options.clock),
+          );
           fastLaneResponse = await runFastLane(options, {
             tenant_id: access.tenantId,
             session_id: sessionId,
@@ -673,6 +690,7 @@ export function createTurnDriver(optionsInput: TurnDriverOptions): TurnDriver {
             generation_id: prepared.generationId,
             trace_id: trace.trace_id,
             correlation_id: trace.correlation_id,
+            context,
           }, prepared.generationSignal, control.signal);
         } catch (error) {
           const metrics = metricsFor(access.tenantId, sessionId);
@@ -854,6 +872,7 @@ function normalizeOptions(value: TurnDriverOptions): NormalizedOptions {
     "actors",
     "participants",
     "fast_lane",
+    "context_composer",
     "clock",
     "id_generator",
     "timeout_scheduler",
@@ -866,6 +885,10 @@ function normalizeOptions(value: TurnDriverOptions): NormalizedOptions {
   const actors = record.actors;
   const participants = record.participants;
   const fastLane = record.fast_lane;
+  const clock = record.clock === undefined ? SYSTEM_CLOCK : normalizeClock(record.clock);
+  const contextComposer = record.context_composer === undefined
+    ? createDeterministicContextComposer({ clock })
+    : record.context_composer;
   if (outbox === null || typeof outbox !== "object" || typeof (outbox as TransactionalOutboxRepository).commitInteractionEvent !== "function") {
     throw new TurnDriverConfigurationError();
   }
@@ -879,7 +902,11 @@ function normalizeOptions(value: TurnDriverOptions): NormalizedOptions {
   if (fastLane === null || typeof fastLane !== "object" || typeof (fastLane as FastLanePort).respond !== "function") {
     throw new TurnDriverConfigurationError();
   }
-  const clock = record.clock === undefined ? SYSTEM_CLOCK : normalizeClock(record.clock);
+  if (contextComposer === null || typeof contextComposer !== "object"
+    || typeof (contextComposer as ContextComposer).captureProjectedState !== "function"
+    || typeof (contextComposer as ContextComposer).compose !== "function") {
+    throw new TurnDriverConfigurationError();
+  }
   const idGenerator = record.id_generator === undefined
     ? Object.freeze({ nextId: () => createUuidV7(checkedNow(clock)) })
     : normalizeIdGenerator(record.id_generator);
@@ -891,6 +918,7 @@ function normalizeOptions(value: TurnDriverOptions): NormalizedOptions {
     actors: actors as SessionActorRegistry,
     participants: participants as TurnParticipantDirectory,
     fastLane: fastLane as FastLanePort,
+    contextComposer: contextComposer as ContextComposer,
     clock,
     idGenerator,
     timeoutScheduler,
@@ -932,10 +960,16 @@ function normalizeDeterministicFastLaneOptions(input: DeterministicFastLaneFakeO
   return Object.freeze({ outcome: record.outcome === undefined ? "success" : record.outcome, responseText, patch });
 }
 
-function requireTurnAccess(request: AuthorizedRequestContext, scope: "session:read" | "session:write"): ReturnType<typeof getAuthorizedTenantContext> {
+function requireTurnAccess(
+  request: AuthorizedRequestContext,
+  scope: "session:read" | "session:write",
+  alsoRequiresRead = false,
+): ReturnType<typeof getAuthorizedTenantContext> {
   try {
     const context = getAuthorizedTenantContext(request);
-    if (!context.grantedScopes.includes(scope) || !context.purposes.includes("essential_processing")) {
+    if (!context.grantedScopes.includes(scope)
+      || alsoRequiresRead && !context.grantedScopes.includes("session:read")
+      || !context.purposes.includes("essential_processing")) {
       throw new TurnDriverAuthorizationError();
     }
     return context;
@@ -1189,6 +1223,47 @@ async function runFastLane(
         },
       );
   });
+}
+
+function assertFastLaneContext(
+  value: unknown,
+  tenantId: TenantId,
+  sessionId: SessionId,
+  contextVersion: number,
+  now: number,
+): ContextComposition {
+  try {
+    const context = parseContextComposition(value);
+    if (context.tenant_id !== tenantId || context.session_id !== sessionId || context.context_version !== contextVersion) {
+      throw new TurnDriverFastLaneError();
+    }
+    assertFastLaneContextFreshness(context, now);
+    return context;
+  } catch (error) {
+    if (error instanceof TurnDriverFastLaneError) throw error;
+    throw new TurnDriverFastLaneError();
+  }
+}
+
+function assertFastLaneContextFreshness(context: ContextComposition, now: number): void {
+  if (contextTimestampMilliseconds(context.composed_at) > now) throw new TurnDriverFastLaneError();
+  if (context.expires_at !== null && contextTimestampMilliseconds(context.expires_at) <= now) {
+    throw new TurnDriverFastLaneError();
+  }
+  for (const entry of context.entries) {
+    const observedAt = contextTimestampMilliseconds(entry.provenance.observed_at);
+    if (observedAt > now) throw new TurnDriverFastLaneError();
+    if (entry.provenance.expires_at !== null) {
+      const expiresAt = contextTimestampMilliseconds(entry.provenance.expires_at);
+      if (expiresAt <= now || observedAt > expiresAt) throw new TurnDriverFastLaneError();
+    }
+  }
+}
+
+function contextTimestampMilliseconds(value: string): number {
+  const milliseconds = Date.parse(value);
+  if (!Number.isSafeInteger(milliseconds)) throw new TurnDriverFastLaneError();
+  return milliseconds;
 }
 
 function normalizeFastLaneResponse(value: unknown): FastLaneResponse {

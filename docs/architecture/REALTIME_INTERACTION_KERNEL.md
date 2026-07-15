@@ -39,6 +39,13 @@ Compõe contexto para o Fast Lane a partir de:
 
 Nunca injeta raw logs, documentos inteiros ou resultados expirados.
 
+Na implementação M1, o Composer é estritamente local e síncrono. Ele usa o
+snapshot opaco do estado confirmado já projetado, trata o resumo incremental e
+conhecimento como conteúdo não confiável, exclui `system_observation` sem
+prova de consentimento, descarta sugestões tardias por `context_version` e
+TTL, e entrega `context_composition` bounded ao Fast Lane fora da mailbox. Não
+há RAG, cache, provider, ferramenta, mídia ou Axtro Agent síncrono neste caminho.
+
 ### Response Orchestrator
 Recebe proposta do Fast Lane e divide:
 - fala candidata;

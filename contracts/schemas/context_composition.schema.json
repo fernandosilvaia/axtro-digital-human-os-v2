@@ -1,0 +1,491 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://schemas.axtro.ai/v2/context_composition.schema.json",
+  "title": "Context Composition",
+  "description": "Bounded, provenance-preserving context passed from the local composer to a realtime response adapter.",
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "schema_version": {
+      "type": "string",
+      "const": "2.0.0"
+    },
+    "tenant_id": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$"
+    },
+    "session_id": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$"
+    },
+    "context_version": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "max_context_bytes": {
+      "type": "integer",
+      "minimum": 1024,
+      "maximum": 12000
+    },
+    "content_bytes_used": {
+      "type": "integer",
+      "minimum": 0,
+      "maximum": 12000
+    },
+    "omitted_entry_count": {
+      "type": "integer",
+      "minimum": 0,
+      "maximum": 512
+    },
+    "composed_at": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "expires_at": {
+      "type": [
+        "string",
+        "null"
+      ],
+      "format": "date-time"
+    },
+    "entries": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "kind": {
+            "type": "string",
+            "enum": [
+              "conversation_summary",
+              "confirmed_fact",
+              "approved_knowledge",
+              "suggestion",
+              "hypothesis"
+            ]
+          },
+          "trust_level": {
+            "type": "string",
+            "enum": [
+              "confirmed",
+              "uncertain",
+              "untrusted"
+            ]
+          },
+          "content": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 5000
+          },
+          "data_classification": {
+            "type": "string",
+            "enum": [
+              "public",
+              "internal",
+              "confidential",
+              "restricted"
+            ]
+          },
+          "confidence": {
+            "type": [
+              "number",
+              "null"
+            ],
+            "minimum": 0,
+            "maximum": 1
+          },
+          "provenance": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "source_kind": {
+                "type": "string",
+                "enum": [
+                  "interaction_state",
+                  "approved_knowledge_catalog",
+                  "server_owned_suggestion_snapshot"
+                ]
+              },
+              "source_id": {
+                "type": "string",
+                "pattern": "^[A-Za-z0-9._:-]{1,200}$"
+              },
+              "source_version": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 120
+              },
+              "checksum_sha256": {
+                "type": [
+                  "string",
+                  "null"
+                ],
+                "pattern": "^[0-9a-f]{64}$"
+              },
+              "evidence_refs": {
+                "type": "array",
+                "items": {
+                  "type": "string",
+                  "pattern": "^[A-Za-z0-9._:-]{1,200}$"
+                },
+                "minItems": 0,
+                "maxItems": 100
+              },
+              "observed_at": {
+                "type": "string",
+                "format": "date-time"
+              },
+              "expires_at": {
+                "type": [
+                  "string",
+                  "null"
+                ],
+                "format": "date-time"
+              }
+            },
+            "required": [
+              "source_kind",
+              "source_id",
+              "source_version",
+              "checksum_sha256",
+              "evidence_refs",
+              "observed_at",
+              "expires_at"
+            ]
+          }
+        },
+        "required": [
+          "kind",
+          "trust_level",
+          "content",
+          "data_classification",
+          "confidence",
+          "provenance"
+        ]
+      },
+      "minItems": 0,
+      "maxItems": 128
+    }
+  },
+  "required": [
+    "schema_version",
+    "tenant_id",
+    "session_id",
+    "context_version",
+    "max_context_bytes",
+    "content_bytes_used",
+    "omitted_entry_count",
+    "composed_at",
+    "expires_at",
+    "entries"
+  ],
+  "allOf": [
+    {
+      "if": {
+        "properties": {
+          "entries": {
+            "type": "array"
+          }
+        }
+      },
+      "then": {
+        "properties": {
+          "entries": {
+            "items": {
+              "allOf": [
+                {
+                  "if": {
+                    "properties": {
+                      "kind": {
+                        "const": "confirmed_fact"
+                      }
+                    },
+                    "required": [
+                      "kind"
+                    ]
+                  },
+                  "then": {
+                    "properties": {
+                      "trust_level": {
+                        "const": "confirmed"
+                      }
+                    },
+                    "required": [
+                      "trust_level"
+                    ]
+                  }
+                },
+                {
+                  "if": {
+                    "properties": {
+                      "kind": {
+                        "enum": [
+                          "suggestion",
+                          "hypothesis"
+                        ]
+                      }
+                    },
+                    "required": [
+                      "kind"
+                    ]
+                  },
+                  "then": {
+                    "properties": {
+                      "trust_level": {
+                        "const": "uncertain"
+                      }
+                    },
+                    "required": [
+                      "trust_level"
+                    ]
+                  }
+                },
+                {
+                  "if": {
+                    "properties": {
+                      "kind": {
+                        "enum": [
+                          "conversation_summary",
+                          "approved_knowledge"
+                        ]
+                      }
+                    },
+                    "required": [
+                      "kind"
+                    ]
+                  },
+                  "then": {
+                    "properties": {
+                      "trust_level": {
+                        "const": "untrusted"
+                      }
+                    },
+                    "required": [
+                      "trust_level"
+                    ]
+                  }
+                },
+                {
+                  "if": {
+                    "properties": {
+                      "kind": {
+                        "const": "conversation_summary"
+                      }
+                    },
+                    "required": [
+                      "kind"
+                    ]
+                  },
+                  "then": {
+                    "properties": {
+                      "confidence": {
+                        "const": null
+                      },
+                      "provenance": {
+                        "properties": {
+                          "source_kind": {
+                            "const": "interaction_state"
+                          },
+                          "checksum_sha256": {
+                            "const": null
+                          },
+                          "expires_at": {
+                            "const": null
+                          }
+                        },
+                        "required": [
+                          "source_kind",
+                          "checksum_sha256",
+                          "expires_at"
+                        ]
+                      }
+                    },
+                    "required": [
+                      "confidence",
+                      "provenance"
+                    ]
+                  }
+                },
+                {
+                  "if": {
+                    "properties": {
+                      "kind": {
+                        "const": "confirmed_fact"
+                      }
+                    },
+                    "required": [
+                      "kind"
+                    ]
+                  },
+                  "then": {
+                    "properties": {
+                      "confidence": {
+                        "type": "number",
+                        "minimum": 0,
+                        "maximum": 1
+                      },
+                      "provenance": {
+                        "properties": {
+                          "source_kind": {
+                            "const": "interaction_state"
+                          },
+                          "checksum_sha256": {
+                            "const": null
+                          }
+                        },
+                        "required": [
+                          "source_kind",
+                          "checksum_sha256"
+                        ]
+                      }
+                    },
+                    "required": [
+                      "confidence",
+                      "provenance"
+                    ]
+                  }
+                },
+                {
+                  "if": {
+                    "properties": {
+                      "kind": {
+                        "const": "approved_knowledge"
+                      }
+                    },
+                    "required": [
+                      "kind"
+                    ]
+                  },
+                  "then": {
+                    "properties": {
+                      "data_classification": {
+                        "enum": [
+                          "public",
+                          "internal",
+                          "confidential"
+                        ]
+                      },
+                      "confidence": {
+                        "const": null
+                      },
+                      "provenance": {
+                        "properties": {
+                          "source_kind": {
+                            "const": "approved_knowledge_catalog"
+                          },
+                          "checksum_sha256": {
+                            "type": "string",
+                            "pattern": "^[0-9a-f]{64}$"
+                          },
+                          "evidence_refs": {
+                            "type": "array",
+                            "minItems": 1
+                          }
+                        },
+                        "required": [
+                          "source_kind",
+                          "checksum_sha256",
+                          "evidence_refs"
+                        ]
+                      }
+                    },
+                    "required": [
+                      "data_classification",
+                      "confidence",
+                      "provenance"
+                    ]
+                  }
+                },
+                {
+                  "if": {
+                    "properties": {
+                      "kind": {
+                        "enum": [
+                          "suggestion",
+                          "hypothesis"
+                        ]
+                      }
+                    },
+                    "required": [
+                      "kind"
+                    ]
+                  },
+                  "then": {
+                    "properties": {
+                      "data_classification": {
+                        "enum": [
+                          "public",
+                          "internal",
+                          "confidential"
+                        ]
+                      },
+                      "confidence": {
+                        "type": "number",
+                        "minimum": 0,
+                        "maximum": 1
+                      },
+                      "provenance": {
+                        "properties": {
+                          "source_kind": {
+                            "const": "server_owned_suggestion_snapshot"
+                          },
+                          "checksum_sha256": {
+                            "const": null
+                          },
+                          "expires_at": {
+                            "type": "string",
+                            "format": "date-time"
+                          }
+                        },
+                        "required": [
+                          "source_kind",
+                          "checksum_sha256",
+                          "expires_at"
+                        ]
+                      }
+                    },
+                    "required": [
+                      "data_classification",
+                      "confidence",
+                      "provenance"
+                    ]
+                  }
+                },
+                {
+                  "if": {
+                    "properties": {
+                      "kind": {
+                        "const": "hypothesis"
+                      }
+                    },
+                    "required": [
+                      "kind"
+                    ]
+                  },
+                  "then": {
+                    "properties": {
+                      "provenance": {
+                        "properties": {
+                          "evidence_refs": {
+                            "type": "array",
+                            "minItems": 1
+                          }
+                        },
+                        "required": [
+                          "evidence_refs"
+                        ]
+                      }
+                    },
+                    "required": [
+                      "provenance"
+                    ]
+                  }
+                }
+              ]
+            }
+          }
+        }
+      }
+    }
+  ]
+}
