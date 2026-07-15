@@ -3,7 +3,7 @@
 **Estado atual:** M0 Foundation e M1 Walking Skeleton concluídos; M2 Human Presence Spike em execução autônoma controlada
 
 **Marco atual:** M2
-**Tarefa atual:** M2-10
+**Tarefa atual:** M2-11
 **Última evidência verde:** M1-11 com pipeline completa, 209 testes Node, 23 unittest Python, 23 pytest, 2 testes E2E, PostgreSQL local, RLS e 9 validadores verdes em 2026-07-15
 **Bloqueadores internos:** nenhum
 **Pendências externas:** consultar `PENDENCIAS_EXTERNAS.md`  
@@ -58,7 +58,7 @@
 | `M2-08` | M2 | done | Implement silent Specialist Fabric | `M1-04`, `M0-12` | Fila bounded + bulkhead por tipo, deadline racing, One Mouth por omissão de API, 8 testes Node verdes |
 | `M2-09` | M2 | done | Implement perception signal bus and quality state | `M2-02`, `M0-03` | Vocabulário fechado de sinal/hipótese, TTL e consentimento aplicados, 8 testes Node verdes |
 | `M2-10` | M2 | done | Implement degradation and recovery controller | `M2-03`, `M2-04`, `M2-06`, `M2-07` | Matriz de 10 linhas executável, recuperação explícita, fencing anti-duplicidade, 7 testes Node verdes |
-| `M2-11` | M2 | pending | Instrument realtime latency, quality and cost | `M2-03`, `M2-06`, `M2-07`, `M0-16` | pending |
+| `M2-11` | M2 | done | Instrument realtime latency, quality and cost | `M2-03`, `M2-06`, `M2-07`, `M0-16` | Recorder p50/p95 por span, orçamentos de `LATENCY_BUDGETS.md`, reconciliação de custo, 11 testes Node verdes |
 | `M2-12` | M2 | pending | Run mandatory ten-minute Human Presence scenario | `M2-05`, `M2-08`, `M2-09`, `M2-10`, `M2-11` | pending |
 | `M2-13` | M2 | pending | M2 architecture and provider decision gate | `M2-12` | pending |
 | `M3-01` | M3 | pending | Implement Sales Closer Role Pack | `M2-13` | pending |
@@ -518,6 +518,16 @@
 - `pnpm lint`, `tsc --build` completo e `node scripts/test.mjs` (287 testes Node, 23 unittest Python) verdes.
 - Nenhuma credencial real, produção, provider real, deploy, migration remota ou M3 foi acessado ou iniciado.
 
+### 2026-07-15, M2-11 concluído
+
+- `@axtro/realtime-telemetry` mede os nove spans exigidos pelo cenário obrigatório (`audio_ingress`, `turn_candidate`, `turn_commit`, `context_compose`, `model_first_token`, `tts_first_audio`, `avatar_first_frame`, `channel_publish`, `cancellation_acknowledged`), correlacionados por `generationId`, com vocabulário próprio em vez de alargar o `TELEMETRY_SPAN_NAMES` fechado de `@axtro/observability` (D-V2-047, mesmo racional do D-V2-046).
+- `SPAN_BUDGETS` espelha `docs/operations/LATENCY_BUDGETS.md` linha a linha: orçamentos p50/p95 para endpoint confirmation, context compose, model first token, TTS first audio e publish/jitter; orçamentos ideal/acceptable (não percentil) para avatar warm-up e barge-in stop; `TOTAL_EOT_TO_AUDIO_BUDGET_MS` soma os cinco componentes do turno para o teto composto de 650ms p50 / 1500ms p95.
+- `percentiles`/`evaluateBudget` usam nearest-rank sobre amostras ordenadas; `missingSpansForGeneration` prova completude de span por geração — insumo direto para a evidência de M2-12.
+- `reconcileSessionCost` compara custo estimado vs relatado pelo provider com tolerância configurável (10% padrão), como exigido pelo critério de aceite de M2-11.
+- 11 testes novos em `tests/realtime/realtime-telemetry.test.mjs`: p50/p95 com amostras suficientes, orçamento percentil respeitado, p95 estourado com p50 saudável (distribuição de cauda), spans não orçados, orçamentos de threshold (warm-up/barge-in), soma composta EOT→áudio completa e incompleta, completude de span por geração, reconciliação de custo dentro e fora da tolerância, e rejeição de span malformado.
+- `pnpm lint`, `tsc --build` completo e `node scripts/test.mjs` (298 testes Node, 23 unittest Python) verdes.
+- Nenhuma credencial real, produção, provider real, deploy, migration remota ou M3 foi acessado ou iniciado.
+
 ## Próxima ação
 
-Continuar M2 em modo autônomo controlado: M2-11, telemetria de latência/qualidade/custo, sobre o Degradation Controller recém-criado.
+Continuar M2 em modo autônomo controlado: M2-12, cenário obrigatório de dez minutos, integrando todos os componentes M2-01 a M2-11.

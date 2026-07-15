@@ -254,6 +254,8 @@ importers:
         specifier: workspace:*
         version: link:../provider-contracts
 
+  packages/realtime-telemetry: {}
+
   packages/scene-director: {}
 
   packages/security:

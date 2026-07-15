@@ -29,6 +29,7 @@
     { "path": "./packages/specialist-fabric" },
     { "path": "./packages/perception" },
     { "path": "./packages/degradation-controller" },
+    { "path": "./packages/realtime-telemetry" },
     { "path": "./packages/ui" },
     { "path": "./apps/api" },
     { "path": "./apps/event-relay" },
