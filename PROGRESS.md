@@ -3,7 +3,7 @@
 **Estado atual:** M0 Foundation e M1 Walking Skeleton concluídos; M2 Human Presence Spike em execução autônoma controlada
 
 **Marco atual:** M2
-**Tarefa atual:** M2-06
+**Tarefa atual:** M2-07
 **Última evidência verde:** M1-11 com pipeline completa, 209 testes Node, 23 unittest Python, 23 pytest, 2 testes E2E, PostgreSQL local, RLS e 9 validadores verdes em 2026-07-15
 **Bloqueadores internos:** nenhum
 **Pendências externas:** consultar `PENDENCIAS_EXTERNAS.md`  
@@ -54,7 +54,7 @@
 | `M2-04` | M2 | done | Implement speech-to-speech experiment adapter | `M2-02`, `M0-11` | Router `selectConversationPathMode` com fallback, sessão S2S com renovação antes do expiry, coberto nos mesmos 7 testes |
 | `M2-05` | M2 | done | Implement Behavior and Presence Director | `M2-02`, `M0-03` | 10 estados canônicos, `BehaviorIntent` fechado, scheduler determinístico por seed, 10 testes Node verdes |
 | `M2-06` | M2 | done | Implement avatar port, fake and cancellation semantics | `M2-01`, `M2-05`, `M0-12` | `AvatarSession` com resultado tipado (nunca exceção), 4 testes Node verdes |
-| `M2-07` | M2 | pending | Implement Scene and Presentation Director | `M2-01`, `M0-03` | pending |
+| `M2-07` | M2 | done | Implement Scene and Presentation Director | `M2-01`, `M0-03` | `SceneManifestRegistry` fechado + `SceneDirector` com fencing por geração, 10 testes Node verdes |
 | `M2-08` | M2 | pending | Implement silent Specialist Fabric | `M1-04`, `M0-12` | pending |
 | `M2-09` | M2 | pending | Implement perception signal bus and quality state | `M2-02`, `M0-03` | pending |
 | `M2-10` | M2 | pending | Implement degradation and recovery controller | `M2-03`, `M2-04`, `M2-06`, `M2-07` | pending |
@@ -478,6 +478,16 @@
 - `pnpm lint`, `tsc --build` completo e `node scripts/test.mjs` (254 testes Node, 23 unittest Python) verdes.
 - Nenhuma credencial real, produção, provider real, deploy, migration remota ou M3 foi acessado ou iniciado.
 
+### 2026-07-15, M2-07 concluído
+
+- `@axtro/scene-director`: `createSceneManifestRegistry` constrói um allowlist fechado e imutável na inicialização (sem `register` em runtime); cada manifesto declara origem (obrigatoriamente `https://`), schema de data binding, ações permitidas, campos PII permitidos, capacidades de canal exigidas, timeout e fallback.
+- `createSceneDirector` implementa o fluxo `SceneIntent -> select manifest -> bind sanitized data -> policy check -> render -> scene_directive -> audit event`: rejeita manifesto desconhecido, campo fora do schema, campo PII não autorizado, capacidade de canal ausente e falha de policy — sempre com resultado tipado (`accepted`/`rejected`), nunca lançando exceção.
+- Concorrência por `generationId`: uma diretiva de geração mais antiga que a já ativa é rejeitada (`generation_no_longer_active`) e nunca substitui a cena do turno atual; cenas de prioridade `max` (handoff, safety) sempre podem preemptar a cena ativa, emitindo `scene_preempted` no log de auditoria.
+- Toda diretiva aceita é `sandbox: "iframe_sandboxed"` fixo; nenhum caminho aceita URL arbitrária, script fornecido pelo LLM ou execução fora do allowlist.
+- 10 testes novos em `tests/realtime/scene-director.test.mjs`: binding sanitizado, manifesto desconhecido, dado fora do schema, campo PII não autorizado, capacidade de canal ausente, diretiva tardia rejeitada, preempção por handoff, exposição de PII somente conforme allowlist, policy customizada e rejeição de origem não-https na construção do registry.
+- `pnpm lint`, `tsc --build` completo e `node scripts/test.mjs` (264 testes Node, 23 unittest Python) verdes.
+- Nenhuma credencial real, produção, provider real, deploy, migration remota ou M3 foi acessado ou iniciado.
+
 ## Próxima ação
 
-Continuar M2 em modo autônomo controlado: M2-07, Scene and Presentation Director, sobre `apps/meeting-room` e o Avatar Session recém-criados.
+Continuar M2 em modo autônomo controlado: M2-08, Silent Specialist Fabric, sobre o Scene Director recém-criado.

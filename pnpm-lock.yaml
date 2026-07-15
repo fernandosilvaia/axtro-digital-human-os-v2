@@ -250,6 +250,8 @@ importers:
         specifier: workspace:*
         version: link:../provider-contracts
 
+  packages/scene-director: {}
+
   packages/security:
     dependencies:
       '@axtro/domain':
