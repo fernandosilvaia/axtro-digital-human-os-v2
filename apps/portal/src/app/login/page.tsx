@@ -27,6 +27,9 @@ export default async function LoginPage({
         )}
         <LoginForm />
         <p className="auth-switch">
+          <a href="/recuperar-senha">Esqueceu a senha?</a>
+        </p>
+        <p className="auth-switch">
           Ainda não tem conta? <a href="/signup">Criar conta</a>
         </p>
       </div>

@@ -18,11 +18,12 @@
 ## Trabalho natural de continuação (em ordem sugerida)
 
 1. **Habilitar o Auth Hook** (gate humano, D-V2-057) e então testar login real com claims (`app_metadata.tenant_id`) — depois disso, considerar migrar leituras do portal para RLS-por-claim.
-2. **Versionar os SQLs Supabase-only** num diretório `database/supabase-only/` (hoje vivem só no banco; conteúdo reproduzível a partir de D-V2-056/058).
-3. **Convites/multiusuário por tenant** (`tenant_operator` já existe como papel; falta fluxo de convite).
-4. **Recuperação de senha** (`supabase.auth.resetPasswordForEmail` + rota de callback) — não implementado ainda.
-5. **Telas de criação** de agente/fonte de conhecimento — fronteira real: dependem de provedores conectados.
-6. **Deploy** — só com aviso prévio ao Fernando (nunca criar conta/infra sem confirmar).
+2. ~~Versionar os SQLs Supabase-only~~ — **feito 2026-07-16**: `database/supabase-only/0001..0006` + README com estado de aplicação.
+3. ~~Convites/multiusuário por tenant~~ — **feito 2026-07-16** (D-V2-060): seção Equipe em Configurações, RPCs `portal_invite_member`/`portal_list_team`/`portal_revoke_invite`, provisionamento honra convite pendente. Sem envio de e-mail (modelo e-mail pré-aprovado); e-mail de convite de verdade depende de SMTP próprio.
+4. ~~Recuperação de senha~~ — **feito 2026-07-16** (D-V2-061): `/recuperar-senha` + `/nova-senha`; trecho e-mail→link só é exercitável com SMTP próprio configurado.
+5. **Configurar SMTP próprio** no Supabase (Auth > SMTP) — o builtin estourou rate limit durante os testes; bloqueia confirmação de signup e recuperação de senha em qualquer uso real.
+6. **Telas de criação** de agente/fonte de conhecimento — fronteira real: dependem de provedores conectados.
+7. **Deploy** — só com aviso prévio ao Fernando (nunca criar conta/infra sem confirmar).
 
 ## Regras que esta fase respeita (não regredir)
 

@@ -29,6 +29,7 @@ export async function updateSession(request: NextRequest) {
 
   const isAuthRoute = request.nextUrl.pathname.startsWith("/login")
     || request.nextUrl.pathname.startsWith("/signup")
+    || request.nextUrl.pathname.startsWith("/recuperar-senha")
     || request.nextUrl.pathname.startsWith("/auth");
 
   if (!user && !isAuthRoute) {
