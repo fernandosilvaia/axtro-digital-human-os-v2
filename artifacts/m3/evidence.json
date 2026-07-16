@@ -1,0 +1,39 @@
+{
+  "schema_version": "1.0.0",
+  "milestone": "M3",
+  "artifact_id": "sales-closer-alpha-pilot-gate-dry-run",
+  "data_provenance": "FAKE_SYNTHETIC_DATA_NOT_A_REAL_INTERNAL_PILOT",
+  "note": "This report proves the generatePilotGateReport tool works end to end against 20 synthetic, deterministic call records. It is NOT a real internal pilot: no real call happened, no real provider was used, and no real cost was incurred. The actual 20-internal-call pilot and the credentialed provider bake-off are explicitly out of this session's autonomous scope (D-V2-049) and require a human to run them.",
+  "synthetic_calls_reviewed": 20,
+  "report": {
+    "totalCallsReviewed": 20,
+    "meetsMinimumSample": true,
+    "openCriticalViolations": [],
+    "openTenancyViolations": [],
+    "channelSummaries": [
+      {
+        "channel": "voice",
+        "callCount": 12,
+        "averageOverallScore": 0.92,
+        "totalEstimatedCostUsdMicros": 2160000,
+        "totalProviderReportedCostUsdMicros": 2220000
+      },
+      {
+        "channel": "video",
+        "callCount": 4,
+        "averageOverallScore": 0.92,
+        "totalEstimatedCostUsdMicros": 1680000,
+        "totalProviderReportedCostUsdMicros": 1720000
+      },
+      {
+        "channel": "text",
+        "callCount": 4,
+        "averageOverallScore": 0.92,
+        "totalEstimatedCostUsdMicros": 160000,
+        "totalProviderReportedCostUsdMicros": 164000
+      }
+    ],
+    "decision": "ready_for_human_review",
+    "requiresHumanApprovalForCustomerBeta": true
+  }
+}

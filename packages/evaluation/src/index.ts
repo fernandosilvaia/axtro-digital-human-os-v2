@@ -227,3 +227,15 @@ function parseScenario(value: unknown): GoldenScenario {
     qualificationDimensionsCovered: Object.freeze(parseStringArray(record.qualificationDimensionsCovered, "qualificationDimensionsCovered")),
   });
 }
+
+export {
+  generatePilotGateReport,
+  MINIMUM_REVIEWED_CALLS,
+  PilotGateError,
+  type ChannelCostQualitySummary,
+  type OpenViolationReference,
+  type PilotCallRecord,
+  type PilotChannel,
+  type PilotGateDecision,
+  type PilotGateReport,
+} from "./pilot-gate.js";

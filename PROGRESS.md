@@ -3,8 +3,8 @@
 **Estado atual:** M0, M1 e M2 concluídos; M3 Sales Closer Alpha em execução autônoma controlada (fake-first/dry-run em M3-01 a M3-09, bake-off de provider e piloto real ficam fora do escopo autônomo)
 
 **Marco atual:** M3
-**Tarefa atual:** M3-09
-**Última evidência verde:** 381 testes Node, 23 unittest Python, 23 pytest, `pnpm m1:e2e` e `pnpm m2:e2e` verdes em 2026-07-15 após M3-09
+**Tarefa atual:** M3-10
+**Última evidência verde:** 389 testes Node, 23 unittest Python, 23 pytest, `pnpm m1:e2e`, `pnpm m2:e2e` e 9 validadores verdes em 2026-07-15 após M3-10
 **Bloqueadores internos:** nenhum
 **Pendências externas:** consultar `PENDENCIAS_EXTERNAS.md`  
 
@@ -70,7 +70,7 @@
 | `M3-07` | M3 | done | Implement sandbox follow-up workflow | `M1-08`, `M3-01` | `createSandboxFollowUpWorkflow` em `@axtro/workflows` (aditivo, M1-08 intacto), 5 testes Node verdes |
 | `M3-08` | M3 | done | Implement evaluation harness and golden conversations | `M3-01`, `M3-02`, `M3-06` | `@axtro/evaluation` com 6 dimensões, gate crítico independente da média, 6 cenários golden, 8 testes Node verdes |
 | `M3-09` | M3 | done | Expand console for opportunity and call review | `M3-02`, `M3-03`, `M3-05`, `M3-08` | `opportunity-review.ts` novo em `@axtro/ui` (reaproveita `renderEvidenceLabel`/`escapeHtml` do M1-09), 9 testes Node verdes |
-| `M3-10` | M3 | pending | Internal Sales Closer Alpha pilot gate | `M3-04`, `M3-05`, `M3-06`, `M3-07`, `M3-08`, `M3-09` | pending |
+| `M3-10` | M3 | done (ferramenta) | Internal Sales Closer Alpha pilot gate | `M3-04`, `M3-05`, `M3-06`, `M3-07`, `M3-08`, `M3-09` | `generatePilotGateReport` pronto e testado; piloto real de 20 chamadas e bake-off credenciado ficam pendentes de gate humano — ver `artifacts/m3/README.md` |
 
 ## Log de execução
 
@@ -640,6 +640,15 @@
 - `pnpm lint`, `pnpm contracts:check`, `tsc --build` completo, `node scripts/test.mjs` (381 testes Node, 23 unittest Python, suite original de M1-09 intacta), `pnpm m1:e2e` e `pnpm m2:e2e` verdes.
 - Nenhuma credencial real, produção, provider real, deploy ou migration remota foi acessado.
 
+### 2026-07-15, M3-10 concluído (ferramenta) — piloto real fica pendente de gate humano
+
+- `generatePilotGateReport` (`packages/evaluation/src/pilot-gate.ts`, exportado aditivamente do `index.ts` já existente) agrega chamadas revisadas em um relatório único: total revisado, violações críticas de policy ainda abertas, violações de tenancy ainda abertas, custo e qualidade por canal, e uma decisão fechada em três valores. `requiresHumanApprovalForCustomerBeta` é sempre `true` — nenhuma execução desta ferramenta jamais aprova um beta.
+- Amostra mínima de 20 chamadas é obrigatória (`meetsMinimumSample`); uma violação crítica ou de tenancy só deixa de bloquear quando explicitamente marcada `resolved: true`; `callId` duplicado é rejeitado (cada chamada revisada precisa ser distinta).
+- `artifacts/m3/evidence.json` roda a ferramenta contra 20 registros **sintéticos e determinísticos**, marcados `data_provenance: "FAKE_SYNTHETIC_DATA_NOT_A_REAL_INTERNAL_PILOT"`. `artifacts/m3/README.md` documenta explicitamente o que essa evidência prova (a ferramenta funciona) e o que ela não prova (nenhuma chamada real aconteceu) — consistente com D-V2-049 e com `HANDOFF_TO_CODEX.md`: M3 não pode declarar pronto para cliente sem auditoria, bake-off de provider, segurança, privacidade e aprovação de lançamento reais.
+- 8 testes novos em `tests/golden/pilot-gate.test.mjs`: amostra insuficiente sempre bloqueia, amostra limpa fica pronta para revisão humana (nunca auto-aprovada), violação crítica aberta bloqueia, violação resolvida deixa de bloquear, violação de tenancy aberta bloqueia mesmo com avaliações limpas, custo/qualidade por canal calculados independentemente (canal sem chamada é omitido, não preenchido com zero), `callId` duplicado rejeitado, e a decisão nunca inclui um valor de aprovação de beta.
+- `pnpm lint`, `pnpm contracts:check`, `tsc --build` completo, `node scripts/test.mjs` (389 testes Node, 23 unittest Python), `pnpm m1:e2e`, `pnpm m2:e2e` e `python3 scripts/validate_all.py` (9 validadores) verdes.
+- Nenhuma credencial real, produção, provider real, deploy, migration remota ou chamada interna real foi acessada ou executada. **M3-10 permanece formalmente aberto quanto ao piloto real e ao bake-off** — só uma sessão com gate humano pode fechá-lo de fato.
+
 ## Próxima ação
 
-Continuar M3 em modo autônomo controlado: M3-10, gate do piloto interno Sales Closer Alpha — última tarefa antes da validação final.
+Rodar a suíte de validação final completa da sessão M3 e produzir o relatório final. M3-01 a M3-09 estão prontos fake-first/dry-run; M3-10 tem sua ferramenta pronta mas aguarda piloto real com gate humano antes de qualquer aprovação de beta com cliente.
