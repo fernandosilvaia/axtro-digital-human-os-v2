@@ -310,6 +310,8 @@ importers:
 
   packages/specialist-fabric: {}
 
+  packages/tool-adapters/calendar: {}
+
   packages/tool-adapters/crm-lite: {}
 
   packages/tool-runtime:

@@ -3,8 +3,8 @@
 **Estado atual:** M0, M1 e M2 concluídos; M3 Sales Closer Alpha em execução autônoma controlada (fake-first/dry-run em M3-01 a M3-09, bake-off de provider e piloto real ficam fora do escopo autônomo)
 
 **Marco atual:** M3
-**Tarefa atual:** M3-03
-**Última evidência verde:** 335 testes Node, 23 unittest Python, 23 pytest verdes em 2026-07-15 após M3-03
+**Tarefa atual:** M3-04
+**Última evidência verde:** 343 testes Node, 23 unittest Python, 23 pytest verdes em 2026-07-15 após M3-04
 **Bloqueadores internos:** nenhum
 **Pendências externas:** consultar `PENDENCIAS_EXTERNAS.md`  
 
@@ -64,7 +64,7 @@
 | `M3-01` | M3 | done | Implement Sales Closer Role Pack | `M2-13` | Manifesto, `sales.uninstalled` no reducer, `TenantRolePackRegistry` process-local, 11 testes Node verdes |
 | `M3-02` | M3 | done | Implement authorized knowledge ingestion and RAG | `M3-01`, `M0-08` | ADR-031, `@axtro/knowledge-engine` + `apps/ingestion-worker`, 9 testes Node verdes (cross-tenant, stale, injection corpus) |
 | `M3-03` | M3 | done | Add CRM-lite read adapter | `M3-01`, `M0-14` | `@axtro/tool-adapter-crm-lite` somente leitura, PII por purpose, auditoria por tenant, 10 testes Node verdes |
-| `M3-04` | M3 | pending | Add calendar proposal in dry-run | `M3-01`, `M0-14` | pending |
+| `M3-04` | M3 | done | Add calendar proposal in dry-run | `M3-01`, `M0-14` | `@axtro/tool-adapter-calendar`: propõe, confirma (dry-run padrão), idempotente, 8 testes Node verdes |
 | `M3-05` | M3 | pending | Add proposal generation in dry-run | `M3-01`, `M0-14` | pending |
 | `M3-06` | M3 | pending | Implement warm human handoff | `M3-01`, `M2-10` | pending |
 | `M3-07` | M3 | pending | Implement sandbox follow-up workflow | `M1-08`, `M3-01` | pending |
@@ -582,6 +582,15 @@
 - `pnpm lint`, `pnpm contracts:check`, `tsc --build` completo e `node scripts/test.mjs` (335 testes Node, 23 unittest Python) verdes.
 - Nenhuma credencial real, produção, provider real, deploy ou migration remota foi acessado.
 
+### 2026-07-15, M3-04 concluído
+
+- `@axtro/tool-adapter-calendar` (`packages/tool-adapters/calendar/`): `proposeSlots` varre a janela solicitada em incrementos de `durationMinutes`, mescla os intervalos ocupados de todos os participantes e só oferece slots sem sobreposição; timezone é validada contra uma lista fechada (`SUPPORTED_TIMEZONES`) antes de qualquer cálculo, nunca inferida.
+- `confirmSlot` exige que o slot selecionado tenha sido de fato oferecido na proposta (senão `unknown_slot`), reavalia conflito no momento da confirmação (disponibilidade pode ter mudado desde a proposta), e só escreve de verdade no `CalendarWriteSink` injetado quando `approved: true` **e** `dryRun: false` explícitos — o padrão é sempre `dryRun: true`, que nunca toca o sink.
+- Idempotência por `idempotencyKey` por tenant: reenviar a mesma chave retorna exatamente o mesmo resultado já registrado, sem criar um segundo evento externo.
+- 8 testes novos em `tests/tool-adapters/calendar.test.mjs`: timezone rejeitada e timezone aceita, conflito removendo apenas os slots sobrepostos, conflito surgido entre proposta e confirmação, dry-run padrão sem aprovação nem escrita, aprovação negada nunca escreve mesmo com `dryRun:false`, confirmação real com aprovação e `dryRun:false`, idempotência sem duplicar evento, proposta expirada e slot nunca oferecido.
+- `pnpm lint`, `pnpm contracts:check`, `tsc --build` completo e `node scripts/test.mjs` (343 testes Node, 23 unittest Python) verdes.
+- Nenhuma credencial real, produção, provider real, deploy ou migration remota foi acessado.
+
 ## Próxima ação
 
-Continuar M3 em modo autônomo controlado: M3-04, proposta de calendário em dry-run.
+Continuar M3 em modo autônomo controlado: M3-05, geração de proposta em dry-run.
