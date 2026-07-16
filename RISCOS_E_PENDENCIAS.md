@@ -21,7 +21,7 @@
 | 3 | `user_tenant_memberships` permite um único tenant por usuário (PK em `user_id`) | Suficiente para self-serve atual; convites (D-V2-060) respeitam essa restrição — convidar e-mail que já tem workspace é rejeitado | Multi-tenant por usuário / mover usuário entre tenants exigem nova modelagem (revisit trigger no ADR-032) |
 | 3b | Convites não enviam e-mail (modelo e-mail pré-aprovado): o convidado precisa ser avisado por fora e criar conta com o e-mail exato | D-V2-060 — sem SMTP próprio não há canal de envio confiável | Com SMTP próprio, adicionar notificação por e-mail no ato do convite |
 | 4 | Sem rate limiting próprio nas RPCs do portal | Supabase Auth já limita auth; RPCs são baratas e tenant-scoped | Adicionar contadores por tenant quando houver endpoint caro |
-| 5 | Telas de Agentes/Conhecimento são read-only (sem criar/editar) | Criação exige provedores conectados e contratos de disclosure — fronteira real de dependência externa | Liberar criação junto com a conexão de provedores |
+| 5 | Agentes nascem `draft` e fontes nascem `pending` (D-V2-062); ativação de agente e ingestão de conteúdo seguem indisponíveis no portal | Ativação exige provedores conectados + disclosure validado; ingestão exige provedor de embeddings — fronteiras reais de dependência externa | Liberar ativação/ingestão junto com a conexão de provedores |
 | 6 | `robots: noindex` no portal inteiro | Portal é app logado; não há landing page pública neste repo | SEO/AEO pertencem à landing (projeto `axtroai`), não ao portal |
 
 ## Como monitorar

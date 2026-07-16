@@ -1,7 +1,9 @@
 import type { Metadata } from "next";
 
-import { fetchKnowledgeSources } from "@/lib/portal-data";
+import { fetchKnowledgeSources, fetchTenantOverview } from "@/lib/portal-data";
 import { StatusBadge } from "@/components/status-badge";
+
+import { CreateSourceForm } from "./create-source-form";
 
 export const metadata: Metadata = { title: "Conhecimento — Axtro Digital Human OS" };
 
@@ -21,8 +23,11 @@ const CLASSIFICATION_LABELS: Record<string, string> = {
 
 export default async function KnowledgePage() {
   let sources;
+  let isAdmin = false;
   try {
-    sources = await fetchKnowledgeSources();
+    const [sourceRows, overview] = await Promise.all([fetchKnowledgeSources(), fetchTenantOverview()]);
+    sources = sourceRows;
+    isAdmin = overview.role === "tenant_admin";
   } catch {
     return (
       <div className="error-banner" role="alert">
@@ -45,8 +50,9 @@ export default async function KnowledgePage() {
           <div className="icon" aria-hidden="true">▤</div>
           <h3>Nenhuma fonte cadastrada</h3>
           <p>
-            Quando a ingestão de conteúdo for habilitada para sua conta, cada documento aprovado
-            aparece aqui com classificação de dados e status de validade.
+            {isAdmin
+              ? "Registre abaixo as fontes que os agentes poderão citar. A ingestão do conteúdo é habilitada quando o provedor de embeddings for conectado."
+              : "Nenhuma fonte foi cadastrada nesta conta ainda. Peça a um administrador para registrar a primeira."}
           </p>
         </div>
       ) : (
@@ -80,6 +86,12 @@ export default async function KnowledgePage() {
             </table>
           </div>
         </div>
+      )}
+
+      {isAdmin && (
+        <section className="card" style={{ marginTop: 16 }} aria-labelledby="nova-fonte">
+          <CreateSourceForm />
+        </section>
       )}
     </>
   );

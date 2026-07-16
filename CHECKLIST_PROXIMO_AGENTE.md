@@ -22,7 +22,7 @@
 3. ~~Convites/multiusuário por tenant~~ — **feito 2026-07-16** (D-V2-060): seção Equipe em Configurações, RPCs `portal_invite_member`/`portal_list_team`/`portal_revoke_invite`, provisionamento honra convite pendente. Sem envio de e-mail (modelo e-mail pré-aprovado); e-mail de convite de verdade depende de SMTP próprio.
 4. ~~Recuperação de senha~~ — **feito 2026-07-16** (D-V2-061): `/recuperar-senha` + `/nova-senha`; trecho e-mail→link só é exercitável com SMTP próprio configurado.
 5. **Configurar SMTP próprio** no Supabase (Auth > SMTP) — o builtin estourou rate limit durante os testes; bloqueia confirmação de signup e recuperação de senha em qualquer uso real.
-6. **Telas de criação** de agente/fonte de conhecimento — fronteira real: dependem de provedores conectados.
+6. ~~Telas de criação de agente/fonte~~ — **feito 2026-07-16** (D-V2-062): criação de agente `draft` e fonte `pending` no portal (admin-only, limites por tenant). **Ativação de agente e ingestão de conteúdo** continuam dependendo de provedores conectados — essa é a próxima fronteira real.
 7. **Deploy** — só com aviso prévio ao Fernando (nunca criar conta/infra sem confirmar).
 
 ## Regras que esta fase respeita (não regredir)

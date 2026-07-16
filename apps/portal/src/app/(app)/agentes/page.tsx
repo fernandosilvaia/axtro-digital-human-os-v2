@@ -1,19 +1,25 @@
 import type { Metadata } from "next";
 
-import { fetchAgents } from "@/lib/portal-data";
+import { fetchAgents, fetchTenantOverview } from "@/lib/portal-data";
 import { StatusBadge } from "@/components/status-badge";
+
+import { CreateAgentForm } from "./create-agent-form";
 
 export const metadata: Metadata = { title: "Agentes — Axtro Digital Human OS" };
 
 const ROLE_TYPE_LABELS: Record<string, string> = {
+  sales: "Sales Closer",
   sales_closer: "Sales Closer",
   presenter: "Apresentador",
 };
 
 export default async function AgentsPage() {
   let agents;
+  let isAdmin = false;
   try {
-    agents = await fetchAgents();
+    const [agentRows, overview] = await Promise.all([fetchAgents(), fetchTenantOverview()]);
+    agents = agentRows;
+    isAdmin = overview.role === "tenant_admin";
   } catch {
     return (
       <div className="error-banner" role="alert">
@@ -36,8 +42,9 @@ export default async function AgentsPage() {
           <div className="icon" aria-hidden="true">◇</div>
           <h3>Nenhum agente ainda</h3>
           <p>
-            A criação de agentes é liberada quando os provedores de voz e avatar forem conectados à
-            plataforma. A estrutura da sua conta já está pronta para recebê-los.
+            {isAdmin
+              ? "Crie o primeiro agente como rascunho abaixo. A ativação é liberada quando os provedores de voz e avatar forem conectados."
+              : "Nenhum agente foi criado nesta conta ainda. Peça a um administrador para criar o primeiro rascunho."}
           </p>
         </div>
       ) : (
@@ -65,6 +72,12 @@ export default async function AgentsPage() {
             </table>
           </div>
         </div>
+      )}
+
+      {isAdmin && (
+        <section className="card" style={{ marginTop: 16 }} aria-labelledby="novo-agente">
+          <CreateAgentForm />
+        </section>
       )}
     </>
   );
