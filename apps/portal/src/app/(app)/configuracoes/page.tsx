@@ -1,14 +1,16 @@
 import type { Metadata } from "next";
 
-import { fetchTenantOverview } from "@/lib/portal-data";
+import { fetchTeam, fetchTenantOverview } from "@/lib/portal-data";
+import { TeamSection } from "./team-section";
 import { TenantProfileForm } from "./tenant-profile-form";
 
 export const metadata: Metadata = { title: "Configurações — Axtro Digital Human OS" };
 
 export default async function SettingsPage() {
   let overview;
+  let team;
   try {
-    overview = await fetchTenantOverview();
+    [overview, team] = await Promise.all([fetchTenantOverview(), fetchTeam()]);
   } catch {
     return (
       <div className="error-banner" role="alert">
@@ -61,6 +63,8 @@ export default async function SettingsPage() {
               ser alterada depois da criação da conta.
             </p>
           </section>
+
+          <TeamSection team={team} isAdmin={isAdmin} />
         </div>
       ) : (
         <div className="empty-state">

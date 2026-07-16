@@ -82,3 +82,29 @@ export async function fetchKnowledgeSources(): Promise<readonly KnowledgeSourceR
   if (error) throw new Error(`knowledge fetch failed: ${error.message}`);
   return (data ?? []) as KnowledgeSourceRow[];
 }
+
+export interface TeamMemberRow {
+  readonly email: string;
+  readonly role: string;
+  readonly joined_at: string;
+  readonly is_you: boolean;
+}
+
+export interface TeamInviteRow {
+  readonly id: string;
+  readonly email: string;
+  readonly role: string;
+  readonly created_at: string;
+}
+
+export interface TeamOverview {
+  readonly members: readonly TeamMemberRow[];
+  readonly invites: readonly TeamInviteRow[];
+}
+
+export async function fetchTeam(): Promise<TeamOverview> {
+  const supabase = await createClient();
+  const { data, error } = await supabase.rpc("portal_list_team");
+  if (error) throw new Error(`team fetch failed: ${error.message}`);
+  return data as TeamOverview;
+}
