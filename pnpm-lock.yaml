@@ -11,6 +11,9 @@ importers:
       '@types/node':
         specifier: 24.10.1
         version: 24.10.1
+      jose:
+        specifier: 6.2.3
+        version: 6.2.3
       typescript:
         specifier: 5.9.3
         version: 5.9.3
@@ -83,6 +86,9 @@ importers:
 
   apps/portal:
     dependencies:
+      '@axtro/domain':
+        specifier: workspace:*
+        version: link:../../packages/domain
       '@supabase/ssr':
         specifier: 0.12.3
         version: 0.12.3(@supabase/supabase-js@2.110.6)
@@ -168,6 +174,9 @@ importers:
       '@axtro/domain':
         specifier: workspace:*
         version: link:../domain
+      jose:
+        specifier: 6.2.3
+        version: 6.2.3
 
   packages/avatar-gateway:
     dependencies:
@@ -694,6 +703,9 @@ packages:
     resolution: {integrity: sha512-1dhVQZXhcHje7798IVM+xoo/1ZdVfzOMIc8/rgVSijRK38EDqOJoGula9N/8ZI5RD8QTxNQtK/Gozpr+qUqRRA==}
     engines: {node: '>=20.0.0'}
 
+  jose@6.2.3:
+    resolution: {integrity: sha512-YYVDInQKFJfR/xa3ojUTl8c2KoTwiL1R5Wg9YCydwH0x0B9grbzlg5HC7mMjCtUJjbQ/YnGEZIhI5tCgfTb4Hw==}
+
   nanoid@3.3.16:
     resolution: {integrity: sha512-bzlKTyNJ7+LdGIIwy8ijFpIqEQIvafahV7eYykJ8Cvh42EdJeODoJ6gUJXpQJvej1BddH8OqTXZNE/KfbWAu8Q==}
     engines: {node: ^10 || ^12 || ^13.7 || ^14 || >=15.0.1}
@@ -973,6 +985,8 @@ snapshots:
     optional: true
 
   iceberg-js@0.8.1: {}
+
+  jose@6.2.3: {}
 
   nanoid@3.3.16: {}
 
