@@ -11,7 +11,7 @@ packages:
   - packages/tool-adapters/*
 
 allowBuilds:
-  sharp: set this to true or false
+  sharp: true
 
 autoInstallPeers: false
 minimumReleaseAgeExclude:
