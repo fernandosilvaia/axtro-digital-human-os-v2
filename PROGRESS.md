@@ -3,8 +3,8 @@
 **Estado atual:** M0, M1 e M2 concluídos; M3 Sales Closer Alpha em execução autônoma controlada (fake-first/dry-run em M3-01 a M3-09, bake-off de provider e piloto real ficam fora do escopo autônomo)
 
 **Marco atual:** M3
-**Tarefa atual:** M3-04
-**Última evidência verde:** 343 testes Node, 23 unittest Python, 23 pytest verdes em 2026-07-15 após M3-04
+**Tarefa atual:** M3-05
+**Última evidência verde:** 352 testes Node, 23 unittest Python, 23 pytest verdes em 2026-07-15 após M3-05
 **Bloqueadores internos:** nenhum
 **Pendências externas:** consultar `PENDENCIAS_EXTERNAS.md`  
 
@@ -65,7 +65,7 @@
 | `M3-02` | M3 | done | Implement authorized knowledge ingestion and RAG | `M3-01`, `M0-08` | ADR-031, `@axtro/knowledge-engine` + `apps/ingestion-worker`, 9 testes Node verdes (cross-tenant, stale, injection corpus) |
 | `M3-03` | M3 | done | Add CRM-lite read adapter | `M3-01`, `M0-14` | `@axtro/tool-adapter-crm-lite` somente leitura, PII por purpose, auditoria por tenant, 10 testes Node verdes |
 | `M3-04` | M3 | done | Add calendar proposal in dry-run | `M3-01`, `M0-14` | `@axtro/tool-adapter-calendar`: propõe, confirma (dry-run padrão), idempotente, 8 testes Node verdes |
-| `M3-05` | M3 | pending | Add proposal generation in dry-run | `M3-01`, `M0-14` | pending |
+| `M3-05` | M3 | done | Add proposal generation in dry-run | `M3-01`, `M0-14` | `@axtro/tool-adapter-proposal`: preço só de receipt ou catálogo válido, sem capacidade de envio, 9 testes Node verdes |
 | `M3-06` | M3 | pending | Implement warm human handoff | `M3-01`, `M2-10` | pending |
 | `M3-07` | M3 | pending | Implement sandbox follow-up workflow | `M1-08`, `M3-01` | pending |
 | `M3-08` | M3 | pending | Implement evaluation harness and golden conversations | `M3-01`, `M3-02`, `M3-06` | pending |
@@ -591,6 +591,15 @@
 - `pnpm lint`, `pnpm contracts:check`, `tsc --build` completo e `node scripts/test.mjs` (343 testes Node, 23 unittest Python) verdes.
 - Nenhuma credencial real, produção, provider real, deploy ou migration remota foi acessado.
 
+### 2026-07-15, M3-05 concluído
+
+- `@axtro/tool-adapter-proposal` (`packages/tool-adapters/proposal/`): todo preço de linha vem de um `ReceiptPriceReference` já emitido ou de um `CatalogEntry` dentro da janela de validade no momento (`atMs`) — nunca de texto de modelo não confirmado. `isDryRun: true` é fixo no preview; o pacote não tem nenhum método de envio.
+- Template deve estar `status: "active"`; todo `requiredInputs` do template precisa estar confirmado em `inputs` antes de qualquer cálculo, senão `missing_input` com a lista exata de campos faltantes.
+- Desconto por linha nunca pode exceder `maxDiscountPercent` do catálogo do produto, mesmo quando o preço vem de um receipt (o teto de desconto continua sendo do catálogo atual, não do receipt antigo).
+- 9 testes novos em `tests/tool-adapters/proposal.test.mjs`: preview válido precificado pelo catálogo, input faltante, catálogo expirado (stale), desconto não autorizado, desconto dentro do teto aplicado corretamente, precificação por receipt distinta do catálogo atual, template depreciado tratado como desconhecido, receipt inexistente rejeitado, e ausência estrutural de capacidade de envio.
+- `pnpm lint`, `pnpm contracts:check`, `tsc --build` completo e `node scripts/test.mjs` (352 testes Node, 23 unittest Python) verdes.
+- Nenhuma credencial real, produção, provider real, deploy ou migration remota foi acessado.
+
 ## Próxima ação
 
-Continuar M3 em modo autônomo controlado: M3-05, geração de proposta em dry-run.
+Continuar M3 em modo autônomo controlado: M3-06, handoff humano quente (warm handoff).

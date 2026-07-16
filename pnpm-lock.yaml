@@ -314,6 +314,8 @@ importers:
 
   packages/tool-adapters/crm-lite: {}
 
+  packages/tool-adapters/proposal: {}
+
   packages/tool-runtime:
     dependencies:
       '@axtro/auth':
