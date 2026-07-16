@@ -198,6 +198,8 @@ importers:
         specifier: workspace:*
         version: link:../contracts-ts
 
+  packages/evaluation: {}
+
   packages/events:
     dependencies:
       '@axtro/auth':

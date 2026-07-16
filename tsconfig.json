@@ -29,6 +29,7 @@
     { "path": "./packages/tool-adapters/calendar" },
     { "path": "./packages/tool-adapters/proposal" },
     { "path": "./packages/handoff" },
+    { "path": "./packages/evaluation" },
     { "path": "./apps/ingestion-worker" },
     { "path": "./packages/turn-coordinator" },
     { "path": "./packages/behavior-director" },

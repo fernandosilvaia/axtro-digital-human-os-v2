@@ -3,8 +3,8 @@
 **Estado atual:** M0, M1 e M2 concluídos; M3 Sales Closer Alpha em execução autônoma controlada (fake-first/dry-run em M3-01 a M3-09, bake-off de provider e piloto real ficam fora do escopo autônomo)
 
 **Marco atual:** M3
-**Tarefa atual:** M3-07
-**Última evidência verde:** 364 testes Node, 23 unittest Python, 23 pytest, `pnpm m1:e2e` e `pnpm m2:e2e` verdes em 2026-07-15 após M3-07
+**Tarefa atual:** M3-08
+**Última evidência verde:** 372 testes Node, 23 unittest Python, 23 pytest verdes em 2026-07-15 após M3-08
 **Bloqueadores internos:** nenhum
 **Pendências externas:** consultar `PENDENCIAS_EXTERNAS.md`  
 
@@ -68,7 +68,7 @@
 | `M3-05` | M3 | done | Add proposal generation in dry-run | `M3-01`, `M0-14` | `@axtro/tool-adapter-proposal`: preço só de receipt ou catálogo válido, sem capacidade de envio, 9 testes Node verdes |
 | `M3-06` | M3 | done | Implement warm human handoff | `M3-01`, `M2-10` | `@axtro/handoff`: proposta pendente única por sessão, CAS delegado ao domínio, 7 testes Node verdes |
 | `M3-07` | M3 | done | Implement sandbox follow-up workflow | `M1-08`, `M3-01` | `createSandboxFollowUpWorkflow` em `@axtro/workflows` (aditivo, M1-08 intacto), 5 testes Node verdes |
-| `M3-08` | M3 | pending | Implement evaluation harness and golden conversations | `M3-01`, `M3-02`, `M3-06` | pending |
+| `M3-08` | M3 | done | Implement evaluation harness and golden conversations | `M3-01`, `M3-02`, `M3-06` | `@axtro/evaluation` com 6 dimensões, gate crítico independente da média, 6 cenários golden, 8 testes Node verdes |
 | `M3-09` | M3 | pending | Expand console for opportunity and call review | `M3-02`, `M3-03`, `M3-05`, `M3-08` | pending |
 | `M3-10` | M3 | pending | Internal Sales Closer Alpha pilot gate | `M3-04`, `M3-05`, `M3-06`, `M3-07`, `M3-08`, `M3-09` | pending |
 
@@ -620,6 +620,16 @@
 - `pnpm lint`, `pnpm contracts:check`, `tsc --build` completo, `node scripts/test.mjs` (364 testes Node, 23 unittest Python, incluindo o suite original de M1-08 intacto), `pnpm m1:e2e` e `pnpm m2:e2e` verdes.
 - Nenhuma credencial real, produção, provider real, deploy ou migration remota foi acessado.
 
+### 2026-07-15, M3-08 concluído
+
+- `@axtro/evaluation` pontua as 6 dimensões pedidas (factuality, policy, discovery, brevity, naturalness, handoff) sobre `GoldenScenario`s determinísticos; espelha o shape da tabela `evaluation_runs` (já existente desde M0, nunca consultada por código de aplicação até agora — mesmo padrão de M3-02 e agora M3-08).
+- Gate crítico independente da média: qualquer violação de `policy` (claim proibida repetida por um turno do presenter) ou de `handoff` (handoff obrigatório que nunca ocorreu) força `status: "failed_critical_violation"`, mesmo que as outras 4 dimensões estejam perfeitas — a média nunca "compra de volta" uma violação crítica.
+- `naturalness` nunca é fingida como avaliada por máquina: a evidência é sempre `"not_evaluated_requires_human_review"`, consistente com o Art. 11 (julgamento de modelo nunca é o único gate de segurança/factualidade).
+- `evaluatorVersion` e evidência por dimensão são sempre gravados no resultado; apenas turnos do PRESENTER são avaliados quanto a claims proibidas — o texto do participante (incluindo tentativas de prompt injection) nunca conta como violação em si.
+- 6 cenários golden em `tests/golden/scenarios.mjs` (en-US e pt-BR de discovery/preço, injeção de voz resistida e injeção de voz que falha, handoff obrigatório cumprido e handoff obrigatório perdido) e 8 testes em `tests/golden/evaluation.test.mjs`: determinismo entre execuções, cobertura completa de dimensão, injeção segura sem violação, injeção repetida falhando criticamente com a claim do participante nunca contada como violação do presenter, mesma pontuação estrutural entre pt-BR e en-US, handoff cumprido vs. perdido, versão e evidência sempre gravadas, e naturalness sempre marcada para revisão humana.
+- `pnpm lint`, `pnpm contracts:check`, `tsc --build` completo e `node scripts/test.mjs` (372 testes Node, 23 unittest Python) verdes.
+- Nenhuma credencial real, produção, provider real, deploy ou migration remota foi acessado.
+
 ## Próxima ação
 
-Continuar M3 em modo autônomo controlado: M3-08, harness de avaliação e golden conversations.
+Continuar M3 em modo autônomo controlado: M3-09, expansão do console para revisão de oportunidade e chamada.
