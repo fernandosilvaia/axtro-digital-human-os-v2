@@ -3,8 +3,8 @@
 **Estado atual:** M0, M1 e M2 concluídos; M3 Sales Closer Alpha em execução autônoma controlada (fake-first/dry-run em M3-01 a M3-09, bake-off de provider e piloto real ficam fora do escopo autônomo)
 
 **Marco atual:** M3
-**Tarefa atual:** M3-05
-**Última evidência verde:** 352 testes Node, 23 unittest Python, 23 pytest verdes em 2026-07-15 após M3-05
+**Tarefa atual:** M3-06
+**Última evidência verde:** 359 testes Node, 23 unittest Python, 23 pytest verdes em 2026-07-15 após M3-06
 **Bloqueadores internos:** nenhum
 **Pendências externas:** consultar `PENDENCIAS_EXTERNAS.md`  
 
@@ -66,7 +66,7 @@
 | `M3-03` | M3 | done | Add CRM-lite read adapter | `M3-01`, `M0-14` | `@axtro/tool-adapter-crm-lite` somente leitura, PII por purpose, auditoria por tenant, 10 testes Node verdes |
 | `M3-04` | M3 | done | Add calendar proposal in dry-run | `M3-01`, `M0-14` | `@axtro/tool-adapter-calendar`: propõe, confirma (dry-run padrão), idempotente, 8 testes Node verdes |
 | `M3-05` | M3 | done | Add proposal generation in dry-run | `M3-01`, `M0-14` | `@axtro/tool-adapter-proposal`: preço só de receipt ou catálogo válido, sem capacidade de envio, 9 testes Node verdes |
-| `M3-06` | M3 | pending | Implement warm human handoff | `M3-01`, `M2-10` | pending |
+| `M3-06` | M3 | done | Implement warm human handoff | `M3-01`, `M2-10` | `@axtro/handoff`: proposta pendente única por sessão, CAS delegado ao domínio, 7 testes Node verdes |
 | `M3-07` | M3 | pending | Implement sandbox follow-up workflow | `M1-08`, `M3-01` | pending |
 | `M3-08` | M3 | pending | Implement evaluation harness and golden conversations | `M3-01`, `M3-02`, `M3-06` | pending |
 | `M3-09` | M3 | pending | Expand console for opportunity and call review | `M3-02`, `M3-03`, `M3-05`, `M3-08` | pending |
@@ -600,6 +600,16 @@
 - `pnpm lint`, `pnpm contracts:check`, `tsc --build` completo e `node scripts/test.mjs` (352 testes Node, 23 unittest Python) verdes.
 - Nenhuma credencial real, produção, provider real, deploy ou migration remota foi acessado.
 
+### 2026-07-15, M3-06 concluído
+
+- `@axtro/handoff` (`packages/handoff/`): gerencia a proposta de handoff (pending/accepted/declined/timed_out/rolled_back), no máximo uma pendente por sessão, e delega a troca real de `active_presenter_id` a um `PresenterFloorChanger` injetável em vez de reimplementar CAS — reaproveita a garantia já provada do `presenter.changed` de M1-02 (D-V2-053) em vez de mexer novamente no reducer central de domínio nesta sessão.
+- `requestHandoff` entrega o `HandoffContextPacket` completo (summary, objeções, receipts, ações abertas) ao `HandoffNotifier` assim que a proposta é criada — o humano vê o contexto antes de decidir aceitar.
+- `acceptHandoff` só chama o floor changer uma vez; uma segunda chamada de accept sobre uma proposta já resolvida é um no-op de leitura, nunca uma segunda troca de piso. Rollback reverte exatamente uma vez e não pode ser chamado duas vezes sobre a mesma proposta.
+- Uma segunda `requestHandoff` para a mesma sessão enquanto há uma pendente é rejeitada como `conflict_simultaneous_request` (nunca enfileirada ou mesclada); a proposta original permanece intacta e aceitável.
+- 7 testes novos em `tests/handoff/handoff.test.mjs`: aceite muda o piso exatamente uma vez e entrega o pacote completo, timeout nunca toca o piso, rollback reverte uma vez e rejeita segunda tentativa, requisição simultânea rejeitada e depois aceita normalmente após resolução, rejeição do CAS surfaceada como `declined`, e apenas o humano-alvo pode aceitar.
+- `pnpm lint`, `pnpm contracts:check`, `tsc --build` completo e `node scripts/test.mjs` (359 testes Node, 23 unittest Python) verdes.
+- Nenhuma credencial real, produção, provider real, deploy ou migration remota foi acessado.
+
 ## Próxima ação
 
-Continuar M3 em modo autônomo controlado: M3-06, handoff humano quente (warm handoff).
+Continuar M3 em modo autônomo controlado: M3-07, workflow de follow-up em sandbox.

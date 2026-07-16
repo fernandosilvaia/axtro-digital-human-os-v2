@@ -213,6 +213,8 @@ importers:
         specifier: workspace:*
         version: link:../domain
 
+  packages/handoff: {}
+
   packages/knowledge-engine: {}
 
   packages/meeting-gateway:
