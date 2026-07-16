@@ -656,11 +656,40 @@
 - Working tree limpo, 10 commits de M3 (M3-01 a M3-10) mais este, todos com mensagem convencional e coautoria registrada.
 - **M3 Sales Closer Alpha está concluído no escopo autônomo desta sessão**: M3-01 a M3-09 fake-first/dry-run completos e testados; M3-10 entrega a ferramenta de gate mas não fabrica piloto real, exatamente como D-V2-049 e D-V2-054 documentam.
 
+### 2026-07-16, fase de produto: Supabase real + portal Next.js com login
+
+- Escopo desta fase (fora do task graph de M0-M3, decidido em conversa com o usuário): sistema visual no ar com autenticação real, mantendo o mandato fake-first restrito a M0-M3. Três decisões confirmadas antes de começar: frontend novo do zero (não evoluir `apps/web`), provider de auth gerenciado (Supabase Auth), e pausa obrigatória antes de qualquer conta/infra real paga — cumprida via `AskUserQuestion` antes de criar o projeto Supabase (US$10/mês, aprovado explicitamente).
+- Projeto Supabase real criado (`digital-human-os`, org Axtro AI, `us-east-1`, id `ovctadcrvnfpgxzplupp`) e as 11 migrations portáveis de `database/migrations/` aplicadas nele sem alteração — mesmo contrato de schema local e hospedado.
+- RLS de leitura pública aplicado diretamente no projeto Supabase (fora de `database/migrations/`) para as 3 tabelas de catálogo sem `tenant_id` (`schema_registry`, `provider_catalog`, `region_policy_catalog`), que o advisor de segurança da Supabase acusou como expostas via PostgREST à role `anon`. Registrado como D-V2-055: não virou migration portátil porque o shape (policy `SELECT`-only, sem `tenant_id`) quebraria o fingerprint exato de `CATALOG_ASSERTION_SQL` em `packages/database/src/migrations.ts`, que só reconhece o padrão `tenant_isolation`/`FOR ALL` das tabelas com `tenant_id`.
+- `apps/portal` (novo app `@axtro/portal`, Next.js 16 + React 19) criado fora do grafo de `tsc --build` do monorepo (Next.js compila sozinho via `next build`/`next dev`) mas dentro do `pnpm-workspace.yaml`. Usa `@supabase/ssr` com os três clientes padrão (browser, server, proxy/middleware) para sessão real: signup, login, logout, callback de confirmação de e-mail, e `/dashboard` protegido que redireciona para `/login` sem sessão válida.
+- Testado de ponta a ponta no navegador contra o projeto Supabase real: signup criou de fato um usuário em `auth.users` (confirmado via SQL, depois removido por ser só teste), tela de confirmação de e-mail renderizou corretamente, e acesso direto a `/dashboard` sem sessão foi bloqueado pelo proxy e redirecionado para `/login`.
+- Dois bugs pré-existentes descobertos e corrigidos como efeito colateral direto de adicionar o novo app (não relacionados ao produto em si): `scripts/lint.mjs` não excluía `.next/` da varredura de whitespace (adicionado à lista ao lado de `dist`/`node_modules`); `scripts/dependency_scan.py` confundia campos aninhados (`peerDependencies`, `peerDependenciesMeta`) dentro do bloco `packages:` do `pnpm-lock.yaml` com entradas de pacote de nível superior — nunca disparou antes porque nenhuma dependência anterior declarava `peerDependencies` ali. Regex corrigida e teste de regressão adicionado em `tests/python/test_dependency_scan.py`.
+- `pnpm lint`, `tsc --build` completo, `node scripts/test.mjs` (389 Node + 24 unittest Python, incluindo o teste de regressão novo) e `pnpm --filter @axtro/portal run build`/`typecheck` verdes.
+- Autenticação de usuário humano para chamadas internas ao API tenant-scoped (estender `packages/auth` além de `identityKind: "service"`) foi deliberadamente **não** feita nesta fase — `packages/auth`'s M0-09 já documenta isso como pendente de "um contrato público baseado em claim" desenhado com cuidado, não algo para encaixar às pressas. O portal hoje autentica usuários via Supabase; ligar essa sessão ao contexto de tenant RLS do core fica para uma sessão dedicada.
+
+### 2026-07-16, mapeamento usuário → tenant e provisionamento self-serve
+
+- Decisão de produto confirmada com o usuário via `AskUserQuestion` antes de implementar: cadastro no portal cria o próprio tenant do usuário (self-serve), não um fluxo de convite por admin — registrado em ADR-032 e D-V2-056.
+- `public.user_tenant_memberships` (Supabase-only, referencia `auth.users`, fora de `database/migrations/` pela mesma razão de D-V2-055) mapeia usuário → tenant + `actor_id` (UUIDv7 gerado em TypeScript, nunca pelo banco) + papel (`tenant_admin`/`tenant_operator`).
+- `public.custom_access_token_hook` (Supabase Auth Hook, publicado mas **não habilitado** — ativar exige o dashboard, fora do alcance das ferramentas MCP desta sessão) injeta `tenant_id`/`actor_id`/`tenant_role` em `app_metadata` no JWT a partir dessa tabela.
+- `public.provision_self_serve_tenant` (RPC `SECURITY DEFINER`, idempotente) cria `tenants`+`tenant_settings`+`user_tenant_memberships` usando `auth.uid()` da própria sessão do usuário — sem precisar da chave `service_role`, que fica reservada pro fim da fase por pedido explícito do usuário. `apps/portal`'s `DashboardLayout` chama essa RPC a cada carregamento autenticado.
+- `packages/auth` ganhou `SupabaseSessionIdentityVerifier` (verifica JWT via JWKS remota do próprio projeto Supabase, `jose`, zero segredo compartilhado no código) e `resolveAuthorizedUserRequestContext` — função **nova**, não uma modificação de `resolveAuthorizedRequestContext` (M0-09, síncrona, só-serviço, com teste próprio que trava esse limite: "M0 rejects a tenant header selector for user identities"). `apps/api` ainda não consome isso — não há chamador real ainda, então a integração fica para quando existir.
+- Testado de ponta a ponta contra o Supabase real: signup → confirmação de e-mail via SQL (sem clicar link real) → login → RPC de provisionamento → `tenants`/`tenant_settings`/`user_tenant_memberships` criados corretamente com UUIDv7 válido, badge do tenant visível no dashboard, reload confirma idempotência (mesmo tenant, não duplica). Achei e corrigi na hora um bug real descoberto pelo teste: a role `authenticated` não tinha `USAGE` no schema `app`, então nem conseguia resolver o tipo dos parâmetros da RPC.
+- Mais dois bugs pré-existentes achados como efeito colateral (mesmo padrão de sessão anterior — dependências novas expondo varreduras que nunca tinham sido exercitadas): `BEARER_PATTERN` em `packages/auth` limitava o token a 256 caracteres (dimensionado pra token de dev curto, rejeitava um JWT real de verdade); `scripts/docs_qa.py` varria `node_modules/**/*.md` procurando link quebrado e claim proibida — nunca tinha aparecido porque não havia dependência JS com Markdown vendorizado antes do portal. Ambos corrigidos com teste de regressão.
+- 4 testes novos em `tests/auth/supabase-session.test.mjs` (JWKS local via servidor HTTP efêmero + par de chaves ES256 real, não mockado): claim de `tenant_admin` resolve o tenant/actor/escopos exatos, `tenant_operator` resolve escopo mais restrito, assinatura forjada/issuer errado/token expirado/claims ausentes ou papel desconhecido falham fechado com `AuthenticationError`, URL do projeto malformada rejeitada e loopback http aceito só para hostnames locais. 2 testes novos em `tests/python/test_docs_qa.py`.
+- `pnpm lint`, `tsc --build` completo, `node scripts/test.mjs` (393 Node + 26 unittest Python), `python3 scripts/validate_all.py` (9 validadores) e `pnpm --filter @axtro/portal run build`/`typecheck` verdes.
+
 ## Próxima ação
 
-Nenhuma dentro do escopo autorizado desta sessão. Uma sessão futura com gate
-humano deve: (1) rodar o bake-off credenciado de provider
-(`PROVIDER_BENCHMARK_PROTOCOL.md`); (2) conduzir o piloto interno real de 20+
-chamadas em tenant-zero e alimentá-lo em `generatePilotGateReport`; (3) só
-então considerar aprovação de beta com cliente, como uma decisão humana
-separada.
+Nenhuma tarefa de M0-M3 pendente dentro do escopo autorizado. Para a fase de
+produto: (1) alguém com acesso ao dashboard Supabase precisa habilitar o
+Custom Access Token Hook (`Authentication > Hooks`) — a função já está
+publicada, só falta esse clique (D-V2-057); (2) expandir o portal com as
+telas operacionais reais (hoje é só o esqueleto de auth); (3) quando o
+portal precisar chamar `apps/api` em nome de um usuário logado, ligar
+`resolveAuthorizedUserRequestContext` nesse ponto — não antes, não
+especulativamente; (4) só então, com o sistema visual e logado funcionando
+de ponta a ponta, reunir as chaves de API reais por provider via Doppler, a
+pedido explícito do usuário. Deploy/hosting real segue pendente de aviso
+prévio, como já combinado. Separadamente, pendente de decisão humana:
+bake-off credenciado de provider e piloto interno real de M3-10.

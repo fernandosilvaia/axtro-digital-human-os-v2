@@ -9,6 +9,7 @@ import {
   type TenantContext,
   type TenantId,
 } from "@axtro/domain";
+import { createRemoteJWKSet, jwtVerify } from "jose";
 
 export type IdentityKind = "user" | "service";
 
@@ -110,7 +111,8 @@ export class TenantTransactionContextError extends Error {
   }
 }
 
-const BEARER_PATTERN = /^Bearer ([A-Za-z0-9._~-]{8,256})$/;
+/** Long enough for a real signed session JWT (three base64url segments), not just short opaque dev tokens. */
+const BEARER_PATTERN = /^Bearer ([A-Za-z0-9._~-]{8,4096})$/;
 const DEVELOPMENT_TOKEN_PATTERN = /^dev_[a-z0-9][a-z0-9._-]{7,127}$/;
 const IDENTITY_KINDS = ["user", "service"] as const;
 const SUPPORTED_GRANTED_SCOPES = [
@@ -281,6 +283,139 @@ export async function withAuthorizedTenantTransaction<Result>(
     }
     return work(Object.freeze({ tenantContext: authorized.tenantContext, transaction: activeTransaction }));
   });
+}
+
+export interface AsyncIdentityVerifier {
+  /** Verifies a bearer token before any tenant selection or database operation. */
+  verifyBearerToken(token: string): Promise<unknown>;
+}
+
+export interface UserRequestAuthenticationInput {
+  readonly authorization: unknown;
+}
+
+export interface SupabaseSessionVerifierConfiguration {
+  readonly supabaseUrl: string;
+}
+
+export class SupabaseSessionConfigurationError extends Error {
+  constructor() {
+    super("Supabase project URL is invalid");
+    this.name = "SupabaseSessionConfigurationError";
+  }
+}
+
+const SUPABASE_TENANT_ROLE_SCOPES: Readonly<Record<string, readonly string[]>> = {
+  tenant_admin: Object.freeze(["session:read", "session:write", "provider:use", "tool:use"]),
+  tenant_operator: Object.freeze(["session:read"]),
+};
+
+/**
+ * Verifies Supabase-issued session JWTs against the project's own JWKS
+ * endpoint, so this service never holds a shared signing secret.
+ * `tenant_id` and `actor_id` come only from the `app_metadata` claims a
+ * database-side Auth Hook injects at token-mint time from
+ * `user_tenant_memberships`; a token without them authenticates no tenant.
+ */
+export class SupabaseSessionIdentityVerifier implements AsyncIdentityVerifier {
+  readonly #jwks: ReturnType<typeof createRemoteJWKSet>;
+  readonly #issuer: string;
+
+  constructor(configuration: SupabaseSessionVerifierConfiguration) {
+    const projectUrl = parseSupabaseProjectUrl(configuration.supabaseUrl);
+    this.#jwks = createRemoteJWKSet(new URL(`${projectUrl}/auth/v1/.well-known/jwks.json`));
+    this.#issuer = `${projectUrl}/auth/v1`;
+  }
+
+  async verifyBearerToken(token: string): Promise<unknown> {
+    const { payload } = await jwtVerify(token, this.#jwks, {
+      issuer: this.#issuer,
+      audience: "authenticated",
+    });
+    const appMetadata = plainRecord(payload["app_metadata"]);
+    const tenantId = requiredString(readData(appMetadata, "tenant_id"));
+    const actorId = requiredString(readData(appMetadata, "actor_id"));
+    const tenantRole = requiredString(readData(appMetadata, "tenant_role"));
+    const scopes = SUPABASE_TENANT_ROLE_SCOPES[tenantRole];
+    if (scopes === undefined) throw new NormalizationError();
+
+    return {
+      actorId,
+      actorType: "human_operator",
+      identityKind: "user",
+      tenantGrants: [{ tenantId, grantedScopes: scopes, purposes: ["essential_processing"] }],
+    };
+  }
+}
+
+/**
+ * The user-session counterpart to `resolveAuthorizedRequestContext`. Tenant
+ * selection here is never a header the caller supplies: it is only the
+ * single tenant claim a verified session JWT already carries.
+ */
+export async function resolveAuthorizedUserRequestContext(
+  input: UserRequestAuthenticationInput,
+  verifier: AsyncIdentityVerifier,
+): Promise<AuthorizedRequestContext> {
+  let authorization: unknown;
+  try {
+    authorization = readData(plainRecord(input), "authorization");
+  } catch {
+    throw new AuthenticationError();
+  }
+  const bearer = parseBearerAuthorization(authorization);
+  const identity = await verifyIdentityAsync(verifier, bearer);
+  if (identity.identityKind !== "user") throw new TenantAuthorizationError();
+  if (identity.tenantGrants.length !== 1) throw new TenantAuthorizationError();
+  const grant = identity.tenantGrants[0]!;
+
+  const tenantContext = createTenantContext({
+    tenantId: grant.tenantId,
+    actorId: identity.actorId,
+    actorType: identity.actorType,
+    grantedScopes: grant.grantedScopes,
+    purposes: grant.purposes,
+  });
+  const resolved = Object.freeze({
+    tenantContext,
+    principal: Object.freeze({
+      actorId: identity.actorId,
+      actorType: identity.actorType,
+      identityKind: identity.identityKind,
+    }),
+  });
+  AUTHORIZED_REQUESTS.add(resolved);
+  return resolved;
+}
+
+const LOOPBACK_HOSTNAMES = new Set(["127.0.0.1", "localhost", "::1", "[::1]"]);
+
+/** Production Supabase URLs are always https; loopback http is accepted only for tests. */
+function parseSupabaseProjectUrl(value: string): string {
+  if (typeof value !== "string") throw new SupabaseSessionConfigurationError();
+  let url: URL;
+  try {
+    url = new URL(value);
+  } catch {
+    throw new SupabaseSessionConfigurationError();
+  }
+  if (url.pathname !== "/" || url.search !== "" || url.hash !== "") {
+    throw new SupabaseSessionConfigurationError();
+  }
+  const isLoopbackHttp = url.protocol === "http:" && LOOPBACK_HOSTNAMES.has(url.hostname);
+  if (url.protocol !== "https:" && !isLoopbackHttp) throw new SupabaseSessionConfigurationError();
+  return value.replace(/\/+$/, "");
+}
+
+async function verifyIdentityAsync(verifier: AsyncIdentityVerifier, token: string): Promise<VerifiedIdentity> {
+  try {
+    if (verifier === null || typeof verifier !== "object" || typeof verifier.verifyBearerToken !== "function") {
+      throw new NormalizationError();
+    }
+    return normalizeVerifiedIdentity(await verifier.verifyBearerToken(token));
+  } catch {
+    throw new AuthenticationError();
+  }
 }
 
 function normalizeVerifiedIdentity(input: unknown): VerifiedIdentity {

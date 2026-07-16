@@ -26,6 +26,11 @@ REQUIRED_FILES = [
 ]
 LINK_PATTERN = re.compile(r"\[[^\]]+\]\(([^)]+)\)")
 TASK_REFERENCE_PATTERN = re.compile(r"\bM\d+-\d+\b")
+EXCLUDED_DIR_NAMES = {"legacy", ".git", ".pnpm-store", ".uv-cache", ".venv", ".next", "dist", "node_modules"}
+
+
+def is_repository_markdown(path: Path) -> bool:
+    return EXCLUDED_DIR_NAMES.isdisjoint(path.parts)
 
 
 def load_yaml(path: Path) -> dict[str, Any]:
@@ -112,7 +117,7 @@ def check_traceability(errors: list[str]) -> None:
 
 def check_markdown(errors: list[str]) -> None:
     for path in ROOT.rglob("*.md"):
-        if "legacy" in path.parts:
+        if not is_repository_markdown(path):
             continue
         text = path.read_text(encoding="utf-8")
         if text.count("```") % 2:
@@ -148,7 +153,7 @@ def main() -> int:
     normative_text = "\n".join(
         path.read_text(encoding="utf-8")
         for path in ROOT.rglob("*.md")
-        if "legacy" not in path.parts
+        if is_repository_markdown(path)
     )
     forbidden_patterns = {
         r"(?<!não significa )\bpronto para produção\b": "unqualified production readiness",
