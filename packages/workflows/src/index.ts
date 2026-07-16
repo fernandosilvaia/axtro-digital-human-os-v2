@@ -1441,3 +1441,17 @@ function deepFreeze<Value>(value: Value): Value {
   for (const nested of Object.values(value as Record<string, unknown>)) deepFreeze(nested);
   return Object.freeze(value);
 }
+
+export {
+  createSandboxFollowUpWorkflow,
+  SandboxFollowUpError,
+  type FollowUpDraft,
+  type FollowUpDraftContent,
+  type FollowUpDraftGenerator,
+  type FollowUpDraftInput,
+  type FollowUpEvidence,
+  type FollowUpSendSink,
+  type FollowUpWorkflowResult,
+  type FollowUpWorkflowStatus,
+  type SandboxFollowUpWorkflow,
+} from "./sandbox-follow-up.js";

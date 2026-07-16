@@ -3,8 +3,8 @@
 **Estado atual:** M0, M1 e M2 concluídos; M3 Sales Closer Alpha em execução autônoma controlada (fake-first/dry-run em M3-01 a M3-09, bake-off de provider e piloto real ficam fora do escopo autônomo)
 
 **Marco atual:** M3
-**Tarefa atual:** M3-06
-**Última evidência verde:** 359 testes Node, 23 unittest Python, 23 pytest verdes em 2026-07-15 após M3-06
+**Tarefa atual:** M3-07
+**Última evidência verde:** 364 testes Node, 23 unittest Python, 23 pytest, `pnpm m1:e2e` e `pnpm m2:e2e` verdes em 2026-07-15 após M3-07
 **Bloqueadores internos:** nenhum
 **Pendências externas:** consultar `PENDENCIAS_EXTERNAS.md`  
 
@@ -67,7 +67,7 @@
 | `M3-04` | M3 | done | Add calendar proposal in dry-run | `M3-01`, `M0-14` | `@axtro/tool-adapter-calendar`: propõe, confirma (dry-run padrão), idempotente, 8 testes Node verdes |
 | `M3-05` | M3 | done | Add proposal generation in dry-run | `M3-01`, `M0-14` | `@axtro/tool-adapter-proposal`: preço só de receipt ou catálogo válido, sem capacidade de envio, 9 testes Node verdes |
 | `M3-06` | M3 | done | Implement warm human handoff | `M3-01`, `M2-10` | `@axtro/handoff`: proposta pendente única por sessão, CAS delegado ao domínio, 7 testes Node verdes |
-| `M3-07` | M3 | pending | Implement sandbox follow-up workflow | `M1-08`, `M3-01` | pending |
+| `M3-07` | M3 | done | Implement sandbox follow-up workflow | `M1-08`, `M3-01` | `createSandboxFollowUpWorkflow` em `@axtro/workflows` (aditivo, M1-08 intacto), 5 testes Node verdes |
 | `M3-08` | M3 | pending | Implement evaluation harness and golden conversations | `M3-01`, `M3-02`, `M3-06` | pending |
 | `M3-09` | M3 | pending | Expand console for opportunity and call review | `M3-02`, `M3-03`, `M3-05`, `M3-08` | pending |
 | `M3-10` | M3 | pending | Internal Sales Closer Alpha pilot gate | `M3-04`, `M3-05`, `M3-06`, `M3-07`, `M3-08`, `M3-09` | pending |
@@ -610,6 +610,16 @@
 - `pnpm lint`, `pnpm contracts:check`, `tsc --build` completo e `node scripts/test.mjs` (359 testes Node, 23 unittest Python) verdes.
 - Nenhuma credencial real, produção, provider real, deploy ou migration remota foi acessado.
 
+### 2026-07-15, M3-07 concluído
+
+- `createSandboxFollowUpWorkflow` adicionado como módulo novo (`packages/workflows/src/sandbox-follow-up.ts`) exportado a partir do `index.ts` existente sem tocar em nenhuma linha do motor de workflow pós-call de M1-08 (1443 linhas, já congelado) — aditivo, não reescrita.
+- O draft nunca é texto livre: `bodyReferences` referencia IDs de evidência confirmada (`confirmedFactIds`, `receiptIds`) que o chamador já tem, não conteúdo inventado pelo gerador.
+- Padrão sandbox: sem `approvalPathEnabled: true` explícito, o `FollowUpSendSink` nunca é chamado (`send_denied_sandbox`). Uma falha transitória no gerador propaga para o chamador com o contador de tentativas já avançado; reexecutar `run()` com a mesma `idempotencyKey` é um retry real, não uma tentativa nova.
+- Conclusão duplicada: reexecutar uma `idempotencyKey` já resolvida retorna o resultado idêntico anterior sem regenerar o draft nem reenviar.
+- 5 testes novos em `tests/workflows/sandbox-follow-up.test.mjs`: draft vinculado à evidência, sandbox nunca envia sem aprovação explícita, retry após falha transitória sem duplicar, conclusão duplicada idempotente, e chaves de idempotência distintas produzindo drafts independentes.
+- `pnpm lint`, `pnpm contracts:check`, `tsc --build` completo, `node scripts/test.mjs` (364 testes Node, 23 unittest Python, incluindo o suite original de M1-08 intacto), `pnpm m1:e2e` e `pnpm m2:e2e` verdes.
+- Nenhuma credencial real, produção, provider real, deploy ou migration remota foi acessado.
+
 ## Próxima ação
 
-Continuar M3 em modo autônomo controlado: M3-07, workflow de follow-up em sandbox.
+Continuar M3 em modo autônomo controlado: M3-08, harness de avaliação e golden conversations.
