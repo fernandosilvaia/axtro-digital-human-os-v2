@@ -17,7 +17,7 @@ function walk(directory) {
   if (!statSync(directory).isDirectory()) return [];
   return readdirSync(directory, { withFileTypes: true }).flatMap((entry) => {
     const path = join(directory, entry.name);
-    if ([".git", ".pnpm-store", ".uv-cache", ".venv", "dist", "node_modules"].includes(entry.name)) {
+    if ([".git", ".pnpm-store", ".uv-cache", ".venv", ".next", "dist", "node_modules"].includes(entry.name)) {
       return [];
     }
     if (entry.isDirectory()) return walk(path);

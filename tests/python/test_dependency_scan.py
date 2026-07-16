@@ -50,6 +50,31 @@ class DependencyScanTests(unittest.TestCase):
             self.assertIn("DEPENDENCY SCAN FAILED", completed.stdout)
             self.assertIn("unreadable", completed.stdout)
 
+    def test_peer_dependency_blocks_are_not_misread_as_package_entries(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            fixture = Path(temporary_directory)
+            (fixture / "pnpm-lock.yaml").write_text(
+                "lockfileVersion: '9.0'\n\n"
+                "packages:\n"
+                "  'safe-package@1.0.0':\n"
+                "    resolution: {integrity: sha512-test}\n"
+                "    peerDependencies:\n"
+                "      react: '>=19'\n"
+                "    peerDependenciesMeta:\n"
+                "      '@opentelemetry/api':\n"
+                "        optional: true\n",
+                encoding="utf-8",
+            )
+            (fixture / "uv.lock").write_text(
+                'version = 1\n\n[[package]]\nname = "safe-package"\nversion = "1.0.0"\nsource = { registry = "https://example.invalid/simple" }\n',
+                encoding="utf-8",
+            )
+            advisory_path = fixture / "advisories.json"
+            self._write_advisories(advisory_path, "high")
+            completed = self._run_fixture(fixture, advisory_path)
+            self.assertEqual(0, completed.returncode, completed.stdout + completed.stderr)
+            self.assertIn("DEPENDENCY SCAN PASSED", completed.stdout)
+
     def test_ci_runs_the_dependency_gate_before_workspace_install(self) -> None:
         workflow = (ROOT / ".github" / "workflows" / "docs-qa.yml").read_text(encoding="utf-8")
         scan_index = workflow.index("python3 scripts/dependency_scan.py")

@@ -115,7 +115,7 @@ def load_pnpm_lock(path: Path) -> tuple[Dependency, ...]:
             continue
         if line and not line.startswith("  "):
             break
-        match = re.fullmatch(r"  (?P<key>'[^']+'|\"[^\"]+\"|[^:]+):", line)
+        match = re.fullmatch(r"  (?P<key>'[^']+'|\"[^\"]+\"|[^:\s][^:]*):", line)
         if match is None:
             continue
         raw_key = match.group("key").strip().strip("'\"")

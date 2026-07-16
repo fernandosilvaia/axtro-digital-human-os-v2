@@ -3,12 +3,23 @@ packages:
   - apps/event-relay
   - apps/ingestion-worker
   - apps/meeting-room
+  - apps/portal
   - apps/web
   - apps/workflow-worker
   - packages/*
   - packages/role-packs/*
   - packages/tool-adapters/*
 
+allowBuilds:
+  sharp: set this to true or false
+
 autoInstallPeers: false
+minimumReleaseAgeExclude:
+  - '@supabase/auth-js@2.110.6'
+  - '@supabase/functions-js@2.110.6'
+  - '@supabase/postgrest-js@2.110.6'
+  - '@supabase/realtime-js@2.110.6'
+  - '@supabase/storage-js@2.110.6'
+  - '@supabase/supabase-js@2.110.6'
 strictPeerDependencies: true
 verifyDepsBeforeRun: false
