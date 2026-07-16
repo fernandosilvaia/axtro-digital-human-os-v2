@@ -23,7 +23,7 @@
 4. ~~Recuperação de senha~~ — **feito 2026-07-16** (D-V2-061): `/recuperar-senha` + `/nova-senha`; trecho e-mail→link só é exercitável com SMTP próprio configurado.
 5. **Configurar SMTP próprio** no Supabase (Auth > SMTP) — o builtin estourou rate limit durante os testes; bloqueia confirmação de signup e recuperação de senha em qualquer uso real.
 6. ~~Telas de criação de agente/fonte~~ — **feito 2026-07-16** (D-V2-062): criação de agente `draft` e fonte `pending` no portal (admin-only, limites por tenant). **Ativação de agente e ingestão de conteúdo** continuam dependendo de provedores conectados — essa é a próxima fronteira real.
-7. **Deploy** — só com aviso prévio ao Fernando (nunca criar conta/infra sem confirmar).
+7. ~~Deploy~~ — **feito 2026-07-16, autorizado explicitamente pelo Fernando**: portal NO AR em https://portal-production-b43e.up.railway.app (Railway, projeto `axtro-digital-human-os`, login real testado em produção). Runbook e armadilhas de build em `docs/operations/DEPLOY_PORTAL.md`. Pós-deploy pendente no dashboard do Supabase: Site URL/redirect, SMTP próprio, Auth Hook.
 
 ## Regras que esta fase respeita (não regredir)
 

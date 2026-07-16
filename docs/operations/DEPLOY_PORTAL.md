@@ -1,36 +1,37 @@
 # Deploy do portal (`apps/portal`) no Railway
 
-**Estado:** configuração pronta; criação do projeto Railway e primeiro deploy
-dependem de autorização explícita do Fernando (gate de infra real).
+**Estado: NO AR desde 2026-07-16.**
+Projeto Railway `axtro-digital-human-os` (workspace fpxcorpdigital, id
+`5c4d7de2-77fe-4727-957f-8e4c4868fa96`), serviço `portal`, URL pública
+**https://portal-production-b43e.up.railway.app** — login real testado em
+produção (usuário de teste criado, logou, tenant provisionado, removido).
 
-## O que já está pronto no repo
+## Configuração que ficou valendo (aprendida em 3 builds quebrados)
 
-- `railway.json` na raiz: build via Nixpacks com
-  `pnpm install --frozen-lockfile && pnpm run build && pnpm --filter @axtro/portal run build`
-  (o portal importa `@axtro/domain` do workspace, então o `tsc --build` da raiz
-  precisa rodar antes do `next build`), start com
+- **Builder: Railpack** (`railway.json`), não Nixpacks — o corepack 0.24.1 do
+  Nixpacks quebra ao carregar o pnpm no Node 24.10
+  (`ERR_VM_DYNAMIC_IMPORT_CALLBACK_MISSING`).
+- **`railpack.json` com `provider: node` explícito** — sem ele, o Railpack
+  detecta o repo como Python (por causa do `pyproject.toml`/`uv.lock` na raiz)
+  e nunca instala o pnpm. A env `RAILPACK_PROVIDERS=node` sozinha não bastou.
+- **`allowBuilds: sharp: true` no `pnpm-workspace.yaml`** — o pnpm 11 em CI
+  falha o install com `ERR_PNPM_IGNORED_BUILDS` para build scripts não
+  aprovados (localmente é só warning).
+- Build: `pnpm install --frozen-lockfile && pnpm run build && pnpm --filter @axtro/portal run build`
+  (o portal importa `@axtro/domain` do workspace, então o `tsc --build` da
+  raiz precisa rodar antes do `next build`). Start:
   `pnpm --filter @axtro/portal run start`, healthcheck em `/login`.
-- `apps/portal` lê `PORT` automaticamente (`next start` respeita a env do Railway).
+- Variáveis do serviço (nenhuma é secreta — a publishable key é pública por
+  design): `NEXT_PUBLIC_SUPABASE_URL`, `NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY`,
+  `RAILPACK_PROVIDERS=node`, `NIXPACKS_NODE_VERSION=24` (residual, inofensiva).
 
-## Passos do deploy (uma vez autorizado)
+## Deploys seguintes
 
-1. Criar o projeto no Railway (conta já logada no CLI local):
-   ```bash
-   railway init --name axtro-digital-human-os
-   ```
-2. Variáveis do serviço (nenhuma é secreta — a publishable key é pública por design):
-   ```bash
-   railway variables --set NEXT_PUBLIC_SUPABASE_URL=https://ovctadcrvnfpgxzplupp.supabase.co \
-     --set NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY=sb_publishable_lfrcFSCsRuHqUiSP7AYhNA_iR5H6iXk \
-     --set NIXPACKS_NODE_VERSION=24
-   ```
-   (`NIXPACKS_NODE_VERSION=24` cobre o requisito `engines.node >=24 <27` do
-   monorepo caso o builder não honre a faixa do `package.json`.)
-3. Primeiro deploy: `railway up` (ou conectar o repo GitHub no dashboard para
-   auto-deploy da `main`, como o Control Tower faz).
-4. Gerar o domínio público: `railway domain`.
+`railway up --service portal` a partir da raiz do repo (CLI já logada), ou
+conectar o repo GitHub no dashboard para auto-deploy da `main`, como o
+Control Tower faz (recomendado como próximo passo).
 
-## Pós-deploy obrigatório (dashboard do Supabase)
+## Pós-deploy obrigatório (dashboard do Supabase) — AINDA PENDENTE
 
 1. **Auth > URL Configuration**: definir `Site URL` para o domínio público do
    Railway e adicionar `https://<dominio>/auth/callback` em Redirect URLs —
