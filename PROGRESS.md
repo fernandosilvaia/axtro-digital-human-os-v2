@@ -3,8 +3,8 @@
 **Estado atual:** M0, M1 e M2 concluídos; M3 Sales Closer Alpha em execução autônoma controlada (fake-first/dry-run em M3-01 a M3-09, bake-off de provider e piloto real ficam fora do escopo autônomo)
 
 **Marco atual:** M3
-**Tarefa atual:** M3-02
-**Última evidência verde:** 325 testes Node, 23 unittest Python, 23 pytest, 9 testes E2E (2 M1 + 7 M2), 9 validadores verdes em 2026-07-15 após M3-02
+**Tarefa atual:** M3-03
+**Última evidência verde:** 335 testes Node, 23 unittest Python, 23 pytest verdes em 2026-07-15 após M3-03
 **Bloqueadores internos:** nenhum
 **Pendências externas:** consultar `PENDENCIAS_EXTERNAS.md`  
 
@@ -63,7 +63,7 @@
 | `M2-13` | M2 | done | M2 architecture and provider decision gate | `M2-12` | `artifacts/m2/DECISION.md`: 12 áreas de arquitetura `continue`/`tune`, 11 candidates de provider `blocked` por ausência de credencial real |
 | `M3-01` | M3 | done | Implement Sales Closer Role Pack | `M2-13` | Manifesto, `sales.uninstalled` no reducer, `TenantRolePackRegistry` process-local, 11 testes Node verdes |
 | `M3-02` | M3 | done | Implement authorized knowledge ingestion and RAG | `M3-01`, `M0-08` | ADR-031, `@axtro/knowledge-engine` + `apps/ingestion-worker`, 9 testes Node verdes (cross-tenant, stale, injection corpus) |
-| `M3-03` | M3 | pending | Add CRM-lite read adapter | `M3-01`, `M0-14` | pending |
+| `M3-03` | M3 | done | Add CRM-lite read adapter | `M3-01`, `M0-14` | `@axtro/tool-adapter-crm-lite` somente leitura, PII por purpose, auditoria por tenant, 10 testes Node verdes |
 | `M3-04` | M3 | pending | Add calendar proposal in dry-run | `M3-01`, `M0-14` | pending |
 | `M3-05` | M3 | pending | Add proposal generation in dry-run | `M3-01`, `M0-14` | pending |
 | `M3-06` | M3 | pending | Implement warm human handoff | `M3-01`, `M2-10` | pending |
@@ -573,6 +573,15 @@
 - `pnpm lint`, `pnpm contracts:check`, `tsc --build` completo, `node scripts/test.mjs` (325 testes Node, 23 unittest Python), `pnpm m1:e2e`, `pnpm m2:e2e` e `python3 scripts/validate_all.py` (9 validadores) verdes.
 - Nenhuma credencial real, produção, provider real, deploy ou migration remota foi acessado.
 
+### 2026-07-15, M3-03 concluído
+
+- `@axtro/tool-adapter-crm-lite` (`packages/tool-adapters/crm-lite/`): adaptador somente leitura para `lead` e `opportunity`, com schema de campos fechado por tipo de registro (PII marcado explicitamente por campo) e apenas dois purposes autorizados a ver PII (`proposal_preparation`, `handoff_context`) — `sales_qualification` nunca recebe contato.
+- Cada leitura é auditada por tenant (`auditLog`) com requester, purpose, campos solicitados vs. concedidos vs. negados e status; a superfície pública do adaptador (`read`, `auditLog`) não tem nenhum método de escrita — enforcement estrutural, igual ao One Mouth por omissão de API da Specialist Fabric em M2-08.
+- Deadline racing reaproveita o mesmo padrão da Specialist Fabric (M2-08): uma fonte de dados lenta é liberada no próprio `deadlineMs`, nunca no tempo real do provider.
+- 10 testes novos em `tests/tool-adapters/crm-lite.test.mjs`: escopo de leitura não-PII, negação de PII por purpose, PII liberado para purposes autorizados, mistura de campo concedido e negado na mesma resposta, timeout, registro não encontrado, campo desconhecido negado, schema independente para `opportunity`, ausência estrutural de escrita, e isolamento de auditoria entre tenants.
+- `pnpm lint`, `pnpm contracts:check`, `tsc --build` completo e `node scripts/test.mjs` (335 testes Node, 23 unittest Python) verdes.
+- Nenhuma credencial real, produção, provider real, deploy ou migration remota foi acessado.
+
 ## Próxima ação
 
-Continuar M3 em modo autônomo controlado: M3-03, adaptador de leitura CRM-lite, sobre o Knowledge Engine e o Action Runtime (M0-14) já existentes.
+Continuar M3 em modo autônomo controlado: M3-04, proposta de calendário em dry-run.
