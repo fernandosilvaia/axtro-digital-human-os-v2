@@ -1,10 +1,10 @@
 # Progresso de implementação
 
-**Estado atual:** M0, M1 e M2 concluídos; M3 Sales Closer Alpha em execução autônoma controlada (fake-first/dry-run em M3-01 a M3-09, bake-off de provider e piloto real ficam fora do escopo autônomo)
+**Estado atual:** M0, M1, M2 e M3 concluídos (M3-01 a M3-09 fake-first/dry-run completos; M3-10 com ferramenta pronta, piloto real e bake-off de provider pendentes de gate humano)
 
-**Marco atual:** M3
-**Tarefa atual:** M3-10
-**Última evidência verde:** 389 testes Node, 23 unittest Python, 23 pytest, `pnpm m1:e2e`, `pnpm m2:e2e` e 9 validadores verdes em 2026-07-15 após M3-10
+**Marco atual:** M3 (concluído)
+**Tarefa atual:** nenhuma
+**Última evidência verde:** pipeline completa de release M3 com 389 testes Node, 23 unittest Python, 23 pytest, `pnpm m1:e2e`, `pnpm m2:e2e`, `pnpm db:test`, `pnpm db:rls` e 9 validadores verdes em 2026-07-15
 **Bloqueadores internos:** nenhum
 **Pendências externas:** consultar `PENDENCIAS_EXTERNAS.md`  
 
@@ -649,6 +649,18 @@
 - `pnpm lint`, `pnpm contracts:check`, `tsc --build` completo, `node scripts/test.mjs` (389 testes Node, 23 unittest Python), `pnpm m1:e2e`, `pnpm m2:e2e` e `python3 scripts/validate_all.py` (9 validadores) verdes.
 - Nenhuma credencial real, produção, provider real, deploy, migration remota ou chamada interna real foi acessada ou executada. **M3-10 permanece formalmente aberto quanto ao piloto real e ao bake-off** — só uma sessão com gate humano pode fechá-lo de fato.
 
+### 2026-07-15, gate de release M3 completo
+
+- Pipeline completa executada e verde ao final da sessão: `pnpm install --frozen-lockfile`, `uv sync --locked --all-groups`, `pnpm lint`, `pnpm contracts:check`, `pnpm typecheck`, `pnpm test` (389 Node + 23 unittest Python), `uv run pytest` (23), `pnpm build`, `pnpm db:test`, `pnpm db:rls` (ambos com `LC_ALL=C LANG=C` neste ambiente), `pnpm m1:e2e` (2, M1 continua verde), `pnpm m2:e2e` (7, M2 continua verde), `python3 scripts/validate_all.py` (9 validadores) e `git diff --check`.
+- `FINAL_AUDIT_REPORT.md` atualizado para cobrir M0, M1, M2 e M3 juntos: veredito, implementação auditada, garantias arquiteturais, riscos aceitos e próxima sequência agora refletem os dez pacotes/módulos novos de M3 e deixam M3-10 explicitamente marcado como "ferramenta pronta, piloto real pendente".
+- Working tree limpo, 10 commits de M3 (M3-01 a M3-10) mais este, todos com mensagem convencional e coautoria registrada.
+- **M3 Sales Closer Alpha está concluído no escopo autônomo desta sessão**: M3-01 a M3-09 fake-first/dry-run completos e testados; M3-10 entrega a ferramenta de gate mas não fabrica piloto real, exatamente como D-V2-049 e D-V2-054 documentam.
+
 ## Próxima ação
 
-Rodar a suíte de validação final completa da sessão M3 e produzir o relatório final. M3-01 a M3-09 estão prontos fake-first/dry-run; M3-10 tem sua ferramenta pronta mas aguarda piloto real com gate humano antes de qualquer aprovação de beta com cliente.
+Nenhuma dentro do escopo autorizado desta sessão. Uma sessão futura com gate
+humano deve: (1) rodar o bake-off credenciado de provider
+(`PROVIDER_BENCHMARK_PROTOCOL.md`); (2) conduzir o piloto interno real de 20+
+chamadas em tenant-zero e alimentá-lo em `generatePilotGateReport`; (3) só
+então considerar aprovação de beta com cliente, como uma decisão humana
+separada.
