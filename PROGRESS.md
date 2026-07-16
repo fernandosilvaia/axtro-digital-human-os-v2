@@ -3,8 +3,8 @@
 **Estado atual:** M0, M1 e M2 concluídos; M3 Sales Closer Alpha em execução autônoma controlada (fake-first/dry-run em M3-01 a M3-09, bake-off de provider e piloto real ficam fora do escopo autônomo)
 
 **Marco atual:** M3
-**Tarefa atual:** M3-08
-**Última evidência verde:** 372 testes Node, 23 unittest Python, 23 pytest verdes em 2026-07-15 após M3-08
+**Tarefa atual:** M3-09
+**Última evidência verde:** 381 testes Node, 23 unittest Python, 23 pytest, `pnpm m1:e2e` e `pnpm m2:e2e` verdes em 2026-07-15 após M3-09
 **Bloqueadores internos:** nenhum
 **Pendências externas:** consultar `PENDENCIAS_EXTERNAS.md`  
 
@@ -69,7 +69,7 @@
 | `M3-06` | M3 | done | Implement warm human handoff | `M3-01`, `M2-10` | `@axtro/handoff`: proposta pendente única por sessão, CAS delegado ao domínio, 7 testes Node verdes |
 | `M3-07` | M3 | done | Implement sandbox follow-up workflow | `M1-08`, `M3-01` | `createSandboxFollowUpWorkflow` em `@axtro/workflows` (aditivo, M1-08 intacto), 5 testes Node verdes |
 | `M3-08` | M3 | done | Implement evaluation harness and golden conversations | `M3-01`, `M3-02`, `M3-06` | `@axtro/evaluation` com 6 dimensões, gate crítico independente da média, 6 cenários golden, 8 testes Node verdes |
-| `M3-09` | M3 | pending | Expand console for opportunity and call review | `M3-02`, `M3-03`, `M3-05`, `M3-08` | pending |
+| `M3-09` | M3 | done | Expand console for opportunity and call review | `M3-02`, `M3-03`, `M3-05`, `M3-08` | `opportunity-review.ts` novo em `@axtro/ui` (reaproveita `renderEvidenceLabel`/`escapeHtml` do M1-09), 9 testes Node verdes |
 | `M3-10` | M3 | pending | Internal Sales Closer Alpha pilot gate | `M3-04`, `M3-05`, `M3-06`, `M3-07`, `M3-08`, `M3-09` | pending |
 
 ## Log de execução
@@ -630,6 +630,16 @@
 - `pnpm lint`, `pnpm contracts:check`, `tsc --build` completo e `node scripts/test.mjs` (372 testes Node, 23 unittest Python) verdes.
 - Nenhuma credencial real, produção, provider real, deploy ou migration remota foi acessado.
 
+### 2026-07-15, M3-09 concluído
+
+- `packages/ui/src/opportunity-review.ts` é um módulo novo e aditivo; a única mudança no arquivo já existente do M1-09 (`operations-console.ts`) foi exportar `escapeHtml` (já testado, comportamento idêntico) em vez de reescrever escaping HTML do zero — risco mínimo sobre código já congelado.
+- Reaproveita `renderEvidenceLabel` (já distingue receipt confirmado vs. hipótese não verificada) para hipóteses e receipts; toda citação do Knowledge Engine (M3-02) é marcada `data-trusted="false"` com o rótulo "Conteúdo recuperado, não confiável" — a mesma disciplina fato/hipótese/sugestão que o console já tinha, agora estendida a citações RAG e achados do avaliador (M3-08, com violações críticas marcadas `data-critical="true"`).
+- Permissão: renderizar um modelo cujo `tenantId` difere do escopo autorizado do operador lança `OpportunityReviewPermissionError` antes de qualquer HTML ser produzido — nunca um render cross-tenant parcial.
+- Retenção/redação: campos sensíveis (`sensitiveFields`) só entram no HTML quando `viewerHasPiiAccess === true`; sem essa permissão, o valor nunca chega à string de saída (omissão estrutural, não ocultação client-side). Todo campo passa por `escapeHtml`.
+- 9 testes novos em `tests/ui/opportunity-review.test.mjs`: permissão cross-tenant rejeitada e mesma tenant aceita, redação com e sem PII, injeção de script/HTML sempre escapada, acessibilidade (lang, aria-label, sem script/onclick), distinção fato/hipótese/sugestão, achados críticos do avaliador marcados distintamente, e modelo malformado falha fechado.
+- `pnpm lint`, `pnpm contracts:check`, `tsc --build` completo, `node scripts/test.mjs` (381 testes Node, 23 unittest Python, suite original de M1-09 intacta), `pnpm m1:e2e` e `pnpm m2:e2e` verdes.
+- Nenhuma credencial real, produção, provider real, deploy ou migration remota foi acessado.
+
 ## Próxima ação
 
-Continuar M3 em modo autônomo controlado: M3-09, expansão do console para revisão de oportunidade e chamada.
+Continuar M3 em modo autônomo controlado: M3-10, gate do piloto interno Sales Closer Alpha — última tarefa antes da validação final.

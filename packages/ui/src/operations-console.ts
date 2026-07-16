@@ -591,7 +591,7 @@ function safeText(value: unknown, maximumLength: number): string {
   return value;
 }
 
-function escapeHtml(value: string): string {
+export function escapeHtml(value: string): string {
   return value
     .replaceAll("&", "&amp;")
     .replaceAll("<", "&lt;")
