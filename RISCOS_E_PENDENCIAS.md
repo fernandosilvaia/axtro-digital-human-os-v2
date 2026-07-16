@@ -1,15 +1,15 @@
 # Riscos e pendências
 
-**Atualizado:** 2026-07-16 · **Branch:** `feat/portal-operational-screens`
+**Atualizado:** 2026-07-16 (noite) · **Branch:** `main`
 
 ## Pendências com gate humano (não são bugs)
 
 | # | Pendência | Onde está documentado | Quem destrava |
 |---|---|---|---|
-| 1 | Habilitar o Custom Access Token Hook no dashboard Supabase (`Authentication > Hooks` → `custom_access_token_hook`). A função já está publicada; sem ativar, o JWT não carrega `tenant_id`/`actor_id` e `resolveAuthorizedUserRequestContext` não pode ser usado em produção | D-V2-057, ADR-032 | Fernando (dashboard) |
+| 1 | ~~Habilitar o Custom Access Token Hook~~ — **RESOLVIDO 2026-07-16** via Management API (D-V2-063): hook ativo, JWT testado carregando `tenant_id`/`actor_id`/`tenant_role` | D-V2-063, ADR-032 | — |
 | 2 | Chaves reais de provider (voz, avatar, LLM, telefonia) via Doppler — só no fim da fase, após auditoria, por instrução explícita | PROGRESS.md "Próxima ação" | Fernando |
-| 3 | Deploy/hosting real do portal (Vercel/Railway/etc.) — exige aviso prévio antes de criar qualquer conta/infra | acordo da sessão de 2026-07-16 | Fernando |
-| 4 | Confirmação de e-mail em signup real depende de SMTP do Supabase (padrão: e-mail builtin com rate limit baixo). **Confirmado na prática em 2026-07-16: o rate limit estourou durante os testes e bloqueou signup e recuperação de senha.** Para qualquer uso real, configurar SMTP próprio (Auth > SMTP no dashboard) | D-V2-061 | Fernando |
+| 3 | ~~Deploy/hosting real~~ — **RESOLVIDO 2026-07-16** (autorizado): https://portal-production-b43e.up.railway.app | docs/operations/DEPLOY_PORTAL.md | — |
+| 4 | ~~SMTP próprio~~ — **RESOLVIDO 2026-07-16**: Resend configurado via Management API (smtp.resend.com:465, domínio axtroai.com verificado, 30 e-mails/h); envio real de confirmação testado e visto no Resend | D-V2-063 | — |
 | 5 | Bake-off credenciado de provider + piloto interno real de M3-10 | D-V2-048/049/054 | Fernando |
 
 ## Riscos aceitos / dívidas técnicas
@@ -17,9 +17,9 @@
 | # | Item | Racional | Mitigação futura |
 |---|---|---|---|
 | 1 | RPCs `SECURITY DEFINER` como camada de dados do portal, em vez de RLS por claim de JWT | D-V2-058 — funciona hoje sem o hook habilitado e sem `service_role` | Quando o hook estiver ativo, migrar leituras para RLS-por-claim mantendo as RPCs de escrita |
-| 2 | As funções e tabelas do portal (`user_tenant_memberships`, `portal_*`, hook) vivem só no projeto Supabase, fora de `database/migrations/` | D-V2-055/056 — referenciam `auth.users`, inexistente no harness local | Criar um diretório `database/supabase-only/` versionando esses SQLs (hoje o registro canônico é o próprio banco + DECISIONS_LOG) |
+| 2 | As funções e tabelas do portal (`user_tenant_memberships`, `portal_*`, hook) vivem só no projeto Supabase, fora de `database/migrations/` | D-V2-055/056 — referenciam `auth.users`, inexistente no harness local | ~~Criar `database/supabase-only/`~~ feito 2026-07-16 — SQLs versionados em `database/supabase-only/0001..0007` |
 | 3 | `user_tenant_memberships` permite um único tenant por usuário (PK em `user_id`) | Suficiente para self-serve atual; convites (D-V2-060) respeitam essa restrição — convidar e-mail que já tem workspace é rejeitado | Multi-tenant por usuário / mover usuário entre tenants exigem nova modelagem (revisit trigger no ADR-032) |
-| 3b | Convites não enviam e-mail (modelo e-mail pré-aprovado): o convidado precisa ser avisado por fora e criar conta com o e-mail exato | D-V2-060 — sem SMTP próprio não há canal de envio confiável | Com SMTP próprio, adicionar notificação por e-mail no ato do convite |
+| 3b | Convites não enviam e-mail (modelo e-mail pré-aprovado): o convidado precisa ser avisado por fora e criar conta com o e-mail exato | D-V2-060 | SMTP próprio agora existe (D-V2-063) — adicionar notificação por e-mail no ato do convite é trabalho natural de continuação |
 | 4 | Sem rate limiting próprio nas RPCs do portal | Supabase Auth já limita auth; RPCs são baratas e tenant-scoped | Adicionar contadores por tenant quando houver endpoint caro |
 | 5 | Agentes nascem `draft` e fontes nascem `pending` (D-V2-062); ativação de agente e ingestão de conteúdo seguem indisponíveis no portal | Ativação exige provedores conectados + disclosure validado; ingestão exige provedor de embeddings — fronteiras reais de dependência externa | Liberar ativação/ingestão junto com a conexão de provedores |
 | 6 | `robots: noindex` no portal inteiro | Portal é app logado; não há landing page pública neste repo | SEO/AEO pertencem à landing (projeto `axtroai`), não ao portal |
