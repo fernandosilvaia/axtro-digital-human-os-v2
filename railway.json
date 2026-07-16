@@ -1,0 +1,13 @@
+{
+  "$schema": "https://railway.com/railway.schema.json",
+  "build": {
+    "builder": "NIXPACKS",
+    "buildCommand": "pnpm install --frozen-lockfile && pnpm run build && pnpm --filter @axtro/portal run build"
+  },
+  "deploy": {
+    "startCommand": "pnpm --filter @axtro/portal run start",
+    "healthcheckPath": "/login",
+    "restartPolicyType": "ON_FAILURE",
+    "restartPolicyMaxRetries": 3
+  }
+}
