@@ -24,6 +24,7 @@ Racional completo: D-V2-055, D-V2-056 e D-V2-058 em
 | `0005_portal_rpcs.sql` | sim (2026-07-16) |
 | `0006_tenant_invites.sql` | sim (2026-07-16) |
 | `0007_portal_create_rpcs.sql` | sim (2026-07-16) |
+| `0008_portal_ai_usage.sql` | sim (2026-07-16) |
 
 ## Regras
 

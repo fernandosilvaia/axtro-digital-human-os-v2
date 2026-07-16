@@ -36,3 +36,4 @@ Accepted decisions for V2. The Constitution has precedence. A change to an accep
 | `ADR-030-framework-neutral-operations-console.md` | Framework-neutral read-only operations console | Accepted |
 | `ADR-031-knowledge-and-rag-retrieval.md` | Tenant-scoped knowledge retrieval as a pure port over an in-memory store | Accepted |
 | `ADR-032-user-session-tenant-mapping.md` | Human user sessions map to tenant context via a signed JWT claim, never a header | Accepted |
+- [ADR-033](ADR-033-openrouter-text-generation.md) — OpenRouter como primeiro provider real (port de texto do control-plane)
