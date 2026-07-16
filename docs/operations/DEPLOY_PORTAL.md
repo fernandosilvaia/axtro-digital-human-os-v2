@@ -31,21 +31,22 @@ produção (usuário de teste criado, logou, tenant provisionado, removido).
 conectar o repo GitHub no dashboard para auto-deploy da `main`, como o
 Control Tower faz (recomendado como próximo passo).
 
-## Pós-deploy obrigatório (dashboard do Supabase) — AINDA PENDENTE
+## Pós-deploy obrigatório — CONCLUÍDO 2026-07-16 (D-V2-063)
 
-1. **Auth > URL Configuration**: definir `Site URL` para o domínio público do
-   Railway e adicionar `https://<dominio>/auth/callback` em Redirect URLs —
-   sem isso, links de confirmação/recuperação apontam para localhost.
-2. **Auth > SMTP**: configurar SMTP próprio (Resend/Postmark/SES). O builtin
-   estourou rate limit nos testes de 2026-07-16; signup e recuperação de senha
-   não funcionam de forma confiável sem isso.
-3. **Authentication > Hooks**: habilitar `custom_access_token_hook`
-   (pré-requisito da fase RLS-por-claim, D-V2-057).
+1. ✅ **URL Configuration** (feito pelo Fernando no dashboard): Site URL =
+   domínio público do Railway + redirect `/auth/callback`.
+2. ✅ **SMTP próprio** (aplicado via Management API, D-V2-063):
+   smtp.resend.com:465, user `resend`, remetente `no-reply@axtroai.com`
+   (domínio verificado no Resend), rate limit 30/h. Chave vive no Doppler
+   (`axtro-human-digital-os`, configs dev/prd, `RESEND_API_KEY`).
+3. ✅ **Custom Access Token Hook** habilitado
+   (`pg-functions://postgres/public/custom_access_token_hook`) — JWT testado
+   com claims de tenant; login sem membership continua funcionando.
 
 ## Checklist final antes de divulgar a URL
 
-- [ ] `/login`, `/signup`, `/recuperar-senha` respondem no domínio público
-- [ ] Signup real recebe e-mail de confirmação (exige SMTP próprio)
-- [ ] Login → dashboard com tenant provisionado
-- [ ] `robots` segue `noindex` (portal é app logado; landing pública é outro projeto)
-- [ ] Advisors do Supabase sem achados críticos
+- [x] `/login`, `/signup`, `/recuperar-senha` respondem no domínio público (2026-07-16)
+- [x] Signup real envia e-mail de confirmação via Resend (testado 2026-07-16 — envio visto no painel do Resend)
+- [x] Login → dashboard com tenant provisionado (testado em produção 2026-07-16)
+- [x] `robots` segue `noindex` (portal é app logado; landing pública é outro projeto)
+- [x] Advisors do Supabase sem achados críticos (última checagem 2026-07-16)
