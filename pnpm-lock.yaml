@@ -92,6 +92,9 @@ importers:
       '@axtro/provider-openrouter':
         specifier: workspace:*
         version: link:../../packages/provider-openrouter
+      '@axtro/provider-tavus':
+        specifier: workspace:*
+        version: link:../../packages/provider-tavus
       '@supabase/ssr':
         specifier: 0.12.3
         version: 0.12.3(@supabase/supabase-js@2.110.6)
@@ -310,6 +313,8 @@ importers:
         version: link:../provider-contracts
 
   packages/provider-openrouter: {}
+
+  packages/provider-tavus: {}
 
   packages/realtime-telemetry: {}
 
