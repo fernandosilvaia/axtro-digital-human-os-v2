@@ -57,6 +57,7 @@ export default async function AgentsPage() {
                   <th>Papel</th>
                   <th>Status</th>
                   <th>Criado em</th>
+                  <th aria-label="Ações"></th>
                 </tr>
               </thead>
               <tbody>
@@ -66,6 +67,11 @@ export default async function AgentsPage() {
                     <td>{ROLE_TYPE_LABELS[agent.role_type] ?? agent.role_type}</td>
                     <td><StatusBadge status={agent.status} /></td>
                     <td>{new Date(agent.created_at).toLocaleDateString("pt-BR")}</td>
+                    <td>
+                      <a className="btn btn-ghost" href={`/agentes/${agent.id}/testar`} style={{ padding: "5px 11px", fontSize: "0.8rem" }}>
+                        Testar
+                      </a>
+                    </td>
                   </tr>
                 ))}
               </tbody>

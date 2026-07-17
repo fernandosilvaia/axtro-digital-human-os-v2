@@ -89,6 +89,9 @@ importers:
       '@axtro/domain':
         specifier: workspace:*
         version: link:../../packages/domain
+      '@axtro/provider-openrouter':
+        specifier: workspace:*
+        version: link:../../packages/provider-openrouter
       '@supabase/ssr':
         specifier: 0.12.3
         version: 0.12.3(@supabase/supabase-js@2.110.6)
@@ -305,6 +308,8 @@ importers:
       '@axtro/provider-contracts':
         specifier: workspace:*
         version: link:../provider-contracts
+
+  packages/provider-openrouter: {}
 
   packages/realtime-telemetry: {}
 
