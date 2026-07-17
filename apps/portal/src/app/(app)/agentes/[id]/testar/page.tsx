@@ -5,6 +5,7 @@ import { fetchAgents } from "@/lib/portal-data";
 import { StatusBadge } from "@/components/status-badge";
 
 import { PreviewChat } from "./preview-chat";
+import { VideoCall } from "./video-call";
 
 export const metadata: Metadata = { title: "Testar agente — Axtro Digital Human OS" };
 
@@ -28,6 +29,8 @@ export default async function AgentPreviewPage({ params }: { params: Promise<{ i
           O agente se apresenta como IA e não cita preços enquanto as fontes de conhecimento não forem conectadas.
         </p>
       </header>
+      <VideoCall agentId={agent.id} agentName={agent.name} />
+      <div style={{ height: 16 }} />
       <PreviewChat agentId={agent.id} agentName={agent.name} />
     </>
   );
