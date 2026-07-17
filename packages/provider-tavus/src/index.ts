@@ -7,9 +7,12 @@
  */
 
 export interface VideoConversationRequest {
-  readonly replicaId: string;
+  /** Modo réplica: rosto stock + contexto por chamada (voz padrão da réplica). */
+  readonly replicaId?: string;
+  /** Modo persona: bundle pronto no Tavus (voz, percepção, interrupção, prompt). */
+  readonly personaId?: string;
   readonly conversationName: string;
-  readonly conversationalContext: string;
+  readonly conversationalContext?: string;
   readonly greeting?: string;
   readonly language?: string;
   readonly maxCallDurationSeconds?: number;
@@ -95,16 +98,25 @@ export function createTavusVideoConversationPort(options: TavusAdapterOptions): 
   return Object.freeze({
     providerId: "tavus",
     async createConversation(request: VideoConversationRequest): Promise<VideoConversation> {
-      if (!ID_PATTERN.test(request.replicaId)) {
-        throw new VideoProviderError("invalid_request", "replicaId must be a plain Tavus replica id");
+      const usePersona = request.personaId !== undefined;
+      if (usePersona) {
+        if (!ID_PATTERN.test(request.personaId!)) {
+          throw new VideoProviderError("invalid_request", "personaId must be a plain Tavus persona id");
+        }
+      } else if (!ID_PATTERN.test(request.replicaId ?? "")) {
+        throw new VideoProviderError("invalid_request", "replicaId or personaId is required");
       }
       if (typeof request.conversationName !== "string" || request.conversationName.length === 0 || request.conversationName.length > 120) {
         throw new VideoProviderError("invalid_request", "conversationName must be 1..120 chars");
       }
-      if (typeof request.conversationalContext !== "string"
+      // Contexto é obrigatório no modo réplica; opcional no modo persona (a persona já carrega o prompt).
+      if (!usePersona && (typeof request.conversationalContext !== "string"
         || request.conversationalContext.length === 0
-        || request.conversationalContext.length > MAX_CONTEXT_CHARS) {
+        || request.conversationalContext.length > MAX_CONTEXT_CHARS)) {
         throw new VideoProviderError("invalid_request", `conversationalContext must be 1..${MAX_CONTEXT_CHARS} chars`);
+      }
+      if (request.conversationalContext !== undefined && request.conversationalContext.length > MAX_CONTEXT_CHARS) {
+        throw new VideoProviderError("invalid_request", `conversationalContext must be at most ${MAX_CONTEXT_CHARS} chars`);
       }
       if (request.greeting !== undefined && (request.greeting.length === 0 || request.greeting.length > MAX_GREETING_CHARS)) {
         throw new VideoProviderError("invalid_request", `greeting must be 1..${MAX_GREETING_CHARS} chars`);
@@ -115,9 +127,9 @@ export function createTavusVideoConversationPort(options: TavusAdapterOptions): 
       }
 
       const payload = await call("/conversations", {
-        replica_id: request.replicaId,
+        ...(usePersona ? { persona_id: request.personaId } : { replica_id: request.replicaId }),
         conversation_name: request.conversationName,
-        conversational_context: request.conversationalContext,
+        ...(request.conversationalContext ? { conversational_context: request.conversationalContext } : {}),
         ...(request.greeting ? { custom_greeting: request.greeting } : {}),
         properties: {
           max_call_duration: maxSeconds,

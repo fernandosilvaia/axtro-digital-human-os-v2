@@ -3,16 +3,24 @@
 import { createTavusVideoConversationPort, VideoProviderError } from "@axtro/provider-tavus";
 
 import { fetchAgents, fetchTenantOverview } from "@/lib/portal-data";
+import { createClient } from "@/lib/supabase/server";
 
 export interface VideoConversationResult {
   readonly url: string | null;
   readonly error: string | null;
 }
 
+interface AgentVideoConfig {
+  readonly configured: boolean;
+  readonly persona_id?: string | null;
+  readonly replica_id?: string | null;
+  readonly language?: string | null;
+}
+
 export async function startVideoConversation(agentId: string): Promise<VideoConversationResult> {
   const apiKey = process.env.TAVUS_API_KEY ?? "";
-  const replicaId = process.env.TAVUS_REPLICA_ID ?? "";
-  if (apiKey.trim().length === 0 || replicaId.trim().length === 0) {
+  const defaultReplicaId = process.env.TAVUS_REPLICA_ID ?? "";
+  if (apiKey.trim().length === 0) {
     return { url: null, error: "O provider de vídeo ainda não está configurado neste ambiente." };
   }
 
@@ -25,16 +33,38 @@ export async function startVideoConversation(agentId: string): Promise<VideoConv
     return { url: null, error: "Agente não encontrado nesta conta." };
   }
 
+  // Config de vídeo específica do agente (persona própria = voz/percepção próprias).
+  const supabase = await createClient();
+  const { data: configData } = await supabase.rpc("portal_agent_video_config", { p_agent_id: agentId });
+  const config = (configData ?? { configured: false }) as AgentVideoConfig;
+
+  const personaId = config.configured && config.persona_id ? config.persona_id : undefined;
+  const replicaId = config.configured && config.replica_id ? config.replica_id : defaultReplicaId;
+  if (!personaId && replicaId.trim().length === 0) {
+    return { url: null, error: "Este agente ainda não tem avatar de vídeo configurado." };
+  }
+  const language = config.language ?? "portuguese";
+
   const port = createTavusVideoConversationPort({ apiKey });
   try {
-    const conversation = await port.createConversation({
-      replicaId,
-      conversationName: `preview-${agent.id.slice(0, 8)}`,
-      conversationalContext: buildVideoSalesContext(agent.name, overview.tenant.legal_name),
-      greeting: `Oi! Eu sou ${firstName(agent.name)}, consultora digital da ${overview.tenant.legal_name}. Que bom te ver! Me conta — o que te trouxe até aqui hoje?`,
-      language: "portuguese",
-      maxCallDurationSeconds: 600,
-    });
+    const conversation = await port.createConversation(
+      personaId
+        ? {
+            // A persona já carrega prompt, voz, percepção e interrupção — só reforçamos idioma e duração.
+            personaId,
+            conversationName: `preview-${agent.id.slice(0, 8)}`,
+            language,
+            maxCallDurationSeconds: 600,
+          }
+        : {
+            replicaId,
+            conversationName: `preview-${agent.id.slice(0, 8)}`,
+            conversationalContext: buildVideoSalesContext(agent.name, overview.tenant.legal_name),
+            greeting: `Oi! Eu sou ${firstName(agent.name)}, consultora digital da ${overview.tenant.legal_name}. Que bom te ver! Me conta — o que te trouxe até aqui hoje?`,
+            language,
+            maxCallDurationSeconds: 600,
+          },
+    );
     return { url: conversation.conversationUrl, error: null };
   } catch (error) {
     if (error instanceof VideoProviderError) {

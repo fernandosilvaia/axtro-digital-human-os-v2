@@ -69,6 +69,31 @@ test("5xx vira provider_unavailable; payload sem url vira malformed; sem chave n
   assert.throws(() => provider.createTavusVideoConversationPort({ apiKey: "" }), (e) => e.code === "missing_api_key");
 });
 
+test("modo persona: envia persona_id + language, dispensa contexto, e valida o id", async () => {
+  const { calls, implementation } = fakeFetch(async () => new Response(
+    JSON.stringify({ conversation_id: "cpersona", conversation_url: "https://tavus.daily.co/cpersona" }),
+    { status: 200 },
+  ));
+  const port = provider.createTavusVideoConversationPort({ apiKey: API_KEY, fetchImplementation: implementation });
+  const result = await port.createConversation({
+    personaId: "pdd6c8593976",
+    conversationName: "aurora",
+    language: "portuguese",
+    maxCallDurationSeconds: 300,
+  });
+  assert.equal(result.conversationUrl, "https://tavus.daily.co/cpersona");
+  const body = JSON.parse(calls[0].init.body);
+  assert.equal(body.persona_id, "pdd6c8593976");
+  assert.equal(body.replica_id, undefined);
+  assert.equal(body.conversational_context, undefined);
+  assert.equal(body.properties.language, "portuguese");
+
+  const bad = fakeFetch(async () => new Response("{}", { status: 200 }));
+  const portBad = provider.createTavusVideoConversationPort({ apiKey: API_KEY, fetchImplementation: bad.implementation });
+  await assert.rejects(() => portBad.createConversation({ personaId: "não é id!!", conversationName: "x" }), (e) => e.code === "invalid_request");
+  assert.equal(bad.calls.length, 0);
+});
+
 test("endConversation valida id e chama o endpoint de encerramento", async () => {
   const { calls, implementation } = fakeFetch(async () => new Response("{}", { status: 200 }));
   const port = provider.createTavusVideoConversationPort({ apiKey: API_KEY, fetchImplementation: implementation });
