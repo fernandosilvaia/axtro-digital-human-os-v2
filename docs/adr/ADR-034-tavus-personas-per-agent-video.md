@@ -32,13 +32,12 @@ próprio `system_prompt`/`context`.
 
 ## Consequências e limites honestos
 
-- **Sotaque:** Azure `pt-BR-*Neural` (locale-travado, garantia de BR) retorna
-  HTTP 500 nesta conta Tavus — só Cartesia funciona aqui. Cartesia falando
-  português produz um resultado decente, mas eu **não consigo ouvir/julgar o
-  áudio nem o lip sync deste ambiente** — quem valida o feel humano é o
-  Fernando. Se o sotaque não soar nativo, o upgrade garantido é uma voz
-  brasileira do ElevenLabs (engine suportado pelo Tavus), o que exige uma
-  `ELEVENLABS_API_KEY` no Doppler — próximo "pegar uma chave".
+- **Sotaque:** resolvido com ElevenLabs (D-V2-066). Azure `pt-BR` dá 500
+  nesta conta e o Cartesia soava não-nativo, então a persona da Aurora
+  (`p059e7b04961`) usa TTS `elevenlabs` com uma voz verificada pt:brazilian +
+  a chave própria do ElevenLabs. Campo correto: `external_voice_id` (não
+  `voice_id`, que dá 500); nada de campo `model`. Ainda assim, o julgamento
+  final de áudio/lip sync é humano (Fernando).
 - Latência, lip sync e qualidade de imagem são propriedades do Tavus + rede;
   ajustáveis na persona, não no nosso código.
 - A troca de voz/rosto é uma atualização de persona no Tavus (ou uma linha em
