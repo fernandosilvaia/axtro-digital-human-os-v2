@@ -4,7 +4,7 @@
 
 **Marco atual:** M3 (concluído)
 **Tarefa atual:** nenhuma
-**Última evidência verde:** conhecimento real (RAG) e2e em 2026-07-18 — doc Ecoloop ingerido pela UI com embeddings OpenRouter (17 chunks), busca vetorial no chat de teste com resposta fiel à fonte (crédito 25D encerrado → pivot leasing/48E), custos no ledger; `pnpm lint`, `pnpm test` (409 Node), typecheck e build do portal verdes
+**Última evidência verde:** governança de conhecimento e2e em 2026-07-18 — revogar fonte tirou os fatos do agente na mensagem seguinte e reativar restaurou; "Atualizar conteúdo" re-ingeriu fonte pendente (→ ativa) e a Rafaela citou o preço real da fonte; conversas de vídeo agora geram cost_event; `pnpm lint`, `pnpm test` (409 Node), typecheck e build do portal verdes
 **Bloqueadores internos:** nenhum
 **Pendências externas:** consultar `PENDENCIAS_EXTERNAS.md`  
 
