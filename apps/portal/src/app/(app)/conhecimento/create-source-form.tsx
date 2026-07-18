@@ -36,16 +36,27 @@ export function CreateSourceForm() {
           </select>
         </div>
         <button type="submit" className="btn btn-primary" disabled={pending}>
-          {pending ? "Cadastrando..." : "Cadastrar"}
+          {pending ? "Processando..." : "Cadastrar"}
         </button>
       </div>
+      <div className="field" style={{ margin: "12px 0 0" }}>
+        <label htmlFor="source-content">Conteúdo (opcional)</label>
+        <textarea
+          id="source-content"
+          name="content"
+          rows={6}
+          maxLength={80000}
+          placeholder="Cole aqui o conteúdo do documento (texto). Com conteúdo, a fonte é ingerida com embeddings reais e fica ativa — os agentes passam a citar apenas o que estiver aqui."
+          style={{ resize: "vertical", fontSize: "0.82rem", lineHeight: 1.5 }}
+        />
+      </div>
       <p style={{ fontSize: "0.76rem", color: "var(--text-faint)", margin: "10px 0 0" }}>
-        A fonte é registrada como pendente. A ingestão do conteúdo é habilitada quando o provedor de
-        embeddings for conectado — nada é citado por agentes antes disso.
+        Com conteúdo, a fonte é dividida em trechos, indexada com embeddings e ativada na hora — vira a
+        única base de fatos dos agentes da conta. Sem conteúdo, ela fica pendente e nada é citado.
       </p>
       {state.error && <p className="form-error" role="alert" style={{ margin: "10px 0 0" }}>{state.error}</p>}
       {state.done && !state.error && (
-        <p className="saved-flag" role="status" style={{ marginTop: 10 }}>✓ Fonte registrada como pendente.</p>
+        <p className="saved-flag" role="status" style={{ marginTop: 10 }}>✓ Fonte registrada.</p>
       )}
     </form>
   );

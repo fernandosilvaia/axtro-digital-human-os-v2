@@ -4,7 +4,7 @@
 
 **Marco atual:** M3 (concluído)
 **Tarefa atual:** nenhuma
-**Última evidência verde:** `pnpm lint`, `pnpm build`, `pnpm --filter @axtro/portal run typecheck`, `pnpm --filter @axtro/portal run build`, `git diff --check` e validação visual desktop/mobile da landing e do dashboard em 2026-07-17
+**Última evidência verde:** conhecimento real (RAG) e2e em 2026-07-18 — doc Ecoloop ingerido pela UI com embeddings OpenRouter (17 chunks), busca vetorial no chat de teste com resposta fiel à fonte (crédito 25D encerrado → pivot leasing/48E), custos no ledger; `pnpm lint`, `pnpm test` (409 Node), typecheck e build do portal verdes
 **Bloqueadores internos:** nenhum
 **Pendências externas:** consultar `PENDENCIAS_EXTERNAS.md`  
 

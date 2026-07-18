@@ -7,6 +7,7 @@ import {
   type TextGenerationMessage,
 } from "@axtro/provider-openrouter";
 
+import { embedQuery, type KnowledgeMatch } from "@/lib/knowledge";
 import { fetchAgents, fetchTenantOverview } from "@/lib/portal-data";
 import { createClient } from "@/lib/supabase/server";
 
@@ -72,8 +73,40 @@ export async function sendAgentPreviewMessage(
     return { reply: null, error: "Limite diário de tokens de teste da conta atingido. Volte amanhã ou fale com o suporte." };
   }
 
+  // RAG: busca vetorial nas fontes ativas da conta. Falha de recuperação
+  // degrada para o prompt sem fontes (o chat não pode morrer por isso),
+  // mas fica visível no log do servidor.
+  let knowledgeMatches: readonly KnowledgeMatch[] = [];
+  try {
+    const { embedding, inputTokens } = await embedQuery(apiKey, message);
+    const { data: searchData, error: searchError } = await supabase.rpc("portal_search_knowledge", {
+      p_embedding: embedding,
+      p_limit: 5,
+    });
+    if (searchError) {
+      console.error("portal_search_knowledge failed", searchError.message);
+    } else if (Array.isArray(searchData)) {
+      knowledgeMatches = searchData as KnowledgeMatch[];
+      const { error: retrievalLogError } = await supabase.rpc("portal_log_ai_usage", {
+        p_id: createUuidV7(),
+        p_service: "portal.knowledge_retrieval",
+        p_input_tokens: inputTokens,
+        p_output_tokens: 0,
+      });
+      if (retrievalLogError) {
+        console.error("portal_log_ai_usage failed", retrievalLogError.message);
+      }
+    }
+  } catch (retrievalError) {
+    console.error("knowledge retrieval failed", retrievalError instanceof Error ? retrievalError.message : retrievalError);
+  }
+
+  // O bloco de fontes vai numa segunda mensagem system: o cap de 4000 chars
+  // do adapter é POR mensagem, e prompt base + chunks juntos não cabem.
+  const knowledgeBlock = buildKnowledgeBlock(knowledgeMatches);
   const messages: TextGenerationMessage[] = [
-    { role: "system", content: buildSystemPrompt(agent.name, overview.tenant.legal_name) },
+    { role: "system", content: buildSystemPrompt(agent.name, overview.tenant.legal_name, knowledgeMatches.length > 0) },
+    ...(knowledgeBlock ? [{ role: "system" as const, content: knowledgeBlock }] : []),
     ...history.slice(-MAX_HISTORY_TURNS * 2).map((turn) => ({ role: turn.role, content: turn.content })),
     { role: "user", content: message },
   ];
@@ -118,16 +151,41 @@ export async function sendAgentPreviewMessage(
   }
 }
 
-function buildSystemPrompt(agentName: string, tenantLegalName: string): string {
-  return [
+// O adapter OpenRouter limita cada mensagem a 4000 chars — o bloco de fontes
+// vive numa mensagem system própria e respeita esse teto com folga.
+const MAX_KNOWLEDGE_CHUNK_CHARS = 740;
+const MAX_KNOWLEDGE_BLOCK_CHARS = 3800;
+
+function buildKnowledgeBlock(knowledgeMatches: readonly KnowledgeMatch[]): string | null {
+  if (knowledgeMatches.length === 0) return null;
+  const lines = ["FONTES AUTORIZADAS DA CONTA (trechos mais relevantes para a mensagem atual):"];
+  let blockChars = lines[0]?.length ?? 0;
+  for (const match of knowledgeMatches) {
+    const piece = `[${match.source_name}] ${match.chunk_text.slice(0, MAX_KNOWLEDGE_CHUNK_CHARS)}`;
+    if (blockChars + piece.length > MAX_KNOWLEDGE_BLOCK_CHARS) break;
+    blockChars += piece.length;
+    lines.push(piece);
+  }
+  return lines.length > 1 ? lines.join("\n") : null;
+}
+
+function buildSystemPrompt(
+  agentName: string,
+  tenantLegalName: string,
+  hasKnowledge: boolean,
+): string {
+  const lines = [
     `Você é "${agentName}", vendedora digital (Sales Closer) da conta "${tenantLegalName}" na plataforma Axtro Digital Human OS.`,
     "Este é um AMBIENTE DE TESTE (sandbox) usado pelo operador da conta para avaliar seu comportamento antes de qualquer contato com clientes reais.",
     "PERSONALIDADE: calorosa e consultiva — escuta, valida o que ouviu e só então avança. Confiança tranquila, nunca arrogância.",
     "FECHAMENTO FIRME: a cada sinal de interesse ou objeção resolvida, peça o compromisso com clareza (agendar visita/conversa, receber a proposta). Não espere o cliente pedir; conduza. Se recusar, entenda o porquê e tente um fechamento alternativo antes de recuar.",
     "Regras invioláveis:",
     "1. Você é uma agente de IA e nunca finge ser humana. Se perguntarem, confirme com naturalidade em uma frase e volte pra venda.",
-    "2. Nenhuma fonte de conhecimento da conta está conectada a este teste: NÃO cite preços, faixas, condições ou características específicas — quando pedirem valor, transforme em avanço (\"o número exato sai na proposta; posso agendar?\").",
+    hasKnowledge
+      ? "2. As FONTES AUTORIZADAS (mensagem seguinte) são sua ÚNICA fonte de fatos sobre produtos, preços, condições, impostos, créditos e políticas desta conta — NUNCA responda esses temas de memória geral, nem que pareça óbvio. O que não estiver nas fontes, diga com naturalidade que confirma com o time e transforme em avanço (\"te trago esse detalhe na proposta; posso agendar?\"). Nunca invente números."
+      : "2. Nenhuma fonte de conhecimento da conta está conectada a este teste: NÃO cite preços, faixas, condições ou características específicas — quando pedirem valor, transforme em avanço (\"o número exato sai na proposta; posso agendar?\").",
     "3. Não faça promessas, não feche contratos, não envie nada: este chat não executa ações externas.",
     "4. Responda no idioma do interlocutor; seja breve (até 2 parágrafos curtos) e termine todo turno conduzindo — pergunta de descoberta, tratamento de objeção ou pedido de fechamento.",
-  ].join("\n");
+  ];
+  return lines.join("\n");
 }
