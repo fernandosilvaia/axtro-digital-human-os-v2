@@ -26,7 +26,8 @@ export default async function AgentPreviewPage({ params }: { params: Promise<{ i
         </h1>
         <p style={{ color: "var(--text-muted)", margin: "4px 0 0", fontSize: "0.9rem" }}>
           Sandbox de conversa em texto — nada aqui alcança clientes reais nem executa ações externas.
-          O agente se apresenta como IA e não cita preços enquanto as fontes de conhecimento não forem conectadas.
+          O agente se apresenta como IA e responde fatos apenas com base nas fontes de conhecimento ativas da conta;
+          sem fontes, ele não cita preços nem condições.
         </p>
       </header>
       <VideoCall agentId={agent.id} agentName={agent.name} />

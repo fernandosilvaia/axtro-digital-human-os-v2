@@ -135,6 +135,136 @@ export function createOpenRouterTextGenerationPort(options: OpenRouterAdapterOpt
   });
 }
 
+const EMBEDDINGS_ENDPOINT = "https://openrouter.ai/api/v1/embeddings";
+const MAX_EMBEDDING_INPUTS = 64;
+const MAX_EMBEDDING_INPUT_CHARS = 8000;
+
+export interface EmbeddingRequest {
+  readonly model: string;
+  readonly inputs: readonly string[];
+}
+
+export interface EmbeddingResult {
+  readonly embeddings: readonly (readonly number[])[];
+  readonly model: string;
+  readonly usage: TextGenerationUsage;
+}
+
+/**
+ * Port de embeddings do control-plane (conhecimento real / RAG).
+ * Mesma chave e mesmo egress fixo do port de geração: o OpenRouter expõe
+ * `/api/v1/embeddings` compatível com OpenAI, então nenhuma credencial nova
+ * entra no sistema.
+ */
+export interface EmbeddingPort {
+  readonly providerId: string;
+  embed(request: EmbeddingRequest): Promise<EmbeddingResult>;
+}
+
+export function createOpenRouterEmbeddingPort(options: OpenRouterAdapterOptions): EmbeddingPort {
+  const apiKey = typeof options.apiKey === "string" ? options.apiKey.trim() : "";
+  if (apiKey.length < 8) {
+    throw new TextGenerationError("missing_api_key", "OpenRouter API key is not configured");
+  }
+  const timeoutMs = options.timeoutMs ?? DEFAULT_TIMEOUT_MS;
+  const fetchImplementation = options.fetchImplementation ?? fetch;
+
+  return Object.freeze({
+    providerId: "openrouter",
+    async embed(request: EmbeddingRequest): Promise<EmbeddingResult> {
+      validateEmbeddingRequest(request);
+
+      const controller = new AbortController();
+      const timer = setTimeout(() => controller.abort(), timeoutMs);
+      let response: Response;
+      try {
+        response = await fetchImplementation(EMBEDDINGS_ENDPOINT, {
+          method: "POST",
+          signal: controller.signal,
+          headers: {
+            Authorization: `Bearer ${apiKey}`,
+            "Content-Type": "application/json",
+            ...(options.appUrl ? { "HTTP-Referer": options.appUrl } : {}),
+            ...(options.appTitle ? { "X-Title": options.appTitle } : {}),
+          },
+          body: JSON.stringify({ model: request.model, input: request.inputs }),
+        });
+      } catch (error) {
+        if (error instanceof Error && error.name === "AbortError") {
+          throw new TextGenerationError("provider_timeout", `OpenRouter timed out after ${timeoutMs}ms`);
+        }
+        throw new TextGenerationError("provider_unavailable", "OpenRouter request failed before a response");
+      } finally {
+        clearTimeout(timer);
+      }
+
+      if (!response.ok) {
+        // Corpo de erro nunca é repassado cru: pode ecoar headers/entrada.
+        const code: TextGenerationErrorCode = response.status >= 500 ? "provider_unavailable" : "provider_rejected";
+        throw new TextGenerationError(code, `OpenRouter respondeu HTTP ${response.status}`);
+      }
+
+      let payload: unknown;
+      try {
+        payload = await response.json();
+      } catch {
+        throw new TextGenerationError("malformed_provider_response", "OpenRouter returned non-JSON output");
+      }
+      return parseEmbeddings(payload, request.inputs.length);
+    },
+  });
+}
+
+function validateEmbeddingRequest(request: EmbeddingRequest): void {
+  if (typeof request.model !== "string" || !MODEL_PATTERN.test(request.model)) {
+    throw new TextGenerationError("invalid_request", "model must be a plain OpenRouter model id");
+  }
+  if (!Array.isArray(request.inputs) || request.inputs.length === 0 || request.inputs.length > MAX_EMBEDDING_INPUTS) {
+    throw new TextGenerationError("invalid_request", `inputs must contain 1..${MAX_EMBEDDING_INPUTS} entries`);
+  }
+  for (const input of request.inputs) {
+    if (typeof input !== "string" || input.trim().length === 0 || input.length > MAX_EMBEDDING_INPUT_CHARS) {
+      throw new TextGenerationError("invalid_request", `each input must be 1..${MAX_EMBEDDING_INPUT_CHARS} chars`);
+    }
+  }
+}
+
+function parseEmbeddings(payload: unknown, expectedCount: number): EmbeddingResult {
+  if (payload === null || typeof payload !== "object") {
+    throw new TextGenerationError("malformed_provider_response", "embeddings payload is not an object");
+  }
+  const record = payload as Record<string, unknown>;
+  const data = record.data;
+  if (!Array.isArray(data) || data.length !== expectedCount) {
+    throw new TextGenerationError("malformed_provider_response", "embeddings payload count does not match inputs");
+  }
+  const ordered: (readonly number[])[] = new Array(expectedCount);
+  for (const [position, entry] of data.entries()) {
+    const item = (entry ?? null) as Record<string, unknown> | null;
+    const vector = item?.embedding;
+    if (!Array.isArray(vector) || vector.length === 0 || !vector.every((v) => typeof v === "number" && Number.isFinite(v))) {
+      throw new TextGenerationError("malformed_provider_response", "embeddings payload has an invalid vector");
+    }
+    // OpenAI-compat: `index` referencia a posição do input; sem ele, usa a ordem do array.
+    const index = typeof item?.index === "number" && Number.isInteger(item.index) ? item.index : position;
+    if (index < 0 || index >= expectedCount || ordered[index] !== undefined) {
+      throw new TextGenerationError("malformed_provider_response", "embeddings payload has inconsistent indexes");
+    }
+    ordered[index] = Object.freeze(vector.slice());
+  }
+  const usageRecord = (record.usage ?? {}) as Record<string, unknown>;
+  const model = typeof record.model === "string" && record.model.length > 0 ? record.model : "openrouter/unknown";
+
+  return Object.freeze({
+    embeddings: Object.freeze(ordered),
+    model,
+    usage: Object.freeze({
+      inputTokens: normalizeTokenCount(usageRecord.prompt_tokens ?? usageRecord.total_tokens),
+      outputTokens: 0,
+    }),
+  });
+}
+
 function validateRequest(request: TextGenerationRequest): void {
   if (typeof request.model !== "string" || !MODEL_PATTERN.test(request.model)) {
     throw new TextGenerationError("invalid_request", "model must be a plain OpenRouter model id");

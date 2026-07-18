@@ -132,6 +132,101 @@ test("sem chave configurada o port nem é construído", () => {
   );
 });
 
+function embeddingsPayload(vectors, overrides = {}) {
+  return {
+    model: "openai/text-embedding-3-small",
+    data: vectors.map((embedding, index) => ({ index, embedding })),
+    usage: { prompt_tokens: 12 },
+    ...overrides,
+  };
+}
+
+test("embed envia inputs ao endpoint fixo de embeddings e devolve vetores na ordem", async () => {
+  const { calls, implementation } = fakeFetch(async () => new Response(
+    JSON.stringify(embeddingsPayload([[0.1, 0.2], [0.3, 0.4]])),
+    { status: 200 },
+  ));
+  const port = provider.createOpenRouterEmbeddingPort({ apiKey: API_KEY, fetchImplementation: implementation });
+
+  const result = await port.embed({ model: "openai/text-embedding-3-small", inputs: ["chunk a", "chunk b"] });
+
+  assert.equal(calls.length, 1);
+  assert.equal(calls[0].url, "https://openrouter.ai/api/v1/embeddings");
+  assert.deepEqual(JSON.parse(calls[0].init.body), {
+    model: "openai/text-embedding-3-small",
+    input: ["chunk a", "chunk b"],
+  });
+  assert.deepEqual(result.embeddings, [[0.1, 0.2], [0.3, 0.4]]);
+  assert.deepEqual(result.usage, { inputTokens: 12, outputTokens: 0 });
+});
+
+test("embed reordena pelo index do payload (contrato OpenAI-compat)", async () => {
+  const { implementation } = fakeFetch(async () => new Response(
+    JSON.stringify({
+      model: "openai/text-embedding-3-small",
+      data: [
+        { index: 1, embedding: [2, 2] },
+        { index: 0, embedding: [1, 1] },
+      ],
+    }),
+    { status: 200 },
+  ));
+  const port = provider.createOpenRouterEmbeddingPort({ apiKey: API_KEY, fetchImplementation: implementation });
+  const result = await port.embed({ model: "openai/text-embedding-3-small", inputs: ["a", "b"] });
+  assert.deepEqual(result.embeddings, [[1, 1], [2, 2]]);
+});
+
+test("embed valida inputs antes da rede e rejeita payloads inconsistentes", async () => {
+  const { calls, implementation } = fakeFetch(async () => new Response("{}", { status: 200 }));
+  const port = provider.createOpenRouterEmbeddingPort({ apiKey: API_KEY, fetchImplementation: implementation });
+
+  const invalid = [
+    { model: "não é!!", inputs: ["a"] },
+    { model: "openai/text-embedding-3-small", inputs: [] },
+    { model: "openai/text-embedding-3-small", inputs: Array.from({ length: 65 }, () => "x") },
+    { model: "openai/text-embedding-3-small", inputs: ["   "] },
+    { model: "openai/text-embedding-3-small", inputs: ["x".repeat(8001)] },
+  ];
+  for (const bad of invalid) {
+    await assert.rejects(() => port.embed(bad), (error) => error.code === "invalid_request");
+  }
+  assert.equal(calls.length, 0);
+
+  const mismatch = fakeFetch(async () => new Response(
+    JSON.stringify(embeddingsPayload([[0.1]])),
+    { status: 200 },
+  ));
+  const portMismatch = provider.createOpenRouterEmbeddingPort({ apiKey: API_KEY, fetchImplementation: mismatch.implementation });
+  await assert.rejects(
+    () => portMismatch.embed({ model: "openai/text-embedding-3-small", inputs: ["a", "b"] }),
+    (error) => error.code === "malformed_provider_response",
+  );
+
+  const badVector = fakeFetch(async () => new Response(
+    JSON.stringify(embeddingsPayload([[0.1, "x"]])),
+    { status: 200 },
+  ));
+  const portBadVector = provider.createOpenRouterEmbeddingPort({ apiKey: API_KEY, fetchImplementation: badVector.implementation });
+  await assert.rejects(
+    () => portBadVector.embed({ model: "openai/text-embedding-3-small", inputs: ["a"] }),
+    (error) => error.code === "malformed_provider_response",
+  );
+});
+
+test("embed nunca vaza a chave em erros do provider", async () => {
+  const { implementation } = fakeFetch(async () => new Response(`denied for Bearer ${API_KEY}`, { status: 402 }));
+  const port = provider.createOpenRouterEmbeddingPort({ apiKey: API_KEY, fetchImplementation: implementation });
+  await assert.rejects(
+    () => port.embed({ model: "openai/text-embedding-3-small", inputs: ["a"] }),
+    (error) => {
+      assert.equal(error.code, "provider_rejected");
+      assert.equal(error.message.includes(API_KEY), false);
+      assert.equal(error.message.includes("denied"), false);
+      return true;
+    },
+  );
+});
+
 test("usage ausente ou inválida normaliza para zero em vez de inventar número", async () => {
   const { implementation } = fakeFetch(async () => new Response(
     JSON.stringify(completionPayload({ usage: { prompt_tokens: -5, completion_tokens: "muitos" } })),

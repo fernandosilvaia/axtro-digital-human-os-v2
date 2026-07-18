@@ -26,6 +26,7 @@ Racional completo: D-V2-055, D-V2-056 e D-V2-058 em
 | `0007_portal_create_rpcs.sql` | sim (2026-07-16) |
 | `0008_portal_ai_usage.sql` | sim (2026-07-16) |
 | `0009_agent_video_config.sql` | sim (2026-07-16) |
+| `0010_knowledge_ingestion_rag.sql` | sim (2026-07-17) |
 
 ## Regras
 
