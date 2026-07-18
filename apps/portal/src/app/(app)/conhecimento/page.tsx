@@ -4,6 +4,7 @@ import { fetchKnowledgeSources, fetchTenantOverview } from "@/lib/portal-data";
 import { StatusBadge } from "@/components/status-badge";
 
 import { CreateSourceForm } from "./create-source-form";
+import { SourceActions } from "./source-actions";
 
 export const metadata: Metadata = { title: "Conhecimento — Axtro Digital Human OS" };
 
@@ -66,6 +67,7 @@ export default async function KnowledgePage() {
                   <th>Classificação</th>
                   <th>Status</th>
                   <th>Adicionada em</th>
+                  {isAdmin && <th>Ações</th>}
                 </tr>
               </thead>
               <tbody>
@@ -80,6 +82,11 @@ export default async function KnowledgePage() {
                     </td>
                     <td><StatusBadge status={source.status} /></td>
                     <td>{new Date(source.created_at).toLocaleDateString("pt-BR")}</td>
+                    {isAdmin && (
+                      <td>
+                        <SourceActions sourceId={source.id} sourceName={source.display_name} status={source.status} />
+                      </td>
+                    )}
                   </tr>
                 ))}
               </tbody>

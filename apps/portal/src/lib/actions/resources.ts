@@ -84,40 +84,103 @@ export async function createKnowledgeSource(
   // Ingestão real: chunking + embeddings via OpenRouter + RPC de ingestão.
   // Sem conteúdo a fonte fica pendente, como antes.
   if (content.length > 0) {
-    try {
-      const texts = chunkContent(content);
-      const { chunks, inputTokens } = await embedChunks(process.env.OPENROUTER_API_KEY ?? "", texts);
-      const { error: ingestError } = await supabase.rpc("portal_ingest_knowledge", {
-        p_source_id: sourceId,
-        p_version_id: createUuidV7(),
-        p_version: "v1",
-        p_content_hash: contentSha256(content),
-        p_chunks: chunks,
-      });
-      if (ingestError) {
-        return {
-          error: `A fonte foi registrada, mas a ingestão falhou (${ingestError.message}). Ela segue pendente — tente de novo com o mesmo nome mais tarde.`,
-          done: false,
-        };
-      }
-      const { error: logError } = await supabase.rpc("portal_log_ai_usage", {
-        p_id: createUuidV7(),
-        p_service: "portal.knowledge_embedding",
-        p_input_tokens: inputTokens,
-        p_output_tokens: 0,
-      });
-      if (logError) {
-        console.error("portal_log_ai_usage failed", logError.message);
-      }
-    } catch (embedError) {
-      console.error("knowledge ingestion failed", embedError instanceof Error ? embedError.message : embedError);
-      return {
-        error: "A fonte foi registrada, mas o provider de embeddings falhou. Ela segue pendente — tente novamente em instantes.",
-        done: false,
-      };
+    const ingestError = await ingestContentForSource(supabase, sourceId, content);
+    if (ingestError) {
+      return { error: `A fonte foi registrada, mas ${ingestError} Ela segue pendente — tente novamente.`, done: false };
     }
   }
 
+  revalidatePath("/conhecimento");
+  revalidatePath("/dashboard");
+  return { error: null, done: true };
+}
+
+/** Chunking + embeddings + RPC de ingestão. Retorna mensagem de erro ou null. */
+async function ingestContentForSource(
+  supabase: Awaited<ReturnType<typeof createClient>>,
+  sourceId: string,
+  content: string,
+): Promise<string | null> {
+  try {
+    const texts = chunkContent(content);
+    const { chunks, inputTokens } = await embedChunks(process.env.OPENROUTER_API_KEY ?? "", texts);
+    const { error: ingestError } = await supabase.rpc("portal_ingest_knowledge", {
+      p_source_id: sourceId,
+      p_version_id: createUuidV7(),
+      p_version: `v${Math.floor(Date.now() / 1000)}`,
+      p_content_hash: contentSha256(content),
+      p_chunks: chunks,
+    });
+    if (ingestError) {
+      return `a ingestão falhou (${ingestError.message}).`;
+    }
+    const { error: logError } = await supabase.rpc("portal_log_ai_usage", {
+      p_id: createUuidV7(),
+      p_service: "portal.knowledge_embedding",
+      p_input_tokens: inputTokens,
+      p_output_tokens: 0,
+    });
+    if (logError) {
+      console.error("portal_log_ai_usage failed", logError.message);
+    }
+    return null;
+  } catch (embedError) {
+    console.error("knowledge ingestion failed", embedError instanceof Error ? embedError.message : embedError);
+    return "o provider de embeddings falhou.";
+  }
+}
+
+/** Atualiza o conteúdo de uma fonte existente: re-ingestão substitui a versão anterior. */
+export async function updateKnowledgeSourceContent(
+  _prevState: ResourceActionState,
+  formData: FormData,
+): Promise<ResourceActionState> {
+  const sourceId = String(formData.get("source_id") ?? "").trim();
+  const content = String(formData.get("content") ?? "").trim();
+
+  if (!/^[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(sourceId)) {
+    return { error: "Fonte inválida — recarregue a página.", done: false };
+  }
+  if (content.length === 0 || content.length > MAX_CONTENT_CHARS) {
+    return { error: `O conteúdo precisa ter entre 1 e ${MAX_CONTENT_CHARS.toLocaleString("pt-BR")} caracteres.`, done: false };
+  }
+  if ((process.env.OPENROUTER_API_KEY ?? "").trim().length === 0) {
+    return { error: "O provider de embeddings ainda não está configurado neste ambiente.", done: false };
+  }
+
+  const supabase = await createClient();
+  const ingestError = await ingestContentForSource(supabase, sourceId, content);
+  if (ingestError) {
+    return { error: `Não foi possível atualizar: ${ingestError}`, done: false };
+  }
+
+  revalidatePath("/conhecimento");
+  revalidatePath("/dashboard");
+  return { error: null, done: true };
+}
+
+/** Revogação/reativação imediata: fontes 'disabled' somem da busca e do digest na hora. */
+export async function setKnowledgeSourceStatus(
+  sourceId: string,
+  status: "active" | "disabled",
+): Promise<ResourceActionState> {
+  if (status !== "active" && status !== "disabled") {
+    return { error: "Status inválido.", done: false };
+  }
+  const supabase = await createClient();
+  const { error } = await supabase.rpc("portal_set_knowledge_source_status", {
+    p_source_id: sourceId,
+    p_status: status,
+  });
+  if (error) {
+    if (error.message === "source has no ingested content to activate") {
+      return { error: "Esta fonte ainda não tem conteúdo ingerido — adicione conteúdo antes de ativar.", done: false };
+    }
+    if (error.message === "only a tenant_admin can change knowledge sources") {
+      return { error: "Somente administradores podem alterar fontes.", done: false };
+    }
+    return { error: `Não foi possível alterar o status: ${error.message}`, done: false };
+  }
   revalidatePath("/conhecimento");
   revalidatePath("/dashboard");
   return { error: null, done: true };

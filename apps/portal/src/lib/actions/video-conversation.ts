@@ -1,5 +1,6 @@
 "use server";
 
+import { createUuidV7 } from "@axtro/domain";
 import { createTavusVideoConversationPort, VideoProviderError } from "@axtro/provider-tavus";
 
 import { fetchAgents, fetchTenantOverview } from "@/lib/portal-data";
@@ -82,6 +83,13 @@ export async function startVideoConversation(agentId: string): Promise<VideoConv
             maxCallDurationSeconds: 600,
           },
     );
+    // Cada conversa criada vira uma linha no ledger de custos (unit
+    // 'conversation'; preço entra na reconciliação). Falha de log não pode
+    // derrubar a chamada já criada — mas fica visível no servidor.
+    const { error: logError } = await supabase.rpc("portal_log_video_usage", { p_id: createUuidV7() });
+    if (logError) {
+      console.error("portal_log_video_usage failed", logError.message);
+    }
     return { url: conversation.conversationUrl, error: null };
   } catch (error) {
     if (error instanceof VideoProviderError) {
