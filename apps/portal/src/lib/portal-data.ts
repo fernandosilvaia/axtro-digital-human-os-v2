@@ -83,6 +83,25 @@ export async function fetchKnowledgeSources(): Promise<readonly KnowledgeSourceR
   return (data ?? []) as KnowledgeSourceRow[];
 }
 
+export interface UsageServiceRow {
+  readonly service: string;
+  readonly unit_type: string;
+  readonly quantity: number;
+}
+
+export interface UsageSummary {
+  readonly tokens_today: number;
+  readonly conversations_today: number;
+  readonly services_7d: readonly UsageServiceRow[];
+}
+
+export async function fetchUsageSummary(): Promise<UsageSummary> {
+  const supabase = await createClient();
+  const { data, error } = await supabase.rpc("portal_usage_summary");
+  if (error) throw new Error(`usage fetch failed: ${error.message}`);
+  return data as UsageSummary;
+}
+
 export interface TeamMemberRow {
   readonly email: string;
   readonly role: string;

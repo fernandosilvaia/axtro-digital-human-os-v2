@@ -1,6 +1,6 @@
 import type { Metadata } from "next";
 
-import { fetchTenantOverview } from "@/lib/portal-data";
+import { fetchTenantOverview, fetchUsageSummary, type UsageSummary } from "@/lib/portal-data";
 import { StatusBadge } from "@/components/status-badge";
 
 export const metadata: Metadata = { title: "Visão geral — Axtro Digital Human OS" };
@@ -12,8 +12,18 @@ const METRICS = [
   { key: "contacts", label: "Contatos", hint: "Perfis de contato ativos" },
 ] as const;
 
+const DAILY_TOKEN_CAP = 500_000;
+
+const USAGE_SERVICE_LABELS: Record<string, string> = {
+  "portal.agent_preview": "Chat de teste dos agentes",
+  "portal.knowledge_embedding": "Ingestão de conhecimento",
+  "portal.knowledge_retrieval": "Busca de conhecimento (RAG)",
+  "portal.video_conversation": "Conversas em vídeo",
+};
+
 export default async function DashboardPage() {
   let overview;
+  let usage: UsageSummary | null = null;
   try {
     overview = await fetchTenantOverview();
   } catch {
@@ -22,6 +32,12 @@ export default async function DashboardPage() {
         Não foi possível carregar a visão geral da conta agora. Recarregue a página; se persistir, contate o suporte.
       </div>
     );
+  }
+  try {
+    usage = await fetchUsageSummary();
+  } catch {
+    // Painel de uso é secundário: se o resumo falhar, o dashboard continua.
+    usage = null;
   }
 
   const tenant = overview.tenant;
@@ -50,6 +66,47 @@ export default async function DashboardPage() {
           </div>
         ))}
       </div>
+
+      {usage && (
+        <section className="card" style={{ marginBottom: 24 }} aria-labelledby="uso-ia">
+          <h2 id="uso-ia" className="section-title">Uso de IA</h2>
+          <p className="workspace-section-lead">
+            Consumo medido no ledger da conta — cada resposta, ingestão e chamada deixa rastro.
+          </p>
+          <div className="grid grid-3" style={{ marginBottom: usage.services_7d.length > 0 ? 16 : 0 }}>
+            <div>
+              <span className="metric-label">Tokens hoje</span>
+              <div className="metric-value">{usage.tokens_today.toLocaleString("pt-BR")}</div>
+              <div className="metric-hint">
+                {Math.min(100, Math.round((usage.tokens_today / DAILY_TOKEN_CAP) * 100))}% do teto diário de{" "}
+                {DAILY_TOKEN_CAP.toLocaleString("pt-BR")}
+              </div>
+            </div>
+            <div>
+              <span className="metric-label">Conversas em vídeo hoje</span>
+              <div className="metric-value">{usage.conversations_today.toLocaleString("pt-BR")}</div>
+              <div className="metric-hint">Chamadas Tavus iniciadas pela conta</div>
+            </div>
+            <div>
+              <span className="metric-label">Serviços ativos (7 dias)</span>
+              <div className="metric-value">{usage.services_7d.length}</div>
+              <div className="metric-hint">Serviços com consumo registrado na semana</div>
+            </div>
+          </div>
+          {usage.services_7d.length > 0 && (
+            <dl style={{ margin: 0, display: "grid", gap: 8, fontSize: "0.85rem" }}>
+              {usage.services_7d.map((row) => (
+                <div key={`${row.service}-${row.unit_type}`} style={{ display: "flex", justifyContent: "space-between", gap: 16 }}>
+                  <dt style={{ color: "var(--text-muted)" }}>{USAGE_SERVICE_LABELS[row.service] ?? row.service}</dt>
+                  <dd style={{ margin: 0, textAlign: "right" }}>
+                    {row.quantity.toLocaleString("pt-BR")} {row.unit_type === "token" ? "tokens" : row.unit_type === "conversation" ? "conversas" : row.unit_type}
+                  </dd>
+                </div>
+              ))}
+            </dl>
+          )}
+        </section>
+      )}
 
       <div className="workspace-grid">
         <section className="card workspace-primary" aria-labelledby="proximos-passos">

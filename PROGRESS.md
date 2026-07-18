@@ -4,7 +4,7 @@
 
 **Marco atual:** M3 (concluído)
 **Tarefa atual:** nenhuma
-**Última evidência verde:** governança de conhecimento e2e em 2026-07-18 — revogar fonte tirou os fatos do agente na mensagem seguinte e reativar restaurou; "Atualizar conteúdo" re-ingeriu fonte pendente (→ ativa) e a Rafaela citou o preço real da fonte; conversas de vídeo agora geram cost_event; `pnpm lint`, `pnpm test` (409 Node), typecheck e build do portal verdes
+**Última evidência verde:** painel "Uso de IA" no dashboard em 2026-07-18 — tokens de hoje contra o teto diário, conversas de vídeo e breakdown de 7 dias por serviço lidos do cost ledger real (verificado no navegador desktop/mobile com 9.904 tokens do tenant demo); `pnpm lint`, `pnpm test` (409 Node), typecheck e build do portal verdes
 **Bloqueadores internos:** nenhum
 **Pendências externas:** consultar `PENDENCIAS_EXTERNAS.md`  
 

@@ -421,6 +421,9 @@ h3 {
 .grid-4 {
   grid-template-columns: repeat(4, 1fr);
 }
+.grid-3 {
+  grid-template-columns: repeat(3, 1fr);
+}
 .grid-2 {
   grid-template-columns: repeat(2, 1fr);
 }
@@ -699,6 +702,9 @@ table.data tbody tr:hover {
   .grid-4 {
     grid-template-columns: repeat(2, 1fr);
   }
+  .grid-3 {
+    grid-template-columns: 1fr;
+  }
   .grid-2 {
     grid-template-columns: 1fr;
   }
@@ -718,6 +724,9 @@ table.data tbody tr:hover {
 
 @media (max-width: 520px) {
   .grid-4 {
+    grid-template-columns: 1fr;
+  }
+  .grid-3 {
     grid-template-columns: 1fr;
   }
   .page,
