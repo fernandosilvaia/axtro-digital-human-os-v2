@@ -3,6 +3,7 @@ import type { Metadata, Viewport } from "next";
 import "./globals.css";
 
 export const metadata: Metadata = {
+  metadataBase: new URL(process.env.NEXT_PUBLIC_SITE_URL ?? "https://portal-production-b43e.up.railway.app"),
   title: {
     default: "Axtro Digital Human OS",
     template: "%s",

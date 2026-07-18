@@ -1,10 +1,10 @@
 # Progresso de implementação
 
-**Estado atual:** M0, M1, M2 e M3 concluídos (M3-01 a M3-09 fake-first/dry-run completos; M3-10 com ferramenta pronta, piloto real e bake-off de provider pendentes de gate humano)
+**Estado atual:** M0, M1, M2 e M3 concluídos (M3-01 a M3-09 fake-first/dry-run completos; M3-10 com ferramenta pronta, piloto real e bake-off de provider pendentes de gate humano); VISUAL-01 concluído
 
 **Marco atual:** M3 (concluído)
 **Tarefa atual:** nenhuma
-**Última evidência verde:** pipeline completa de release M3 com 389 testes Node, 23 unittest Python, 23 pytest, `pnpm m1:e2e`, `pnpm m2:e2e`, `pnpm db:test`, `pnpm db:rls` e 9 validadores verdes em 2026-07-15
+**Última evidência verde:** `pnpm lint`, `pnpm build`, `pnpm --filter @axtro/portal run typecheck`, `pnpm --filter @axtro/portal run build`, `git diff --check` e validação visual desktop/mobile da landing e do dashboard em 2026-07-17
 **Bloqueadores internos:** nenhum
 **Pendências externas:** consultar `PENDENCIAS_EXTERNAS.md`  
 
@@ -71,6 +71,7 @@
 | `M3-08` | M3 | done | Implement evaluation harness and golden conversations | `M3-01`, `M3-02`, `M3-06` | `@axtro/evaluation` com 6 dimensões, gate crítico independente da média, 6 cenários golden, 8 testes Node verdes |
 | `M3-09` | M3 | done | Expand console for opportunity and call review | `M3-02`, `M3-03`, `M3-05`, `M3-08` | `opportunity-review.ts` novo em `@axtro/ui` (reaproveita `renderEvidenceLabel`/`escapeHtml` do M1-09), 9 testes Node verdes |
 | `M3-10` | M3 | done (ferramenta) | Internal Sales Closer Alpha pilot gate | `M3-04`, `M3-05`, `M3-06`, `M3-07`, `M3-08`, `M3-09` | `generatePilotGateReport` pronto e testado; piloto real de 20 chamadas e bake-off credenciado ficam pendentes de gate humano — ver `artifacts/m3/README.md` |
+| `VISUAL-01` | Produto | done | Redesign premium da landing e do workspace do portal | M3 concluído | landing, copy, motion, asset autoral, workspace e validação visual desktop/mobile concluídos |
 
 ## Log de execução
 
@@ -693,3 +694,13 @@ de ponta a ponta, reunir as chaves de API reais por provider via Doppler, a
 pedido explícito do usuário. Deploy/hosting real segue pendente de aviso
 prévio, como já combinado. Separadamente, pendente de decisão humana:
 bake-off credenciado de provider e piloto interno real de M3-10.
+
+### 2026-07-17, VISUAL-01 concluído
+
+- Landing pública refeita em `apps/portal/src/app/page.tsx` com narrativa de conversão, hero visual, CTAs para demo e signup, seções de vendas/onboarding/customer success, fluxo de governança e CTA final.
+- Sistema visual premium aplicado em `apps/portal/src/app/globals.css`: obsidiana, indigo, violeta e coral, grid ambiental, cards com hover, botões com sheen, reveal on scroll, infográfico orbital e responsividade mobile.
+- Asset autoral de digital human adicionado em `apps/portal/public/assets/digital-human/hero-presenter.png` e usado também na imagem de compartilhamento da landing.
+- Componente `apps/portal/src/components/reveal-on-scroll.tsx` implementa entrada progressiva por viewport e respeita `prefers-reduced-motion`.
+- Workspace interno recebeu continuidade visual em `apps/portal/src/app/(app)/dashboard/page.tsx`, com command surface, métricas com acentos por categoria e hierarquia operacional preservando os dados reais do tenant demo.
+- Validação: `pnpm lint`, `pnpm build`, `pnpm --filter @axtro/portal run typecheck`, `pnpm --filter @axtro/portal run build` e `git diff --check` verdes; validação visual no navegador em desktop, mobile 390px, landing completa e dashboard autenticado.
+- Nenhuma mudança em contratos, auth, isolamento de tenant, providers ou migrations. Nenhuma credencial foi adicionada ao repositório.

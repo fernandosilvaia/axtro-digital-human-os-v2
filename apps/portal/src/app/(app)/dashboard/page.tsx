@@ -30,14 +30,18 @@ export default async function DashboardPage() {
 
   return (
     <>
-      <header style={{ marginBottom: 22 }}>
-        <h1 style={{ fontSize: "1.4rem" }}>Visão geral</h1>
-        <p className="subtitle" style={{ color: "var(--text-muted)", margin: "4px 0 0" }}>
-          {tenant ? tenant.legal_name : "Sua conta"} · <StatusBadge status={tenant?.status ?? "trial"} />
-        </p>
+      <header className="workspace-hero">
+        <div>
+          <span className="workspace-eyebrow"><span className="eyebrow-pulse" /> Control plane / overview</span>
+          <h1>O palco está pronto para a próxima conversa.</h1>
+          <p>
+            {tenant ? tenant.legal_name : "Sua conta"} <span className="workspace-divider">/</span> operação em modo de configuração
+          </p>
+        </div>
+        <div className="workspace-status"><span className="status-dot status-dot-live" /> <StatusBadge status={tenant?.status ?? "trial"} /></div>
       </header>
 
-      <div className="grid grid-4" style={{ marginBottom: 24 }}>
+      <div className="grid grid-4 workspace-metrics" style={{ marginBottom: 24 }}>
         {METRICS.map((metric) => (
           <div key={metric.key} className="card card-hover">
             <span className="metric-label">{metric.label}</span>
@@ -47,9 +51,10 @@ export default async function DashboardPage() {
         ))}
       </div>
 
-      <div className="grid grid-2">
-        <section className="card" aria-labelledby="proximos-passos">
+      <div className="workspace-grid">
+        <section className="card workspace-primary" aria-labelledby="proximos-passos">
           <h2 id="proximos-passos" className="section-title">Primeiros passos</h2>
+          <p className="workspace-section-lead">Configure os blocos que transformam presença em operação.</p>
           <ol style={{ margin: 0, paddingLeft: 20, color: "var(--text-muted)", fontSize: "0.9rem", display: "grid", gap: 10 }}>
             <li>
               <strong style={{ color: "var(--text)" }}>Revise os dados da conta</strong> em Configurações — nome, idioma e fuso horário padrão.
@@ -68,7 +73,7 @@ export default async function DashboardPage() {
           )}
         </section>
 
-        <section className="card" aria-labelledby="dados-conta">
+        <section className="card workspace-side" aria-labelledby="dados-conta">
           <h2 id="dados-conta" className="section-title">Dados da conta</h2>
           {tenant ? (
             <dl style={{ margin: 0, display: "grid", gap: 10, fontSize: "0.88rem" }}>
