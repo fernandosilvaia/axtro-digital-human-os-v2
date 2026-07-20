@@ -1,0 +1,4 @@
+
+# Playwright e2e artifacts
+apps/portal/test-results/
+apps/portal/playwright-report/

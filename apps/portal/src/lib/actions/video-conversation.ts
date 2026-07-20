@@ -3,6 +3,7 @@
 import { createUuidV7 } from "@axtro/domain";
 import { createTavusVideoConversationPort, VideoProviderError } from "@axtro/provider-tavus";
 
+import { fakeProvidersEnabled } from "@/lib/knowledge";
 import { fetchAgents, fetchTenantOverview } from "@/lib/portal-data";
 import { buildDeckContext, buildPlatformDeck, buildSalesDeck, type Deck } from "@/lib/presentation/deck";
 import { createClient } from "@/lib/supabase/server";
@@ -17,6 +18,8 @@ export interface PresentationConversationResult {
   readonly conversationId: string | null;
   readonly deck: Deck | null;
   readonly error: string | null;
+  /** Modo demonstração sem provider de vídeo: deck navegável manualmente. */
+  readonly simulated?: boolean;
 }
 
 interface AgentVideoConfig {
@@ -119,7 +122,8 @@ export async function startVideoConversation(agentId: string): Promise<VideoConv
  */
 export async function startPresentationConversation(agentId: string): Promise<PresentationConversationResult> {
   const apiKey = process.env.TAVUS_API_KEY ?? "";
-  if (apiKey.trim().length === 0) {
+  const fakeMode = fakeProvidersEnabled();
+  if (apiKey.trim().length === 0 && !fakeMode) {
     return { url: null, conversationId: null, deck: null, error: "O provider de vídeo ainda não está configurado neste ambiente." };
   }
 
@@ -135,14 +139,21 @@ export async function startPresentationConversation(agentId: string): Promise<Pr
   const supabase = await createClient();
   const { data: configData } = await supabase.rpc("portal_agent_video_config", { p_agent_id: agentId });
   const config = (configData ?? { configured: false }) as AgentVideoConfig;
-  if (!config.configured || !config.persona_id) {
-    return { url: null, conversationId: null, deck: null, error: "Este agente ainda não tem persona de vídeo configurada — o modo apresentação exige uma." };
-  }
   const language: "portuguese" | "english" = config.language === "english" ? "english" : "portuguese";
 
   const deck = agent.name.startsWith("Aurora")
     ? buildPlatformDeck(firstName(agent.name))
     : buildSalesDeck({ agentName: firstName(agent.name), tenantName: overview.tenant.legal_name, language });
+
+  // Modo demonstração (T3): sem sala de vídeo real — o deck volta navegável
+  // manualmente, sem tocar o provider nem o ledger.
+  if (fakeMode) {
+    return { url: null, conversationId: "simulated", deck, error: null, simulated: true };
+  }
+  const personaId = config.configured ? config.persona_id ?? null : null;
+  if (!personaId) {
+    return { url: null, conversationId: null, deck: null, error: "Este agente ainda não tem persona de vídeo configurada — o modo apresentação exige uma." };
+  }
 
   // Digest menor que no modo livre: o roteiro do deck divide o mesmo teto de
   // 6000 chars do conversational_context do adapter.
@@ -166,7 +177,7 @@ export async function startPresentationConversation(agentId: string): Promise<Pr
   const port = createTavusVideoConversationPort({ apiKey });
   try {
     const conversation = await port.createConversation({
-      personaId: config.persona_id,
+      personaId,
       conversationName: `apresentacao-${agent.id.slice(0, 8)}`,
       conversationalContext,
       language,

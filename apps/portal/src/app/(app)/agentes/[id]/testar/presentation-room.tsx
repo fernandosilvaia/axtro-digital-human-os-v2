@@ -39,6 +39,7 @@ export function PresentationRoom({ agentId, agentName }: { agentId: string; agen
   const [deck, setDeck] = useState<Deck | null>(null);
   const [slideIndex, setSlideIndex] = useState(0);
   const [muted, setMuted] = useState(false);
+  const [simulated, setSimulated] = useState(false);
 
   const callRef = useRef<DailyCall | null>(null);
   const conversationIdRef = useRef<string | null>(null);
@@ -115,6 +116,16 @@ export function PresentationRoom({ agentId, agentName }: { agentId: string; agen
     setPhase("starting");
     void (async () => {
       const result = await startPresentationConversation(agentId);
+      if (result.simulated && result.deck) {
+        // Modo demonstração: deck navegável manualmente, sem sala de vídeo.
+        deckRef.current = result.deck;
+        setDeck(result.deck);
+        slideIndexRef.current = 0;
+        setSlideIndex(0);
+        setSimulated(true);
+        setPhase("live");
+        return;
+      }
       if (!result.url || !result.deck) {
         setError(result.error ?? "Erro inesperado.");
         setPhase("idle");
@@ -192,7 +203,7 @@ export function PresentationRoom({ agentId, agentName }: { agentId: string; agen
     return (
       <section className="card" style={{ marginTop: 16, padding: 16 }}>
         <p style={{ margin: 0, color: "var(--text-muted)", fontSize: "0.88rem" }}>
-          Apresentação encerrada. <button type="button" className="btn" onClick={() => { setPhase("idle"); setDeck(null); }} style={{ marginLeft: 8 }}>Nova apresentação</button>
+          Apresentação encerrada. <button type="button" className="btn" onClick={() => { setPhase("idle"); setDeck(null); setSimulated(false); }} style={{ marginLeft: 8 }}>Nova apresentação</button>
         </p>
       </section>
     );
@@ -242,32 +253,56 @@ export function PresentationRoom({ agentId, agentName }: { agentId: string; agen
         </div>
 
         <div style={{ flex: "0 1 280px", display: "flex", flexDirection: "column", gap: 10, minWidth: 240 }}>
-          <video
-            ref={remoteVideoRef}
-            autoPlay
-            playsInline
-            style={{ width: "100%", aspectRatio: "3 / 4", objectFit: "cover", borderRadius: 12, background: "#000" }}
-            aria-label={`Vídeo de ${agentName}`}
-          />
-          <audio ref={remoteAudioRef} autoPlay />
-          <video
-            ref={localVideoRef}
-            autoPlay
-            playsInline
-            muted
-            style={{ width: 96, aspectRatio: "4 / 3", objectFit: "cover", borderRadius: 8, background: "#111", alignSelf: "flex-end" }}
-            aria-label="Sua câmera"
-          />
+          {simulated ? (
+            <div
+              role="note"
+              style={{ width: "100%", aspectRatio: "3 / 4", borderRadius: 12, background: "#0c0c1c", border: "1px dashed rgba(129,120,255,0.35)", display: "flex", alignItems: "center", justifyContent: "center", padding: 18, textAlign: "center", color: "var(--text-muted)", fontSize: "0.82rem" }}
+            >
+              Modo demonstração — sem provider de vídeo. Navegue o deck manualmente para revisar a apresentação de {agentName}.
+            </div>
+          ) : (
+            <>
+              <video
+                ref={remoteVideoRef}
+                autoPlay
+                playsInline
+                style={{ width: "100%", aspectRatio: "3 / 4", objectFit: "cover", borderRadius: 12, background: "#000" }}
+                aria-label={`Vídeo de ${agentName}`}
+              />
+              <audio ref={remoteAudioRef} autoPlay />
+              <video
+                ref={localVideoRef}
+                autoPlay
+                playsInline
+                muted
+                style={{ width: 96, aspectRatio: "4 / 3", objectFit: "cover", borderRadius: 8, background: "#111", alignSelf: "flex-end" }}
+                aria-label="Sua câmera"
+              />
+            </>
+          )}
           <div style={{ display: "flex", gap: 8 }}>
-            <button type="button" className="btn" onClick={toggleMute} style={{ flex: 1 }}>
-              {muted ? "Ativar microfone" : "Silenciar"}
-            </button>
+            {simulated ? (
+              <>
+                <button type="button" className="btn" onClick={() => goTo(slideIndexRef.current - 1)} disabled={slideIndex === 0} style={{ flex: 1 }}>
+                  ← Anterior
+                </button>
+                <button type="button" className="btn btn-primary" onClick={() => goTo(slideIndexRef.current + 1)} disabled={deck !== null && slideIndex >= deck.slides.length - 1} style={{ flex: 1 }}>
+                  Próximo →
+                </button>
+              </>
+            ) : (
+              <button type="button" className="btn" onClick={toggleMute} style={{ flex: 1 }}>
+                {muted ? "Ativar microfone" : "Silenciar"}
+              </button>
+            )}
             <button type="button" className="btn" onClick={leave} style={{ flex: 1, borderColor: "rgba(255,120,120,0.4)", color: "#ff9d9d" }}>
               Encerrar
             </button>
           </div>
           <p style={{ fontSize: "0.74rem", color: "var(--text-faint)", margin: 0 }}>
-            {agentName} controla os slides sozinha durante a conversa. Libere câmera e microfone quando o navegador pedir; a sala encerra em 15 minutos.
+            {simulated
+              ? "Com o provider de vídeo conectado, é a própria agente quem avança os slides enquanto conversa com o cliente."
+              : `${agentName} controla os slides sozinha durante a conversa. Libere câmera e microfone quando o navegador pedir; a sala encerra em 15 minutos.`}
           </p>
         </div>
       </div>

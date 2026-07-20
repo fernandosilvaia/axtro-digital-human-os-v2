@@ -1,0 +1,30 @@
+# TASKS — backlog executável (ordem de impacto)
+
+Atualizado pela execução autônoma. Estado: `[ ]` pendente · `[~]` em curso · `[x]` feito.
+Canônicos de contexto: `docs/PROJECT_AUDIT.md`, `PROGRESS.md`, `RISCOS_E_PENDENCIAS.md`.
+
+## Agora (fluxos visíveis quebrados/incompletos)
+
+- [x] **T1 · Ativação de agente no portal** — RPC `portal_set_agent_status` (admin; `draft→active` exige provider de texto configurado no ambiente e disclosure profile válido; `active→draft` sempre permitido), botão Ativar/Pausar na lista de agentes, texto desatualizado corrigido. Supabase-only 0014 aplicada no live. Testes das guardas.
+- [x] **T2 · E-mail real no convite de equipe** — adapter Resend (`RESEND_API_KEY` server-only), envio no ato do convite (não bloqueante: falha de e-mail não desfaz o convite), template pt-BR com nome do workspace + papel + link de signup, mock automático sem chave (log estruturado). `.env.example` + NEEDS_CONNECTION (chave no Railway).
+- [x] **T3 · Modo mock dos providers do portal** — `PORTAL_FAKE_PROVIDERS=1`: chat responde pelo fake determinístico (sem OpenRouter), vídeo/apresentação retornam sala simulada com deck (sem Tavus), embeddings fake para ingestão local. Permite testar TODOS os fluxos sem chave, alinhado ao fake-first do kernel.
+- [ ] **T4 · E2E Playwright da UI logada** — login com usuário demo (env), dashboard renderiza métricas, criar fonte pendente, abrir sala de teste do agente, chat completo em modo mock, revogar/reativar fonte. Screenshots em falha. Script `pnpm portal:e2e` (local; CI opcional com browsers).
+- [x] **T5 · CI do portal + health check** — job de build/typecheck do portal no workflow; rota `/api/health` pública (excluída do middleware de auth — bug real encontrado e corrigido) com checagem de env não-secreta; smoke test pós-deploy documentado.
+
+## Depois (robustez)
+
+- [ ] **T6 · Rate limit por tenant nas RPCs caras** — contador diário para `portal_ingest_knowledge` (n fontes/dia) e `portal_invite_member` (n convites/dia), espelhando o padrão do cap de tokens.
+- [ ] **T7 · Telemetria** — decidir Sentry vs. log drain do Railway; instrumentar server actions com correlação (sem PII).
+- [ ] **T8 · Rate card de custos** — preencher `unit_cost` real (OpenRouter $/token, Tavus $/conversa, embeddings) e mostrar R$ no painel Uso de IA.
+- [ ] **T9 · Notificação por e-mail nos demais eventos** — reset de status de fonte, agente ativado (para admins do tenant).
+
+## Integrações maiores (dependem de conta/chave — ver docs/NEEDS_CONNECTION.md)
+
+- [ ] **T10 · Telefonia (Telnyx)** — adapter + webhook assinado + mock local; bloqueado por conta/da chave.
+- [ ] **T11 · Meet/Zoom/Teams (Recall.ai)** — idem.
+- [ ] **T12 · Billing (Stripe)** — planos/franquias dependem de decisão comercial (PENDENCIAS_EXTERNAS).
+- [ ] **T13 · Migrar leituras do portal para RLS-por-claim** — dívida D-V2-058, exige sessão dedicada.
+
+## Gates humanos (não são tarefas de engenharia)
+
+- Bake-off credenciado de provider · piloto real M3-10 (20 calls) · DPIA/jurisdição para percepção emocional (ADR-035) · decisão de planos/preços.
