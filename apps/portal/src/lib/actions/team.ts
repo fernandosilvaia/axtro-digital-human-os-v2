@@ -20,6 +20,7 @@ const INVITE_ERROR_MESSAGES: Readonly<Record<string, string>> = {
   "only a tenant_admin can invite members": "Somente administradores podem convidar membros.",
   "invalid email": "E-mail inválido.",
   "invalid role": "Papel inválido.",
+  "daily invite limit reached for this account": "Limite diário de convites da conta atingido. Tente novamente amanhã.",
 };
 
 export async function inviteMember(_prevState: TeamActionState, formData: FormData): Promise<TeamActionState> {

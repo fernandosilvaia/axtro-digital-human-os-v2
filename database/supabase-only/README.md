@@ -30,6 +30,9 @@ Racional completo: D-V2-055, D-V2-056 e D-V2-058 em
 | `0011_knowledge_revocation_video_costs.sql` | sim (2026-07-18) |
 | `0012_portal_usage_summary.sql` | sim (2026-07-18) |
 | `0013_rafaela_video_persona.sql` | sim (2026-07-19, via Management API `database/query`) |
+| `0014_agent_activation.sql` | sim (2026-07-19, via Management API `database/query`) |
+| `0015_rate_limits.sql` | sim (2026-07-20, via Management API `database/query`) |
+| `0016_admin_emails_for_notifications.sql` | sim (2026-07-20, via Management API `database/query`) |
 
 ## Regras
 

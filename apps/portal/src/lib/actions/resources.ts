@@ -4,7 +4,9 @@ import { revalidatePath } from "next/cache";
 
 import { createUuidV7 } from "@axtro/domain";
 
+import { sendAgentActivatedEmail } from "@/lib/email";
 import { chunkContent, contentSha256, embedChunks, MAX_CONTENT_CHARS } from "@/lib/knowledge";
+import { fetchAgents, fetchTenantOverview } from "@/lib/portal-data";
 import { createClient } from "@/lib/supabase/server";
 
 export interface ResourceActionState {
@@ -112,6 +114,9 @@ async function ingestContentForSource(
       p_chunks: chunks,
     });
     if (ingestError) {
+      if (ingestError.message === "daily knowledge ingestion limit reached for this account") {
+        return "o limite diário de ingestões da conta foi atingido — tente novamente amanhã.";
+      }
       return `a ingestão falhou (${ingestError.message}).`;
     }
     const { error: logError } = await supabase.rpc("portal_log_ai_usage", {
@@ -190,6 +195,33 @@ export async function setAgentStatus(
     }
     return { error: `Não foi possível alterar o status: ${error.message}`, done: false };
   }
+
+  // Notificação por e-mail (T9): melhor esforço, nunca desfaz a ativação já
+  // aplicada. Só na ativação (não na pausa) — é a mudança que afeta clientes.
+  if (status === "active") {
+    try {
+      const [overview, agents, adminEmailsResult] = await Promise.all([
+        fetchTenantOverview(),
+        fetchAgents(),
+        supabase.rpc("portal_list_admin_emails"),
+      ]);
+      const agent = agents.find((candidate) => candidate.id === agentId);
+      const admins = (adminEmailsResult.data ?? []) as string[];
+      if (agent && overview.tenant && admins.length > 0) {
+        await sendAgentActivatedEmail({
+          to: admins,
+          workspaceName: overview.tenant.legal_name,
+          agentName: agent.name,
+        });
+      }
+    } catch (notifyError) {
+      console.error(JSON.stringify({
+        event: "agent_activated_email_failed",
+        error: notifyError instanceof Error ? notifyError.name : "unknown",
+      }));
+    }
+  }
+
   revalidatePath("/agentes");
   revalidatePath("/dashboard");
   return { error: null, done: true };

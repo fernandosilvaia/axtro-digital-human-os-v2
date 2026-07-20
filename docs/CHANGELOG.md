@@ -1,5 +1,11 @@
 # CHANGELOG (resumo por onda — detalhes em PROGRESS.md e DECISIONS_LOG.md)
 
+## 2026-07-20 — Rate limiting e notificação de ativação
+
+- **feat(security):** rate limit por tenant nas RPCs caras (20 convites/dia, 30
+  ingestões/dia), sem alterar comportamento existente.
+- **feat(team):** e-mail aos admins do tenant quando um agente é ativado (best-effort).
+
 ## 2026-07-19/20 — Execução autônoma: produto operável de ponta a ponta
 
 - **feat(portal):** ativação/pausa de agente pelo admin (RPC 0014 + botão na lista); texto
