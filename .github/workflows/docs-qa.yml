@@ -55,6 +55,8 @@ jobs:
           cache: pnpm
       - name: Install workspace dependencies
         run: pnpm install --frozen-lockfile
+      - name: Build workspace packages (@axtro/domain, provider adapters, ...)
+        run: pnpm typecheck
       - name: Typecheck portal
         run: pnpm --filter @axtro/portal run typecheck
       - name: Build portal (Next.js)
