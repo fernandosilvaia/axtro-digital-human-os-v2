@@ -51,21 +51,31 @@ test("video persona prompt stays under the latency comfort cap in both languages
   }
 });
 
-test("video persona prompt treats perception as hypothesis, never emotion reading", () => {
+test("video persona prompt mandates emotional mastery with the legal red lines intact (ADR-035)", () => {
   const pt = brain.buildCloserVideoSystemPrompt({ agentName: "R", tenantName: "T" });
-  assert.match(pt, /hipótese, não como fato/);
+  assert.match(pt, /micro-expressões/);
+  assert.match(pt, /linguagem corporal/);
+  assert.match(pt, /Sinais de compra/);
+  assert.match(pt, /nunca para alegar detecção de mentira/);
   assert.match(pt, /Nunca negue ser IA/);
   const en = brain.buildCloserVideoSystemPrompt({ agentName: "A", tenantName: "T", language: "english" });
-  assert.match(en, /hypothesis, not a fact/);
+  assert.match(en, /micro-expressions/);
+  assert.match(en, /body language/);
+  assert.match(en, /never to claim lie detection/);
   assert.match(en, /Never deny being an AI/);
 });
 
-test("perception queries exist per language and avoid emotion claims", () => {
+test("perception queries read emotion, micro-expressions, body language and buying signals (ADR-035)", () => {
   for (const language of ["portuguese", "english"]) {
     const queries = brain.buildPerceptionQueries(language);
-    assert.ok(queries.length >= 3);
+    assert.ok(queries.length >= 6, `${language}: only ${queries.length} queries`);
+    const joined = queries.join(" ");
+    assert.match(joined, /emoção|emotion/i);
+    assert.match(joined, /micro-expressões|micro-expressions/i);
+    assert.match(joined, /corporal|body language/i);
+    assert.match(joined, /sinais de compra|buying signals/i);
     for (const query of queries) {
-      assert.ok(!/raiva|medo|tristeza|anger|fear|sadness/i.test(query), `emotion diagnosis in query: ${query}`);
+      assert.ok(!/mentira|lying|lie|identidade|identity/i.test(query), `forbidden inference in query: ${query}`);
     }
   }
 });

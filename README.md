@@ -91,7 +91,7 @@ ficam fora do caminho crítico de áudio para áudio.
 2. Apenas um Presenter possui a voz da sessão.
 3. Estado estruturado e receipts são a fonte da verdade.
 4. O LLM propõe. Policy, contratos e motores determinísticos decidem.
-5. Percepção gera hipóteses com evidência e expiração, nunca leitura da mente.
+5. Percepção lê expressões, corpo e comportamento para entender o cliente com maestria — declarada no disclosure, com evidência e validade; nunca identificação biométrica oculta nem inferência de atributos protegidos (ADR-035).
 6. O agente se identifica como virtual e não se apresenta como humano.
 7. Toda ação externa passa por contrato, autorização, idempotência e auditoria.
 8. Dados de tenant são isolados por RLS, identidades de serviço e testes negativos.
