@@ -3,6 +3,8 @@
 // mesmo provedor do SMTP de auth (D-V2-063, domínio axtroai.com verificado).
 // Sem RESEND_API_KEY (ou em PORTAL_FAKE_PROVIDERS=1) o envio vira mock
 // logado: o fluxo do produto nunca quebra por falta de chave.
+import { logError as trackError, logEvent } from "@/lib/telemetry";
+
 const RESEND_ENDPOINT = "https://api.resend.com/emails";
 const FROM = "Axtro Digital Human OS <no-reply@axtroai.com>";
 const TIMEOUT_MS = 10_000;
@@ -38,11 +40,7 @@ interface SendHtmlEmailOptions {
 async function sendHtmlEmail(options: SendHtmlEmailOptions): Promise<EmailSendResult> {
   const apiKey = process.env.RESEND_API_KEY ?? "";
   if (apiKey.trim().length === 0 || process.env.PORTAL_FAKE_PROVIDERS === "1") {
-    console.info(JSON.stringify({
-      event: `${options.logEvent}_mocked`,
-      reason: "no_api_key_or_fake_mode",
-      to_count: options.to.length,
-    }));
+    logEvent(`${options.logEvent}_mocked`, { reason: "no_api_key_or_fake_mode", to_count: options.to.length });
     return { sent: false, reason: "mocked_no_key" };
   }
 
@@ -56,15 +54,12 @@ async function sendHtmlEmail(options: SendHtmlEmailOptions): Promise<EmailSendRe
       body: JSON.stringify({ from: FROM, to: options.to, subject: options.subject, html: options.html }),
     });
     if (!response.ok) {
-      console.error(JSON.stringify({ event: `${options.logEvent}_failed`, status: response.status }));
+      trackError(`${options.logEvent}_failed`, new Error(`resend http ${response.status}`));
       return { sent: false, reason: "provider_error" };
     }
     return { sent: true, reason: "sent" };
   } catch (error) {
-    console.error(JSON.stringify({
-      event: `${options.logEvent}_failed`,
-      error: error instanceof Error ? error.name : "unknown",
-    }));
+    trackError(`${options.logEvent}_failed`, error);
     return { sent: false, reason: "provider_error" };
   } finally {
     clearTimeout(timer);

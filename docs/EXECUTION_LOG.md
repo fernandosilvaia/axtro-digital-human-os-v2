@@ -29,6 +29,17 @@ Detalhe técnico por decisão: `docs/operations/DECISIONS_LOG.md`.
   README de `database/supabase-only/` corrigido — faltava a entrada de 0014 do ciclo
   anterior. Validado com o e2e completo (6/6, incluindo o teste que ativa/pausa Bruno).
 
+## Ciclo 3b · 2026-07-20 — Rate limiting, notificação e telemetria (continuação)
+
+- **T6/T9** (já detalhados acima): mergeados no PR #19.
+- **T7 Telemetria:** adapter único `apps/portal/src/lib/telemetry.ts` (`logEvent`/`logError`)
+  com redação automática de chaves/tokens/senhas e de e-mails embutidos em texto livre.
+  Migrados os 17 pontos de `console.error`/`console.info` espalhados em
+  `lib/actions/*.ts` e `lib/email.ts` — sem cobrir com Sentry ainda (decisão de vendor
+  fica pendente em NEEDS_CONNECTION), mas todo log passa por um único ponto redigido e
+  testado (`tests/portal/telemetry.test.mjs`, 4 testes). Colisão de nome resolvida com
+  alias `trackError` onde variáveis locais já se chamavam `logError`.
+
 ## Ciclo 2 · 2026-07-19 — Cérebro Método Silva + percepção emocional
 
 - PR #16 (cérebro, RAG, personas, apresentação) e PR #17 (emenda ADR-035) — mergeados

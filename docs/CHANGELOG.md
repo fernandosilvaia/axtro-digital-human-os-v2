@@ -1,10 +1,12 @@
 # CHANGELOG (resumo por onda — detalhes em PROGRESS.md e DECISIONS_LOG.md)
 
-## 2026-07-20 — Rate limiting e notificação de ativação
+## 2026-07-20 — Rate limiting, notificação de ativação e telemetria
 
 - **feat(security):** rate limit por tenant nas RPCs caras (20 convites/dia, 30
   ingestões/dia), sem alterar comportamento existente.
 - **feat(team):** e-mail aos admins do tenant quando um agente é ativado (best-effort).
+- **feat(observability):** adapter único de telemetria com redação automática de PII;
+  17 pontos de log ad-hoc consolidados, 4 testes novos.
 
 ## 2026-07-19/20 — Execução autônoma: produto operável de ponta a ponta
 

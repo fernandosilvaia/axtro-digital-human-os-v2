@@ -7,6 +7,7 @@ import { fakeProvidersEnabled } from "@/lib/knowledge";
 import { fetchAgents, fetchTenantOverview } from "@/lib/portal-data";
 import { buildDeckContext, buildPlatformDeck, buildSalesDeck, type Deck } from "@/lib/presentation/deck";
 import { createClient } from "@/lib/supabase/server";
+import { logError as trackError } from "@/lib/telemetry";
 
 export interface VideoConversationResult {
   readonly url: string | null;
@@ -56,13 +57,13 @@ export async function startVideoConversation(agentId: string): Promise<VideoConv
   try {
     const { data: digestData, error: digestError } = await supabase.rpc("portal_knowledge_digest", { p_max_chars: 3500 });
     if (digestError) {
-      console.error("portal_knowledge_digest failed", digestError.message);
+      trackError("portal_knowledge_digest_failed", digestError, { agent_id: agentId, mode: "video" });
     } else {
       const digest = (digestData ?? {}) as { content?: string | null };
       knowledgeDigest = typeof digest.content === "string" && digest.content.length > 0 ? digest.content : null;
     }
   } catch (digestUnexpected) {
-    console.error("portal_knowledge_digest failed", digestUnexpected instanceof Error ? digestUnexpected.message : digestUnexpected);
+    trackError("portal_knowledge_digest_failed", digestUnexpected, { agent_id: agentId, mode: "video" });
   }
 
   const personaId = config.configured && config.persona_id ? config.persona_id : undefined;
@@ -99,7 +100,7 @@ export async function startVideoConversation(agentId: string): Promise<VideoConv
     // derrubar a chamada já criada — mas fica visível no servidor.
     const { error: logError } = await supabase.rpc("portal_log_video_usage", { p_id: createUuidV7() });
     if (logError) {
-      console.error("portal_log_video_usage failed", logError.message);
+      trackError("portal_log_video_usage_failed", logError, { agent_id: agentId, mode: "video" });
     }
     return { url: conversation.conversationUrl, error: null };
   } catch (error) {
@@ -161,13 +162,13 @@ export async function startPresentationConversation(agentId: string): Promise<Pr
   try {
     const { data: digestData, error: digestError } = await supabase.rpc("portal_knowledge_digest", { p_max_chars: 2400 });
     if (digestError) {
-      console.error("portal_knowledge_digest failed", digestError.message);
+      trackError("portal_knowledge_digest_failed", digestError, { agent_id: agentId, mode: "presentation" });
     } else {
       const digest = (digestData ?? {}) as { content?: string | null };
       knowledgeDigest = typeof digest.content === "string" && digest.content.length > 0 ? digest.content : null;
     }
   } catch (digestUnexpected) {
-    console.error("portal_knowledge_digest failed", digestUnexpected instanceof Error ? digestUnexpected.message : digestUnexpected);
+    trackError("portal_knowledge_digest_failed", digestUnexpected, { agent_id: agentId, mode: "presentation" });
   }
 
   const contextParts = [buildDeckContext(deck, language)];
@@ -185,7 +186,7 @@ export async function startPresentationConversation(agentId: string): Promise<Pr
     });
     const { error: logError } = await supabase.rpc("portal_log_video_usage", { p_id: createUuidV7() });
     if (logError) {
-      console.error("portal_log_video_usage failed", logError.message);
+      trackError("portal_log_video_usage_failed", logError, { agent_id: agentId, mode: "presentation" });
     }
     return { url: conversation.conversationUrl, conversationId: conversation.conversationId, deck, error: null };
   } catch (error) {
