@@ -4,10 +4,18 @@ import { createUuidV7 } from "@axtro/domain";
 import { createTavusVideoConversationPort, VideoProviderError } from "@axtro/provider-tavus";
 
 import { fetchAgents, fetchTenantOverview } from "@/lib/portal-data";
+import { buildDeckContext, buildPlatformDeck, buildSalesDeck, type Deck } from "@/lib/presentation/deck";
 import { createClient } from "@/lib/supabase/server";
 
 export interface VideoConversationResult {
   readonly url: string | null;
+  readonly error: string | null;
+}
+
+export interface PresentationConversationResult {
+  readonly url: string | null;
+  readonly conversationId: string | null;
+  readonly deck: Deck | null;
   readonly error: string | null;
 }
 
@@ -99,6 +107,81 @@ export async function startVideoConversation(agentId: string): Promise<VideoConv
       return { url: null, error: "Não foi possível iniciar a conversa em vídeo agora." };
     }
     return { url: null, error: "Erro inesperado ao iniciar o vídeo." };
+  }
+}
+
+/**
+ * Sala de APRESENTAÇÃO: a agente conduz um deck de slides ao vivo (tools
+ * next_slide/previous_slide/go_to_slide anexadas à persona) enquanto vende
+ * pela Reunião Silva. Exige persona configurada — o modo réplica não tem
+ * tools. O digest de conhecimento divide o teto de 6000 chars do contexto
+ * com o roteiro do deck.
+ */
+export async function startPresentationConversation(agentId: string): Promise<PresentationConversationResult> {
+  const apiKey = process.env.TAVUS_API_KEY ?? "";
+  if (apiKey.trim().length === 0) {
+    return { url: null, conversationId: null, deck: null, error: "O provider de vídeo ainda não está configurado neste ambiente." };
+  }
+
+  const [overview, agents] = await Promise.all([fetchTenantOverview(), fetchAgents()]);
+  if (!overview.provisioned || !overview.tenant) {
+    return { url: null, conversationId: null, deck: null, error: "Conta ainda não provisionada." };
+  }
+  const agent = agents.find((candidate) => candidate.id === agentId);
+  if (!agent) {
+    return { url: null, conversationId: null, deck: null, error: "Agente não encontrado nesta conta." };
+  }
+
+  const supabase = await createClient();
+  const { data: configData } = await supabase.rpc("portal_agent_video_config", { p_agent_id: agentId });
+  const config = (configData ?? { configured: false }) as AgentVideoConfig;
+  if (!config.configured || !config.persona_id) {
+    return { url: null, conversationId: null, deck: null, error: "Este agente ainda não tem persona de vídeo configurada — o modo apresentação exige uma." };
+  }
+  const language: "portuguese" | "english" = config.language === "english" ? "english" : "portuguese";
+
+  const deck = agent.name.startsWith("Aurora")
+    ? buildPlatformDeck(firstName(agent.name))
+    : buildSalesDeck({ agentName: firstName(agent.name), tenantName: overview.tenant.legal_name, language });
+
+  // Digest menor que no modo livre: o roteiro do deck divide o mesmo teto de
+  // 6000 chars do conversational_context do adapter.
+  let knowledgeDigest: string | null = null;
+  try {
+    const { data: digestData, error: digestError } = await supabase.rpc("portal_knowledge_digest", { p_max_chars: 2400 });
+    if (digestError) {
+      console.error("portal_knowledge_digest failed", digestError.message);
+    } else {
+      const digest = (digestData ?? {}) as { content?: string | null };
+      knowledgeDigest = typeof digest.content === "string" && digest.content.length > 0 ? digest.content : null;
+    }
+  } catch (digestUnexpected) {
+    console.error("portal_knowledge_digest failed", digestUnexpected instanceof Error ? digestUnexpected.message : digestUnexpected);
+  }
+
+  const contextParts = [buildDeckContext(deck, language)];
+  if (knowledgeDigest) contextParts.push("", buildKnowledgeContext(knowledgeDigest));
+  const conversationalContext = contextParts.join("\n").slice(0, 5900);
+
+  const port = createTavusVideoConversationPort({ apiKey });
+  try {
+    const conversation = await port.createConversation({
+      personaId: config.persona_id,
+      conversationName: `apresentacao-${agent.id.slice(0, 8)}`,
+      conversationalContext,
+      language,
+      maxCallDurationSeconds: 900,
+    });
+    const { error: logError } = await supabase.rpc("portal_log_video_usage", { p_id: createUuidV7() });
+    if (logError) {
+      console.error("portal_log_video_usage failed", logError.message);
+    }
+    return { url: conversation.conversationUrl, conversationId: conversation.conversationId, deck, error: null };
+  } catch (error) {
+    if (error instanceof VideoProviderError && error.code === "provider_rejected") {
+      return { url: null, conversationId: null, deck: null, error: "O provider de vídeo recusou a chamada (limite de conversas simultâneas ou créditos). Tente novamente em instantes." };
+    }
+    return { url: null, conversationId: null, deck: null, error: "Não foi possível iniciar a apresentação agora." };
   }
 }
 

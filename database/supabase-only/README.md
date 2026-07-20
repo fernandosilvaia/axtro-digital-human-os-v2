@@ -29,6 +29,7 @@ Racional completo: D-V2-055, D-V2-056 e D-V2-058 em
 | `0010_knowledge_ingestion_rag.sql` | sim (2026-07-17) |
 | `0011_knowledge_revocation_video_costs.sql` | sim (2026-07-18) |
 | `0012_portal_usage_summary.sql` | sim (2026-07-18) |
+| `0013_rafaela_video_persona.sql` | sim (2026-07-19, via Management API `database/query`) |
 
 ## Regras
 

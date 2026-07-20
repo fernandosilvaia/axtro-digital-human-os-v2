@@ -1,6 +1,13 @@
 # Riscos e pendências
 
-**Atualizado:** 2026-07-16 (noite) · **Branch:** `main`
+**Atualizado:** 2026-07-19 · **Branch:** `main`
+
+## Notas de 2026-07-19 (Cérebro Método Silva)
+
+- Créditos conversacionais do Tavus voltaram a funcionar: conversa real criada e encerrada no e2e (D-V2-074). O esgotamento de D-V2-067 não se reproduziu — monitorar o consumo pelas conversas do painel Uso de IA.
+- Validação de UI logada (chat e sala de apresentação no navegador) pendente de um teste humano: a sessão autônoma validou o pipeline por API (mesmos RPCs, mesmo modelo, mesmos prompts) e viu a Rafaela ao vivo na sala Daily, mas não digitou credenciais no formulário de login por política. Falta o Fernando abrir `/agentes/<id>/testar` logado e rodar uma apresentação completa com microfone.
+- O Caso Modelo ContaLeve (empresa fictícia) ficou fora do RAG de propósito — se algum dia for ingerido, precisa de classificação/rotulagem que impeça a agente de citar os preços fictícios como fatos da conta.
+- `apps/portal/tmp/` guarda os scripts operacionais da sessão (ingestão, setup de personas, e2e) — são gitignored e re-executáveis; a chave ElevenLabs nunca foi gravada em disco (só env var via Doppler).
 
 ## Pendências com gate humano (não são bugs)
 

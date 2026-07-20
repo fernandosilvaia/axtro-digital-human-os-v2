@@ -7,6 +7,7 @@ import {
   type TextGenerationMessage,
 } from "@axtro/provider-openrouter";
 
+import { buildCloserChatSystemMessages } from "@/lib/brain/metodo-silva";
 import { embedQuery, type KnowledgeMatch } from "@/lib/knowledge";
 import { fetchAgents, fetchTenantOverview } from "@/lib/portal-data";
 import { createClient } from "@/lib/supabase/server";
@@ -101,11 +102,17 @@ export async function sendAgentPreviewMessage(
     console.error("knowledge retrieval failed", retrievalError instanceof Error ? retrievalError.message : retrievalError);
   }
 
-  // O bloco de fontes vai numa segunda mensagem system: o cap de 4000 chars
-  // do adapter é POR mensagem, e prompt base + chunks juntos não cabem.
+  // Cérebro Método Silva em duas mensagens system (identidade + método) e o
+  // bloco de fontes numa terceira: o cap de 4000 chars do adapter é POR
+  // mensagem, e prompt base + método + chunks juntos não cabem numa só.
   const knowledgeBlock = buildKnowledgeBlock(knowledgeMatches);
+  const brainMessages = buildCloserChatSystemMessages({
+    agentName: agent.name,
+    tenantName: overview.tenant.legal_name,
+    hasKnowledge: knowledgeMatches.length > 0,
+  });
   const messages: TextGenerationMessage[] = [
-    { role: "system", content: buildSystemPrompt(agent.name, overview.tenant.legal_name, knowledgeMatches.length > 0) },
+    ...brainMessages.map((content) => ({ role: "system" as const, content })),
     ...(knowledgeBlock ? [{ role: "system" as const, content: knowledgeBlock }] : []),
     ...history.slice(-MAX_HISTORY_TURNS * 2).map((turn) => ({ role: turn.role, content: turn.content })),
     { role: "user", content: message },
@@ -169,23 +176,3 @@ function buildKnowledgeBlock(knowledgeMatches: readonly KnowledgeMatch[]): strin
   return lines.length > 1 ? lines.join("\n") : null;
 }
 
-function buildSystemPrompt(
-  agentName: string,
-  tenantLegalName: string,
-  hasKnowledge: boolean,
-): string {
-  const lines = [
-    `Você é "${agentName}", vendedora digital (Sales Closer) da conta "${tenantLegalName}" na plataforma Axtro Digital Human OS.`,
-    "Este é um AMBIENTE DE TESTE (sandbox) usado pelo operador da conta para avaliar seu comportamento antes de qualquer contato com clientes reais.",
-    "PERSONALIDADE: calorosa e consultiva — escuta, valida o que ouviu e só então avança. Confiança tranquila, nunca arrogância.",
-    "FECHAMENTO FIRME: a cada sinal de interesse ou objeção resolvida, peça o compromisso com clareza (agendar visita/conversa, receber a proposta). Não espere o cliente pedir; conduza. Se recusar, entenda o porquê e tente um fechamento alternativo antes de recuar.",
-    "Regras invioláveis:",
-    "1. Você é uma agente de IA e nunca finge ser humana. Se perguntarem, confirme com naturalidade em uma frase e volte pra venda.",
-    hasKnowledge
-      ? "2. As FONTES AUTORIZADAS (mensagem seguinte) são sua ÚNICA fonte de fatos sobre produtos, preços, condições, impostos, créditos e políticas desta conta — NUNCA responda esses temas de memória geral, nem que pareça óbvio. O que não estiver nas fontes, diga com naturalidade que confirma com o time e transforme em avanço (\"te trago esse detalhe na proposta; posso agendar?\"). Nunca invente números."
-      : "2. Nenhuma fonte de conhecimento da conta está conectada a este teste: NÃO cite preços, faixas, condições ou características específicas — quando pedirem valor, transforme em avanço (\"o número exato sai na proposta; posso agendar?\").",
-    "3. Não faça promessas, não feche contratos, não envie nada: este chat não executa ações externas.",
-    "4. Responda no idioma do interlocutor; seja breve (até 2 parágrafos curtos) e termine todo turno conduzindo — pergunta de descoberta, tratamento de objeção ou pedido de fechamento.",
-  ];
-  return lines.join("\n");
-}
