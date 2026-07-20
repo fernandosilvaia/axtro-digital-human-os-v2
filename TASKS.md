@@ -13,10 +13,10 @@ Canônicos de contexto: `docs/PROJECT_AUDIT.md`, `PROGRESS.md`, `RISCOS_E_PENDEN
 
 ## Depois (robustez)
 
-- [ ] **T6 · Rate limit por tenant nas RPCs caras** — contador diário para `portal_ingest_knowledge` (n fontes/dia) e `portal_invite_member` (n convites/dia), espelhando o padrão do cap de tokens.
+- [x] **T6 · Rate limit por tenant nas RPCs caras** — 0015: 20 convites/dia e 30 ingestões/dia por tenant, testado ao vivo (RPCs seguem funcionando normalmente, guarda ativa).
 - [ ] **T7 · Telemetria** — decidir Sentry vs. log drain do Railway; instrumentar server actions com correlação (sem PII).
-- [ ] **T8 · Rate card de custos** — preencher `unit_cost` real (OpenRouter $/token, Tavus $/conversa, embeddings) e mostrar R$ no painel Uso de IA.
-- [ ] **T9 · Notificação por e-mail nos demais eventos** — reset de status de fonte, agente ativado (para admins do tenant).
+- [ ] **T8 · Rate card de custos** — preencher `unit_cost` real (OpenRouter $/token, Tavus $/conversa, embeddings) e mostrar R$ no painel Uso de IA. **Bloqueado**: depende de números reais do Fernando (decisão comercial, não engenharia) — ver NEEDS_CONNECTION.
+- [x] **T9 · Notificação por e-mail em ativação de agente** — 0016 (`portal_list_admin_emails`) + `sendAgentActivatedEmail`, best-effort, testado no e2e (ativar/pausar Bruno dispara e reverte sem quebrar o fluxo).
 
 ## Integrações maiores (dependem de conta/chave — ver docs/NEEDS_CONNECTION.md)
 

@@ -21,6 +21,13 @@ Detalhe técnico por decisão: `docs/operations/DECISIONS_LOG.md`.
   smoke test) — excluída do matcher do `proxy.ts`, verificado com curl e e2e.
 - **Validação:** lint, typecheck (workspace + portal), 418 testes Node + 26 Python, build
   do portal, 9 validadores, secret scan e 6/6 specs Playwright (Chrome real) — todos verdes.
+- **T6 Rate limiting:** 0015 aplicada no live — 20 convites/dia e 30 ingestões/dia por
+  tenant (`create or replace` preservando 100% do comportamento anterior das duas RPCs).
+  Testado ao vivo: convite normal continua funcionando, dado de teste limpo.
+- **T9 Notificação de ativação:** 0016 (`portal_list_admin_emails`, admin-only) +
+  `sendAgentActivatedEmail` no fluxo de ativação, best-effort (nunca desfaz a ativação).
+  README de `database/supabase-only/` corrigido — faltava a entrada de 0014 do ciclo
+  anterior. Validado com o e2e completo (6/6, incluindo o teste que ativa/pausa Bruno).
 
 ## Ciclo 2 · 2026-07-19 — Cérebro Método Silva + percepção emocional
 

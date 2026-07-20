@@ -3,8 +3,6 @@
 // mesmo provedor do SMTP de auth (D-V2-063, domínio axtroai.com verificado).
 // Sem RESEND_API_KEY (ou em PORTAL_FAKE_PROVIDERS=1) o envio vira mock
 // logado: o fluxo do produto nunca quebra por falta de chave.
-import { createHash } from "node:crypto";
-
 const RESEND_ENDPOINT = "https://api.resend.com/emails";
 const FROM = "Axtro Digital Human OS <no-reply@axtroai.com>";
 const TIMEOUT_MS = 10_000;
@@ -28,6 +26,51 @@ function escapeHtml(value: string): string {
     .replaceAll("'", "&#39;");
 }
 
+interface SendHtmlEmailOptions {
+  readonly to: readonly string[];
+  readonly subject: string;
+  readonly html: string;
+  /** Nome do evento no log estruturado de mock/erro (sem PII). */
+  readonly logEvent: string;
+}
+
+/** Núcleo de envio compartilhado — mock sem chave, timeout, log sem PII. */
+async function sendHtmlEmail(options: SendHtmlEmailOptions): Promise<EmailSendResult> {
+  const apiKey = process.env.RESEND_API_KEY ?? "";
+  if (apiKey.trim().length === 0 || process.env.PORTAL_FAKE_PROVIDERS === "1") {
+    console.info(JSON.stringify({
+      event: `${options.logEvent}_mocked`,
+      reason: "no_api_key_or_fake_mode",
+      to_count: options.to.length,
+    }));
+    return { sent: false, reason: "mocked_no_key" };
+  }
+
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), TIMEOUT_MS);
+  try {
+    const response = await fetch(RESEND_ENDPOINT, {
+      method: "POST",
+      signal: controller.signal,
+      headers: { Authorization: `Bearer ${apiKey}`, "Content-Type": "application/json" },
+      body: JSON.stringify({ from: FROM, to: options.to, subject: options.subject, html: options.html }),
+    });
+    if (!response.ok) {
+      console.error(JSON.stringify({ event: `${options.logEvent}_failed`, status: response.status }));
+      return { sent: false, reason: "provider_error" };
+    }
+    return { sent: true, reason: "sent" };
+  } catch (error) {
+    console.error(JSON.stringify({
+      event: `${options.logEvent}_failed`,
+      error: error instanceof Error ? error.name : "unknown",
+    }));
+    return { sent: false, reason: "provider_error" };
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
 /**
  * E-mail de convite de equipe (modelo e-mail pré-aprovado, D-V2-060): avisa o
  * convidado para criar a conta com ESTE e-mail — o provisionamento o coloca
@@ -38,21 +81,8 @@ export async function sendInviteEmail(options: {
   readonly workspaceName: string;
   readonly role: string;
 }): Promise<EmailSendResult> {
-  const apiKey = process.env.RESEND_API_KEY ?? "";
   const signupUrl = `${process.env.PORTAL_PUBLIC_URL ?? "https://portal-production-b43e.up.railway.app"}/signup`;
   const roleLabel = ROLE_LABELS[options.role] ?? options.role;
-
-  if (apiKey.trim().length === 0 || process.env.PORTAL_FAKE_PROVIDERS === "1") {
-    // Log estruturado sem PII: destinatário vira hash curto, correlacionável
-    // sem expor o e-mail.
-    console.info(JSON.stringify({
-      event: "invite_email_mocked",
-      reason: "no_api_key_or_fake_mode",
-      to_hash: createHash("sha256").update(options.to.toLowerCase(), "utf8").digest("hex").slice(0, 12),
-    }));
-    return { sent: false, reason: "mocked_no_key" };
-  }
-
   const workspace = escapeHtml(options.workspaceName);
   const html = [
     `<div style="font-family:system-ui,-apple-system,sans-serif;max-width:520px;margin:0 auto;padding:24px">`,
@@ -64,32 +94,42 @@ export async function sendInviteEmail(options: {
     `</div>`,
   ].join("");
 
-  const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), TIMEOUT_MS);
-  try {
-    const response = await fetch(RESEND_ENDPOINT, {
-      method: "POST",
-      signal: controller.signal,
-      headers: { Authorization: `Bearer ${apiKey}`, "Content-Type": "application/json" },
-      body: JSON.stringify({
-        from: FROM,
-        to: [options.to],
-        subject: `Convite: workspace ${options.workspaceName} no Axtro Digital Human OS`,
-        html,
-      }),
-    });
-    if (!response.ok) {
-      console.error(JSON.stringify({ event: "invite_email_failed", status: response.status }));
-      return { sent: false, reason: "provider_error" };
-    }
-    return { sent: true, reason: "sent" };
-  } catch (error) {
-    console.error(JSON.stringify({
-      event: "invite_email_failed",
-      error: error instanceof Error ? error.name : "unknown",
-    }));
-    return { sent: false, reason: "provider_error" };
-  } finally {
-    clearTimeout(timer);
+  return sendHtmlEmail({
+    to: [options.to],
+    subject: `Convite: workspace ${options.workspaceName} no Axtro Digital Human OS`,
+    html,
+    logEvent: "invite_email",
+  });
+}
+
+/**
+ * E-mail aos admins do tenant quando um agente é ativado (T9): visibilidade
+ * de mudança de estado que afeta o que os clientes veem. Best-effort — nunca
+ * desfaz a ativação já aplicada no banco.
+ */
+export async function sendAgentActivatedEmail(options: {
+  readonly to: readonly string[];
+  readonly workspaceName: string;
+  readonly agentName: string;
+}): Promise<EmailSendResult> {
+  if (options.to.length === 0) {
+    return { sent: false, reason: "mocked_no_key" };
   }
+  const dashboardUrl = `${process.env.PORTAL_PUBLIC_URL ?? "https://portal-production-b43e.up.railway.app"}/agentes`;
+  const agent = escapeHtml(options.agentName);
+  const workspace = escapeHtml(options.workspaceName);
+  const html = [
+    `<div style="font-family:system-ui,-apple-system,sans-serif;max-width:520px;margin:0 auto;padding:24px">`,
+    `<h2 style="font-size:18px;margin:0 0 12px">Agente ativado em ${workspace}</h2>`,
+    `<p style="color:#444;line-height:1.5;margin:0 0 18px"><strong>${agent}</strong> foi ativado e já pode conversar com clientes usando o conhecimento conectado da conta.</p>`,
+    `<p style="margin:0 0 18px"><a href="${dashboardUrl}" style="background:#5b4dff;color:#fff;text-decoration:none;padding:11px 20px;border-radius:8px;display:inline-block">Ver agentes</a></p>`,
+    `</div>`,
+  ].join("");
+
+  return sendHtmlEmail({
+    to: options.to,
+    subject: `${options.agentName} foi ativado — ${options.workspaceName}`,
+    html,
+    logEvent: "agent_activated_email",
+  });
 }
