@@ -8,7 +8,7 @@ import {
 } from "@axtro/provider-openrouter";
 
 import { buildCloserChatSystemMessages } from "@/lib/brain/metodo-silva";
-import { embedQuery, type KnowledgeMatch } from "@/lib/knowledge";
+import { embedQuery, fakeProvidersEnabled, type KnowledgeMatch } from "@/lib/knowledge";
 import { fetchAgents, fetchTenantOverview } from "@/lib/portal-data";
 import { createClient } from "@/lib/supabase/server";
 
@@ -49,7 +49,7 @@ export async function sendAgentPreviewMessage(
   }
 
   const apiKey = process.env.OPENROUTER_API_KEY ?? "";
-  if (apiKey.trim().length === 0) {
+  if (apiKey.trim().length === 0 && !fakeProvidersEnabled()) {
     return { reply: null, error: "O provider de linguagem ainda não está configurado neste ambiente." };
   }
 
@@ -61,6 +61,21 @@ export async function sendAgentPreviewMessage(
   const agent = agents.find((candidate) => candidate.id === agentId);
   if (!agent) {
     return { reply: null, error: "Agente não encontrado nesta conta." };
+  }
+
+  // Modo demonstração (T3): resposta determinística no formato da Reunião
+  // Silva, sem provider e sem tocar o ledger — todos os fluxos de UI ficam
+  // testáveis sem chave.
+  if (fakeProvidersEnabled()) {
+    const topic = message.slice(0, 80).replace(/\s+/g, " ").trim();
+    return {
+      reply: [
+        `Entendo o que você trouxe sobre "${topic}" — faz sentido olharmos isso com calma.`,
+        "Pra eu te ajudar do jeito certo: hoje, como vocês lidam com isso — e o que te fez buscar uma solução agora?",
+        "(resposta simulada — modo demonstração sem provider)",
+      ].join(" "),
+      error: null,
+    };
   }
 
   const supabase = await createClient();

@@ -3,6 +3,7 @@ import type { Metadata } from "next";
 import { fetchAgents, fetchTenantOverview } from "@/lib/portal-data";
 import { StatusBadge } from "@/components/status-badge";
 
+import { AgentStatusToggle } from "./agent-status-toggle";
 import { CreateAgentForm } from "./create-agent-form";
 
 export const metadata: Metadata = { title: "Agentes — Axtro Digital Human OS" };
@@ -43,7 +44,7 @@ export default async function AgentsPage() {
           <h3>Nenhum agente ainda</h3>
           <p>
             {isAdmin
-              ? "Crie o primeiro agente como rascunho abaixo. A ativação é liberada quando os provedores de voz e avatar forem conectados."
+              ? "Crie o primeiro agente como rascunho abaixo e ative quando quiser: o cérebro de vendas e as fontes de conhecimento da conta já ficam disponíveis no ambiente de teste."
               : "Nenhum agente foi criado nesta conta ainda. Peça a um administrador para criar o primeiro rascunho."}
           </p>
         </div>
@@ -67,10 +68,11 @@ export default async function AgentsPage() {
                     <td>{ROLE_TYPE_LABELS[agent.role_type] ?? agent.role_type}</td>
                     <td><StatusBadge status={agent.status} /></td>
                     <td>{new Date(agent.created_at).toLocaleDateString("pt-BR")}</td>
-                    <td>
+                    <td style={{ display: "flex", gap: 8, alignItems: "flex-start" }}>
                       <a className="btn btn-ghost" href={`/agentes/${agent.id}/testar`} style={{ padding: "5px 11px", fontSize: "0.8rem" }}>
                         Testar
                       </a>
+                      {isAdmin && <AgentStatusToggle agentId={agent.id} status={agent.status} />}
                     </td>
                   </tr>
                 ))}

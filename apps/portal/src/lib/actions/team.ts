@@ -2,11 +2,15 @@
 
 import { revalidatePath } from "next/cache";
 
+import { sendInviteEmail } from "@/lib/email";
+import { fetchTenantOverview } from "@/lib/portal-data";
 import { createClient } from "@/lib/supabase/server";
 
 export interface TeamActionState {
   readonly error: string | null;
   readonly done: boolean;
+  /** true quando o e-mail de convite foi de fato enviado ao convidado. */
+  readonly emailSent?: boolean;
 }
 
 const INVITE_ERROR_MESSAGES: Readonly<Record<string, string>> = {
@@ -33,8 +37,26 @@ export async function inviteMember(_prevState: TeamActionState, formData: FormDa
     return { error: INVITE_ERROR_MESSAGES[error.message] ?? `Não foi possível convidar: ${error.message}`, done: false };
   }
 
+  // Notificação por e-mail (T2): melhor esforço — o convite já está válido no
+  // banco; falha de e-mail nunca o desfaz, só muda a mensagem de sucesso.
+  let emailSent = false;
+  try {
+    const overview = await fetchTenantOverview();
+    const result = await sendInviteEmail({
+      to: email,
+      workspaceName: overview.tenant?.legal_name ?? "Axtro Digital Human OS",
+      role,
+    });
+    emailSent = result.sent;
+  } catch (emailError) {
+    console.error(JSON.stringify({
+      event: "invite_email_failed",
+      error: emailError instanceof Error ? emailError.name : "unknown",
+    }));
+  }
+
   revalidatePath("/configuracoes");
-  return { error: null, done: true };
+  return { error: null, done: true, emailSent };
 }
 
 export async function revokeInvite(formData: FormData): Promise<void> {

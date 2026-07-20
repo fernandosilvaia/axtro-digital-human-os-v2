@@ -33,7 +33,9 @@ export function InviteForm() {
       {state.error && <p className="form-error" role="alert" style={{ margin: "10px 0 0" }}>{state.error}</p>}
       {state.done && !state.error && (
         <p className="saved-flag" role="status" style={{ marginTop: 10 }}>
-          ✓ Convite registrado — a pessoa entra no seu espaço ao criar a conta com esse e-mail.
+          {state.emailSent
+            ? "✓ Convite registrado e e-mail enviado — a pessoa entra no seu espaço ao criar a conta com esse e-mail."
+            : "✓ Convite registrado — avise a pessoa para criar a conta com esse e-mail (o envio automático de e-mail não está configurado neste ambiente)."}
         </p>
       )}
     </form>

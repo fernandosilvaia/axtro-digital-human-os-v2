@@ -18,6 +18,37 @@ export const MAX_CONTENT_CHARS = 80_000;
 const TARGET_CHUNK_CHARS = 1200;
 const EMBED_BATCH_SIZE = 32;
 
+/** Modo demonstração sem chaves (T3): providers viram fakes determinísticos. */
+export function fakeProvidersEnabled(): boolean {
+  return process.env.PORTAL_FAKE_PROVIDERS === "1";
+}
+
+/**
+ * Embedding fake determinístico: sha256 do texto semeia um PRNG xorshift que
+ * preenche as 1536 dimensões, normalizadas. Texto idêntico → vetor idêntico,
+ * então ingestão + busca continuam funcionais sem provider real (mesma
+ * disciplina dos fakes do kernel M0-M2).
+ */
+function fakeEmbedding(text: string): number[] {
+  const digest = createHash("sha256").update(text, "utf8").digest();
+  let state = digest.readUInt32BE(0) || 0x9e3779b9;
+  const vector = new Array<number>(EMBEDDING_DIMENSIONS);
+  let norm = 0;
+  for (let index = 0; index < EMBEDDING_DIMENSIONS; index += 1) {
+    state ^= state << 13; state >>>= 0;
+    state ^= state >> 17;
+    state ^= state << 5; state >>>= 0;
+    const value = (state / 0xffffffff) * 2 - 1;
+    vector[index] = value;
+    norm += value * value;
+  }
+  norm = Math.sqrt(norm) || 1;
+  for (let index = 0; index < EMBEDDING_DIMENSIONS; index += 1) {
+    vector[index] = Number(((vector[index] ?? 0) / norm).toFixed(8));
+  }
+  return vector;
+}
+
 /**
  * Quebra o conteúdo em chunks de até ~1200 chars respeitando parágrafos:
  * parágrafos curtos são agrupados, parágrafos longos são fatiados. Nunca
@@ -78,6 +109,18 @@ export interface EmbeddingRunResult {
 
 /** Gera embeddings em lotes e devolve o payload pronto para `portal_ingest_knowledge`. */
 export async function embedChunks(apiKey: string, texts: readonly string[]): Promise<EmbeddingRunResult> {
+  if (fakeProvidersEnabled()) {
+    return {
+      chunks: texts.map((text, index) => ({
+        i: index,
+        t: text,
+        cid: createUuidV7(),
+        eid: createUuidV7(),
+        e: fakeEmbedding(text),
+      })),
+      inputTokens: 0,
+    };
+  }
   const port = createOpenRouterEmbeddingPort({
     apiKey,
     appUrl: "https://portal-production-b43e.up.railway.app",
@@ -118,6 +161,9 @@ export interface KnowledgeMatch {
 
 /** Embeda a pergunta e devolve o embedding como array simples (payload do RPC de busca). */
 export async function embedQuery(apiKey: string, query: string): Promise<{ embedding: readonly number[]; inputTokens: number }> {
+  if (fakeProvidersEnabled()) {
+    return { embedding: fakeEmbedding(query.slice(0, 4000)), inputTokens: 0 };
+  }
   const port = createOpenRouterEmbeddingPort({
     apiKey,
     appUrl: "https://portal-production-b43e.up.railway.app",

@@ -159,6 +159,42 @@ export async function updateKnowledgeSourceContent(
   return { error: null, done: true };
 }
 
+/**
+ * Ativação/pausa de agente (T1). A guarda de PROVIDER vive aqui — é
+ * conhecimento do ambiente: ativar exige ao menos o provider de texto
+ * configurado (o chat é a capacidade mínima de um agente ativo). As guardas
+ * de dado (admin, transições, disclosure) vivem na RPC 0014.
+ */
+export async function setAgentStatus(
+  agentId: string,
+  status: "active" | "draft",
+): Promise<ResourceActionState> {
+  if (status !== "active" && status !== "draft") {
+    return { error: "Status inválido.", done: false };
+  }
+  if (status === "active" && (process.env.OPENROUTER_API_KEY ?? "").trim().length === 0
+    && process.env.PORTAL_FAKE_PROVIDERS !== "1") {
+    return { error: "Ative um provider de linguagem antes de ativar agentes neste ambiente.", done: false };
+  }
+  const supabase = await createClient();
+  const { error } = await supabase.rpc("portal_set_agent_status", {
+    p_agent_id: agentId,
+    p_status: status,
+  });
+  if (error) {
+    if (error.message === "only a tenant_admin can change agent status") {
+      return { error: "Somente administradores podem ativar ou pausar agentes.", done: false };
+    }
+    if (error.message === "agent status cannot be changed from its current state") {
+      return { error: "Este agente está num estado que não permite alteração pelo portal.", done: false };
+    }
+    return { error: `Não foi possível alterar o status: ${error.message}`, done: false };
+  }
+  revalidatePath("/agentes");
+  revalidatePath("/dashboard");
+  return { error: null, done: true };
+}
+
 /** Revogação/reativação imediata: fontes 'disabled' somem da busca e do digest na hora. */
 export async function setKnowledgeSourceStatus(
   sourceId: string,
