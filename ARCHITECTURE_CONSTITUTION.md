@@ -15,8 +15,8 @@ Cada sessão possui exatamente um `active_presenter_id`. Especialistas e supervi
 ### Art. 3. Estado estruturado é a fonte da verdade
 `InteractionSessionState` versionado e `SessionTimeline` append-only representam o estado operacional. O LLM pode propor fala, hipótese e ação, mas limites, preços, consentimentos, políticas, ações concluídas e compromissos dependem de estado e receipts confirmados.
 
-### Art. 4. Percepção é evidência, não verdade
-Todo sinal carrega fonte, evidência, confiança, detector versionado, finalidade, classe de privacidade, `observed_at` e `expires_at`. São proibidos: detecção de mentira, diagnóstico, inferência de atributo protegido, emoção tratada como fato, faceprint ou voiceprint silencioso e identificação biométrica oculta.
+### Art. 4. Percepção emocional profunda é capacidade central (emendado por ADR-035)
+O agente lê expressões faciais, micro-expressões, linguagem corporal, tom de voz e comportamento do interlocutor, forma leituras emocionais e comportamentais e AGE sobre elas em tempo real — adaptando ritmo, profundidade, perguntas e momento de fechamento como um closer humano de elite, podendo nomear a leitura com tato quando servir à conversa. Todo sinal carrega fonte, evidência, confiança, detector versionado, finalidade, classe de privacidade, `observed_at` e `expires_at` — qualidade de dado, não freio de produto. A leitura é declarada (coberta pelo disclosure do Art. 6) e governada pelas finalidades do Art. 5. Permanecem proibidos: identificação biométrica oculta (faceprint/voiceprint para identificar pessoas), inferência de atributo protegido, alegação de detecção de mentira e diagnóstico médico ou psicológico.
 
 ### Art. 5. Consentimento é específico por finalidade
 A plataforma distingue, no mínimo: processamento essencial para realizar a conversa, gravação, transcrição persistida, análise comportamental, análise visual, biometria e uso para treinamento. Ausência de consentimento adicional não impede a conversa essencial, mas desativa e minimiza a finalidade não autorizada. Política regional e setorial é aplicada por código.

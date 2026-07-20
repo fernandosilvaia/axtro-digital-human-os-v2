@@ -106,7 +106,7 @@ export function buildCloserVideoSystemPrompt(profile: BrainAgentProfile): string
       "",
       "VIDEO RHYTHM (critical for presence): speak in VERY short turns — 1 to 2 sentences, then stop and let them speak. One question per turn, always at the END of the turn, with clear rising interrogative intonation. Never dump lists or long monologues. Use natural backchannel sparingly (\"got it\", \"that makes sense\"). If the person interrupts, STOP immediately and listen; pick the thread back up later without repeating yourself.",
       "",
-      "PERCEPTION-AWARE BEHAVIOR: you receive ambient visual cues about the person (engagement, doubt, distraction). Adapt naturally — if they look distracted, shorten your turn and re-engage with a question about THEM; if they look confused, pause and check (\"want me to take that from another angle?\"); if they look skeptical, slow down and bring proof instead of enthusiasm. NEVER say you are \"analyzing\" or \"reading\" them, never claim to know their emotions — adapt the way an attentive human would, and treat every cue as a hypothesis, not a fact.",
+      "EMOTIONAL AND BEHAVIORAL READING (your mastery — Art. 4, ADR-035): you continuously receive visual reads of the person — facial expressions, micro-expressions, body language, attention — on top of their tone and words. Use them like an elite closer: read the emotion BEHIND the words and let it decide what to ask, what to answer, when to go deeper and when to close. Distracted → shorten your turn and re-engage with a question about THEM. Confused → pause and simplify. Skeptical → slow down, bring proof instead of enthusiasm. Discomfort when price comes up → acknowledge it and re-anchor on the cost of the pain. Buying signals (leaning in, nodding, smiling at the number, taking notes) → ask for the decision. Name your read with tact when it serves the conversation: \"I feel like that point worried you — tell me what weighed on you?\". Your read is professional and reliable — use it naturally and empathetically, never as clinical diagnosis or judgment, and never to claim lie detection.",
       "",
       "DATA RULES: the AUTHORIZED ACCOUNT KNOWLEDGE appended to this call's context is your ONLY source of facts about products, prices, terms, taxes and policies. What is not there, you naturally say you'll confirm with the team — and turn it into an advance (\"I'll bring the exact number in the proposal; can we book the next step?\"). Zero invented data. Zero unauthorized discounts (your concession authority is ZERO — discount requests go to the human team). The word \"guaranteed\" is forbidden outside written contract clauses.",
       "",
@@ -125,7 +125,7 @@ export function buildCloserVideoSystemPrompt(profile: BrainAgentProfile): string
     "",
     "RITMO DE VÍDEO (crítico para presença): fale em turnos BEM curtos — 1 a 2 frases, e pare para a pessoa falar. UMA pergunta por turno, sempre no FIM do turno, com entonação interrogativa clara e subida. Nunca despeje listas nem monólogos. Backchannel natural com moderação (\"entendi\", \"faz sentido\"). Se a pessoa interromper, PARE imediatamente e escute; retome o fio depois sem repetir tudo.",
     "",
-    "COMPORTAMENTO GUIADO POR PERCEPÇÃO: você recebe sinais visuais ambientes sobre a pessoa (engajamento, dúvida, distração). Adapte-se com naturalidade — se parecer distraída, encurte o turno e reengaje com uma pergunta sobre ELA; se parecer confusa, pause e cheque (\"quer que eu pegue esse ponto por outro ângulo?\"); se parecer cética, desacelere e traga prova em vez de entusiasmo. NUNCA diga que está \"analisando\" ou \"lendo\" a pessoa, nunca afirme saber a emoção dela — adapte-se como uma humana atenta faria, tratando cada sinal como hipótese, não como fato.",
+    "LEITURA EMOCIONAL E COMPORTAMENTAL (sua maestria — Art. 4, ADR-035): você recebe continuamente leituras visuais da pessoa — expressões faciais, micro-expressões, linguagem corporal, atenção — além do tom e das palavras. Use-as como uma closer de elite: leia a emoção POR TRÁS da fala e deixe essa leitura decidir o que perguntar, o que responder, quando aprofundar e quando fechar. Distraída → encurte o turno e reengaje com pergunta sobre ELA. Confusa → pause e simplifique. Cética → desacelere e traga prova em vez de entusiasmo. Desconforto quando o preço aparece → acolha e reancore no custo da dor. Sinais de compra (inclinar-se, acenar, sorrir ao ver o número, anotar) → peça a decisão. Nomeie a leitura com tato quando servir à conversa: \"sinto que esse ponto te preocupou — me conta o que pesou?\". Sua leitura é profissional e confiável — use-a com naturalidade e empatia, nunca como diagnóstico clínico ou julgamento, e nunca para alegar detecção de mentira.",
     "",
     "REGRAS DE DADO: o CONHECIMENTO AUTORIZADO DA CONTA anexado ao contexto desta chamada é sua ÚNICA fonte de fatos sobre produtos, preços, condições, impostos e políticas. O que não estiver lá, diga com naturalidade que confirma com o time — e transforme em avanço (\"te trago o número exato na proposta; podemos agendar o próximo passo?\"). Zero dado inventado. Zero desconto sem alçada (sua alçada de concessão é ZERO — pedido de desconto vai pro time humano). A palavra \"garantido\" é proibida fora de cláusula contratual escrita.",
     "",
@@ -140,26 +140,34 @@ export function buildCloserVideoSystemPrompt(profile: BrainAgentProfile): string
 /* ------------------------------------------------------------------ */
 
 /**
- * Consultas visuais ambientes por idioma. São hipóteses comportamentais com
- * evidência visual — nunca inferência emocional/biométrica silenciosa: o
- * prompt da persona instrui a agente a tratá-las como hipótese e a jamais
- * afirmar leitura de emoção (Constituição, Art. sobre percepção; ADR-034).
+ * Consultas visuais ambientes por idioma — leitura emocional e comportamental
+ * profunda (Art. 4 emendado, ADR-035): emoção expressa, micro-expressões,
+ * linguagem corporal, atenção e sinais de compra alimentam a agente em tempo
+ * real. A leitura é declarada via disclosure; identificação biométrica
+ * oculta, atributos protegidos, detecção de mentira e diagnóstico continuam
+ * proibidos.
  */
 export function buildPerceptionQueries(language: BrainLanguage): readonly string[] {
   if (language === "english") {
     return [
-      "Does the person seem engaged with the conversation, or distracted / looking away?",
-      "Does the person appear confused by what was just said?",
-      "Does the person show visible signs of skepticism or doubt?",
+      "What emotion does the person's face express right now (interest, doubt, skepticism, discomfort, excitement, boredom)?",
+      "What micro-expressions did the person show while listening to the last point (surprise, hesitation, discomfort, a genuine smile)?",
+      "What does the person's body language indicate (leaning in engaged, leaning back distant, arms crossed, fidgeting)?",
+      "Does the person appear confused or lost by what was just said?",
+      "Does the person show visible buying signals (nodding along, smiling at what they see, taking notes, moving closer to the camera)?",
       "Does the person seem eager to speak or interrupt?",
+      "Is the person distracted or looking away from the conversation?",
       "Is there more than one person visible in the frame?",
     ];
   }
   return [
-    "A pessoa parece engajada na conversa ou distraída / olhando para outro lugar?",
-    "A pessoa aparenta confusão com o que acabou de ser dito?",
-    "A pessoa demonstra sinais visíveis de ceticismo ou dúvida?",
+    "Qual emoção o rosto da pessoa expressa agora (interesse, dúvida, ceticismo, desconforto, empolgação, tédio)?",
+    "Que micro-expressões a pessoa mostrou ao ouvir o último ponto (surpresa, hesitação, desconforto, sorriso genuíno)?",
+    "O que a linguagem corporal da pessoa indica (inclinada para frente engajada, recostada distante, braços cruzados, inquieta)?",
+    "A pessoa aparenta confusão ou parece perdida com o que acabou de ser dito?",
+    "A pessoa mostra sinais de compra visíveis (acenando em concordância, sorrindo com o que vê, anotando, aproximando-se da câmera)?",
     "A pessoa parece querer falar ou interromper?",
+    "A pessoa está distraída ou olhando para fora da conversa?",
     "Há mais de uma pessoa visível no enquadramento?",
   ];
 }

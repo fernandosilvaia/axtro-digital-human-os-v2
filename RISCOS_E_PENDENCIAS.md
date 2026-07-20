@@ -8,6 +8,7 @@
 - Validação de UI logada (chat e sala de apresentação no navegador) pendente de um teste humano: a sessão autônoma validou o pipeline por API (mesmos RPCs, mesmo modelo, mesmos prompts) e viu a Rafaela ao vivo na sala Daily, mas não digitou credenciais no formulário de login por política. Falta o Fernando abrir `/agentes/<id>/testar` logado e rodar uma apresentação completa com microfone.
 - O Caso Modelo ContaLeve (empresa fictícia) ficou fora do RAG de propósito — se algum dia for ingerido, precisa de classificação/rotulagem que impeça a agente de citar os preços fictícios como fatos da conta.
 - `apps/portal/tmp/` guarda os scripts operacionais da sessão (ingestão, setup de personas, e2e) — são gitignored e re-executáveis; a chave ElevenLabs nunca foi gravada em disco (só env var via Doppler).
+- **Percepção emocional profunda ativa (ADR-035, D-V2-075)**: por decisão do Fernando, as agentes leem emoção, micro-expressões e linguagem corporal como capacidade central. Isso ELEVA a urgência da validação jurídica por jurisdição já listada em PENDENCIAS_EXTERNAS (DPIA; EU AI Act restringe reconhecimento de emoção em contextos de trabalho/educação; LGPD trata dado comportamental/biométrico como sensível). Antes de vender para mercados regulados ou clientes europeus, esse parecer é bloqueante.
 
 ## Pendências com gate humano (não são bugs)
 

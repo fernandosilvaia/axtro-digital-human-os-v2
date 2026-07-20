@@ -59,7 +59,7 @@ Use a skill aplicável sempre que a tarefa tocar seu domínio.
 - Não afirmar conclusão sem `tool_execution_receipt` de sucesso.
 - Não permitir duas vozes como Presenter simultaneamente.
 - Não esconder disclosure de IA.
-- Não criar inferência biométrica ou emocional silenciosa.
+- Não fazer identificação biométrica oculta nem inferência de atributos protegidos. Leitura emocional e comportamental é capacidade central, sempre declarada via disclosure (Art. 4 emendado, ADR-035).
 - Não misturar tenants, nem em cache, logs, embeddings, storage ou testes.
 - Não instalar dependência de produção sem registrar motivo, versão e alternativa.
 - Não usar `danger-full-access`, bypass de approvals ou rede aberta como padrão.
