@@ -8,6 +8,7 @@ import { sendAgentActivatedEmail } from "@/lib/email";
 import { chunkContent, contentSha256, embedChunks, MAX_CONTENT_CHARS } from "@/lib/knowledge";
 import { fetchAgents, fetchTenantOverview } from "@/lib/portal-data";
 import { createClient } from "@/lib/supabase/server";
+import { logError as trackError } from "@/lib/telemetry";
 
 export interface ResourceActionState {
   readonly error: string | null;
@@ -126,11 +127,11 @@ async function ingestContentForSource(
       p_output_tokens: 0,
     });
     if (logError) {
-      console.error("portal_log_ai_usage failed", logError.message);
+      trackError("portal_log_ai_usage_failed", logError, { source_id: sourceId, service: "portal.knowledge_embedding" });
     }
     return null;
   } catch (embedError) {
-    console.error("knowledge ingestion failed", embedError instanceof Error ? embedError.message : embedError);
+    trackError("knowledge_ingestion_failed", embedError, { source_id: sourceId });
     return "o provider de embeddings falhou.";
   }
 }
@@ -215,10 +216,7 @@ export async function setAgentStatus(
         });
       }
     } catch (notifyError) {
-      console.error(JSON.stringify({
-        event: "agent_activated_email_failed",
-        error: notifyError instanceof Error ? notifyError.name : "unknown",
-      }));
+      trackError("agent_activated_email_failed", notifyError, { agent_id: agentId });
     }
   }
 

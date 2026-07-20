@@ -14,7 +14,7 @@ Canônicos de contexto: `docs/PROJECT_AUDIT.md`, `PROGRESS.md`, `RISCOS_E_PENDEN
 ## Depois (robustez)
 
 - [x] **T6 · Rate limit por tenant nas RPCs caras** — 0015: 20 convites/dia e 30 ingestões/dia por tenant, testado ao vivo (RPCs seguem funcionando normalmente, guarda ativa).
-- [ ] **T7 · Telemetria** — decidir Sentry vs. log drain do Railway; instrumentar server actions com correlação (sem PII).
+- [x] **T7 · Telemetria** — adapter único `lib/telemetry.ts` (redação automática de chaves/tokens/e-mail, testado); todos os `console.*` de `lib/actions/` e `lib/*.ts` migrados. Escolha de vendor (Sentry/log drain) segue como decisão pendente em NEEDS_CONNECTION — o adapter é o único ponto de wiring quando decidir.
 - [ ] **T8 · Rate card de custos** — preencher `unit_cost` real (OpenRouter $/token, Tavus $/conversa, embeddings) e mostrar R$ no painel Uso de IA. **Bloqueado**: depende de números reais do Fernando (decisão comercial, não engenharia) — ver NEEDS_CONNECTION.
 - [x] **T9 · Notificação por e-mail em ativação de agente** — 0016 (`portal_list_admin_emails`) + `sendAgentActivatedEmail`, best-effort, testado no e2e (ativar/pausar Bruno dispara e reverte sem quebrar o fluxo).
 

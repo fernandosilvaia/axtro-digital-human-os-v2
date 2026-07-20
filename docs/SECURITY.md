@@ -11,14 +11,13 @@
 - **Validação de payload:** limites explícitos em toda RPC (chunks 1..240, 1..4000 chars, embedding 1536 dims, status em enum, e-mail com regex) e em toda server action.
 - **Caps de abuso:** teto diário de 500k tokens/tenant (falha fechada), limite de 20 agentes e 50 fontes por tenant, `maxOutputTokens` e timeouts nos adapters.
 - **Segredos:** apenas server-side via env; adapters nunca logam chave; `secret_scan.py` no CI; repo público sem nenhum valor sensível (knowledge-vault gitignored).
-- **Logs:** estruturados sem PII (e-mail de convite vira hash; erros de provider logam código/status, nunca payload).
+- **Logs:** todo o portal loga por um único adapter (`apps/portal/src/lib/telemetry.ts`) — redação automática de chaves/tokens/senhas e de e-mails embutidos em texto livre, testada (`tests/portal/telemetry.test.mjs`). Zero `console.*` fora desse módulo em `lib/actions/` e `lib/*.ts`.
 - **Egress:** adapters com URL fixa (OpenRouter, Tavus, Resend) e timeout obrigatório.
 - **Dados externos como dados:** conteúdo RAG marcado não-confiável; prompt injection coberta por teste no kernel (M3-02).
 
 ## Pendências conhecidas (com dono)
 
-- Rate limit por tenant nas RPCs caras (T6 em `TASKS.md`).
 - Migração de leituras para RLS-por-claim (D-V2-058).
-- Telemetria de produção (decisão pendente).
+- APM/vendor de telemetria (Sentry ou log drain dedicado): o adapter (`lib/telemetry.ts`) já centraliza e redige todo log; falta só a decisão de vendor/custo/residência — sem isso, os logs estruturados do Railway já são a fonte de observabilidade.
 - DPIA/parecer por jurisdição para percepção emocional (ADR-035) — bloqueante para mercados regulados.
 - Webhooks assinados: não há webhooks recebidos hoje; quando Telnyx/Recall entrarem, exigir HMAC (padrão já documentado no adapter de tools Tavus).

@@ -11,6 +11,7 @@ import { buildCloserChatSystemMessages } from "@/lib/brain/metodo-silva";
 import { embedQuery, fakeProvidersEnabled, type KnowledgeMatch } from "@/lib/knowledge";
 import { fetchAgents, fetchTenantOverview } from "@/lib/portal-data";
 import { createClient } from "@/lib/supabase/server";
+import { logError as trackError } from "@/lib/telemetry";
 
 export interface PreviewTurn {
   readonly role: "user" | "assistant";
@@ -100,7 +101,7 @@ export async function sendAgentPreviewMessage(
       p_limit: 5,
     });
     if (searchError) {
-      console.error("portal_search_knowledge failed", searchError.message);
+      trackError("portal_search_knowledge_failed", searchError, { agent_id: agentId });
     } else if (Array.isArray(searchData)) {
       knowledgeMatches = searchData as KnowledgeMatch[];
       const { error: retrievalLogError } = await supabase.rpc("portal_log_ai_usage", {
@@ -110,11 +111,11 @@ export async function sendAgentPreviewMessage(
         p_output_tokens: 0,
       });
       if (retrievalLogError) {
-        console.error("portal_log_ai_usage failed", retrievalLogError.message);
+        trackError("portal_log_ai_usage_failed", retrievalLogError, { agent_id: agentId, service: "portal.knowledge_retrieval" });
       }
     }
   } catch (retrievalError) {
-    console.error("knowledge retrieval failed", retrievalError instanceof Error ? retrievalError.message : retrievalError);
+    trackError("knowledge_retrieval_failed", retrievalError, { agent_id: agentId });
   }
 
   // Cérebro Método Silva em duas mensagens system (identidade + método) e o
@@ -155,7 +156,7 @@ export async function sendAgentPreviewMessage(
       p_output_tokens: result.usage.outputTokens,
     });
     if (logError) {
-      console.error("portal_log_ai_usage failed", logError.message);
+      trackError("portal_log_ai_usage_failed", logError, { agent_id: agentId, service: "portal.agent_preview" });
     }
 
     return { reply: result.text, error: null };

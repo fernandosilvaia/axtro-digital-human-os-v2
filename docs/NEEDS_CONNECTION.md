@@ -9,7 +9,7 @@ Tudo abaixo já tem código, adapter, mock e teste prontos. Falta apenas a conex
 | Telefonia (Telnyx) | Conta + `TELNYX_API_KEY` + número SIP | PENDENCIAS_EXTERNAS · sem adapter ainda (T10) | aguardando conta |
 | Meet/Zoom/Teams (Recall.ai) | Conta + `RECALL_API_KEY` | PENDENCIAS_EXTERNAS · sem adapter ainda (T11) | aguardando conta |
 | Billing (Stripe) | Decisão de planos/preços + conta Stripe | PENDENCIAS_EXTERNAS (decisão comercial) | aguardando decisão |
-| Telemetria (Sentry ou log drain) | Decisão de ferramenta + DSN | RISCOS_E_PENDENCIAS "Como monitorar" | aguardando decisão |
+| Telemetria (Sentry ou log drain dedicado) | Decisão de vendor + DSN/credencial | `apps/portal/src/lib/telemetry.ts` já centraliza e redige todo log — só falta o wiring do vendor escolhido | aguardando decisão (logs estruturados do Railway já funcionam como observabilidade mínima) |
 | Rate card de custos | Preços reais por unidade (OpenRouter/Tavus/embeddings) | `cost_events.unit_cost` via migration supabase-only | aguardando números |
 | DPIA / parecer jurídico | Contratar avaliação por jurisdição (percepção emocional, ADR-035) | PENDENCIAS_EXTERNAS "Jurídico" | bloqueante p/ mercados regulados |
 | Upgrade plano Tavus | Se os créditos conversacionais esgotarem de novo (D-V2-067) | dashboard Tavus | funcionando hoje |

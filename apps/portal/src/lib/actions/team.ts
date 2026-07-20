@@ -5,6 +5,7 @@ import { revalidatePath } from "next/cache";
 import { sendInviteEmail } from "@/lib/email";
 import { fetchTenantOverview } from "@/lib/portal-data";
 import { createClient } from "@/lib/supabase/server";
+import { logError as trackError } from "@/lib/telemetry";
 
 export interface TeamActionState {
   readonly error: string | null;
@@ -50,10 +51,7 @@ export async function inviteMember(_prevState: TeamActionState, formData: FormDa
     });
     emailSent = result.sent;
   } catch (emailError) {
-    console.error(JSON.stringify({
-      event: "invite_email_failed",
-      error: emailError instanceof Error ? emailError.name : "unknown",
-    }));
+    trackError("invite_email_failed", emailError);
   }
 
   revalidatePath("/configuracoes");
