@@ -13,6 +13,7 @@
     "@axtro/domain": "workspace:*",
     "@axtro/provider-openrouter": "workspace:*",
     "@axtro/provider-tavus": "workspace:*",
+    "@daily-co/daily-js": "0.91.0",
     "@supabase/ssr": "0.12.3",
     "@supabase/supabase-js": "2.110.6",
     "next": "16.2.10",

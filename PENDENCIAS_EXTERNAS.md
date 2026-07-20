@@ -19,7 +19,7 @@ Estas pendências não bloqueiam M0-M2 quando adapters fake são usados. Bloquei
 - Região de processamento e data residency por mercado.
 
 ## Conteúdo e propriedade intelectual
-- Os oito manuais do Método Silva não vieram no ZIP recebido nesta auditoria. Antes da ingestão, confirmar presença, licença de uso, versão e hash de cada arquivo.
+- ✅ ~~Os oito manuais do Método Silva não vieram no ZIP~~ — **RESOLVIDO 2026-07-19**: a Coleção Método Silva v3.0 completa (38 arquivos .md) foi baixada do Drive do Fernando (dono da IP, fernando@axtroai.com) para `knowledge-vault/metodo-silva/` (gitignored, repo é público) com manifesto `SHA256SUMS` de presença/versão/hash. 10 manuais de venda ingeridos no RAG do tenant demo (D-V2-073).
 - Autorização documentada para qualquer voz, imagem ou réplica customizada.
 
 ## Jurídico e compliance

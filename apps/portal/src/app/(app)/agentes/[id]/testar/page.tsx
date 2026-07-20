@@ -4,6 +4,7 @@ import { notFound } from "next/navigation";
 import { fetchAgents } from "@/lib/portal-data";
 import { StatusBadge } from "@/components/status-badge";
 
+import { PresentationRoom } from "./presentation-room";
 import { PreviewChat } from "./preview-chat";
 import { VideoCall } from "./video-call";
 
@@ -30,6 +31,7 @@ export default async function AgentPreviewPage({ params }: { params: Promise<{ i
           sem fontes, ele não cita preços nem condições.
         </p>
       </header>
+      <PresentationRoom agentId={agent.id} agentName={agent.name} />
       <VideoCall agentId={agent.id} agentName={agent.name} />
       <div style={{ height: 16 }} />
       <PreviewChat agentId={agent.id} agentName={agent.name} />

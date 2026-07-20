@@ -1,10 +1,10 @@
 # Progresso de implementação
 
-**Estado atual:** M0, M1, M2 e M3 concluídos (M3-01 a M3-09 fake-first/dry-run completos; M3-10 com ferramenta pronta, piloto real e bake-off de provider pendentes de gate humano); VISUAL-01 concluído
+**Estado atual:** M0, M1, M2 e M3 concluídos (M3-01 a M3-09 fake-first/dry-run completos; M3-10 com ferramenta pronta, piloto real e bake-off de provider pendentes de gate humano); VISUAL-01 concluído; Cérebro Método Silva no ar (D-V2-073/074)
 
 **Marco atual:** M3 (concluído)
 **Tarefa atual:** nenhuma
-**Última evidência verde:** painel "Uso de IA" no dashboard em 2026-07-18 — tokens de hoje contra o teto diário, conversas de vídeo e breakdown de 7 dias por serviço lidos do cost ledger real (verificado no navegador desktop/mobile com 9.904 tokens do tenant demo); `pnpm lint`, `pnpm test` (409 Node), typecheck e build do portal verdes
+**Última evidência verde:** Cérebro Método Silva em 2026-07-19 — 38 manuais no cofre com hash, 10 fontes RAG (438 chunks), chat respondendo objeção com E.A.R.C. literal do método, Rafaela vista ao vivo em sala Tavus com persona nova (`p8966676f4d2`) e tools de apresentação; `pnpm lint`, `pnpm test` (418 Node + 26 Python), typecheck, build do portal e 9 validadores verdes
 **Bloqueadores internos:** nenhum
 **Pendências externas:** consultar `PENDENCIAS_EXTERNAS.md`  
 
@@ -704,3 +704,14 @@ bake-off credenciado de provider e piloto interno real de M3-10.
 - Workspace interno recebeu continuidade visual em `apps/portal/src/app/(app)/dashboard/page.tsx`, com command surface, métricas com acentos por categoria e hierarquia operacional preservando os dados reais do tenant demo.
 - Validação: `pnpm lint`, `pnpm build`, `pnpm --filter @axtro/portal run typecheck`, `pnpm --filter @axtro/portal run build` e `git diff --check` verdes; validação visual no navegador em desktop, mobile 390px, landing completa e dashboard autenticado.
 - Nenhuma mudança em contratos, auth, isolamento de tenant, providers ou migrations. Nenhuma credencial foi adicionada ao repositório.
+
+### 2026-07-19, Cérebro Método Silva — a IA closer treinada no método (D-V2-073/074)
+
+- **Aquisição da IP**: os 38 manuais da Coleção Método Silva v3.0 baixados do Drive do Fernando para `knowledge-vault/metodo-silva/` (gitignored — repo público) com manifesto `SHA256SUMS`, fechando a pendência de conteúdo de `PENDENCIAS_EXTERNAS.md`. Três subagentes destilaram o método em extratos estruturados (`knowledge-vault/brain/`): as 6 fases da Reunião Silva, o framework S.I.L.V.A. de qualificação, E.A.R.C. para objeções (com as 12 objeções universais e frases-modelo literais), técnicas e armas de fechamento, guia de voz, e — decisivo — o próprio "System Prompt Silva" em 9 blocos e os 10 Princípios do Agente que o Manual de Agentes Autônomos prescreve para construir o Closer IA.
+- **Cérebro no portal**: `apps/portal/src/lib/brain/metodo-silva.ts` gera os prompts do chat (2 mensagens system respeitando o cap de 4000 chars do adapter) e das personas de vídeo (pt/en, ~7-8k chars, abaixo do teto de conforto de latência do provider), seguindo os 9 blocos do método; `agent-preview.ts` passou a usá-lo. Percepção tratada como HIPÓTESE comportamental, nunca leitura de emoção (Constituição preservada).
+- **RAG real do método**: 10 manuais de venda ingeridos como fontes do tenant demo pela pipeline existente (438 chunks, 115k tokens de embedding no ledger); Caso Modelo ContaLeve excluído de propósito (preços fictícios não podem virar "fatos da conta"). Busca comprovada: "tá caro" → ficha E.A.R.C. do Kit 05 no topo.
+- **Personas renovadas**: Aurora e Amanda PATCHadas com o cérebro preservando voz/STT (playbook Ecoloop da Amanda mantido como apêndice; backups no cofre); Rafaela ganhou persona própria `p8966676f4d2` (Anna + voz ElevenLabs + raven-1 + interrupção alta + `tavus-glm-4.7`), registrada em `database/supabase-only/0013` (aplicada no live via Management API). 5 consultas de percepção ambiente por idioma (engajamento, confusão, ceticismo, vontade de falar, segunda pessoa no quadro).
+- **Modo apresentação**: tools `next_slide`/`previous_slide`/`go_to_slide` registradas no provider e anexadas às 3 personas; `startPresentationConversation` monta deck estrutural no arco da Reunião Silva (slides SEM números — fatos só da boca da agente via digest de conhecimento) e a sala custom `presentation-room.tsx` (`@daily-co/daily-js@0.91.0` pinada) renderiza vídeo + palco de slides, escuta `conversation.tool_call` no data channel e devolve `conversation.tool_result` — a agente avança os próprios slides enquanto conduz a venda.
+- **E2e**: chat por API com o pipeline real (mesmos RPCs + modelo) respondeu objeção de preço com E.A.R.C. literal do método citando a tabela de preços da conta; conversa Tavus real criada (`c1187a82019d14ac`), Rafaela vista ao vivo na sala Daily com a persona nova e depois encerrada via API — créditos Tavus voltaram a funcionar (limite de D-V2-067 não se reproduziu).
+- Pipeline: `pnpm lint`, dependency scan, `pnpm test` (418 Node + 26 Python, incluindo 9 testes novos do cérebro/deck em `tests/portal/`), typecheck e build do portal, `python3 scripts/validate_all.py` (9 validadores) e secret scan verdes.
+- Pendente de gate humano: teste de UI logado (login por formulário é vedado à sessão autônoma) e uma apresentação completa com microfone; merge do PR → deploy Railway.
