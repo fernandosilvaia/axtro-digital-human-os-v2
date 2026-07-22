@@ -1,6 +1,11 @@
 # Riscos e pendências
 
-**Atualizado:** 2026-07-19 · **Branch:** `main`
+**Atualizado:** 2026-07-20 · **Branch:** `main`
+
+## Notas de 2026-07-20 (execução autônoma — lacunas operacionais)
+
+- Ativação de agente, e-mail de convite, rate limiting e telemetria — todos fechados nesta sessão (PRs #18-#20; ver itens correspondentes abaixo, agora riscados).
+- **Achado real**: o Railway não tem auto-deploy configurado para este projeto — o deploy anterior foi disparado manualmente via `railway up` numa sessão prévia. Deploy manual do estado atual (PRs #16-#20) autorizado pelo Fernando nesta sessão; ver `docs/EXECUTION_LOG.md` para o resultado quando confirmado.
 
 ## Notas de 2026-07-19 (Cérebro Método Silva)
 
@@ -27,13 +32,13 @@
 | 1 | RPCs `SECURITY DEFINER` como camada de dados do portal, em vez de RLS por claim de JWT | D-V2-058 — funciona hoje sem o hook habilitado e sem `service_role` | Quando o hook estiver ativo, migrar leituras para RLS-por-claim mantendo as RPCs de escrita |
 | 2 | As funções e tabelas do portal (`user_tenant_memberships`, `portal_*`, hook) vivem só no projeto Supabase, fora de `database/migrations/` | D-V2-055/056 — referenciam `auth.users`, inexistente no harness local | ~~Criar `database/supabase-only/`~~ feito 2026-07-16 — SQLs versionados em `database/supabase-only/0001..0007` |
 | 3 | `user_tenant_memberships` permite um único tenant por usuário (PK em `user_id`) | Suficiente para self-serve atual; convites (D-V2-060) respeitam essa restrição — convidar e-mail que já tem workspace é rejeitado | Multi-tenant por usuário / mover usuário entre tenants exigem nova modelagem (revisit trigger no ADR-032) |
-| 3b | Convites não enviam e-mail (modelo e-mail pré-aprovado): o convidado precisa ser avisado por fora e criar conta com o e-mail exato | D-V2-060 | SMTP próprio agora existe (D-V2-063) — adicionar notificação por e-mail no ato do convite é trabalho natural de continuação |
-| 4 | Sem rate limiting próprio nas RPCs do portal | Supabase Auth já limita auth; RPCs são baratas e tenant-scoped | Adicionar contadores por tenant quando houver endpoint caro |
-| 5 | Agentes nascem `draft` e fontes nascem `pending` (D-V2-062); ativação de agente e ingestão de conteúdo seguem indisponíveis no portal | Ativação exige provedores conectados + disclosure validado; ingestão exige provedor de embeddings — fronteiras reais de dependência externa | Liberar ativação/ingestão junto com a conexão de provedores |
+| 3b | ~~Convites não enviam e-mail~~ — **RESOLVIDO 2026-07-20**: `sendInviteEmail` via Resend no ato do convite (best-effort, mock sem chave) | T2, PR #18 | — |
+| 4 | ~~Sem rate limiting próprio nas RPCs do portal~~ — **RESOLVIDO 2026-07-20**: 20 convites/dia e 30 ingestões/dia por tenant | T6, PR #19 | — |
+| 5 | ~~Ativação de agente indisponível no portal~~ — **RESOLVIDO 2026-07-20**: `portal_set_agent_status` com guarda de provider + notificação por e-mail aos admins | T1/T9, PRs #18-19 — ingestão de conteúdo já era real desde D-V2-070 | — |
 | 6 | `robots: noindex` no portal inteiro | Portal é app logado; não há landing page pública neste repo | SEO/AEO pertencem à landing (projeto `axtroai`), não ao portal |
 
 ## Como monitorar
 
 - Advisors de segurança/performance do Supabase: `get_advisors` (MCP) ou dashboard → Reports.
 - Logs de auth e Postgres: dashboard → Logs (não há log drain configurado).
-- O portal ainda não tem telemetria própria (Sentry etc.) — decidir na fase de deploy.
+- Logs do portal passam por um adapter único com redação automática de PII (`apps/portal/src/lib/telemetry.ts`, T7) — vendor de APM real (Sentry ou log drain dedicado) segue como decisão pendente em `docs/NEEDS_CONNECTION.md`.
