@@ -5,7 +5,7 @@
 ## Notas de 2026-07-20 (execução autônoma — lacunas operacionais)
 
 - Ativação de agente, e-mail de convite, rate limiting e telemetria — todos fechados nesta sessão (PRs #18-#20; ver itens correspondentes abaixo, agora riscados).
-- **Achado real**: o Railway não tem auto-deploy configurado para este projeto — o deploy anterior foi disparado manualmente via `railway up` numa sessão prévia. Deploy manual do estado atual (PRs #16-#20) autorizado pelo Fernando nesta sessão; ver `docs/EXECUTION_LOG.md` para o resultado quando confirmado.
+- **Achado real**: o Railway não tem auto-deploy configurado para este projeto — o deploy anterior foi disparado manualmente via `railway up` numa sessão prévia. Deploy manual do estado atual (PRs #16-#20) autorizado pelo Fernando e **confirmado em produção 2026-07-22**: `/api/health` responde `ok:true` com os campos do build novo (`email_provider` presente). Falta setar `RESEND_API_KEY` nas variáveis do serviço Railway para o e-mail de convite sair do modo mock em produção — ver `docs/NEEDS_CONNECTION.md`.
 
 ## Notas de 2026-07-19 (Cérebro Método Silva)
 

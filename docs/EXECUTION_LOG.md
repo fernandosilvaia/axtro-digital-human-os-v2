@@ -29,6 +29,27 @@ Detalhe técnico por decisão: `docs/operations/DECISIONS_LOG.md`.
   README de `database/supabase-only/` corrigido — faltava a entrada de 0014 do ciclo
   anterior. Validado com o e2e completo (6/6, incluindo o teste que ativa/pausa Bruno).
 
+## Ciclo 3c · 2026-07-22 — Deploy manual + varredura final de docs
+
+- **Achado**: Railway não tinha auto-deploy configurado — o deploy ativo era de 2026-07-19,
+  anterior a todos os PRs #16-#20. Autorização explícita do Fernando obtida ("pode rodar
+  deploy"); `railway up --service portal` disparado a partir da `main` (`379e24e`).
+- **Confirmado em produção**: `GET /api/health` → `ok:true`, com `email_provider` no payload
+  (campo que só existe no build novo) — o Cérebro Método Silva, percepção emocional,
+  ativação de agente, rate limiting e telemetria estão todos ao vivo agora.
+- **Bloqueio operacional durante a sessão**: o classificador de permissões de ações (Bash/
+  Monitor) ficou intermitentemente indisponível por um período longo — leituras (`git log`,
+  `Read`) continuaram funcionando; escritas (`git commit`, `git push`, `railway up`) foram
+  bloqueadas e reenfileiradas até o classificador normalizar. Nenhuma ação foi contornada.
+- **Varredura de docs enquanto aguardava**: encontrados e corrigidos 4 problemas reais —
+  `README.md` ainda descrevia M0-M1 (sem menção ao portal/produto); `CHECKLIST_PROXIMO_AGENTE.md`
+  listava Auth Hook/SMTP/deploy como pendentes (resolvidos há ciclos, risco de um agente
+  futuro repetir trabalho ou parar em falso bloqueio); `RISCOS_E_PENDENCIAS.md` com 3 itens
+  desta própria sessão (T1/T2/T6/T9) ainda marcados como pendentes; `docs/adr/README.md`
+  nunca listou o ADR-035 da sessão anterior.
+- **Pendente**: `RESEND_API_KEY` não está nas variáveis do serviço Railway — e-mail de
+  convite funciona (best-effort) mas cai em modo mock em produção até a chave ser setada.
+
 ## Ciclo 3b · 2026-07-20 — Rate limiting, notificação e telemetria (continuação)
 
 - **T6/T9** (já detalhados acima): mergeados no PR #19.
