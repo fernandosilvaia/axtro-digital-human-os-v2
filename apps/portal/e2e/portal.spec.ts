@@ -34,6 +34,18 @@ test("landing pública renderiza e aponta para login", async ({ page }) => {
   await expect(page.locator('a[href="/login"]').first()).toBeVisible();
 });
 
+test("superfícies públicas de SEO/AEO respondem 200 sem sessão", async ({ request }) => {
+  // Achado real 2026-07-24: llms.txt/llms-full.txt ficaram fora da lista de
+  // exclusão do middleware de auth e voltavam 307 para /login — quebrava o
+  // propósito de AEO (crawlers de IA não autenticam). Só um teste HTTP real
+  // pega essa classe de bug; asserção de string no source (portal-seo-surface
+  // .test.mjs) não pegou. Cobre todas as rotas públicas do middleware.
+  for (const path of ["/robots.txt", "/sitemap.xml", "/manifest.json", "/llms.txt", "/llms-full.txt", "/opengraph-image"]) {
+    const response = await request.get(path, { maxRedirects: 0 });
+    expect(response.status(), `${path} deveria responder 200 sem redirecionar`).toBe(200);
+  }
+});
+
 test("rota protegida sem sessão redireciona para login", async ({ page }) => {
   await page.goto("/dashboard");
   await expect(page).toHaveURL(/\/login/);
