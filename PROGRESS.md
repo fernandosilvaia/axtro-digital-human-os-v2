@@ -1,10 +1,10 @@
 # Progresso de implementação
 
-**Estado atual:** M0, M1, M2 e M3 concluídos (M3-01 a M3-09 fake-first/dry-run completos; M3-10 com ferramenta pronta, piloto real e bake-off de provider pendentes de gate humano); VISUAL-01 concluído; Cérebro Método Silva no ar (D-V2-073/074); SEO-AEO-01 concluído
+**Estado atual:** M0, M1, M2 e M3 concluídos (M3-01 a M3-09 fake-first/dry-run completos; M3-10 com ferramenta pronta, piloto real e bake-off de provider pendentes de gate humano); VISUAL-01 concluído; Cérebro Método Silva no ar (D-V2-073/074); SEO-AEO-01 concluído; rate card de custos no ar (D-V2-078)
 
 **Marco atual:** M3 (concluído)
 **Tarefa atual:** nenhuma
-**Última evidência verde:** SEO-AEO-01 em 2026-07-24 — landing `/` com metadata canônica, FAQ visível e `FAQPage`, JSON-LD, Open Graph dinâmico, robots, sitemap, `llms.txt`, PWA e ícones de compartilhamento; dashboard com prontidão operacional baseada nos dados reais da conta; `pnpm lint`, `pnpm test` (426 Node + 26 Python), typecheck, build do portal, `git diff --check`, 9 validadores verdes e smoke test público verde após deploy Railway
+**Última evidência verde:** T8 rate card em 2026-07-24 — `portal_log_ai_usage` grava custo real (US$0,0035 em teste com 1000in/500out, confere com a conta manual); painel "Uso de IA" com tile de custo estimado; 426 testes Node + 26 Python, typecheck, build do portal e 9 validadores verdes
 **Bloqueadores internos:** nenhum
 **Pendências externas:** consultar `PENDENCIAS_EXTERNAS.md`  
 
@@ -691,6 +691,17 @@
 - Validação local: `pnpm lint`, `pnpm --filter @axtro/portal run typecheck`, `pnpm --filter @axtro/portal run build`, `pnpm test` com 426 Node e 26 Python, `python3 scripts/validate_all.py` com 9 validadores e `git diff --check`.
 - Publicação: Railway deployment `c0f98be9-c3ad-4084-b24d-f69dd2332c35` concluído com sucesso. Smoke test público verde em `/`, `/robots.txt`, `/sitemap.xml`, `/manifest.json`, `/opengraph-image` e `/api/health`.
 - Nenhum claim, texto ou identidade da Raízes Finance foi levado ao produto Axtro. Decisão registrada em D-V2-077.
+
+### 2026-07-24, T8 (rate card de custos) concluído — execução autônoma
+
+- `TASKS.md` reclassificou T8 de "bloqueado, depende de números do Fernando" para desbloqueável com preços PÚBLICOS de tabela (não taxa negociada) — decisão autônoma explicitamente permitida pelo Fernando ("autonomia total para decisões").
+- Preços confirmados via busca + fonte primária: OpenRouter Claude Haiku 4.5 (US$1/US$5 por 1M tokens entrada/saída — openrouter.ai/anthropic/claude-haiku-4.5), OpenRouter text-embedding-3-small (US$0,02/1M entrada), Tavus (piso de US$0,175/conversa, derivado do mínimo de cobrança de 30s a US$0,35/min — ponto médio do overage Starter/Growth, tavus.io/blog/conversational-ai-pricing).
+- Supabase-only 0017 aplicada no live: `portal_log_ai_usage` calcula `unit_cost_usd`/`amount_usd` reais a partir do input/output exato de cada chamada (a assinatura da RPC não mudou); `portal_log_video_usage` corrige `source` de `'measured'` para `'estimated'` (honestidade — não medimos duração real); `portal_usage_summary` soma custo de IA exato + piso de vídeo, mantidos SEPARADOS na resposta.
+- Painel "Uso de IA" no dashboard ganhou 4º tile ("Custo estimado hoje"), custo de 7 dias e valor por linha de serviço, todos em US$ com nota explícita de que é estimativa de tabela, não a fatura real.
+- Testado ao vivo: log de 1000 tokens de entrada + 500 de saída (`portal.agent_preview`) retornou `amount_usd: 0.00349995` — bate a conta manual (0,001 + 0,0025 = 0,0035, diferença de arredondamento irrelevante). Fontes já ingeridas antes da migration mantêm `amount_usd=0` (histórico nunca é reescrito).
+- Novo teste e2e (`portal.spec.ts`) verifica o tile "Custo estimado hoje" e a nota de rodapé no dashboard logado; suite completa 6/6 verde com Chrome do sistema.
+- **Achado durante a execução**: uma sessão concorrente já havia implementado, validado e implantado o SEO-AEO-01 (D-V2-077) diretamente no working tree, sem commitar. Commitado à parte, com atribuição correta (ver commit `feat(seo): ...`), antes deste commit de T8 — nenhum trabalho de nenhuma das duas sessões foi perdido ou sobrescrito.
+- Validação: `pnpm lint`, `pnpm --filter @axtro/portal run typecheck`, `pnpm --filter @axtro/portal run build`, `pnpm test` (426 Node + 26 Python), `python3 scripts/validate_all.py` (9 validadores) verdes.
 
 ## Próxima ação
 

@@ -33,6 +33,7 @@ Racional completo: D-V2-055, D-V2-056 e D-V2-058 em
 | `0014_agent_activation.sql` | sim (2026-07-19, via Management API `database/query`) |
 | `0015_rate_limits.sql` | sim (2026-07-20, via Management API `database/query`) |
 | `0016_admin_emails_for_notifications.sql` | sim (2026-07-20, via Management API `database/query`) |
+| `0017_rate_card.sql` | sim (2026-07-24, via Management API `database/query`) |
 
 ## Regras
 

@@ -46,6 +46,9 @@ test("login do usuário demo leva ao dashboard com métricas", async ({ page }) 
   await page.click('button[type="submit"]');
   await page.waitForURL(/\/dashboard/, { timeout: 30_000 });
   await expect(page.locator("h1").first()).toBeVisible();
+  // T8: painel de custo estimado (rate card com preço público de tabela).
+  await expect(page.getByText("Custo estimado hoje")).toBeVisible();
+  await expect(page.getByText("Preço público de tabela — não é a fatura real")).toBeVisible();
 });
 
 test("agentes: lista carrega e admin ativa e pausa um rascunho", async ({ page }) => {

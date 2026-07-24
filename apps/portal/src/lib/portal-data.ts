@@ -87,11 +87,19 @@ export interface UsageServiceRow {
   readonly service: string;
   readonly unit_type: string;
   readonly quantity: number;
+  readonly amount_usd: number;
 }
 
 export interface UsageSummary {
   readonly tokens_today: number;
   readonly conversations_today: number;
+  /** Custo real de IA (tokens), calculado com preço público de tabela — ver T8/D-V2-077. */
+  readonly ai_cost_usd_today: number;
+  /** Piso mínimo de vídeo (duração real não é capturada; nunca é o custo exato). */
+  readonly video_cost_floor_usd_today: number;
+  readonly ai_cost_usd_7d: number;
+  readonly video_cost_floor_usd_7d: number;
+  readonly cost_estimate_note: string;
   readonly services_7d: readonly UsageServiceRow[];
 }
 
