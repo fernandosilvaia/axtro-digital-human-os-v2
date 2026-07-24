@@ -1,8 +1,14 @@
 import type { Metadata } from "next";
 
 import { SignupForm } from "./signup-form";
+import { createPageMetadata } from "@/lib/site";
 
-export const metadata: Metadata = { title: "Criar conta — Axtro Digital Human OS" };
+export const metadata: Metadata = createPageMetadata({
+  title: "Criar conta | Axtro Digital Human OS",
+  description: "Crie seu workspace isolado para operar apresentadores digitais com governança.",
+  path: "/signup",
+  noIndex: true,
+});
 
 export default function SignupPage() {
   return (

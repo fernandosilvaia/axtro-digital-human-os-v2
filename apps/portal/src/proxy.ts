@@ -9,5 +9,5 @@ export async function proxy(request: NextRequest) {
 export const config = {
   // /api/health fica fora do middleware de auth: Railway e o smoke test
   // pós-deploy precisam de uma resposta pública, sem tocar o Supabase.
-  matcher: ["/((?!_next/static|_next/image|favicon.ico|api/health|.*\\.(?:svg|png|jpg|jpeg|gif|webp)$).*)"],
+  matcher: ["/((?!_next/static|_next/image|favicon.ico|robots.txt|sitemap.xml|manifest.json|opengraph-image|api/health|.*\\.(?:svg|png|jpg|jpeg|gif|webp)$).*)"],
 };

@@ -1,8 +1,14 @@
 import type { Metadata } from "next";
 
 import { RecoveryForm } from "./recovery-form";
+import { createPageMetadata } from "@/lib/site";
 
-export const metadata: Metadata = { title: "Recuperar senha — Axtro Digital Human OS" };
+export const metadata: Metadata = createPageMetadata({
+  title: "Recuperar senha | Axtro Digital Human OS",
+  description: "Recupere o acesso ao workspace do Axtro Digital Human OS.",
+  path: "/recuperar-senha",
+  noIndex: true,
+});
 
 export default function RecoverPasswordPage() {
   return (

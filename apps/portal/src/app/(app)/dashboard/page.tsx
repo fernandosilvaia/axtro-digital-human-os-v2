@@ -14,6 +14,10 @@ const METRICS = [
 
 const DAILY_TOKEN_CAP = 500_000;
 
+function formatUsd(value: number): string {
+  return `US$ ${value.toLocaleString("pt-BR", { minimumFractionDigits: 2, maximumFractionDigits: 4 })}`;
+}
+
 const USAGE_SERVICE_LABELS: Record<string, string> = {
   "portal.agent_preview": "Chat de teste dos agentes",
   "portal.knowledge_embedding": "Ingestão de conhecimento",
@@ -43,6 +47,14 @@ export default async function DashboardPage() {
   const tenant = overview.tenant;
   const counts = overview.counts;
   const totalConfigured = counts ? counts.agents + counts.knowledge_sources : 0;
+  const readiness = [
+    { label: "Conta provisionada", done: Boolean(tenant), href: "/configuracoes", action: "Revisar conta" },
+    { label: "Primeiro agente", done: (counts?.agents ?? 0) > 0, href: "/agentes", action: "Abrir agentes" },
+    { label: "Conhecimento autorizado", done: (counts?.knowledge_sources ?? 0) > 0, href: "/conhecimento", action: "Abrir conhecimento" },
+  ] as const;
+  const completedReadiness = readiness.filter((item) => item.done).length;
+  const readinessPercent = Math.round((completedReadiness / readiness.length) * 100);
+  const nextAction = readiness.find((item) => !item.done) ?? { label: "Workspace configurado", href: "/agentes", action: "Explorar agentes" };
 
   return (
     <>
@@ -73,7 +85,7 @@ export default async function DashboardPage() {
           <p className="workspace-section-lead">
             Consumo medido no ledger da conta — cada resposta, ingestão e chamada deixa rastro.
           </p>
-          <div className="grid grid-3" style={{ marginBottom: usage.services_7d.length > 0 ? 16 : 0 }}>
+          <div className="grid grid-4" style={{ marginBottom: usage.services_7d.length > 0 ? 16 : 0 }}>
             <div>
               <span className="metric-label">Tokens hoje</span>
               <div className="metric-value">{usage.tokens_today.toLocaleString("pt-BR")}</div>
@@ -88,9 +100,14 @@ export default async function DashboardPage() {
               <div className="metric-hint">Chamadas Tavus iniciadas pela conta</div>
             </div>
             <div>
+              <span className="metric-label">Custo estimado hoje</span>
+              <div className="metric-value">{formatUsd(usage.ai_cost_usd_today + usage.video_cost_floor_usd_today)}</div>
+              <div className="metric-hint">Preço público de tabela — não é a fatura real</div>
+            </div>
+            <div>
               <span className="metric-label">Serviços ativos (7 dias)</span>
               <div className="metric-value">{usage.services_7d.length}</div>
-              <div className="metric-hint">Serviços com consumo registrado na semana</div>
+              <div className="metric-hint">Custo (7d): {formatUsd(usage.ai_cost_usd_7d + usage.video_cost_floor_usd_7d)}</div>
             </div>
           </div>
           {usage.services_7d.length > 0 && (
@@ -100,13 +117,40 @@ export default async function DashboardPage() {
                   <dt style={{ color: "var(--text-muted)" }}>{USAGE_SERVICE_LABELS[row.service] ?? row.service}</dt>
                   <dd style={{ margin: 0, textAlign: "right" }}>
                     {row.quantity.toLocaleString("pt-BR")} {row.unit_type === "token" ? "tokens" : row.unit_type === "conversation" ? "conversas" : row.unit_type}
+                    {row.amount_usd > 0 && <span style={{ color: "var(--text-faint)" }}> · {formatUsd(row.amount_usd)}</span>}
                   </dd>
                 </div>
               ))}
             </dl>
           )}
+          <p style={{ margin: "14px 0 0", fontSize: "0.72rem", color: "var(--text-faint)" }}>{usage.cost_estimate_note}</p>
         </section>
       )}
+
+      <section className="card workspace-readiness" aria-labelledby="prontidao-operacional">
+        <div className="workspace-readiness-top">
+          <div>
+            <span className="metric-label">Próximo melhor passo</span>
+            <h2 id="prontidao-operacional">Leve sua operação até a próxima conversa.</h2>
+            <p className="workspace-section-lead">
+              Acompanhe o que já está pronto e avance só no que falta para colocar contexto e presença em campo.
+            </p>
+          </div>
+          <a className="btn btn-primary btn-small" href={nextAction.href}>{nextAction.action}</a>
+        </div>
+        <div className="workspace-readiness-meter" role="progressbar" aria-label="Prontidão operacional" aria-valuemin={0} aria-valuemax={100} aria-valuenow={readinessPercent}>
+          <span style={{ width: `${readinessPercent}%` }} />
+        </div>
+        <div className="workspace-readiness-steps">
+          {readiness.map((item) => (
+            <div key={item.label} className={`workspace-readiness-step${item.done ? " is-done" : ""}`}>
+              <span className="workspace-readiness-icon" aria-hidden="true">{item.done ? "✓" : "○"}</span>
+              <span>{item.label}</span>
+            </div>
+          ))}
+          <span className="workspace-readiness-count">{completedReadiness}/{readiness.length} concluídos</span>
+        </div>
+      </section>
 
       <div className="workspace-grid">
         <section className="card workspace-primary" aria-labelledby="proximos-passos">

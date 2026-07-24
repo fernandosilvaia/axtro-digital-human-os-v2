@@ -1,8 +1,14 @@
 import type { Metadata } from "next";
 
 import { LoginForm } from "./login-form";
+import { createPageMetadata } from "@/lib/site";
 
-export const metadata: Metadata = { title: "Entrar — Axtro Digital Human OS" };
+export const metadata: Metadata = createPageMetadata({
+  title: "Entrar | Axtro Digital Human OS",
+  description: "Entre no workspace do Axtro Digital Human OS.",
+  path: "/login",
+  noIndex: true,
+});
 
 export default async function LoginPage({
   searchParams,

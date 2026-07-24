@@ -1,29 +1,16 @@
 import Image from "next/image";
-import type { Metadata } from "next";
 
 import { RevealOnScroll } from "@/components/reveal-on-scroll";
 import { signInDemo } from "@/lib/actions/demo";
 import { createClient } from "@/lib/supabase/server";
+import { absoluteUrl, createPageMetadata, SITE_NAME } from "@/lib/site";
 
-export const metadata: Metadata = {
+export const metadata = createPageMetadata({
   title: "Axtro Digital Human OS | Closer digital para cada conversa que importa",
   description:
     "Apresentadores digitais para vendas, onboarding e customer success, com vídeo ao vivo, conhecimento governado e operação rastreável.",
-  robots: { index: true, follow: true },
-  openGraph: {
-    title: "Axtro Digital Human OS | A conversa que move receita",
-    description:
-      "Um closer digital para conduzir descoberta, objeções e próximo passo com consistência, presença e governança.",
-    type: "website",
-    locale: "pt_BR",
-    images: [{
-      url: "/assets/digital-human/hero-presenter.png",
-      width: 1680,
-      height: 945,
-      alt: "Apresentador digital sintético da Axtro Digital Human OS",
-    }],
-  },
-};
+  path: "/",
+});
 
 const FEATURE_CARDS = [
   {
@@ -52,6 +39,73 @@ const OPERATING_MOMENTS = [
   { label: "Customer Success", detail: "Atualizações que não dependem de lembrete", icon: "✦" },
 ] as const;
 
+const FAQ_ITEMS = [
+  {
+    question: "O que é o Axtro Digital Human OS?",
+    answer: "O Axtro Digital Human OS é uma plataforma para criar e operar apresentadores digitais que participam de conversas em vídeo, conduzem vendas, fazem onboarding e apoiam customer success. A operação combina presença digital, contexto autorizado e registros de execução para que a empresa escale atendimento sem transformar o agente em uma caixa-preta.",
+  },
+  {
+    question: "Para quem o Digital Human OS foi criado?",
+    answer: "A plataforma foi criada para empresas que precisam conduzir muitas conversas com consistência, especialmente times de vendas, implantação e relacionamento. O primeiro produto é o Sales Closer Alpha, mas o kernel suporta papéis de apresentação, qualificação, onboarding e atualização de clientes conforme os provedores e fluxos da conta são configurados.",
+  },
+  {
+    question: "O agente digital pode conduzir uma venda?",
+    answer: "Sim. O Sales Closer Alpha foi desenhado para conduzir descoberta, contexto, objeções e próximo passo em uma conversa de vídeo. A ação precisa seguir políticas e confirmações do sistema. Quando uma transferência para uma pessoa fizer sentido, o handoff acontece com contexto, controle de Presenter e registro operacional.",
+  },
+  {
+    question: "Como a governança funciona?",
+    answer: "Cada conversa usa conhecimento autorizado pela conta, passa por políticas explícitas e registra eventos, ações e receipts. Isso permite revisar o que aconteceu, controlar permissões, separar tenants e evitar que o agente invente preço, promessa ou conclusão de ação sem confirmação do sistema.",
+  },
+  {
+    question: "O agente se identifica como inteligência artificial?",
+    answer: "Sim. O disclosure de IA é obrigatório no início da interação e não pode ser removido pelo estilo da persona. A plataforma foi construída para que presença digital e transparência caminhem juntas, com a prova do disclosure persistida fora do prompt.",
+  },
+  {
+    question: "Existe uma demonstração do produto?",
+    answer: "Sim. A demonstração pública entra em uma conta compartilhada com dados fictícios e permite conhecer o workspace e a experiência do agente configurado. Ela não exige cadastro nem cartão. A ativação de provedores reais, uso em produção e decisões de lançamento dependem da configuração e da aprovação da empresa.",
+  },
+] as const;
+
+const STRUCTURED_DATA = [
+  {
+    "@context": "https://schema.org",
+    "@type": "Organization",
+    name: "Axtro AI",
+    url: absoluteUrl("/"),
+    logo: absoluteUrl("/icon.svg"),
+    description: "Empresa responsável pelo Axtro Digital Human OS.",
+  },
+  {
+    "@context": "https://schema.org",
+    "@type": "WebSite",
+    name: SITE_NAME,
+    url: absoluteUrl("/"),
+    inLanguage: "pt-BR",
+    description: "Apresentadores digitais para vendas, onboarding e customer success.",
+  },
+  {
+    "@context": "https://schema.org",
+    "@type": "SoftwareApplication",
+    name: SITE_NAME,
+    applicationCategory: "BusinessApplication",
+    operatingSystem: "Web",
+    url: absoluteUrl("/"),
+    image: absoluteUrl("/opengraph-image"),
+    inLanguage: "pt-BR",
+    description: "Plataforma operacional para agentes digitais com vídeo, voz, conhecimento governado e receipts de execução.",
+    featureList: ["Vendas em vídeo", "Onboarding", "Customer success", "Conhecimento governado", "Handoff com contexto"],
+  },
+  {
+    "@context": "https://schema.org",
+    "@type": "FAQPage",
+    mainEntity: FAQ_ITEMS.map((item) => ({
+      "@type": "Question",
+      name: item.question,
+      acceptedAnswer: { "@type": "Answer", text: item.answer },
+    })),
+  },
+];
+
 export default async function LandingPage() {
   const supabase = await createClient();
   const { data: { user } } = await supabase.auth.getUser();
@@ -73,6 +127,7 @@ export default async function LandingPage() {
             <a href="#sistema">O sistema</a>
             <a href="#momentos">Casos de uso</a>
             <a href="#governanca">Governança</a>
+            <a href="#faq">FAQ</a>
           </nav>
           <nav className="landing-nav-actions">
             {user ? (
@@ -216,6 +271,27 @@ export default async function LandingPage() {
           </RevealOnScroll>
         </section>
 
+        <section className="landing-section faq-section" id="faq" aria-labelledby="faq-title">
+          <RevealOnScroll className="section-heading split-heading">
+            <div>
+              <span className="section-kicker">Respostas diretas</span>
+              <h2 id="faq-title">O que você precisa saber antes de colocar um agente em campo.</h2>
+            </div>
+            <p>
+              Clareza vem antes da contratação. Estas são as respostas essenciais sobre escopo,
+              transparência, governança e o primeiro passo para testar a plataforma.
+            </p>
+          </RevealOnScroll>
+          <RevealOnScroll className="faq-list">
+            {FAQ_ITEMS.map((item) => (
+              <details className="faq-item" key={item.question} open>
+                <summary>{item.question}<span aria-hidden="true">+</span></summary>
+                <p>{item.answer}</p>
+              </details>
+            ))}
+          </RevealOnScroll>
+        </section>
+
         <section className="landing-section closing-section">
           <RevealOnScroll className="closing-panel">
             <div className="closing-panel-mark"><span className="eyebrow-pulse" /> NEXT CONVERSATION</div>
@@ -234,6 +310,7 @@ export default async function LandingPage() {
         <span>© 2026 Axtro AI. Vendas com presença, operação com clareza.</span>
         <a href="mailto:fernando@axtroai.com">fernando@axtroai.com</a>
       </footer>
+      <script type="application/ld+json" dangerouslySetInnerHTML={{ __html: JSON.stringify(STRUCTURED_DATA) }} />
     </div>
   );
 }

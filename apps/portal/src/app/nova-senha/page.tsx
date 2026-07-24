@@ -4,8 +4,14 @@ import { redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
 
 import { NewPasswordForm } from "./new-password-form";
+import { createPageMetadata } from "@/lib/site";
 
-export const metadata: Metadata = { title: "Definir nova senha — Axtro Digital Human OS" };
+export const metadata: Metadata = createPageMetadata({
+  title: "Definir nova senha | Axtro Digital Human OS",
+  description: "Defina uma nova senha para continuar no workspace do Axtro Digital Human OS.",
+  path: "/nova-senha",
+  noIndex: true,
+});
 
 export default async function NewPasswordPage() {
   const supabase = await createClient();

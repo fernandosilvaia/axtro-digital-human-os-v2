@@ -1,0 +1,52 @@
+# Axtro Digital Human OS, contexto completo
+
+## Identidade
+
+O Axtro Digital Human OS é um produto da Axtro AI. Ele oferece uma camada operacional para apresentações digitais e agentes de conversa em vídeo, com foco inicial em vendas e expansão para onboarding e customer success. A marca do produto é Axtro Digital Human OS, não Raízes Finance, Axtro Force ou Axtro Agent.
+
+## Problema que resolve
+
+Times comerciais e de relacionamento precisam conduzir muitas conversas com consistência, mas não querem trocar clareza por automação opaca. O produto organiza presença digital, conhecimento autorizado, políticas e evidências operacionais em um workspace por conta.
+
+## Público
+
+Empresas que vendem, implantam ou acompanham clientes por conversas repetíveis. O Sales Closer Alpha é a primeira aplicação, voltada a descoberta, qualificação, objeções e próximo passo. A mesma base pode suportar presenters para onboarding e customer success quando essas capacidades estiverem configuradas e aprovadas.
+
+## Como funciona
+
+1. A empresa configura o workspace e os agentes.
+2. A conta registra fontes de conhecimento autorizadas.
+3. O agente recebe contexto dentro dos limites da conta.
+4. A conversa pode acontecer com voz e vídeo quando providers estiverem disponíveis.
+5. Ações passam por intenção, validação, política, aprovação quando necessária, execução idempotente e receipt.
+6. A linha do tempo registra o que ocorreu para revisão, replay e auditoria.
+
+## Governança
+
+O agente se identifica como inteligência artificial no início da interação. A plataforma separa fato confirmado, hipótese e sugestão, preserva o tenant como fronteira de segurança e não anuncia uma ação como concluída sem um receipt de sucesso. O handoff humano é controlado pela troca atômica de Presenter e entrega contexto para a pessoa que assume.
+
+## Recursos confirmados
+
+- Landing pública com acesso à demonstração.
+- Workspace autenticado com visão geral, agentes, conhecimento, configurações e equipe.
+- Criação de rascunhos de agentes de Sales Closer.
+- Registro de fontes de conhecimento pendentes.
+- Isolamento de tenant e papéis de administrador e operador.
+- Provedores fake determinísticos para testes e caminhos de fallback.
+- Integração de texto com provider real em superfície de teste do agente, quando configurada.
+
+## O que não deve ser afirmado
+
+Não afirmar que o produto garante conversão, substitui uma equipe inteira, reduz custos em percentual específico ou está pronto para qualquer setor regulado. Não inventar preços, planos, número de clientes, avaliações, prêmios, benchmarks ou disponibilidade de provider. Não afirmar que a inteligência artificial é uma pessoa.
+
+## Demonstração
+
+A demonstração pública usa uma conta compartilhada e dados fictícios. Ela serve para apresentar o workspace e a direção do produto. Uso com dados reais, credenciais de providers, lançamento para clientes e decisões regulatórias exigem configuração e aprovação próprias.
+
+## Páginas oficiais
+
+- Home: https://portal-production-b43e.up.railway.app/
+- Login: https://portal-production-b43e.up.railway.app/login
+- Criação de conta: https://portal-production-b43e.up.railway.app/signup
+- Política de indexação: https://portal-production-b43e.up.railway.app/robots.txt
+- Sitemap: https://portal-production-b43e.up.railway.app/sitemap.xml

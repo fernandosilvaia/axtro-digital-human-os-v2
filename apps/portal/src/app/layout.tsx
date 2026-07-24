@@ -1,29 +1,41 @@
 import type { Metadata, Viewport } from "next";
 
+import { SITE_NAME, SITE_URL } from "@/lib/site";
+
 import "./globals.css";
 
 export const metadata: Metadata = {
-  metadataBase: new URL(process.env.NEXT_PUBLIC_SITE_URL ?? "https://portal-production-b43e.up.railway.app"),
+  metadataBase: new URL(`${SITE_URL}/`),
   title: {
-    default: "Axtro Digital Human OS",
+    default: SITE_NAME,
     template: "%s",
   },
   description:
-    "Plataforma operacional para agentes digitais humanos — apresentadores com voz, avatar e conhecimento governado por conta.",
-  applicationName: "Axtro Digital Human OS",
+    "Plataforma de apresentadores digitais para vendas, onboarding e customer success, com vídeo ao vivo, conhecimento governado e operação rastreável.",
+  applicationName: SITE_NAME,
+  manifest: "/manifest.json",
+  icons: {
+    icon: [
+      { url: "/icon.svg", type: "image/svg+xml" },
+      { url: "/icons/icon-192.png", sizes: "192x192", type: "image/png" },
+      { url: "/icons/icon-512.png", sizes: "512x512", type: "image/png" },
+    ],
+    apple: [{ url: "/apple-touch-icon.png", sizes: "180x180", type: "image/png" }],
+  },
   robots: { index: false, follow: false },
   openGraph: {
-    title: "Axtro Digital Human OS",
+    title: SITE_NAME,
     description:
-      "Plataforma operacional para agentes digitais humanos — apresentadores com voz, avatar e conhecimento governado por conta.",
+      "Apresentadores digitais para vendas, onboarding e customer success, com vídeo ao vivo, conhecimento governado e operação rastreável.",
     type: "website",
     locale: "pt_BR",
-    siteName: "Axtro Digital Human OS",
+    siteName: SITE_NAME,
   },
 };
 
 export const viewport: Viewport = {
-  themeColor: "#0a0b0f",
+  themeColor: "#08090d",
+  colorScheme: "dark",
   width: "device-width",
   initialScale: 1,
 };

@@ -1,0 +1,35 @@
+# Axtro Digital Human OS
+
+> Plataforma operacional da Axtro AI para criar e operar apresentadores digitais em vendas, onboarding e customer success.
+
+## Fonte oficial
+
+- Site: https://portal-production-b43e.up.railway.app/
+- Contexto completo do produto: https://portal-production-b43e.up.railway.app/llms-full.txt
+- Demonstração: https://portal-production-b43e.up.railway.app/
+
+## O que é
+
+O Axtro Digital Human OS permite que empresas configurem apresentadores digitais para conduzir conversas em vídeo, responder com conhecimento autorizado e registrar a operação com governança.
+
+## Para quem é
+
+É destinado a empresas com equipes de vendas, onboarding ou customer success que precisam escalar conversas sem perder consistência, transparência ou controle por conta.
+
+## Capacidades confirmadas
+
+- Sales Closer Alpha para descoberta, objeções e próximo passo.
+- Apresentação digital em vídeo e voz quando os providers da conta estão habilitados.
+- Conhecimento autorizado por tenant, com classificação e revogação.
+- Disclosure obrigatório de que o agente é uma inteligência artificial.
+- Ações governadas por intenção, política, aprovação quando exigida e receipt.
+- Handoff humano com contexto quando o fluxo exigir.
+- Workspace com agentes, fontes de conhecimento, configurações e equipe.
+
+## Limites importantes
+
+O Axtro Digital Human OS não afirma que o agente é humano. A demonstração pública usa dados fictícios. Recursos de voz, vídeo, integrações e ativação dependem da configuração da conta e dos providers habilitados. A plataforma não substitui revisão humana, aprovação de lançamento ou validação jurídica, regulatória e de privacidade.
+
+## Segurança e privacidade
+
+Dados de tenants são isolados. A plataforma não permite identificação biométrica oculta, inferência de atributos protegidos, alegação de detecção de mentira ou diagnóstico médico e psicológico.

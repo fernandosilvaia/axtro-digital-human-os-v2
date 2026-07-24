@@ -1,10 +1,10 @@
 # Progresso de implementação
 
-**Estado atual:** M0, M1, M2 e M3 concluídos (M3-01 a M3-09 fake-first/dry-run completos; M3-10 com ferramenta pronta, piloto real e bake-off de provider pendentes de gate humano); VISUAL-01 concluído; Cérebro Método Silva no ar (D-V2-073/074)
+**Estado atual:** M0, M1, M2 e M3 concluídos (M3-01 a M3-09 fake-first/dry-run completos; M3-10 com ferramenta pronta, piloto real e bake-off de provider pendentes de gate humano); VISUAL-01 concluído; Cérebro Método Silva no ar (D-V2-073/074); SEO-AEO-01 concluído
 
 **Marco atual:** M3 (concluído)
 **Tarefa atual:** nenhuma
-**Última evidência verde:** Cérebro Método Silva em 2026-07-19 — 38 manuais no cofre com hash, 10 fontes RAG (438 chunks), chat respondendo objeção com E.A.R.C. literal do método, Rafaela vista ao vivo em sala Tavus com persona nova (`p8966676f4d2`) e tools de apresentação; `pnpm lint`, `pnpm test` (418 Node + 26 Python), typecheck, build do portal e 9 validadores verdes
+**Última evidência verde:** SEO-AEO-01 em 2026-07-24 — landing `/` com metadata canônica, FAQ visível e `FAQPage`, JSON-LD, Open Graph dinâmico, robots, sitemap, `llms.txt`, PWA e ícones de compartilhamento; dashboard com prontidão operacional baseada nos dados reais da conta; `pnpm lint`, `pnpm test` (426 Node + 26 Python), typecheck, build do portal, `git diff --check`, 9 validadores verdes e smoke test público verde após deploy Railway
 **Bloqueadores internos:** nenhum
 **Pendências externas:** consultar `PENDENCIAS_EXTERNAS.md`  
 
@@ -72,6 +72,7 @@
 | `M3-09` | M3 | done | Expand console for opportunity and call review | `M3-02`, `M3-03`, `M3-05`, `M3-08` | `opportunity-review.ts` novo em `@axtro/ui` (reaproveita `renderEvidenceLabel`/`escapeHtml` do M1-09), 9 testes Node verdes |
 | `M3-10` | M3 | done (ferramenta) | Internal Sales Closer Alpha pilot gate | `M3-04`, `M3-05`, `M3-06`, `M3-07`, `M3-08`, `M3-09` | `generatePilotGateReport` pronto e testado; piloto real de 20 chamadas e bake-off credenciado ficam pendentes de gate humano — ver `artifacts/m3/README.md` |
 | `VISUAL-01` | Produto | done | Redesign premium da landing e do workspace do portal | M3 concluído | landing, copy, motion, asset autoral, workspace e validação visual desktop/mobile concluídos |
+| `SEO-AEO-01` | Produto | done | SEO, AEO, compartilhamento e superfícies públicas do portal | VISUAL-01 | `pnpm lint`, `pnpm test` (426 Node + 26 Python), typecheck, build do portal, `git diff --check`, 9 validadores verdes, deploy Railway e smoke público verde |
 
 ## Log de execução
 
@@ -679,6 +680,17 @@
 - Mais dois bugs pré-existentes achados como efeito colateral (mesmo padrão de sessão anterior — dependências novas expondo varreduras que nunca tinham sido exercitadas): `BEARER_PATTERN` em `packages/auth` limitava o token a 256 caracteres (dimensionado pra token de dev curto, rejeitava um JWT real de verdade); `scripts/docs_qa.py` varria `node_modules/**/*.md` procurando link quebrado e claim proibida — nunca tinha aparecido porque não havia dependência JS com Markdown vendorizado antes do portal. Ambos corrigidos com teste de regressão.
 - 4 testes novos em `tests/auth/supabase-session.test.mjs` (JWKS local via servidor HTTP efêmero + par de chaves ES256 real, não mockado): claim de `tenant_admin` resolve o tenant/actor/escopos exatos, `tenant_operator` resolve escopo mais restrito, assinatura forjada/issuer errado/token expirado/claims ausentes ou papel desconhecido falham fechado com `AuthenticationError`, URL do projeto malformada rejeitada e loopback http aceito só para hostnames locais. 2 testes novos em `tests/python/test_docs_qa.py`.
 - `pnpm lint`, `tsc --build` completo, `node scripts/test.mjs` (393 Node + 26 unittest Python), `python3 scripts/validate_all.py` (9 validadores) e `pnpm --filter @axtro/portal run build`/`typecheck` verdes.
+
+### 2026-07-24, SEO-AEO-01 concluído
+
+- Landing pública adaptada ao Axtro Digital Human OS com copy de vendas, casos de uso para vendas, onboarding e customer success, FAQ visível e disclosure de IA preservado.
+- SEO e AEO adicionados com metadata por rota, canonical, Open Graph dinâmico, Twitter card, JSON-LD de organização, site, software e FAQ, `robots.txt`, `sitemap.xml`, `llms.txt` e `llms-full.txt`.
+- Compartilhamento e PWA adicionados com manifest, ícones PNG derivados da marca Axtro, apple touch icon e tema visual coerente.
+- Rotas privadas e de autenticação recebem noindex ou ficam fora do sitemap. O middleware também libera as superfícies técnicas públicas depois da correção encontrada pelo smoke test.
+- Dashboard ganhou prontidão operacional baseada em tenant, agentes e fontes de conhecimento reais, com próximo passo contextual e barra de progresso acessível.
+- Validação local: `pnpm lint`, `pnpm --filter @axtro/portal run typecheck`, `pnpm --filter @axtro/portal run build`, `pnpm test` com 426 Node e 26 Python, `python3 scripts/validate_all.py` com 9 validadores e `git diff --check`.
+- Publicação: Railway deployment `c0f98be9-c3ad-4084-b24d-f69dd2332c35` concluído com sucesso. Smoke test público verde em `/`, `/robots.txt`, `/sitemap.xml`, `/manifest.json`, `/opengraph-image` e `/api/health`.
+- Nenhum claim, texto ou identidade da Raízes Finance foi levado ao produto Axtro. Decisão registrada em D-V2-077.
 
 ## Próxima ação
 
