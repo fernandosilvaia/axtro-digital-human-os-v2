@@ -1,5 +1,21 @@
 # CHANGELOG (resumo por onda — detalhes em PROGRESS.md e DECISIONS_LOG.md)
 
+## 2026-07-24 — SEO/AEO, rate card de custos e correções (execução autônoma)
+
+- **feat(seo):** landing pública com metadata canônica, Open Graph dinâmico, JSON-LD
+  (organização/site/software/FAQPage), `robots.txt`, `sitemap.xml`, `llms.txt`/
+  `llms-full.txt`, manifest PWA e ícones de compartilhamento (SEO-AEO-01, D-V2-077).
+- **feat(portal):** dashboard com prontidão operacional baseada em dados reais da conta.
+- **feat(costing):** rate card de custos com preço público de tabela (OpenRouter,
+  Tavus) — `unit_cost_usd`/`amount_usd` reais em vez de 0; painel "Uso de IA" ganha
+  custo estimado hoje/7d por serviço (T8, D-V2-078).
+- **fix(seo):** `llms.txt`/`llms-full.txt` ficaram fora do matcher de exclusão do
+  middleware de auth (307 para `/login` em vez de 200) — corrigido, com teste HTTP
+  e2e novo cobrindo as 6 rotas públicas do middleware (D-V2-079).
+- **decision:** modelo LLM das 3 personas Tavus migrado de `tavus-glm-4.7`
+  (depreciado) para `tavus-gemma-4` (D-V2-076); migração para RLS-por-claim (T13)
+  avaliada e adiada por falta de ambiente de staging para provar isolamento de tenant.
+
 ## 2026-07-20 — Rate limiting, notificação de ativação e telemetria
 
 - **feat(security):** rate limit por tenant nas RPCs caras (20 convites/dia, 30
