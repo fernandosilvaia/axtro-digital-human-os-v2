@@ -34,8 +34,8 @@ Racional completo: D-V2-055, D-V2-056 e D-V2-058 em
 | `0015_rate_limits.sql` | sim (2026-07-20, via Management API `database/query`) |
 | `0016_admin_emails_for_notifications.sql` | sim (2026-07-20, via Management API `database/query`) |
 | `0017_rate_card.sql` | sim (2026-07-24, via Management API `database/query`) |
-| `0018_agent_brain_config.sql` | **não** — arquivo pronto e revisado (M4-03), aplicação bloqueada pelo classificador de segurança da sessão autônoma (DDL em produção exige confirmação explícita do Fernando); aplicar via MCP `apply_migration` (project_id `ovctadcrvnfpgxzplupp`) assim que autorizado |
-| `0019_agent_brain_service_role_rpcs.sql` | **não** — mesmo bloqueio do 0018 (M4-04); depende de 0018 já estar aplicada. Requer também `SUPABASE_SERVICE_ROLE_KEY` configurada no ambiente do portal (nunca antes usada neste projeto — pegar em Project Settings > API do Supabase, nunca commitar) |
+| `0018_agent_brain_config.sql` | sim (2026-07-27, via MCP `apply_migration`, autorizado explicitamente pelo Fernando) |
+| `0019_agent_brain_service_role_rpcs.sql` | sim (2026-07-27, via MCP `apply_migration`, autorizado explicitamente pelo Fernando). Confirmado via `execute_sql`: tabela + 5 funções presentes, RLS forçada. Advisor de segurança revisado — só os mesmos WARNs `authenticated_security_definer_function_executable` já aceitos para toda RPC `portal_*` deste projeto; nenhum problema novo. Ainda falta `SUPABASE_SERVICE_ROLE_KEY` no ambiente do portal (nunca configurada — Project Settings > API do Supabase) para o endpoint funcionar de ponta a ponta |
 
 ## Regras
 
