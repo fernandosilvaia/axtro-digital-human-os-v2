@@ -35,6 +35,7 @@ Racional completo: D-V2-055, D-V2-056 e D-V2-058 em
 | `0016_admin_emails_for_notifications.sql` | sim (2026-07-20, via Management API `database/query`) |
 | `0017_rate_card.sql` | sim (2026-07-24, via Management API `database/query`) |
 | `0018_agent_brain_config.sql` | **não** — arquivo pronto e revisado (M4-03), aplicação bloqueada pelo classificador de segurança da sessão autônoma (DDL em produção exige confirmação explícita do Fernando); aplicar via MCP `apply_migration` (project_id `ovctadcrvnfpgxzplupp`) assim que autorizado |
+| `0019_agent_brain_service_role_rpcs.sql` | **não** — mesmo bloqueio do 0018 (M4-04); depende de 0018 já estar aplicada. Requer também `SUPABASE_SERVICE_ROLE_KEY` configurada no ambiente do portal (nunca antes usada neste projeto — pegar em Project Settings > API do Supabase, nunca commitar) |
 
 ## Regras
 

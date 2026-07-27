@@ -7,10 +7,16 @@ Estas pendências não bloqueiam M0-M2 quando adapters fake são usados. Bloquei
 - Provider de avatar para bake-off, sem escolha definitiva antes dos testes.
 - OpenAI API para benchmark de Realtime.
 - STT e TTS alternativos para benchmark.
-- Recall.ai para Meet, Zoom e Teams.
+- Recall.ai para Meet, Zoom e Teams — necessário para validar o "cérebro" (M4) rodando dentro de uma call de Zoom/Meet de verdade, não só na sala hospedada do Tavus (spike D-V2-076 confirmou a viabilidade técnica via Output Media API, mas não foi testado ao vivo por falta de conta).
 - Telnyx e configuração SIP de staging.
 - Supabase de dev e staging.
 - Secret manager escolhido.
+- `SUPABASE_SERVICE_ROLE_KEY` do projeto `digital-human-os` (M4-04) — nunca configurada neste projeto até hoje; pegar em Project Settings > API do Supabase. Sem ela, o endpoint `/api/brain/[agentId]/chat/completions` não consegue resolver tenant/agente (chamada servidor-a-servidor do Tavus, sem sessão de usuário).
+
+## Gates humanos pendentes do cérebro customizado (M4)
+- Aplicar `database/supabase-only/0018_agent_brain_config.sql` e `0019_agent_brain_service_role_rpcs.sql` no Supabase real (`ovctadcrvnfpgxzplupp`) — escritas e revisadas, aplicação bloqueada pelo classificador de segurança da sessão autônoma que as escreveu (DDL em produção exige confirmação explícita, D-V2-082).
+- Apontar `layers.llm.base_url` de uma persona Tavus REAL para o endpoint — nenhuma persona em produção (Aurora, Amanda, Rafaela) usa o cérebro customizado ainda; troca de LLM de uma persona ao vivo é ação que afeta clientes/prospects reais e fica reservada para decisão explícita do Fernando.
+- RAG real no caminho Tavus (`portal_search_knowledge` exige `auth.uid()`, que não existe numa chamada servidor-a-servidor) — hoje o endpoint responde só com identidade + Método Silva + percepção, sem fontes de conhecimento da conta; candidato a uma RPC `_service` equivalente numa sessão futura.
 
 ## Decisões comerciais
 - Limites de custo por minuto e por tenant.
