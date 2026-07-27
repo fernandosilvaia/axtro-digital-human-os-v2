@@ -1,10 +1,10 @@
 # Progresso de implementação
 
-**Estado atual:** M0, M1, M2 e M3 concluídos (M3-01 a M3-09 fake-first/dry-run completos; M3-10 com ferramenta pronta, piloto real e bake-off de provider pendentes de gate humano); VISUAL-01 concluído; Cérebro Método Silva no ar (D-V2-073/074); SEO-AEO-01 concluído; rate card de custos no ar (D-V2-078); M4 (cérebro customizado próprio na persona de vídeo) iniciado — M4-01 concluído (D-V2-080)
+**Estado atual:** M0, M1, M2 e M3 concluídos (M3-01 a M3-09 fake-first/dry-run completos; M3-10 com ferramenta pronta, piloto real e bake-off de provider pendentes de gate humano); VISUAL-01 concluído; Cérebro Método Silva no ar (D-V2-073/074); SEO-AEO-01 concluído; rate card de custos no ar (D-V2-078); M4 (cérebro customizado próprio na persona de vídeo) em andamento — M4-01 e M4-02 concluídos (D-V2-080)
 
 **Marco atual:** M4 (em andamento)
-**Tarefa atual:** M4-02 (parser de mensagens Tavus)
-**Última evidência verde:** M4-01 em 2026-07-27 — `runBrainChatCompletion` extraído para `apps/portal/src/lib/brain/chat-completion-core.ts` (ports injetadas, sem Supabase/HTTP/provider diretos), `agent-preview.ts` refatorado sem mudança de comportamento; 437 testes Node (11 novos: composição chat/vídeo, bloco de conhecimento, bloco de percepção rotulado e truncado, ordem de histórico, orçamento de mensagens sob histórico longo, validação de entrada malformada, propagação de erro do provider) + 26 Python, typecheck, lint, build e 9 validadores verdes
+**Tarefa atual:** `M4-03` (migration de segredo por agente) — junto com `M4-04` (rota HTTP), ambas tocando produção real e reservadas para gate humano antes do rewiring da persona ao vivo
+**Última evidência verde:** M4-02 em 2026-07-27 — `tavus-request.ts` traduz o array `messages` do Tavus para o formato do núcleo: mensagens `system` do Tavus descartadas da conversa (identidade é nossa) mas varridas por tags de percepção antes de descartar; 13 testes novos (450 Node total) + 26 Python, typecheck, lint e 9 validadores verdes
 **Bloqueadores internos:** nenhum
 **Pendências externas:** consultar `PENDENCIAS_EXTERNAS.md`  
 
@@ -74,6 +74,7 @@
 | `VISUAL-01` | Produto | done | Redesign premium da landing e do workspace do portal | M3 concluído | landing, copy, motion, asset autoral, workspace e validação visual desktop/mobile concluídos |
 | `SEO-AEO-01` | Produto | done | SEO, AEO, compartilhamento e superfícies públicas do portal | VISUAL-01 | `pnpm lint`, `pnpm test` (426 Node + 26 Python), typecheck, build do portal, `git diff --check`, 9 validadores verdes, deploy Railway e smoke público verde |
 | `M4-01` | M4 | done | Extract ports-injected brain chat-completion core | `M3-01`, `M3-02` | `chat-completion-core.ts` sem import de Supabase/HTTP/provider; `agent-preview.ts` refatorado sem mudar comportamento; 11 testes novos (437 Node total) verdes |
+| `M4-02` | M4 | done | Parse Tavus custom-LLM messages into brain input | `M4-01` | `tavus-request.ts`: system messages do Tavus descartadas da conversa mas varridas por tags de percepção antes; 13 testes novos (450 Node total) verdes |
 
 ## Log de execução
 
@@ -757,3 +758,10 @@ bake-off credenciado de provider e piloto interno real de M3-10.
 - `apps/portal/tsconfig.json` ganhou `allowImportingTsExtensions: true` (já elegível, `noEmit` true) para permitir que o núcleo importe `metodo-silva.ts` com extensão explícita — necessário para o Node nativo (sem bundler) executar o módulo diretamente no teste, no mesmo padrão de `tests/portal/metodo-silva-brain.test.mjs`.
 - M4 registrado em `backlog/MVP_TASK_GRAPH.yaml` (4 tarefas: M4-01 a M4-04) — M4-03/M4-04 tocam produção real (persona ao vivo, segredo por agente) e ficam para gate humano antes de qualquer rewiring da persona em produção.
 - Pipeline: `pnpm test` (437 Node + 26 Python, 11 testes novos em `tests/portal/brain-chat-completion-core.test.mjs`), `pnpm typecheck`, `pnpm lint`, `python3 scripts/validate_all.py` (9 validadores) verdes.
+
+### 2026-07-27, M4-02 — parser de mensagens Tavus (percepção como dado não confiável)
+
+- `apps/portal/src/lib/brain/tavus-request.ts`: traduz o array `messages` OpenAI-style que o Tavus envia via `layers.llm.base_url` para `{ history, userMessage, perceptionContext }`. Toda mensagem `role="system"` do Tavus é descartada da conversa (identidade e método continuam sendo só os nossos, Art. 15) — mas é varrida por tags `<user_appearance>`/`<user_emotions>`/`<user_screenshare>` ANTES de ser descartada, porque a documentação do Tavus não garante em qual papel de mensagem o raven-1 injeta a leitura ambiente; o parser não assume um único lugar.
+- Tags de percepção são extraídas de qualquer mensagem (system, user ou assistant), removidas do texto visível do turno (para não duplicar o conteúdo na história) e concatenadas em `perceptionContext`, que o núcleo do M4-01 já sabe rotular como dado não confiável.
+- Falha fechada por padrão: array vazio, papel desconhecido, `content` não-string (ex.: array multimodal), mensagem final que não é um turno de usuário não-vazio, e tetos de tamanho (200 mensagens, 20k chars por mensagem) — tudo rejeita com `TavusRequestParseError` tipado em vez de deixar o núcleo receber um estado inconsistente.
+- Pipeline: `pnpm test` (450 Node + 26 Python, 13 testes novos em `tests/portal/brain-tavus-request.test.mjs`), `pnpm typecheck`, `pnpm lint`, `python3 scripts/validate_all.py` (9 validadores) verdes.
