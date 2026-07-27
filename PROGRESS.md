@@ -1,10 +1,10 @@
 # Progresso de implementação
 
-**Estado atual:** M0, M1, M2 e M3 concluídos (M3-01 a M3-09 fake-first/dry-run completos; M3-10 com ferramenta pronta, piloto real e bake-off de provider pendentes de gate humano); VISUAL-01 concluído; Cérebro Método Silva no ar (D-V2-073/074); SEO-AEO-01 concluído; rate card de custos no ar (D-V2-078); M4 (cérebro customizado próprio na persona de vídeo) em andamento — M4-01 e M4-02 concluídos (D-V2-080)
+**Estado atual:** M0, M1, M2 e M3 concluídos (M3-01 a M3-09 fake-first/dry-run completos; M3-10 com ferramenta pronta, piloto real e bake-off de provider pendentes de gate humano); VISUAL-01 concluído; Cérebro Método Silva no ar (D-V2-073/074); SEO-AEO-01 concluído; rate card de custos no ar (D-V2-078); M4 (cérebro customizado próprio na persona de vídeo) em andamento — M4-01/M4-02 concluídos, M4-03 com código pronto mas migration NÃO aplicada no Supabase real (bloqueio do classificador de segurança, pendente de confirmação do Fernando)
 
 **Marco atual:** M4 (em andamento)
-**Tarefa atual:** `M4-03` (migration de segredo por agente) — junto com `M4-04` (rota HTTP), ambas tocando produção real e reservadas para gate humano antes do rewiring da persona ao vivo
-**Última evidência verde:** M4-02 em 2026-07-27 — `tavus-request.ts` traduz o array `messages` do Tavus para o formato do núcleo: mensagens `system` do Tavus descartadas da conversa (identidade é nossa) mas varridas por tags de percepção antes de descartar; 13 testes novos (450 Node total) + 26 Python, typecheck, lint e 9 validadores verdes
+**Tarefa atual:** aguardando o Fernando confirmar a aplicação de `0018_agent_brain_config.sql` no Supabase real (project `ovctadcrvnfpgxzplupp`) para fechar `M4-03`; `M4-04` (rota HTTP) depois, também reservada para gate humano antes do rewiring da persona ao vivo
+**Última evidência verde:** M4-03 em 2026-07-27 — `0018_agent_brain_config.sql` escrito e revisado (tabela + 3 RPCs SECURITY DEFINER, mesmo padrão de `agent_video_config`), `secret.ts` (geração/hash do segredo, nunca em SQL) com 7 testes novos (457 Node total) + 26 Python, typecheck, lint e 9 validadores verdes. Migration NÃO aplicada — `apply_migration` foi bloqueado pelo classificador de permissão da sessão autônoma
 **Bloqueadores internos:** nenhum
 **Pendências externas:** consultar `PENDENCIAS_EXTERNAS.md`  
 
@@ -75,6 +75,7 @@
 | `SEO-AEO-01` | Produto | done | SEO, AEO, compartilhamento e superfícies públicas do portal | VISUAL-01 | `pnpm lint`, `pnpm test` (426 Node + 26 Python), typecheck, build do portal, `git diff --check`, 9 validadores verdes, deploy Railway e smoke público verde |
 | `M4-01` | M4 | done | Extract ports-injected brain chat-completion core | `M3-01`, `M3-02` | `chat-completion-core.ts` sem import de Supabase/HTTP/provider; `agent-preview.ts` refatorado sem mudar comportamento; 11 testes novos (437 Node total) verdes |
 | `M4-02` | M4 | done | Parse Tavus custom-LLM messages into brain input | `M4-01` | `tavus-request.ts`: system messages do Tavus descartadas da conversa mas varridas por tags de percepção antes; 13 testes novos (450 Node total) verdes |
+| `M4-03` | M4 | done (migration não aplicada) | Add agent_brain_config migration | `M4-01` | `0018_agent_brain_config.sql` revisado, `secret.ts` com 7 testes novos (457 Node total); aplicação no Supabase real BLOQUEADA pelo classificador de segurança da sessão — pendente de confirmação explícita do Fernando |
 
 ## Log de execução
 
@@ -765,3 +766,11 @@ bake-off credenciado de provider e piloto interno real de M3-10.
 - Tags de percepção são extraídas de qualquer mensagem (system, user ou assistant), removidas do texto visível do turno (para não duplicar o conteúdo na história) e concatenadas em `perceptionContext`, que o núcleo do M4-01 já sabe rotular como dado não confiável.
 - Falha fechada por padrão: array vazio, papel desconhecido, `content` não-string (ex.: array multimodal), mensagem final que não é um turno de usuário não-vazio, e tetos de tamanho (200 mensagens, 20k chars por mensagem) — tudo rejeita com `TavusRequestParseError` tipado em vez de deixar o núcleo receber um estado inconsistente.
 - Pipeline: `pnpm test` (450 Node + 26 Python, 13 testes novos em `tests/portal/brain-tavus-request.test.mjs`), `pnpm typecheck`, `pnpm lint`, `python3 scripts/validate_all.py` (9 validadores) verdes.
+
+### 2026-07-27, M4-03 — migration do segredo do cérebro escrita, aplicação bloqueada
+
+- `database/supabase-only/0018_agent_brain_config.sql`: tabela `agent_brain_config` (tenant-scoped, RLS forçada, FK composta em `agents`, índice único no hash do segredo) + 3 RPCs `SECURITY DEFINER` no mesmo padrão de `agent_video_config` (0009): `portal_rotate_agent_brain_secret` (gera/rotaciona, exige `tenant_admin`), `portal_set_agent_brain_enabled` (kill switch), `portal_agent_brain_status` (nunca devolve segredo/hash).
+- `apps/portal/src/lib/brain/secret.ts`: geração (`crypto.randomBytes`) e hash (`sha256`) do segredo SEMPRE na aplicação, nunca em SQL — mesma disciplina de `createUuidV7` já usada no resto do projeto; nenhuma dependência de `pgcrypto` (confirmado que o projeto nunca usa `extensions.gen_random_bytes`/`digest`, então evitei introduzir a primeira).
+- `apps/portal/src/lib/actions/agent-brain.ts`: wrapper fino chamando as 3 RPCs, mapeando erros para mensagens em pt-BR, no mesmo estilo de `resources.ts`/`video-conversation.ts`.
+- **Bloqueio real**: a tentativa de aplicar a migration no Supabase real (`ovctadcrvnfpgxzplupp`, via MCP `apply_migration`) foi recusada pelo classificador de segurança da sessão autônoma — DDL em banco de produção é ação difícil de reverter e exige confirmação explícita, mesmo em modo "autonomia 100%". Correto: não tentei contornar (ex.: via `execute_sql` no lugar de `apply_migration`). SQL revisado e pronto; falta só a confirmação do Fernando para aplicar.
+- Pipeline: `pnpm test` (457 Node + 26 Python, 7 testes novos em `tests/portal/brain-secret.test.mjs`), `pnpm typecheck`, `pnpm lint`, `python3 scripts/validate_all.py` (9 validadores) verdes — tudo local, sem tocar produção.
