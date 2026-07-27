@@ -14,6 +14,9 @@ milestones:
   M3:
     name: Sales Closer Alpha
     exit_gate: M3-10
+  M4:
+    name: Custom Brain (LLM próprio na persona de vídeo)
+    exit_gate: M4-04
 tasks:
   - id: M0-01
     milestone: M0
@@ -608,3 +611,50 @@ tasks:
       - provider cost and quality are measured by channel
       - customer beta requires a separate approval
     tests: [internal pilot report, release checklist]
+  - id: M4-01
+    milestone: M4
+    title: Extract ports-injected brain chat-completion core
+    lane: brain
+    dependencies: [M3-01, M3-02]
+    objective: Share one prompt-composition and generation core (Método Silva + RAG + optional perception block) between the portal chat sandbox and the future Tavus-facing endpoint, with no behavior change to the existing sandbox.
+    primary_files: [apps/portal/src/lib/brain/chat-completion-core.ts, apps/portal/src/lib/actions/agent-preview.ts]
+    acceptance:
+      - core has no Supabase, HTTP or provider import — only injected ports
+      - knowledge and perception blocks are always separate, labeled system messages, never merged into identity
+      - total composed messages never exceed the OpenRouter adapter's per-request cap regardless of history length
+    tests: [chat surface composition, video surface composition, knowledge block, perception block labeling and truncation, message budget under long history, validation rejects malformed input, provider error propagation]
+  - id: M4-02
+    milestone: M4
+    title: Parse Tavus custom-LLM messages into brain input
+    lane: brain
+    dependencies: [M4-01]
+    objective: Turn the OpenAI-style messages array Tavus sends via layers.llm.base_url into the core's history/userMessage/perceptionContext shape, treating every Tavus-authored system message as untrusted data and never as identity or instruction (Constitution Art. 15).
+    primary_files: [apps/portal/src/lib/brain/tavus-request.ts]
+    acceptance:
+      - Tavus system messages are never forwarded as our system identity
+      - ambient-awareness style tags are extracted into perceptionContext regardless of which message role carries them
+      - malformed or empty message arrays fail closed with a typed error
+    tests: [real-shaped Tavus fixtures, missing perception, multiple perception tags, malformed array]
+  - id: M4-03
+    milestone: M4
+    title: Add agent_brain_config migration (per-agent secret, RLS)
+    lane: database
+    dependencies: [M4-01]
+    objective: Store a hashed per-agent bearer secret so the Tavus-facing endpoint can resolve tenant and agent without exposing tenant data through the URL, following the agent_video_config RLS pattern.
+    primary_files: [database/supabase-only/]
+    acceptance:
+      - table is tenant-scoped with RLS forced, secret is stored hashed only
+      - portal_* RPCs allow enable/rotate/status without ever returning the raw secret after creation
+    tests: [cross-tenant read rejected, rotate invalidates the old secret, disabled agent rejects auth]
+  - id: M4-04
+    milestone: M4
+    title: Add Tavus-facing brain chat-completions HTTP route
+    lane: brain
+    dependencies: [M4-01, M4-02, M4-03]
+    objective: Serve an OpenAI-compatible /chat/completions SSE endpoint that Tavus calls as the persona's custom LLM, reusing M4-01/M4-02/M4-03; production persona rewiring stays a separate, human-gated step.
+    primary_files: [apps/portal/src/app/api/brain/]
+    acceptance:
+      - invalid or missing bearer is rejected before any tenant data is touched
+      - response is valid OpenAI-compatible SSE (chat.completion.chunk)
+      - provider or retrieval failure degrades to an explicit spoken fallback, never a raw 500 (Constitution Art. 14)
+    tests: [auth valid/invalid/cross-tenant, SSE shape, degradation on provider failure]

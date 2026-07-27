@@ -1,10 +1,10 @@
 # Progresso de implementação
 
-**Estado atual:** M0, M1, M2 e M3 concluídos (M3-01 a M3-09 fake-first/dry-run completos; M3-10 com ferramenta pronta, piloto real e bake-off de provider pendentes de gate humano); VISUAL-01 concluído; Cérebro Método Silva no ar (D-V2-073/074); SEO-AEO-01 concluído; rate card de custos no ar (D-V2-078)
+**Estado atual:** M0, M1, M2 e M3 concluídos (M3-01 a M3-09 fake-first/dry-run completos; M3-10 com ferramenta pronta, piloto real e bake-off de provider pendentes de gate humano); VISUAL-01 concluído; Cérebro Método Silva no ar (D-V2-073/074); SEO-AEO-01 concluído; rate card de custos no ar (D-V2-078); M4 (cérebro customizado próprio na persona de vídeo) iniciado — M4-01 concluído (D-V2-080)
 
-**Marco atual:** M3 (concluído)
-**Tarefa atual:** nenhuma
-**Última evidência verde:** T8 rate card em 2026-07-24 — `portal_log_ai_usage` grava custo real (US$0,0035 em teste com 1000in/500out, confere com a conta manual); painel "Uso de IA" com tile de custo estimado; 426 testes Node + 26 Python, typecheck, build do portal e 9 validadores verdes
+**Marco atual:** M4 (em andamento)
+**Tarefa atual:** M4-02 (parser de mensagens Tavus)
+**Última evidência verde:** M4-01 em 2026-07-27 — `runBrainChatCompletion` extraído para `apps/portal/src/lib/brain/chat-completion-core.ts` (ports injetadas, sem Supabase/HTTP/provider diretos), `agent-preview.ts` refatorado sem mudança de comportamento; 437 testes Node (11 novos: composição chat/vídeo, bloco de conhecimento, bloco de percepção rotulado e truncado, ordem de histórico, orçamento de mensagens sob histórico longo, validação de entrada malformada, propagação de erro do provider) + 26 Python, typecheck, lint, build e 9 validadores verdes
 **Bloqueadores internos:** nenhum
 **Pendências externas:** consultar `PENDENCIAS_EXTERNAS.md`  
 
@@ -73,6 +73,7 @@
 | `M3-10` | M3 | done (ferramenta) | Internal Sales Closer Alpha pilot gate | `M3-04`, `M3-05`, `M3-06`, `M3-07`, `M3-08`, `M3-09` | `generatePilotGateReport` pronto e testado; piloto real de 20 chamadas e bake-off credenciado ficam pendentes de gate humano — ver `artifacts/m3/README.md` |
 | `VISUAL-01` | Produto | done | Redesign premium da landing e do workspace do portal | M3 concluído | landing, copy, motion, asset autoral, workspace e validação visual desktop/mobile concluídos |
 | `SEO-AEO-01` | Produto | done | SEO, AEO, compartilhamento e superfícies públicas do portal | VISUAL-01 | `pnpm lint`, `pnpm test` (426 Node + 26 Python), typecheck, build do portal, `git diff --check`, 9 validadores verdes, deploy Railway e smoke público verde |
+| `M4-01` | M4 | done | Extract ports-injected brain chat-completion core | `M3-01`, `M3-02` | `chat-completion-core.ts` sem import de Supabase/HTTP/provider; `agent-preview.ts` refatorado sem mudar comportamento; 11 testes novos (437 Node total) verdes |
 
 ## Log de execução
 
@@ -745,3 +746,14 @@ bake-off credenciado de provider e piloto interno real de M3-10.
 - O cérebro (`metodo-silva.ts`) agora instrui MAESTRIA de leitura: emoção por trás da fala, micro-expressões, linguagem corporal e sinais de compra decidem o que perguntar, o que responder, quando aprofundar e quando fechar — incluindo nomear a leitura com tato ("sinto que esse ponto te preocupou — me conta o que pesou?"). As `ambient_awareness_queries` do raven-1 subiram de 5 para 8 por idioma (emoção expressa, micro-expressões do último ponto, linguagem corporal, confusão, sinais de compra, vontade de falar, distração, segunda pessoa no quadro).
 - Linhas vermelhas mantidas (protegem a operação sem conflitar com o produto): identificação biométrica oculta, inferência de atributo protegido, alegação de detecção de mentira e diagnóstico médico/psicológico. A leitura é declarada via disclosure (Art. 6) e governada pelas finalidades de consentimento (Art. 5); DPIA/validação por jurisdição segue em PENDENCIAS_EXTERNAS com relevância aumentada.
 - Aplicado AO VIVO nas 3 personas Tavus (Aurora 7.943 chars, Amanda 8.750, Rafaela 7.748 — todas com 8 queries). Testes de "nunca ler emoção" substituídos por testes que garantem a presença da maestria E a permanência das 4 proibições; PR #16 (cérebro) mergeado no início desta sessão a pedido do Fernando.
+
+### 2026-07-27, M4-01 — núcleo do cérebro customizado extraído (D-V2-080)
+
+- Depois do spike D-V2-076 (confirmou por documentação oficial que a percepção do raven-1 é injetada automaticamente no contexto do LLM da persona, e que trocar o LLM da persona por um endpoint próprio via `layers.llm.base_url` é suportado), o Fernando autorizou seguir com a construção do cérebro de verdade em looping autônomo.
+- `runBrainChatCompletion` extraído de `agent-preview.ts` para `apps/portal/src/lib/brain/chat-completion-core.ts`: mesma composição (Método Silva chat/vídeo + bloco de fontes RAG), com geração e log de uso injetados por porta — o núcleo não importa Supabase, HTTP nem provider diretamente, então serve tanto o sandbox de chat quanto (a partir de M4-04) o endpoint que o Tavus vai chamar.
+- Nova capacidade: bloco de PERCEPÇÃO como mensagem system separada, rotulada e limitada (1800 chars), explicitamente descrita como evidência de terceiro que nunca decide preço/política (Art. 15) — pronta para receber as tags do raven-1 assim que M4-02 as extrair da requisição do Tavus.
+- Corrigido durante os testes: o guard de tamanho de histórico herdado do sandbox (`MAX_HISTORY_TURNS*2`) rejeitava com erro qualquer conversa longa — errado para o caminho Tavus, onde o histórico chega pronto e fora do nosso controle. Trocado por um teto de sanidade generoso (500 entradas) com corte por orçamento dinâmico (nunca > 24 mensagens, o teto do adapter OpenRouter) em vez de rejeição.
+- `agent-preview.ts` refatorado para usar o núcleo — comportamento e testes de UI existentes preservados (sem alteração de resposta).
+- `apps/portal/tsconfig.json` ganhou `allowImportingTsExtensions: true` (já elegível, `noEmit` true) para permitir que o núcleo importe `metodo-silva.ts` com extensão explícita — necessário para o Node nativo (sem bundler) executar o módulo diretamente no teste, no mesmo padrão de `tests/portal/metodo-silva-brain.test.mjs`.
+- M4 registrado em `backlog/MVP_TASK_GRAPH.yaml` (4 tarefas: M4-01 a M4-04) — M4-03/M4-04 tocam produção real (persona ao vivo, segredo por agente) e ficam para gate humano antes de qualquer rewiring da persona em produção.
+- Pipeline: `pnpm test` (437 Node + 26 Python, 11 testes novos em `tests/portal/brain-chat-completion-core.test.mjs`), `pnpm typecheck`, `pnpm lint`, `python3 scripts/validate_all.py` (9 validadores) verdes.

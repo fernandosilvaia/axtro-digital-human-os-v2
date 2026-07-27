@@ -1,13 +1,9 @@
 "use server";
 
 import { createUuidV7 } from "@axtro/domain";
-import {
-  createOpenRouterTextGenerationPort,
-  TextGenerationError,
-  type TextGenerationMessage,
-} from "@axtro/provider-openrouter";
+import { createOpenRouterTextGenerationPort, TextGenerationError } from "@axtro/provider-openrouter";
 
-import { buildCloserChatSystemMessages } from "@/lib/brain/metodo-silva";
+import { BrainChatValidationError, runBrainChatCompletion } from "@/lib/brain/chat-completion-core";
 import { embedQuery, fakeProvidersEnabled, type KnowledgeMatch } from "@/lib/knowledge";
 import { fetchAgents, fetchTenantOverview } from "@/lib/portal-data";
 import { createClient } from "@/lib/supabase/server";
@@ -118,22 +114,6 @@ export async function sendAgentPreviewMessage(
     trackError("knowledge_retrieval_failed", retrievalError, { agent_id: agentId });
   }
 
-  // Cérebro Método Silva em duas mensagens system (identidade + método) e o
-  // bloco de fontes numa terceira: o cap de 4000 chars do adapter é POR
-  // mensagem, e prompt base + método + chunks juntos não cabem numa só.
-  const knowledgeBlock = buildKnowledgeBlock(knowledgeMatches);
-  const brainMessages = buildCloserChatSystemMessages({
-    agentName: agent.name,
-    tenantName: overview.tenant.legal_name,
-    hasKnowledge: knowledgeMatches.length > 0,
-  });
-  const messages: TextGenerationMessage[] = [
-    ...brainMessages.map((content) => ({ role: "system" as const, content })),
-    ...(knowledgeBlock ? [{ role: "system" as const, content: knowledgeBlock }] : []),
-    ...history.slice(-MAX_HISTORY_TURNS * 2).map((turn) => ({ role: turn.role, content: turn.content })),
-    { role: "user", content: message },
-  ];
-
   const port = createOpenRouterTextGenerationPort({
     apiKey,
     appUrl: "https://portal-production-b43e.up.railway.app",
@@ -141,26 +121,39 @@ export async function sendAgentPreviewMessage(
   });
 
   try {
-    const result = await port.generate({
-      model: process.env.OPENROUTER_MODEL ?? DEFAULT_MODEL,
-      messages,
-      maxOutputTokens: 512,
-    });
+    const result = await runBrainChatCompletion(
+      {
+        agentName: agent.name,
+        tenantName: overview.tenant.legal_name,
+        surface: "chat",
+        knowledgeMatches,
+        history,
+        userMessage: message,
+      },
+      {
+        generate: (messages, maxOutputTokens) =>
+          port.generate({ model: process.env.OPENROUTER_MODEL ?? DEFAULT_MODEL, messages, maxOutputTokens }),
+        logGenerationUsage: async (inputTokens, outputTokens) => {
+          // Registro de uso no ledger de custo do tenant. Falha de log não pode
+          // sumir com a resposta já paga — mas precisa ficar visível no servidor.
+          const { error: logError } = await supabase.rpc("portal_log_ai_usage", {
+            p_id: createUuidV7(),
+            p_service: "portal.agent_preview",
+            p_input_tokens: inputTokens,
+            p_output_tokens: outputTokens,
+          });
+          if (logError) {
+            trackError("portal_log_ai_usage_failed", logError, { agent_id: agentId, service: "portal.agent_preview" });
+          }
+        },
+      },
+    );
 
-    // Registro de uso no ledger de custo do tenant. Falha de log não pode
-    // sumir com a resposta já paga — mas precisa ficar visível no servidor.
-    const { error: logError } = await supabase.rpc("portal_log_ai_usage", {
-      p_id: createUuidV7(),
-      p_service: "portal.agent_preview",
-      p_input_tokens: result.usage.inputTokens,
-      p_output_tokens: result.usage.outputTokens,
-    });
-    if (logError) {
-      trackError("portal_log_ai_usage_failed", logError, { agent_id: agentId, service: "portal.agent_preview" });
-    }
-
-    return { reply: result.text, error: null };
+    return { reply: result.reply, error: null };
   } catch (error) {
+    if (error instanceof BrainChatValidationError) {
+      return { reply: null, error: "Não foi possível gerar a resposta agora." };
+    }
     if (error instanceof TextGenerationError) {
       if (error.code === "provider_timeout") {
         return { reply: null, error: "O provider demorou demais para responder. Tente novamente." };
@@ -172,23 +165,5 @@ export async function sendAgentPreviewMessage(
     }
     return { reply: null, error: "Erro inesperado ao falar com o agente." };
   }
-}
-
-// O adapter OpenRouter limita cada mensagem a 4000 chars — o bloco de fontes
-// vive numa mensagem system própria e respeita esse teto com folga.
-const MAX_KNOWLEDGE_CHUNK_CHARS = 740;
-const MAX_KNOWLEDGE_BLOCK_CHARS = 3800;
-
-function buildKnowledgeBlock(knowledgeMatches: readonly KnowledgeMatch[]): string | null {
-  if (knowledgeMatches.length === 0) return null;
-  const lines = ["FONTES AUTORIZADAS DA CONTA (trechos mais relevantes para a mensagem atual):"];
-  let blockChars = lines[0]?.length ?? 0;
-  for (const match of knowledgeMatches) {
-    const piece = `[${match.source_name}] ${match.chunk_text.slice(0, MAX_KNOWLEDGE_CHUNK_CHARS)}`;
-    if (blockChars + piece.length > MAX_KNOWLEDGE_BLOCK_CHARS) break;
-    blockChars += piece.length;
-    lines.push(piece);
-  }
-  return lines.length > 1 ? lines.join("\n") : null;
 }
 
