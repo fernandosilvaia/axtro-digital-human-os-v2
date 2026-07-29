@@ -28,6 +28,8 @@ interface AgentVideoConfig {
   readonly persona_id?: string | null;
   readonly replica_id?: string | null;
   readonly language?: string | null;
+  /** "platform" = apresenta a própria Axtro; "sales" (padrão) = vende o negócio do tenant. Campo explícito (0020) — nunca inferir do nome do agente. */
+  readonly presentation_kind?: "sales" | "platform" | null;
 }
 
 export async function startVideoConversation(agentId: string): Promise<VideoConversationResult> {
@@ -142,7 +144,7 @@ export async function startPresentationConversation(agentId: string): Promise<Pr
   const config = (configData ?? { configured: false }) as AgentVideoConfig;
   const language: "portuguese" | "english" = config.language === "english" ? "english" : "portuguese";
 
-  const deck = agent.name.startsWith("Aurora")
+  const deck = config.presentation_kind === "platform"
     ? buildPlatformDeck(firstName(agent.name))
     : buildSalesDeck({ agentName: firstName(agent.name), tenantName: overview.tenant.legal_name, language });
 
