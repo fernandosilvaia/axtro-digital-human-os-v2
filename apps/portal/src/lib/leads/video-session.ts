@@ -25,7 +25,7 @@ export interface PlatformAgentPersona {
 
 export interface VideoSessionDeps {
   readonly resolvePlatformAgentPersona: () => Promise<PlatformAgentPersona | null>;
-  readonly createConversation: (params: { personaId: string; leadName: string | null; language: string | null }) => Promise<RaissaVideoConversation>;
+  readonly createConversation: (params: { personaId: string; leadName: string | null; language: string | null; context: string | null }) => Promise<RaissaVideoConversation>;
 }
 
 export type VideoSessionErrorCode = "missing_bearer" | "invalid_secret" | "not_configured" | "provider_unavailable";
@@ -46,10 +46,13 @@ export interface VideoSessionRequest {
   readonly expectedSecret: string | null;
   readonly leadName?: string | null;
   readonly language?: string | null;
+  /** Resumo da ligação de voz que já aconteceu (dor, porte, o que o lead disse) — a Raissa Vídeo continua a conversa em vez de recomeçar do zero. Dado não confiável (Art. 15): vira contexto, nunca instrução de sistema. */
+  readonly context?: string | null;
 }
 
 const BEARER_PREFIX = "Bearer ";
 const MAX_LEAD_NAME_CHARS = 120;
+const MAX_CONTEXT_CHARS = 4000;
 const ALLOWED_LANGUAGES = new Set(["portuguese", "english", "spanish"]);
 
 function extractBearer(authorizationHeader: string | null): string | null {
@@ -91,6 +94,9 @@ export async function handleVideoSessionRequest(request: VideoSessionRequest, de
     ? request.leadName.trim()
     : null;
   const language = typeof request.language === "string" && ALLOWED_LANGUAGES.has(request.language) ? request.language : null;
+  const context = typeof request.context === "string" && request.context.trim().length > 0
+    ? request.context.trim().slice(0, MAX_CONTEXT_CHARS)
+    : null;
 
   const persona = await deps.resolvePlatformAgentPersona();
   if (persona === null) {
@@ -98,7 +104,7 @@ export async function handleVideoSessionRequest(request: VideoSessionRequest, de
   }
 
   try {
-    return await deps.createConversation({ personaId: persona.personaId, leadName, language });
+    return await deps.createConversation({ personaId: persona.personaId, leadName, language, context });
   } catch {
     throw new VideoSessionError("provider_unavailable", 502, "video provider failed to create a conversation");
   }

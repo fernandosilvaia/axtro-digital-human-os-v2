@@ -97,7 +97,38 @@ test("happy path: authenticates, resolves the persona, creates the conversation,
     deps,
   );
   assert.deepEqual(result, { url: "https://tavus.daily.co/abc123", conversationId: "abc123" });
-  assert.deepEqual(calls.createConversation[0], { personaId: "pa2dcc2d9c3e", leadName: "Maria", language: "portuguese" });
+  assert.deepEqual(calls.createConversation[0], { personaId: "pa2dcc2d9c3e", leadName: "Maria", language: "portuguese", context: null });
+});
+
+test("passes a trimmed conversation context through to the provider, so video-Raissa continues the phone call instead of starting cold", async () => {
+  const { deps, calls } = fakeDeps();
+  await videoSession.handleVideoSessionRequest(
+    { authorizationHeader: `Bearer ${SECRET}`, expectedSecret: SECRET, context: "  Lead confirmou faturamento acima de R$3mi e urgência 5.  " },
+    deps,
+  );
+  assert.equal(calls.createConversation[0].context, "Lead confirmou faturamento acima de R$3mi e urgência 5.");
+});
+
+test("treats blank or absent context as null rather than an empty string", async () => {
+  const { deps, calls } = fakeDeps();
+  for (const context of [undefined, null, "", "   "]) {
+    await videoSession.handleVideoSessionRequest(
+      { authorizationHeader: `Bearer ${SECRET}`, expectedSecret: SECRET, context },
+      deps,
+    );
+  }
+  for (const call of calls.createConversation) {
+    assert.equal(call.context, null);
+  }
+});
+
+test("truncates an oversized context instead of failing the request", async () => {
+  const { deps, calls } = fakeDeps();
+  await videoSession.handleVideoSessionRequest(
+    { authorizationHeader: `Bearer ${SECRET}`, expectedSecret: SECRET, context: "x".repeat(5000) },
+    deps,
+  );
+  assert.equal(calls.createConversation[0].context.length, 4000);
 });
 
 test("ignores an unknown language and passes null instead of an unvalidated string", async () => {
