@@ -46,6 +46,27 @@ test("superfícies públicas de SEO/AEO respondem 200 sem sessão", async ({ req
   }
 });
 
+test("rotas /api/* servidor-a-servidor nunca redirecionam para /login", async ({ request }) => {
+  // Mesma classe de bug do achado de 2026-07-24 (llms.txt), desta vez em
+  // /api/brain e /api/leads/video-session (2026-07-29): cada rota ali tem a
+  // própria autenticação por segredo/bearer, nunca sessão de cookie — mas o
+  // matcher do middleware só excluía api/health, então as outras caíam no
+  // 307 pro /login antes de tocar a lógica da rota. O matcher agora exclui
+  // api/* inteiro; este teste prova isso com HTTP real, não com leitura de
+  // regex no source.
+  const health = await request.get("/api/health", { maxRedirects: 0 });
+  expect(health.status(), "/api/health deveria responder 200 sem redirecionar").toBe(200);
+
+  const brain = await request.post("/api/brain/00000000-0000-7000-8000-000000000000/chat/completions", {
+    maxRedirects: 0,
+    data: { messages: [{ role: "user", content: "oi" }] },
+  });
+  expect(brain.status(), "/api/brain/.../chat/completions não deveria redirecionar pro login").not.toBe(307);
+
+  const leads = await request.post("/api/leads/video-session", { maxRedirects: 0, data: {} });
+  expect(leads.status(), "/api/leads/video-session não deveria redirecionar pro login").not.toBe(307);
+});
+
 test("rota protegida sem sessão redireciona para login", async ({ page }) => {
   await page.goto("/dashboard");
   await expect(page).toHaveURL(/\/login/);
