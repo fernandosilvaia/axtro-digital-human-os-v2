@@ -7,6 +7,13 @@
       "runtimeArgs": ["--filter", "@axtro/portal", "run", "dev"],
       "port": 3000,
       "autoPort": true
+    },
+    {
+      "name": "portal-demo",
+      "runtimeExecutable": "env",
+      "runtimeArgs": ["PORTAL_FAKE_PROVIDERS=1", "pnpm", "--filter", "@axtro/portal", "run", "dev"],
+      "port": 3000,
+      "autoPort": true
     }
   ]
 }

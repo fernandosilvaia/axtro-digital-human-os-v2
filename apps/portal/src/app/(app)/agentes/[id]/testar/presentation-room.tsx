@@ -10,8 +10,141 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 
-import type { Deck } from "@/lib/presentation/deck";
+import type { Deck, DeckSlide, DeckSlideKind } from "@/lib/presentation/deck";
 import { startPresentationConversation } from "@/lib/actions/video-conversation";
+
+/**
+ * Ícones e cor de destaque por tipo de slide. Puramente decorativos/
+ * metafóricos (bússola, colunas, balança) — nunca um gráfico com trend
+ * implícito, pra não parecer dado inventado (deck.ts: "zero dado inventado
+ * também na tela"). SVG inline: sem asset externo pra hospedar/carregar.
+ */
+function SlideIcon({ kind, size = 22 }: { kind: DeckSlideKind; size?: number }) {
+  const common = { width: size, height: size, viewBox: "0 0 24 24", fill: "none", stroke: "currentColor", strokeWidth: 1.6, strokeLinecap: "round" as const, strokeLinejoin: "round" as const, "aria-hidden": true };
+  switch (kind) {
+    case "cover":
+      return <svg {...common}><path d="M12 3l1.8 5.2L19 10l-5.2 1.8L12 17l-1.8-5.2L5 10l5.2-1.8L12 3z" /><path d="M19 15l.7 2 2 .7-2 .7-.7 2-.7-2-2-.7 2-.7.7-2z" /></svg>;
+    case "agenda":
+      return <svg {...common}><path d="M8 6h13M8 12h13M8 18h13" /><circle cx="3.5" cy="6" r="1.4" fill="currentColor" stroke="none" /><circle cx="3.5" cy="12" r="1.4" fill="currentColor" stroke="none" /><circle cx="3.5" cy="18" r="1.4" fill="currentColor" stroke="none" /></svg>;
+    case "frame":
+      return <svg {...common}><circle cx="11" cy="11" r="7" /><path d="M20 20l-4.5-4.5" /></svg>;
+    case "pillars":
+      return <svg {...common}><path d="M4 21h16M6 21V10m4 11V10m4 11V10m4 11V10M3 10l9-6 9 6" /></svg>;
+    case "proof":
+      return <svg {...common}><path d="M12 3l7 3v6c0 4.6-3 8.2-7 9-4-.8-7-4.4-7-9V6l7-3z" /><path d="M9 12l2 2 4-4.2" /></svg>;
+    case "investment":
+      return <svg {...common}><path d="M12 3v18M7 7h10" /><path d="M4 7l3 6a3 3 0 006 0L10 7" /><path d="M14 7l3 6a3 3 0 006 0l-3-6" /></svg>;
+    case "next":
+      return <svg {...common}><rect x="3.5" y="5" width="17" height="15.5" rx="2.2" /><path d="M3.5 10h17M8 3v4M16 3v4" /><path d="M9 15.2l1.8 1.8L15.5 13" /></svg>;
+    default:
+      return null;
+  }
+}
+
+const SLIDE_ACCENT: Record<DeckSlideKind, string> = {
+  cover: "#8f7bff",
+  agenda: "#7c93ff",
+  frame: "#67a9ff",
+  pillars: "#8f7bff",
+  proof: "#5fd4a8",
+  investment: "#ffc36b",
+  next: "#5fd4a8",
+};
+
+function ProgressDots({ total, current }: { total: number; current: number }) {
+  return (
+    <div style={{ display: "flex", gap: 6 }} aria-hidden>
+      {Array.from({ length: total }, (_, index) => (
+        <span
+          key={index}
+          style={{
+            width: index === current ? 16 : 6,
+            height: 6,
+            borderRadius: 3,
+            background: index === current ? "#c4bdff" : "rgba(196,189,255,0.28)",
+            transition: "width 220ms var(--ease, ease), background 220ms ease",
+          }}
+        />
+      ))}
+    </div>
+  );
+}
+
+/** Conteúdo do slide varia por tipo: pilares viram cards em grade, prova vira selos — não apenas uma lista de texto repetida 7 vezes. */
+function SlideBody({ slide, accent }: { slide: DeckSlide; accent: string }) {
+  if (slide.kind === "pillars" && slide.bullets) {
+    return (
+      <div style={{ display: "grid", gridTemplateColumns: `repeat(${Math.min(slide.bullets.length, 3)}, minmax(0, 1fr))`, gap: 12, marginTop: 20 }}>
+        {slide.bullets.map((bullet, index) => (
+          <div
+            key={bullet}
+            style={{
+              padding: "16px 14px",
+              borderRadius: 12,
+              background: "rgba(255,255,255,0.04)",
+              border: "1px solid rgba(143,123,255,0.22)",
+            }}
+          >
+            <span
+              style={{
+                display: "inline-flex", alignItems: "center", justifyContent: "center",
+                width: 24, height: 24, borderRadius: "50%", fontSize: "0.72rem", fontWeight: 600,
+                background: "rgba(143,123,255,0.18)", color: "#c4bdff", marginBottom: 10,
+              }}
+            >
+              {index + 1}
+            </span>
+            <p style={{ margin: 0, fontSize: "0.92rem", lineHeight: 1.4, color: "rgba(233,230,255,0.92)" }}>{bullet}</p>
+          </div>
+        ))}
+      </div>
+    );
+  }
+
+  if (slide.kind === "proof" && slide.bullets) {
+    return (
+      <div style={{ display: "flex", flexDirection: "column", gap: 8, marginTop: 18 }}>
+        {slide.bullets.map((bullet) => (
+          <div key={bullet} style={{ display: "flex", alignItems: "center", gap: 10, padding: "10px 14px", borderRadius: 999, background: "rgba(95,212,168,0.1)", border: "1px solid rgba(95,212,168,0.28)" }}>
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#5fd4a8" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden><path d="M20 6L9 17l-5-5" /></svg>
+            <span style={{ fontSize: "0.9rem", color: "rgba(233,230,255,0.92)" }}>{bullet}</span>
+          </div>
+        ))}
+      </div>
+    );
+  }
+
+  if (slide.kind === "investment") {
+    return (
+      <div style={{ marginTop: 24, display: "flex", flexDirection: "column", alignItems: "flex-start", gap: 6 }}>
+        <div style={{ width: 52, height: 52, borderRadius: "50%", background: "rgba(255,195,107,0.12)", border: "1px solid rgba(255,195,107,0.32)", display: "flex", alignItems: "center", justifyContent: "center", color: "#ffc36b" }}>
+          <SlideIcon kind="investment" size={26} />
+        </div>
+      </div>
+    );
+  }
+
+  if (!slide.bullets) return null;
+  return (
+    <ul style={{ margin: "18px 0 0", padding: 0, listStyle: "none", display: "grid", gap: 10 }}>
+      {slide.bullets.map((bullet, index) => (
+        <li key={bullet} style={{ display: "flex", gap: 10, alignItems: "flex-start", fontSize: "1.0rem", color: "rgba(233,230,255,0.92)" }}>
+          <span
+            aria-hidden
+            style={{
+              flexShrink: 0, marginTop: 2, width: 20, height: 20, borderRadius: "50%",
+              background: `${accent}26`, color: accent, fontSize: "0.68rem", fontWeight: 700,
+              display: "flex", alignItems: "center", justifyContent: "center",
+            }}
+          >
+            {index + 1}
+          </span>
+          {bullet}
+        </li>
+      ))}
+    </ul>
+  );
+}
 
 type DailyCall = {
   join(options: { url: string }): Promise<unknown>;
@@ -210,6 +343,7 @@ export function PresentationRoom({ agentId, agentName }: { agentId: string; agen
   }
 
   const slide = deck?.slides[slideIndex];
+  const accent = slide ? SLIDE_ACCENT[slide.kind] : "#8f7bff";
 
   return (
     <section className="card" style={{ marginTop: 16, padding: 12 }}>
@@ -217,6 +351,8 @@ export function PresentationRoom({ agentId, agentName }: { agentId: string; agen
         <div
           aria-live="polite"
           style={{
+            position: "relative",
+            overflow: "hidden",
             flex: "1 1 420px",
             minHeight: 380,
             borderRadius: 12,
@@ -224,29 +360,51 @@ export function PresentationRoom({ agentId, agentName }: { agentId: string; agen
             display: "flex",
             flexDirection: "column",
             justifyContent: "center",
-            background: "linear-gradient(135deg, #101024 0%, #1a1440 55%, #241a55 100%)",
+            background: "linear-gradient(160deg, #0d0e1c 0%, #161230 52%, #201a45 100%)",
             border: "1px solid rgba(129,120,255,0.25)",
           }}
         >
+          <div
+            aria-hidden
+            style={{
+              position: "absolute", inset: 0, pointerEvents: "none",
+              backgroundImage: `radial-gradient(560px 320px at 88% -10%, ${accent}22, transparent 60%), radial-gradient(rgba(255,255,255,0.05) 1px, transparent 1px)`,
+              backgroundSize: "auto, 22px 22px",
+              transition: "background-image 260ms ease",
+            }}
+          />
           {slide ? (
-            <>
-              <p style={{ margin: "0 0 10px", fontSize: "0.72rem", letterSpacing: "0.14em", textTransform: "uppercase", color: "rgba(196,189,255,0.75)" }}>
-                {deck?.title} · {slideIndex + 1}/{deck?.slides.length}
-              </p>
-              <h2 style={{ margin: 0, fontSize: slide.kind === "cover" ? "2.1rem" : "1.6rem", lineHeight: 1.15, color: "#f4f2ff" }}>{slide.title}</h2>
+            <div style={{ position: "relative" }}>
+              <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: slide.kind === "cover" ? 22 : 14 }}>
+                <span
+                  style={{
+                    display: "flex", alignItems: "center", justifyContent: "center",
+                    width: slide.kind === "cover" ? 52 : 36, height: slide.kind === "cover" ? 52 : 36,
+                    borderRadius: "50%", background: `${accent}20`, border: `1px solid ${accent}45`, color: accent,
+                    flexShrink: 0, transition: "all 220ms ease",
+                  }}
+                >
+                  <SlideIcon kind={slide.kind} size={slide.kind === "cover" ? 26 : 18} />
+                </span>
+                <p style={{ margin: 0, fontSize: "0.72rem", letterSpacing: "0.14em", textTransform: "uppercase", color: "rgba(196,189,255,0.7)" }}>
+                  {deck?.title} · {slideIndex + 1}/{deck?.slides.length}
+                </p>
+              </div>
+              <h2 style={{ margin: 0, fontSize: slide.kind === "cover" ? "2.15rem" : "1.55rem", lineHeight: 1.15, color: "#f4f2ff", letterSpacing: "-0.01em" }}>{slide.title}</h2>
               {slide.subtitle && <p style={{ margin: "12px 0 0", fontSize: "1.02rem", color: "rgba(226,222,255,0.85)" }}>{slide.subtitle}</p>}
-              {slide.bullets && (
-                <ul style={{ margin: "18px 0 0", padding: 0, listStyle: "none", display: "grid", gap: 10 }}>
-                  {slide.bullets.map((bullet) => (
-                    <li key={bullet} style={{ display: "flex", gap: 10, alignItems: "baseline", fontSize: "1.0rem", color: "rgba(233,230,255,0.92)" }}>
-                      <span aria-hidden style={{ color: "#8f7bff" }}>◆</span>
-                      {bullet}
-                    </li>
-                  ))}
-                </ul>
+              <SlideBody slide={slide} accent={accent} />
+              {slide.note && (
+                <p style={{ margin: "18px 0 0", fontSize: "0.78rem", color: "rgba(196,189,255,0.55)", display: "flex", alignItems: "center", gap: 6 }}>
+                  <span aria-hidden style={{ width: 5, height: 5, borderRadius: "50%", background: "rgba(196,189,255,0.55)", flexShrink: 0 }} />
+                  {slide.note}
+                </p>
               )}
-              {slide.note && <p style={{ margin: "18px 0 0", fontSize: "0.78rem", color: "rgba(196,189,255,0.6)" }}>{slide.note}</p>}
-            </>
+              {deck && deck.slides.length > 1 && (
+                <div style={{ marginTop: 26 }}>
+                  <ProgressDots total={deck.slides.length} current={slideIndex} />
+                </div>
+              )}
+            </div>
           ) : (
             <p style={{ color: "rgba(226,222,255,0.7)" }}>Preparando os slides…</p>
           )}
