@@ -31,6 +31,7 @@
     { "path": "./packages/handoff" },
     { "path": "./packages/provider-openrouter" },
     { "path": "./packages/provider-tavus" },
+    { "path": "./packages/provider-recall" },
     { "path": "./packages/evaluation" },
     { "path": "./apps/ingestion-worker" },
     { "path": "./packages/turn-coordinator" },

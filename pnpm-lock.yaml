@@ -320,6 +320,8 @@ importers:
 
   packages/provider-openrouter: {}
 
+  packages/provider-recall: {}
+
   packages/provider-tavus: {}
 
   packages/realtime-telemetry: {}
