@@ -92,6 +92,9 @@ importers:
       '@axtro/provider-openrouter':
         specifier: workspace:*
         version: link:../../packages/provider-openrouter
+      '@axtro/provider-recall':
+        specifier: workspace:*
+        version: link:../../packages/provider-recall
       '@axtro/provider-tavus':
         specifier: workspace:*
         version: link:../../packages/provider-tavus

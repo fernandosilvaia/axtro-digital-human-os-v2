@@ -13,6 +13,7 @@
   "dependencies": {
     "@axtro/domain": "workspace:*",
     "@axtro/provider-openrouter": "workspace:*",
+    "@axtro/provider-recall": "workspace:*",
     "@axtro/provider-tavus": "workspace:*",
     "@daily-co/daily-js": "0.91.0",
     "@supabase/ssr": "0.12.3",

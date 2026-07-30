@@ -27,6 +27,8 @@ export interface CreateMeetingBotRequest {
   readonly botName?: string;
   /** ISO 8601. Quando ausente, o bot tenta entrar imediatamente. */
   readonly joinAtIso?: string;
+  /** Quando presente, o bot já entra com a câmera assumida (a sala de vídeo do agente) — sem precisar de uma segunda chamada a startCameraWebpage. Para o bot "sentinela" (entra silencioso, decide depois), deixe ausente. */
+  readonly outputMediaWebpageUrl?: string;
 }
 
 export interface MeetingBot {
@@ -145,11 +147,17 @@ export function createRecallMeetingBotPort(options: RecallAdapterOptions): Meeti
       if (request.joinAtIso !== undefined && !ISO_8601_PATTERN.test(request.joinAtIso)) {
         throw new MeetingBotError("invalid_request", "joinAtIso must be a valid ISO 8601 timestamp");
       }
+      if (request.outputMediaWebpageUrl !== undefined && !isHttpsUrl(request.outputMediaWebpageUrl, MAX_WEBPAGE_URL_CHARS)) {
+        throw new MeetingBotError("invalid_request", "outputMediaWebpageUrl must be an https URL");
+      }
 
       const payload = await call("POST", "/bot/", {
         meeting_url: request.meetingUrl,
         ...(request.botName ? { bot_name: request.botName } : {}),
         ...(request.joinAtIso ? { join_at: request.joinAtIso } : {}),
+        ...(request.outputMediaWebpageUrl
+          ? { output_media: { camera: { kind: "webpage", config: { url: request.outputMediaWebpageUrl } } } }
+          : {}),
       });
       const record = (payload ?? {}) as Record<string, unknown>;
       const botId = record.id;

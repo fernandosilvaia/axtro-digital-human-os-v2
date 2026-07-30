@@ -56,6 +56,24 @@ test("createBot aceita join_at válido pra agendar o bot sentinela", async () =>
   assert.equal(calls[0].url, "https://us-west-2.recall.ai/api/v1/bot/");
 });
 
+test("createBot com outputMediaWebpageUrl já entra de câmera assumida, no formato oficial", async () => {
+  const { calls, implementation } = fakeFetch(async () => new Response(JSON.stringify({ id: "bot_direct" }), { status: 201 }));
+  const port = provider.createRecallMeetingBotPort({ apiKey: API_KEY, region: "us-west-2", fetchImplementation: implementation });
+  await port.createBot({ meetingUrl: "https://zoom.us/j/1", outputMediaWebpageUrl: "https://tavus.daily.co/c9bea5b7344f144e" });
+  const body = JSON.parse(calls[0].init.body);
+  assert.deepEqual(body.output_media, { camera: { kind: "webpage", config: { url: "https://tavus.daily.co/c9bea5b7344f144e" } } });
+});
+
+test("createBot rejeita outputMediaWebpageUrl não-https antes da rede", async () => {
+  const { calls, implementation } = fakeFetch(async () => new Response(null, { status: 201 }));
+  const port = provider.createRecallMeetingBotPort({ apiKey: API_KEY, region: "us-west-2", fetchImplementation: implementation });
+  await assert.rejects(
+    () => port.createBot({ meetingUrl: "https://zoom.us/j/1", outputMediaWebpageUrl: "http://not-https.com" }),
+    (e) => e.code === "invalid_request",
+  );
+  assert.equal(calls.length, 0);
+});
+
 test("5xx vira provider_unavailable; payload sem id vira malformed; sem chave nem constrói", async () => {
   const down = fakeFetch(async () => new Response("x", { status: 503 }));
   const portDown = provider.createRecallMeetingBotPort({ apiKey: API_KEY, region: "us-east-1", fetchImplementation: down.implementation });
