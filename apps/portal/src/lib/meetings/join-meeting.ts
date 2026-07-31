@@ -21,7 +21,11 @@ export interface AgentPersonaForMeeting {
 
 export interface JoinMeetingDeps {
   readonly resolveAgentPersona: (agentId: string) => Promise<AgentPersonaForMeeting | null>;
-  readonly createVideoConversation: (persona: AgentPersonaForMeeting) => Promise<{ url: string; conversationId: string }>;
+  /**
+   * `url` é a página que o bot renderiza como câmera (o palco do rosto);
+   * `humanUrl`, quando presente, é a sala em si — para um humano acompanhar.
+   */
+  readonly createVideoConversation: (persona: AgentPersonaForMeeting) => Promise<{ url: string; conversationId: string; humanUrl?: string }>;
   readonly createMeetingBot: (params: {
     meetingUrl: string;
     botName: string;
@@ -49,6 +53,7 @@ export class JoinMeetingError extends Error {
 
 export interface JoinMeetingResult {
   readonly botId: string;
+  /** Sala para um humano acompanhar (cai no palco se não houver separada). */
   readonly conversationUrl: string;
   readonly scheduled: boolean;
 }
@@ -79,7 +84,7 @@ export async function handleJoinMeeting(request: JoinMeetingRequest, deps: JoinM
     throw new JoinMeetingError("agent_not_configured", "this agent has no video persona configured");
   }
 
-  let conversation: { url: string; conversationId: string };
+  let conversation: { url: string; conversationId: string; humanUrl?: string };
   try {
     conversation = await deps.createVideoConversation(persona);
   } catch {
@@ -112,5 +117,5 @@ export async function handleJoinMeeting(request: JoinMeetingRequest, deps: JoinM
     // disciplina do resto do projeto: recibo pode falhar sem desfazer o efeito).
   }
 
-  return { botId: bot.botId, conversationUrl: conversation.url, scheduled };
+  return { botId: bot.botId, conversationUrl: conversation.humanUrl ?? conversation.url, scheduled };
 }

@@ -31,6 +31,15 @@ function requiredEnv(name: string): string {
   return (process.env[name] ?? "").trim();
 }
 
+/**
+ * URL pública do palco que o bot do Recall.ai renderiza como câmera dele.
+ * Precisa ser absoluta e alcançável da internet — o bot roda fora daqui.
+ */
+function agentFaceStageUrl(tavusRoomUrl: string): string {
+  const base = (process.env.PORTAL_PUBLIC_URL ?? process.env.NEXT_PUBLIC_SITE_URL ?? "https://portal-production-b43e.up.railway.app").replace(/\/$/, "");
+  return `${base}/rosto-agente?sala=${encodeURIComponent(tavusRoomUrl)}`;
+}
+
 export async function joinExternalMeeting(
   agentId: string,
   meetingUrl: string,
@@ -87,7 +96,17 @@ export async function joinExternalMeeting(
             conversationName: `meeting-${agent.id.slice(0, 8)}`,
             maxCallDurationSeconds: 1800,
           });
-          return { url: conversation.conversationUrl, conversationId: conversation.conversationId };
+          return {
+            // O bot do Recall.ai renderiza a página que passamos como câmera
+            // dele. A URL CRUA do Tavus abre uma tela de "digite seu nome" —
+            // o bot transmitiria o formulário, não a agente. Por isso o bot
+            // recebe /rosto-agente, que entra na sala sozinha e mostra só o
+            // rosto dela sangrando na tela.
+            url: agentFaceStageUrl(conversation.conversationUrl),
+            conversationId: conversation.conversationId,
+            // O humano que quiser acompanhar entra pela sala de verdade.
+            humanUrl: conversation.conversationUrl,
+          };
         },
         createMeetingBot: (params) => recallPort.createBot({
           meetingUrl: params.meetingUrl,

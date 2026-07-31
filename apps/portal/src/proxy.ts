@@ -17,5 +17,9 @@ export const config = {
   // llms.txt (SEO-AEO-01, 2026-07-24) — a lição é excluir por padrão
   // estrutural (api/*), não listar rota por rota.
   // llms.txt/llms-full.txt (AEO) também precisam ser públicos.
-  matcher: ["/((?!_next/static|_next/image|favicon.ico|robots.txt|sitemap.xml|manifest.json|opengraph-image|llms.txt|llms-full.txt|api/|.*\\.(?:svg|png|jpg|jpeg|gif|webp)$).*)"],
+  // /rosto-agente é renderizada pelo bot do Recall.ai como a câmera dele
+  // dentro de reuniões externas (Output Media) — o bot roda num navegador
+  // sem sessão nossa, então a rota precisa ser pública. Ela só aceita salas
+  // do próprio provider de vídeo (allowlist de host na própria página).
+  matcher: ["/((?!_next/static|_next/image|favicon.ico|robots.txt|sitemap.xml|manifest.json|opengraph-image|llms.txt|llms-full.txt|rosto-agente|api/|.*\\.(?:svg|png|jpg|jpeg|gif|webp)$).*)"],
 };
