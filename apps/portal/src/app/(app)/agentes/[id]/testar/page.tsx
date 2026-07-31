@@ -4,6 +4,7 @@ import { notFound } from "next/navigation";
 import { fetchAgents } from "@/lib/portal-data";
 import { StatusBadge } from "@/components/status-badge";
 
+import { ExternalMeeting } from "./external-meeting";
 import { PresentationRoom } from "./presentation-room";
 import { PreviewChat } from "./preview-chat";
 import { VideoCall } from "./video-call";
@@ -26,11 +27,13 @@ export default async function AgentPreviewPage({ params }: { params: Promise<{ i
           Testar {agent.name} <StatusBadge status={agent.status} />
         </h1>
         <p style={{ color: "var(--text-muted)", margin: "4px 0 0", fontSize: "0.9rem" }}>
-          Sandbox de conversa em texto — nada aqui alcança clientes reais nem executa ações externas.
+          Chat e salas de vídeo são sandbox — não alcançam clientes reais. Já a seção de reunião
+          externa coloca o agente numa reunião de verdade: use com um link seu para testar.
           O agente se apresenta como IA e responde fatos apenas com base nas fontes de conhecimento ativas da conta;
           sem fontes, ele não cita preços nem condições.
         </p>
       </header>
+      <ExternalMeeting agentId={agent.id} agentName={agent.name} />
       <PresentationRoom agentId={agent.id} agentName={agent.name} />
       <VideoCall agentId={agent.id} agentName={agent.name} />
       <div style={{ height: 16 }} />
