@@ -113,6 +113,7 @@ export async function joinExternalMeeting(
           botName: params.botName,
           ...(params.joinAtIso ? { joinAtIso: params.joinAtIso } : {}),
           ...(params.outputMediaWebpageUrl ? { outputMediaWebpageUrl: params.outputMediaWebpageUrl } : {}),
+          ...(params.variant ? { variant: params.variant } : {}),
         }),
         recordSession: async (params) => {
           const { error } = await supabase.rpc("portal_record_meeting_bot_session", {

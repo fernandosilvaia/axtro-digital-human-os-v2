@@ -22,6 +22,15 @@
 
 export type RecallRegion = "us-east-1" | "us-west-2" | "eu-central-1" | "ap-northeast-1";
 
+/**
+ * Tamanho da máquina que roda a página de Output Media dentro do bot
+ * (doc oficial "Addressing audio and video issues: bot variants"):
+ * `web` = 250 millicores/750MB — insuficiente pra uma chamada WebRTC completa
+ * (áudio picotado/robotizado, comprovado ao vivo em 2026-07-31);
+ * `web_4_core` = 2250 millicores/5250MB; `web_gpu` = 6000 millicores + WebGL.
+ */
+export type MeetingBotVariant = "web" | "web_4_core" | "web_gpu";
+
 export interface CreateMeetingBotRequest {
   readonly meetingUrl: string;
   readonly botName?: string;
@@ -29,6 +38,8 @@ export interface CreateMeetingBotRequest {
   readonly joinAtIso?: string;
   /** Quando presente, o bot já entra com a câmera assumida (a sala de vídeo do agente) — sem precisar de uma segunda chamada a startCameraWebpage. Para o bot "sentinela" (entra silencioso, decide depois), deixe ausente. */
   readonly outputMediaWebpageUrl?: string;
+  /** Aplicado aos 3 platforms (Zoom/Meet/Teams). Ausente = default do provider (`web`). */
+  readonly variant?: MeetingBotVariant;
 }
 
 export interface MeetingBot {
@@ -151,12 +162,19 @@ export function createRecallMeetingBotPort(options: RecallAdapterOptions): Meeti
         throw new MeetingBotError("invalid_request", "outputMediaWebpageUrl must be an https URL");
       }
 
+      if (request.variant !== undefined && !["web", "web_4_core", "web_gpu"].includes(request.variant)) {
+        throw new MeetingBotError("invalid_request", "variant must be web, web_4_core or web_gpu");
+      }
+
       const payload = await call("POST", "/bot/", {
         meeting_url: request.meetingUrl,
         ...(request.botName ? { bot_name: request.botName } : {}),
         ...(request.joinAtIso ? { join_at: request.joinAtIso } : {}),
         ...(request.outputMediaWebpageUrl
           ? { output_media: { camera: { kind: "webpage", config: { url: request.outputMediaWebpageUrl } } } }
+          : {}),
+        ...(request.variant
+          ? { variant: { zoom: request.variant, google_meet: request.variant, microsoft_teams: request.variant } }
           : {}),
       });
       const record = (payload ?? {}) as Record<string, unknown>;

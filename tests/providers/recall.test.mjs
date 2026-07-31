@@ -64,6 +64,27 @@ test("createBot com outputMediaWebpageUrl já entra de câmera assumida, no form
   assert.deepEqual(body.output_media, { camera: { kind: "webpage", config: { url: "https://tavus.daily.co/c9bea5b7344f144e" } } });
 });
 
+test("createBot com variant aplica a máquina escolhida aos 3 platforms, no formato oficial", async () => {
+  const { calls, implementation } = fakeFetch(async () => new Response(JSON.stringify({ id: "bot_big" }), { status: 201 }));
+  const port = provider.createRecallMeetingBotPort({ apiKey: API_KEY, region: "us-west-2", fetchImplementation: implementation });
+  await port.createBot({ meetingUrl: "https://zoom.us/j/1", variant: "web_4_core" });
+  const body = JSON.parse(calls[0].init.body);
+  assert.deepEqual(body.variant, { zoom: "web_4_core", google_meet: "web_4_core", microsoft_teams: "web_4_core" });
+  // Sem variant, o campo nem viaja (default do provider).
+  await port.createBot({ meetingUrl: "https://zoom.us/j/1" });
+  assert.equal(JSON.parse(calls[1].init.body).variant, undefined);
+});
+
+test("createBot rejeita variant desconhecido antes da rede", async () => {
+  const { calls, implementation } = fakeFetch(async () => new Response("{}", { status: 201 }));
+  const port = provider.createRecallMeetingBotPort({ apiKey: API_KEY, region: "us-west-2", fetchImplementation: implementation });
+  await assert.rejects(
+    () => port.createBot({ meetingUrl: "https://zoom.us/j/1", variant: "web_128_core" }),
+    (e) => e.code === "invalid_request",
+  );
+  assert.equal(calls.length, 0);
+});
+
 test("createBot rejeita outputMediaWebpageUrl não-https antes da rede", async () => {
   const { calls, implementation } = fakeFetch(async () => new Response(null, { status: 201 }));
   const port = provider.createRecallMeetingBotPort({ apiKey: API_KEY, region: "us-west-2", fetchImplementation: implementation });

@@ -31,6 +31,8 @@ export interface JoinMeetingDeps {
     botName: string;
     joinAtIso?: string;
     outputMediaWebpageUrl?: string;
+    /** Máquina maior pro bot quando ele transmite a página da agente. */
+    variant?: "web" | "web_4_core" | "web_gpu";
   }) => Promise<{ botId: string }>;
   readonly recordSession: (params: {
     agentId: string;
@@ -99,7 +101,10 @@ export async function handleJoinMeeting(request: JoinMeetingRequest, deps: JoinM
       ...(joinAtIso ? { joinAtIso } : {}),
       // Entrada imediata: já liga a câmera na criação do bot. Entrada agendada:
       // bot entra silencioso (sentinela) — quem trata o fallback liga a câmera depois.
-      ...(scheduled ? {} : { outputMediaWebpageUrl: conversation.url }),
+      // Com a câmera ligada, o bot roda uma chamada WebRTC completa dentro da
+      // página — o variant default (250 millicores) produz áudio picotado e
+      // robotizado (comprovado ao vivo, D-V2-093); 4 cores resolve.
+      ...(scheduled ? {} : { outputMediaWebpageUrl: conversation.url, variant: "web_4_core" as const }),
     });
   } catch {
     throw new JoinMeetingError("provider_unavailable", "failed to create the meeting bot");

@@ -71,7 +71,12 @@ export function FaceStage({ roomUrl }: { roomUrl: string }) {
         // primeiro teste ao vivo.
         let audioSource: MediaStreamTrack | undefined;
         try {
-          const meetingStream = await navigator.mediaDevices.getUserMedia({ audio: true });
+          // O "microfone" aqui É o áudio já mixado da reunião — processá-lo de
+          // novo (AGC/echo-cancel/noise-suppression do Chrome) distorce e
+          // bombeia o volume. Pedimos o sinal cru.
+          const meetingStream = await navigator.mediaDevices.getUserMedia({
+            audio: { echoCancellation: false, noiseSuppression: false, autoGainControl: false },
+          });
           audioSource = meetingStream.getAudioTracks()[0];
         } catch {
           // Fora do bot (ex.: conferindo a página no navegador) não há permissão
