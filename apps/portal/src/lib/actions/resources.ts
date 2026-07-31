@@ -4,6 +4,7 @@ import { revalidatePath } from "next/cache";
 
 import { createUuidV7 } from "@axtro/domain";
 
+import { provisionAgentVideoIfMissing } from "@/lib/agent-video";
 import { sendAgentActivatedEmail } from "@/lib/email";
 import { chunkContent, contentSha256, embedChunks, MAX_CONTENT_CHARS } from "@/lib/knowledge";
 import { fetchAgents, fetchTenantOverview } from "@/lib/portal-data";
@@ -197,8 +198,11 @@ export async function setAgentStatus(
     return { error: `Não foi possível alterar o status: ${error.message}`, done: false };
   }
 
-  // Notificação por e-mail (T9): melhor esforço, nunca desfaz a ativação já
-  // aplicada. Só na ativação (não na pausa) — é a mudança que afeta clientes.
+  // Ativação dispara dois efeitos best-effort que nunca desfazem a mudança
+  // já aplicada: (1) auto-provisão da persona de vídeo se o agente ainda não
+  // tem (P1 — é o que dá videochamada/apresentação/reunião externa a agentes
+  // de clientes novos, não só aos demo configurados à mão); (2) e-mail aos
+  // admins do tenant (T9).
   if (status === "active") {
     try {
       const [overview, agents, adminEmailsResult] = await Promise.all([
@@ -207,6 +211,9 @@ export async function setAgentStatus(
         supabase.rpc("portal_list_admin_emails"),
       ]);
       const agent = agents.find((candidate) => candidate.id === agentId);
+      if (agent && overview.tenant) {
+        await provisionAgentVideoIfMissing(supabase, agent, overview.tenant.legal_name);
+      }
       const admins = (adminEmailsResult.data ?? []) as string[];
       if (agent && overview.tenant && admins.length > 0) {
         await sendAgentActivatedEmail({
@@ -216,7 +223,7 @@ export async function setAgentStatus(
         });
       }
     } catch (notifyError) {
-      trackError("agent_activated_email_failed", notifyError, { agent_id: agentId });
+      trackError("agent_activation_side_effects_failed", notifyError, { agent_id: agentId });
     }
   }
 

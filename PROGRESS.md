@@ -707,6 +707,15 @@
 - **Achado durante a execução**: uma sessão concorrente já havia implementado, validado e implantado o SEO-AEO-01 (D-V2-077) diretamente no working tree, sem commitar. Commitado à parte, com atribuição correta (ver commit `feat(seo): ...`), antes deste commit de T8 — nenhum trabalho de nenhuma das duas sessões foi perdido ou sobrescrito.
 - Validação: `pnpm lint`, `pnpm --filter @axtro/portal run typecheck`, `pnpm --filter @axtro/portal run build`, `pnpm test` (426 Node + 26 Python), `python3 scripts/validate_all.py` (9 validadores) verdes.
 
+### 2026-07-31, produto aberto para contratação — auto-provisão de vídeo, teto de custo e plano (D-V2-094)
+
+- **Auto-provisão de vídeo (P1)**: ativar agente sem config cria persona Tavus automática (cérebro + voz Raissa + raven-1 + gemma-4 + tools de slides) via `lib/agent-video.ts` + RPC 0022. Validado ao vivo: persona `p243348ebb20` criada pra Marina, config confirmada no banco. Cliente novo agora tem vídeo/apresentação/reunião externa sem toque manual.
+- **Teto de vídeo (P2)**: 20 conversas/dia por tenant nas 3 actions (falha fechada) — primeiro cap de custo de vídeo do produto.
+- **Plano e contratação (P2)**: seção em /configuracoes com limites do plano Avaliação e CTA de contato comercial (sem preço público inventado; billing/Stripe fica para quando houver decisão comercial).
+- **E2e clique-a-clique (P3)**: 11 specs Playwright (era 7) — signup, ciclo convite criar→revogar, revogar/reativar fonte com conteúdo real. 11/11 verdes. Achado: fonte seed sem ingestão não reativa (correto); estado restaurado.
+- Reunião externa validada com áudio corrigido nesta mesma data (D-V2-092/093): Raissa ao vivo no Meet com bot 4-core.
+- Pipeline: 510 Node + 26 Python, lint, typecheck, build, 9 validadores verdes. ELEVENLABS_API_KEY adicionada ao Railway.
+
 ## Próxima ação
 
 Nenhuma tarefa de M0-M3 pendente dentro do escopo autorizado. Para a fase de

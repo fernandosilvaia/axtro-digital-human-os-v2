@@ -120,6 +120,47 @@ test("apresentação simulada abre o deck e navega slides", async ({ page }) => 
   await expect(page.getByText("1/7")).toBeVisible();
 });
 
+test("signup renderiza o formulário de criação de conta", async ({ page }) => {
+  await page.goto("/signup");
+  await expect(page.locator("#email")).toBeVisible();
+  await expect(page.locator("#password")).toBeVisible();
+  await expect(page.locator('button[type="submit"]')).toBeVisible();
+});
+
+test("configurações: seção de plano visível e ciclo completo de convite (criar → revogar)", async ({ page }) => {
+  await login(page);
+  await page.goto("/configuracoes");
+  await expect(page.getByText("Plano e contratação")).toBeVisible();
+  await expect(page.getByText("20 conversas de vídeo por dia", { exact: false })).toBeVisible();
+
+  // Convite com e-mail único por execução; revogado ao final pra não deixar
+  // estado sujo no tenant demo (e o envio de e-mail é mock no fake mode).
+  const inviteEmail = `e2e-${Date.now().toString(36)}@example.com`;
+  await page.fill("#invite-email", inviteEmail);
+  await page.getByRole("button", { name: "Convidar" }).click();
+  await expect(page.getByText("Convite registrado", { exact: false })).toBeVisible({ timeout: 20_000 });
+
+  const inviteRow = page.locator("tr", { hasText: inviteEmail });
+  await expect(inviteRow).toBeVisible();
+  await inviteRow.getByRole("button", { name: "Revogar" }).click();
+  await expect(inviteRow).not.toBeVisible({ timeout: 20_000 });
+});
+
+test("conhecimento: revogar e reativar uma fonte restaura o estado", async ({ page }) => {
+  await login(page);
+  await page.goto("/conhecimento");
+  // Precisa ser uma fonte COM conteúdo ingerido: reativar exige versões
+  // (achado real — a fonte seed "FAQ" nunca teve ingestão e não reativa).
+  const sourceName = "Método Silva — Biblioteca de Objeções e Respostas (Kit 05)";
+  await expect(page.getByText(sourceName)).toBeVisible();
+
+  await page.getByRole("button", { name: `Revogar a fonte ${sourceName}` }).click();
+  await expect(page.getByRole("button", { name: `Reativar a fonte ${sourceName}` })).toBeVisible({ timeout: 20_000 });
+
+  await page.getByRole("button", { name: `Reativar a fonte ${sourceName}` }).click();
+  await expect(page.getByRole("button", { name: `Revogar a fonte ${sourceName}` })).toBeVisible({ timeout: 20_000 });
+});
+
 async function login(page: import("@playwright/test").Page): Promise<void> {
   await page.goto("/login");
   // Sessão persistida de teste anterior redireciona direto.

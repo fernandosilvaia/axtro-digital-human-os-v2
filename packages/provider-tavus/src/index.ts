@@ -40,10 +40,33 @@ export class VideoProviderError extends Error {
   }
 }
 
+/**
+ * Criação de persona (auto-provisão de vídeo para agentes de clientes novos):
+ * a persona carrega prompt, voz, percepção e modelo no provider — criar uma
+ * por agente é o que dá vídeo a QUALQUER tenant, não só aos agentes demo
+ * configurados à mão.
+ */
+export interface CreatePersonaRequest {
+  readonly personaName: string;
+  readonly systemPrompt: string;
+  readonly defaultReplicaId: string;
+  readonly llmModel?: string;
+  readonly ambientAwarenessQueries?: readonly string[];
+  /** Voz ElevenLabs opcional; ausente = voz default do provider. */
+  readonly elevenLabs?: { readonly apiKey: string; readonly voiceId: string };
+}
+
+export interface CreatedPersona {
+  readonly personaId: string;
+}
+
 export interface VideoConversationPort {
   readonly providerId: string;
   createConversation(request: VideoConversationRequest): Promise<VideoConversation>;
   endConversation(conversationId: string): Promise<void>;
+  createPersona(request: CreatePersonaRequest): Promise<CreatedPersona>;
+  /** Anexa tools já registradas na conta (ex.: controles de slide) à persona. */
+  attachToolsToPersona(personaId: string, toolIds: readonly string[]): Promise<void>;
 }
 
 export interface TavusAdapterOptions {
@@ -151,6 +174,66 @@ export function createTavusVideoConversationPort(options: TavusAdapterOptions): 
         throw new VideoProviderError("invalid_request", "conversationId must be a plain Tavus conversation id");
       }
       await call(`/conversations/${conversationId}/end`, {});
+    },
+    async createPersona(request: CreatePersonaRequest): Promise<CreatedPersona> {
+      if (typeof request.personaName !== "string" || request.personaName.length === 0 || request.personaName.length > 120) {
+        throw new VideoProviderError("invalid_request", "personaName must be 1..120 chars");
+      }
+      if (typeof request.systemPrompt !== "string" || request.systemPrompt.length === 0 || request.systemPrompt.length > 20_000) {
+        throw new VideoProviderError("invalid_request", "systemPrompt must be 1..20000 chars");
+      }
+      if (!ID_PATTERN.test(request.defaultReplicaId)) {
+        throw new VideoProviderError("invalid_request", "defaultReplicaId must be a plain Tavus replica id");
+      }
+      if (request.ambientAwarenessQueries !== undefined && request.ambientAwarenessQueries.length > 12) {
+        throw new VideoProviderError("invalid_request", "ambientAwarenessQueries must have at most 12 entries");
+      }
+
+      const payload = await call("/personas", {
+        persona_name: request.personaName,
+        pipeline_mode: "full",
+        default_replica_id: request.defaultReplicaId,
+        system_prompt: request.systemPrompt,
+        layers: {
+          llm: { model: request.llmModel ?? "tavus-gemma-4" },
+          stt: {
+            stt_engine: "tavus-advanced",
+            participant_pause_sensitivity: "high",
+            participant_interrupt_sensitivity: "high",
+            smart_turn_detection: true,
+          },
+          perception: {
+            perception_model: "raven-1",
+            ambient_awareness_queries: request.ambientAwarenessQueries ?? [],
+          },
+          ...(request.elevenLabs
+            ? {
+                tts: {
+                  tts_engine: "elevenlabs",
+                  api_key: request.elevenLabs.apiKey,
+                  external_voice_id: request.elevenLabs.voiceId,
+                  tts_model_name: "eleven_turbo_v2_5",
+                  tts_emotion_control: true,
+                },
+              }
+            : {}),
+        },
+      });
+      const record = (payload ?? {}) as Record<string, unknown>;
+      const personaId = record.persona_id;
+      if (typeof personaId !== "string" || !ID_PATTERN.test(personaId)) {
+        throw new VideoProviderError("malformed_provider_response", "Tavus persona payload has no persona_id");
+      }
+      return Object.freeze({ personaId });
+    },
+    async attachToolsToPersona(personaId: string, toolIds: readonly string[]): Promise<void> {
+      if (!ID_PATTERN.test(personaId)) {
+        throw new VideoProviderError("invalid_request", "personaId must be a plain Tavus persona id");
+      }
+      if (!Array.isArray(toolIds) || toolIds.length === 0 || toolIds.length > 16 || toolIds.some((id) => !ID_PATTERN.test(id))) {
+        throw new VideoProviderError("invalid_request", "toolIds must be 1..16 plain Tavus tool ids");
+      }
+      await call(`/pals/${personaId}/tools`, { tool_ids: toolIds });
     },
   });
 }

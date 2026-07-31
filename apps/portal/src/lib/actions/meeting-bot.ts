@@ -9,6 +9,7 @@ import { handleJoinMeeting, JoinMeetingError, type AgentPersonaForMeeting } from
 import { fetchAgents } from "@/lib/portal-data";
 import { createClient } from "@/lib/supabase/server";
 import { logError as trackError } from "@/lib/telemetry";
+import { checkVideoCap, VIDEO_CAP_CHECK_FAILED_MESSAGE, VIDEO_CAP_MESSAGE } from "@/lib/video-cap";
 
 /**
  * Coloca um agente numa reunião externa de verdade (Zoom/Meet/Teams) —
@@ -76,6 +77,18 @@ export async function joinExternalMeeting(
   }
 
   const supabase = await createClient();
+
+  // Teto diário de vídeo por tenant — reunião externa também cria conversa
+  // Tavus (e ainda soma a hora do bot), então conta no mesmo teto.
+  const capVerdict = await checkVideoCap(supabase);
+  if (capVerdict !== "allowed") {
+    return {
+      conversationUrl: null,
+      scheduled: false,
+      error: capVerdict === "capped" ? VIDEO_CAP_MESSAGE : VIDEO_CAP_CHECK_FAILED_MESSAGE,
+    };
+  }
+
   const { data: configData } = await supabase.rpc("portal_agent_video_config", { p_agent_id: agentId });
   const config = (configData ?? { configured: false }) as AgentVideoConfigRow;
 

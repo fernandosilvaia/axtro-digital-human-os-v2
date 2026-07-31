@@ -1,5 +1,16 @@
 # CHANGELOG (resumo por onda — detalhes em PROGRESS.md e DECISIONS_LOG.md)
 
+## 2026-07-31 — Reunião externa ao vivo + produto aberto para contratação
+
+- **feat(meetings):** agente entra em reuniões reais de Meet/Zoom/Teams (Recall.ai) com
+  palco de rosto próprio, áudio bidirecional (bot 4-core + sinal cru) e webhook de status —
+  validado ao vivo com a Raissa num Meet real (D-V2-091/092/093).
+- **feat(video):** auto-provisão de persona de vídeo na ativação de agente (cérebro,
+  voz, percepção, tools) — clientes novos ganham vídeo sem configuração manual (D-V2-094).
+- **feat(billing-lite):** teto de 20 conversas de vídeo/dia por tenant + seção "Plano e
+  contratação" com limites explícitos e CTA comercial.
+- **test(e2e):** suite clique-a-clique ampliada para 11 specs, 11/11 verdes.
+
 ## 2026-07-24 — SEO/AEO, rate card de custos e correções (execução autônoma)
 
 - **feat(seo):** landing pública com metadata canônica, Open Graph dinâmico, JSON-LD

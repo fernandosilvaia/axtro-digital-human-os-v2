@@ -4,6 +4,7 @@ import { createUuidV7 } from "@axtro/domain";
 import { createTavusVideoConversationPort, VideoProviderError } from "@axtro/provider-tavus";
 
 import { fakeProvidersEnabled } from "@/lib/knowledge";
+import { checkVideoCap, VIDEO_CAP_CHECK_FAILED_MESSAGE, VIDEO_CAP_MESSAGE } from "@/lib/video-cap";
 import { fetchAgents, fetchTenantOverview } from "@/lib/portal-data";
 import { buildDeckContext, buildPlatformDeck, buildSalesDeck, type Deck } from "@/lib/presentation/deck";
 import { createClient } from "@/lib/supabase/server";
@@ -50,6 +51,13 @@ export async function startVideoConversation(agentId: string): Promise<VideoConv
 
   // Config de vídeo específica do agente (persona própria = voz/percepção próprias).
   const supabase = await createClient();
+
+  // Teto diário de vídeo por tenant (custo real por conversa) — falha fechada.
+  const capVerdict = await checkVideoCap(supabase);
+  if (capVerdict !== "allowed") {
+    return { url: null, error: capVerdict === "capped" ? VIDEO_CAP_MESSAGE : VIDEO_CAP_CHECK_FAILED_MESSAGE };
+  }
+
   const { data: configData } = await supabase.rpc("portal_agent_video_config", { p_agent_id: agentId });
   const config = (configData ?? { configured: false }) as AgentVideoConfig;
 
@@ -152,6 +160,17 @@ export async function startPresentationConversation(agentId: string): Promise<Pr
   // manualmente, sem tocar o provider nem o ledger.
   if (fakeMode) {
     return { url: null, conversationId: "simulated", deck, error: null, simulated: true };
+  }
+
+  // Teto diário de vídeo por tenant (custo real por conversa) — falha fechada.
+  const capVerdict = await checkVideoCap(supabase);
+  if (capVerdict !== "allowed") {
+    return {
+      url: null,
+      conversationId: null,
+      deck: null,
+      error: capVerdict === "capped" ? VIDEO_CAP_MESSAGE : VIDEO_CAP_CHECK_FAILED_MESSAGE,
+    };
   }
   const personaId = config.configured ? config.persona_id ?? null : null;
   if (!personaId) {
