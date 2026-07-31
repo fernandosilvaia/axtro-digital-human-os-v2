@@ -1,6 +1,8 @@
 # Auditoria do Projeto — Axtro Digital Human OS V2
 
-**Data:** 2026-07-19 · **Auditor:** execução autônoma (Claude) · **Branch:** `main`
+**Data:** 2026-07-31 (atualização da onda de produção) · **Auditor:** execução autônoma (Claude) · **Branch:** `main`
+
+> **Estado 2026-07-31:** todos os itens "Incompleto/quebrado" da auditoria original foram fechados (T1-T9, R1-R4, P1-P3 em TASKS.md). O produto está em produção com signup self-serve, agentes com vídeo auto-provisionado, reunião externa validada ao vivo, tetos de custo (tokens + vídeo) e seção de contratação. Pendências restantes são gates humanos ou decisões comerciais — ver TASKS.md e NEEDS_CONNECTION.md.
 Complementa (não substitui) os canônicos: `PROGRESS.md`, `docs/operations/DECISIONS_LOG.md`, `RISCOS_E_PENDENCIAS.md`, `FINAL_AUDIT_REPORT.md`.
 
 ## O que JÁ funciona (verificado)
