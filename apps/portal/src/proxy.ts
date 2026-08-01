@@ -21,5 +21,5 @@ export const config = {
   // dentro de reuniões externas (Output Media) — o bot roda num navegador
   // sem sessão nossa, então a rota precisa ser pública. Ela só aceita salas
   // do próprio provider de vídeo (allowlist de host na própria página).
-  matcher: ["/((?!_next/static|_next/image|favicon.ico|robots.txt|sitemap.xml|manifest.json|opengraph-image|llms.txt|llms-full.txt|rosto-agente|api/|.*\\.(?:svg|png|jpg|jpeg|gif|webp)$).*)"],
+  matcher: ["/((?!_next/static|_next/image|favicon.ico|robots.txt|sitemap.xml|manifest.json|opengraph-image|llms.txt|llms-full.txt|rosto-agente|termos|privacidade|api/|.*\\.(?:svg|png|jpg|jpeg|gif|webp)$).*)"],
 };

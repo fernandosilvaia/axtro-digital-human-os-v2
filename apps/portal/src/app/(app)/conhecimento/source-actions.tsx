@@ -3,6 +3,7 @@
 import { useActionState, useState, useTransition } from "react";
 
 import {
+  deleteKnowledgeSource,
   setKnowledgeSourceStatus,
   updateKnowledgeSourceContent,
   type ResourceActionState,
@@ -22,8 +23,27 @@ export function SourceActions({ sourceId, sourceName, status }: SourceActionsPro
   const [updateState, updateAction, updatePending] = useActionState(updateKnowledgeSourceContent, initialState);
   const [showUpdate, setShowUpdate] = useState(false);
 
+  const [confirmingDelete, setConfirmingDelete] = useState(false);
   const canDisable = status === "active" || status === "stale";
   const canActivate = status === "disabled" || status === "stale";
+  // Exclusão só de fonte já revogada ou nunca ingerida — a promessa de
+  // revogação explícita fica preservada (a RPC recusa qualquer outro estado).
+  const canDelete = status === "disabled" || status === "pending";
+
+  const onDelete = () => {
+    if (!confirmingDelete) {
+      setConfirmingDelete(true);
+      return;
+    }
+    setStatusError(null);
+    startTransition(async () => {
+      const result = await deleteKnowledgeSource(sourceId);
+      if (result.error) {
+        setStatusError(result.error);
+        setConfirmingDelete(false);
+      }
+    });
+  };
 
   const changeStatus = (next: "active" | "disabled") => {
     setStatusError(null);
@@ -67,6 +87,18 @@ export function SourceActions({ sourceId, sourceName, status }: SourceActionsPro
             aria-label={`Atualizar o conteúdo da fonte ${sourceName}`}
           >
             {showUpdate ? "Fechar" : "Atualizar conteúdo"}
+          </button>
+        )}
+        {canDelete && (
+          <button
+            type="button"
+            className="btn btn-ghost btn-small"
+            disabled={pending}
+            onClick={onDelete}
+            aria-label={confirmingDelete ? `Confirmar exclusão da fonte ${sourceName}` : `Excluir a fonte ${sourceName}`}
+            style={{ borderColor: "rgba(255,120,120,0.4)", color: "#ff9d9d" }}
+          >
+            {pending ? "..." : confirmingDelete ? "Confirmar exclusão?" : "Excluir"}
           </button>
         )}
       </div>

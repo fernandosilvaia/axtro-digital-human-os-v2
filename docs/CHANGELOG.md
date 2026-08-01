@@ -2,6 +2,12 @@
 
 ## 2026-07-31 — Reunião externa ao vivo + produto aberto para contratação
 
+- **feat(cleanup):** exclusão de agente em rascunho e de fonte revogada (RPCs 0023 com
+  guardas + dupla confirmação na UI) — limites de 20/50 não entopem mais (D-V2-095).
+- **feat(legal):** /termos e /privacidade honestos, linkados no signup e sitemap,
+  marcados para revisão jurídica formal.
+- **test(e2e):** 14 specs — ciclos de vida completos de agente e fonte clique-a-clique.
+
 - **feat(meetings):** agente entra em reuniões reais de Meet/Zoom/Teams (Recall.ai) com
   palco de rosto próprio, áudio bidirecional (bot 4-core + sinal cru) e webhook de status —
   validado ao vivo com a Raissa num Meet real (D-V2-091/092/093).

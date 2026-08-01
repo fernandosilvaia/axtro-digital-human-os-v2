@@ -232,6 +232,39 @@ export async function setAgentStatus(
   return { error: null, done: true };
 }
 
+/** Exclui um agente ainda em rascunho (sem histórico de sessões) — libera o limite da conta. */
+export async function deleteDraftAgent(agentId: string): Promise<ResourceActionState> {
+  const supabase = await createClient();
+  const { error } = await supabase.rpc("portal_delete_draft_agent", { p_agent_id: agentId });
+  if (error) {
+    if (error.message === "only draft agents can be deleted") {
+      return { error: "Só agentes em rascunho podem ser excluídos — pause o agente primeiro.", done: false };
+    }
+    if (error.message === "agent has session history and cannot be deleted") {
+      return { error: "Este agente tem histórico de conversas e não pode ser excluído.", done: false };
+    }
+    return { error: `Não foi possível excluir: ${error.message}`, done: false };
+  }
+  revalidatePath("/agentes");
+  revalidatePath("/dashboard");
+  return { error: null, done: true };
+}
+
+/** Exclui uma fonte já revogada (ou nunca ingerida) — libera o limite e apaga o conteúdo. */
+export async function deleteKnowledgeSource(sourceId: string): Promise<ResourceActionState> {
+  const supabase = await createClient();
+  const { error } = await supabase.rpc("portal_delete_knowledge_source", { p_source_id: sourceId });
+  if (error) {
+    if (error.message === "revoke the source before deleting it") {
+      return { error: "Revogue a fonte antes de excluí-la.", done: false };
+    }
+    return { error: `Não foi possível excluir: ${error.message}`, done: false };
+  }
+  revalidatePath("/conhecimento");
+  revalidatePath("/dashboard");
+  return { error: null, done: true };
+}
+
 /** Revogação/reativação imediata: fontes 'disabled' somem da busca e do digest na hora. */
 export async function setKnowledgeSourceStatus(
   sourceId: string,

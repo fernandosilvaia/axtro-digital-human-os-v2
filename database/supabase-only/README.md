@@ -38,6 +38,7 @@ Racional completo: D-V2-055, D-V2-056 e D-V2-058 em
 | `0020_agent_video_config_presentation_kind.sql` | sim (2026-07-29, via MCP `apply_migration`) — corrigiu o acoplamento frágil antes do rename Aurora → Raissa (D-V2-086) |
 | `0021_meeting_bot_sessions.sql` | sim (2026-07-30, via MCP `apply_migration`, autorizado explicitamente pelo Fernando) — tabela + 3 funções confirmadas via `execute_sql`, RLS forçada |
 | `0022_agent_video_config_rpc.sql` | sim (2026-07-31, via Management API `database/query`) — RPC testada ao vivo provisionando a persona da Marina |
+| `0023_cleanup_rpcs.sql` | sim (2026-07-31, via Management API `database/query`) — exclusão de rascunho de agente e de fonte revogada, testada no e2e |
 | `0019_agent_brain_service_role_rpcs.sql` | sim (2026-07-27, via MCP `apply_migration`, autorizado explicitamente pelo Fernando). Confirmado via `execute_sql`: tabela + 5 funções presentes, RLS forçada. Advisor de segurança revisado — só os mesmos WARNs `authenticated_security_definer_function_executable` já aceitos para toda RPC `portal_*` deste projeto; nenhum problema novo. Ainda falta `SUPABASE_SERVICE_ROLE_KEY` no ambiente do portal (nunca configurada — Project Settings > API do Supabase) para o endpoint funcionar de ponta a ponta |
 
 ## Regras

@@ -20,6 +20,10 @@ export function SignupForm() {
         <input id="password" name="password" type="password" autoComplete="new-password" minLength={8} required />
       </div>
       {state.error && <p className="form-error">{state.error}</p>}
+      <p style={{ fontSize: "0.76rem", color: "var(--text-muted)", margin: "0 0 10px" }}>
+        Ao criar a conta você concorda com os <a href="/termos" style={{ color: "var(--accent)" }}>Termos de Uso</a> e o{" "}
+        <a href="/privacidade" style={{ color: "var(--accent)" }}>Aviso de Privacidade</a>.
+      </p>
       <button type="submit" className="submit-button" disabled={pending}>
         {pending ? "Criando..." : "Criar conta"}
       </button>

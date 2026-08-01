@@ -161,6 +161,54 @@ test("conhecimento: revogar e reativar uma fonte restaura o estado", async ({ pa
   await expect(page.getByRole("button", { name: `Revogar a fonte ${sourceName}` })).toBeVisible({ timeout: 20_000 });
 });
 
+test("termos e privacidade são públicos e linkados no signup", async ({ page, request }) => {
+  for (const path of ["/termos", "/privacidade"]) {
+    const response = await request.get(path, { maxRedirects: 0 });
+    expect(response.status(), `${path} deveria ser público`).toBe(200);
+  }
+  await page.goto("/signup");
+  await expect(page.locator('a[href="/termos"]')).toBeVisible();
+  await expect(page.locator('a[href="/privacidade"]')).toBeVisible();
+});
+
+test("ciclo de vida completo do agente: criar → ativar → pausar → excluir", async ({ page }) => {
+  await login(page);
+  await page.goto("/agentes");
+
+  // Nome único por execução — e o teste limpa atrás de si via exclusão.
+  const agentName = `E2E Ciclo ${Date.now().toString(36)}`;
+  await page.fill("#agent-name", agentName);
+  await page.getByRole("button", { name: "Criar rascunho" }).click();
+  const row = page.locator("tr", { hasText: agentName });
+  await expect(row).toBeVisible({ timeout: 20_000 });
+
+  await row.getByRole("button", { name: "Ativar" }).click();
+  await expect(row.getByRole("button", { name: "Pausar" })).toBeVisible({ timeout: 20_000 });
+
+  await row.getByRole("button", { name: "Pausar" }).click();
+  await expect(row.getByRole("button", { name: "Ativar" })).toBeVisible({ timeout: 20_000 });
+
+  // Exclusão exige dupla confirmação deliberada.
+  await row.getByRole("button", { name: `Excluir o rascunho ${agentName}` }).click();
+  await row.getByRole("button", { name: `Confirmar exclusão de ${agentName}` }).click();
+  await expect(row).not.toBeVisible({ timeout: 20_000 });
+});
+
+test("ciclo de vida da fonte: criar pendente → excluir", async ({ page }) => {
+  await login(page);
+  await page.goto("/conhecimento");
+
+  const sourceName = `E2E Fonte ${Date.now().toString(36)}`;
+  await page.fill("#source-name", sourceName);
+  await page.getByRole("button", { name: /Cadastrar/ }).click();
+  const row = page.locator("tr", { hasText: sourceName });
+  await expect(row).toBeVisible({ timeout: 20_000 });
+
+  await row.getByRole("button", { name: `Excluir a fonte ${sourceName}` }).click();
+  await row.getByRole("button", { name: `Confirmar exclusão da fonte ${sourceName}` }).click();
+  await expect(row).not.toBeVisible({ timeout: 20_000 });
+});
+
 async function login(page: import("@playwright/test").Page): Promise<void> {
   await page.goto("/login");
   // Sessão persistida de teste anterior redireciona direto.

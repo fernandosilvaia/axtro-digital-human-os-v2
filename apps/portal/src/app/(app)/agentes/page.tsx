@@ -4,6 +4,7 @@ import { fetchAgents, fetchTenantOverview } from "@/lib/portal-data";
 import { StatusBadge } from "@/components/status-badge";
 
 import { AgentStatusToggle } from "./agent-status-toggle";
+import { AgentDeleteButton } from "./agent-delete-button";
 import { CreateAgentForm } from "./create-agent-form";
 
 export const metadata: Metadata = { title: "Agentes — Axtro Digital Human OS" };
@@ -73,6 +74,7 @@ export default async function AgentsPage() {
                         Testar
                       </a>
                       {isAdmin && <AgentStatusToggle agentId={agent.id} status={agent.status} />}
+                      {isAdmin && agent.status === "draft" && <AgentDeleteButton agentId={agent.id} agentName={agent.name} />}
                     </td>
                   </tr>
                 ))}
