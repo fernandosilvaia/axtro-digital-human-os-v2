@@ -1,6 +1,14 @@
 # Riscos e pendências
 
-**Atualizado:** 2026-07-20 · **Branch:** `main`
+**Atualizado:** 2026-07-31 · **Branch:** `main`
+
+## Notas de 2026-07-31 (SEO/AEO, rate card, reunião externa, produto aberto para contratação)
+
+- **Cérebro/percepção emocional** (D-V2-073/074/075, ADR-035) e as ondas T1-T9 de 2026-07-19/20/24 seguem válidas — ver seções abaixo, agora todas riscadas.
+- **Reunião externa (Recall.ai) construída, testada ao vivo e em produção** (R1-R4, D-V2-089/090/091/092/093): agente entra em Meet/Zoom/Teams real com palco de rosto próprio e áudio bidirecional; dois bugs reais de áudio corrigidos ao vivo (mic ausente, depois CPU insuficiente do bot + reprocessamento de áudio) — eleva a prioridade do DPIA/parecer jurídico da percepção emocional (nota de 2026-07-19 abaixo), já que agora ela roda dentro de reuniões de clientes de verdade, não só na sala hospedada.
+- **Produto aberto para contratação** (D-V2-094/095/096): auto-provisão de vídeo na ativação (sem isso, cliente novo ficava sem vídeo), teto de 20 conversas de vídeo/dia por tenant (não havia NENHUM cap de custo de vídeo antes), exclusão real de agente/fonte (usuários criavam mas não removiam nada, limites de 20/50 entupiam), `/termos` e `/privacidade` v1 (produto público sem página legal alguma antes), e2e ampliado a 14 specs clique-a-clique, e CI passa a rodar essa suite em todo PR/push (job pulado até os 4 secrets de conta demo serem cadastrados no GitHub — ver `docs/NEEDS_CONNECTION.md`).
+- **Gate "chaves reais de provider via Doppler"** (item 2 da tabela abaixo) considerar **RESOLVIDO**: OpenRouter, Tavus, ElevenLabs, Recall.ai e Resend estão todos conectados e testados ao vivo em produção.
+- Pendências que permanecem inalteradas e bloqueantes: DPIA/parecer jurídico por jurisdição para percepção emocional (agora mais urgente, ver acima), decisão comercial de planos/preços (Stripe), bake-off credenciado de provider + piloto interno real M3-10, revisão jurídica formal de `/termos`/`/privacidade` — todas em `PENDENCIAS_EXTERNAS.md`.
 
 ## Notas de 2026-07-20 (execução autônoma — lacunas operacionais)
 
