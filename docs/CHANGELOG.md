@@ -1,5 +1,12 @@
 # CHANGELOG (resumo por onda — detalhes em PROGRESS.md e DECISIONS_LOG.md)
 
+## 2026-08-01 — Domínio próprio
+
+- **fix(domain):** `PORTAL_PUBLIC_URL` e `NEXT_PUBLIC_SITE_URL` atualizadas de volta pra
+  `closer.axtroai.com` (domínio já conectado no Railway, mas as variáveis ainda apontavam
+  pra raw URL) — e-mails, sitemap, `og:url` e canonical corrigidos e verificados ao vivo
+  (D-V2-097).
+
 ## 2026-07-31 — Reunião externa ao vivo + produto aberto para contratação
 
 - **feat(cleanup):** exclusão de agente em rascunho e de fonte revogada (RPCs 0023 com
