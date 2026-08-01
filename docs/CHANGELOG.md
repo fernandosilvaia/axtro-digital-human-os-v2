@@ -7,6 +7,9 @@
 - **feat(legal):** /termos e /privacidade honestos, linkados no signup e sitemap,
   marcados para revisão jurídica formal.
 - **test(e2e):** 14 specs — ciclos de vida completos de agente e fonte clique-a-clique.
+- **ci(e2e):** job `e2e-portal` roda os 14 specs Playwright em todo PR/push contra fake
+  providers + login demo real; pulado automaticamente sem os 4 secrets do GitHub
+  (gate humano documentado em NEEDS_CONNECTION.md) — D-V2-096.
 
 - **feat(meetings):** agente entra em reuniões reais de Meet/Zoom/Teams (Recall.ai) com
   palco de rosto próprio, áudio bidirecional (bot 4-core + sinal cru) e webhook de status —

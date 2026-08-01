@@ -716,6 +716,23 @@
 - Reunião externa validada com áudio corrigido nesta mesma data (D-V2-092/093): Raissa ao vivo no Meet com bot 4-core.
 - Pipeline: 510 Node + 26 Python, lint, typecheck, build, 9 validadores verdes. ELEVENLABS_API_KEY adicionada ao Railway.
 
+### 2026-07-31, onda de produção 2 — exclusão, páginas legais, e2e 14 specs (D-V2-095)
+
+- **Exclusão real (P4)**: `portal_delete_draft_agent` (recusa agente com sessões) e `portal_delete_knowledge_source` (exige revogação antes) — supabase-only 0023, admin-only, exclusão física com dupla confirmação na UI. Fecha o gap operacional deixado pela onda anterior: usuários criavam agentes/fontes mas não tinham como remover nada, e os limites de 20/50 entupiam sem saída.
+- **Páginas legais (P4)**: `/termos` e `/privacidade` v1, honestas (descrevem só o que o produto faz, nomeiam os provedores reais, direitos LGPD, contato), linkadas no signup e no sitemap, explicitamente marcadas como sujeitas a revisão jurídica formal — não é parecer de advogado.
+- **E2e 14 specs (P4)**: dois testes novos de ciclo de vida clique-a-clique completo (agente: criar→ativar→pausar→excluir; fonte: criar→excluir), possíveis agora que a exclusão existe; o teste limpa atrás de si.
+- Deploy Railway confirmado `● Online`; smoke pós-deploy 200 em `/`, `/signup`, `/termos`, `/privacidade`, `/api/health`.
+- Pipeline: 510 Node + 26 Python, lint, typecheck, build, 9 validadores verdes.
+
+### 2026-07-31, CI passa a rodar o e2e a cada PR/push (P5, D-V2-096)
+
+- Job `e2e-portal` novo em `.github/workflows/docs-qa.yml`: instala Chromium do Playwright, escreve `.env.local` efêmero no runner a partir de 4 GitHub secrets (`SUPABASE_URL`, `SUPABASE_PUBLISHABLE_KEY`, `DEMO_EMAIL`, `DEMO_PASSWORD`) e roda os 14 specs contra fake providers + login demo real.
+- `playwright.config.ts` ajustado: `channel: "chrome"` só em dev local (o Chrome do sistema existe pra contornar o SIGABRT do chromium baixado nesta máquina Mac específica); no CI (`process.env.CI`) usa o Chromium padrão do Playwright, sem esse problema em Linux.
+- Job condicionado a `secrets.DEMO_PASSWORD != ''` — sem os 4 secrets cadastrados no GitHub, é pulado inteiro (nunca falha por credencial ausente), mesmo padrão do resto do projeto. PRs de fork não recebem secrets do repositório, então o skip nesse caso também é automático.
+- **Achado que motivou a mudança**: os 14 specs — incluindo os dois testes HTTP que já pegaram bugs reais de middleware nesta sessão (llms.txt D-V2-079, /api/* D-V2-088) — só rodavam manualmente. Nenhuma regressão futura seria detectada sem esse gate.
+- Validado localmente: 14/14 specs verdes com a mudança de config aplicada (dev local continua usando Chrome do sistema, comportamento inalterado).
+- Gate humano documentado em `docs/NEEDS_CONNECTION.md`: cadastrar os 4 secrets no GitHub para o job passar a rodar de verdade.
+
 ## Próxima ação
 
 Nenhuma tarefa de M0-M3 pendente dentro do escopo autorizado. Para a fase de

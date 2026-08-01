@@ -24,6 +24,8 @@ Canônicos de contexto: `docs/PROJECT_AUDIT.md`, `PROGRESS.md`, `RISCOS_E_PENDEN
 - [x] **P2 · Teto de vídeo (20/dia/tenant) + seção Plano e contratação** — falha fechada; sem preço público inventado.
 - [x] **P3 · E2e clique-a-clique 11 specs + pipeline + deploy** — 11/11 verdes.
 - [x] **R1-R4 · Reunião externa (Recall.ai)** — chave validada, UI, webhook, palco de rosto, áudio 2 sentidos, teste ao vivo com a Raissa.
+- [x] **P4 · Exclusão de agente/fonte + páginas legais + e2e 14 specs** — `portal_delete_draft_agent`/`portal_delete_knowledge_source` (0023) com dupla confirmação na UI; `/termos` e `/privacidade` v1 linkados no signup e sitemap; suite ampliada para 14 specs (ciclos de vida completos de agente e fonte). D-V2-095.
+- [x] **P5 · CI roda o e2e a cada PR/push** — job `e2e-portal` em `docs-qa.yml`, condicionado a 4 secrets (skip automático sem eles, nunca falha por credencial ausente); `playwright.config.ts` usa Chromium do runner no CI em vez do Chrome do sistema. Gate humano: cadastrar os secrets (ver NEEDS_CONNECTION.md). D-V2-096.
 
 ## Integrações maiores (dependem de conta/chave — ver docs/NEEDS_CONNECTION.md)
 

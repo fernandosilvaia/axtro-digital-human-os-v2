@@ -2,7 +2,7 @@
 
 **Data:** 2026-07-31 (atualização da onda de produção) · **Auditor:** execução autônoma (Claude) · **Branch:** `main`
 
-> **Estado 2026-07-31:** todos os itens "Incompleto/quebrado" da auditoria original foram fechados (T1-T9, R1-R4, P1-P3 em TASKS.md). O produto está em produção com signup self-serve, agentes com vídeo auto-provisionado, reunião externa validada ao vivo, tetos de custo (tokens + vídeo) e seção de contratação. Pendências restantes são gates humanos ou decisões comerciais — ver TASKS.md e NEEDS_CONNECTION.md.
+> **Estado 2026-07-31:** todos os itens "Incompleto/quebrado" da auditoria original foram fechados (T1-T9, R1-R4, P1-P5 em TASKS.md). O produto está em produção com signup self-serve, agentes com vídeo auto-provisionado, reunião externa validada ao vivo, tetos de custo (tokens + vídeo), seção de contratação, exclusão de agente/fonte, páginas legais v1 e e2e de 14 specs rodando em CI a cada PR/push (job pulado até os secrets de conta demo serem cadastrados no GitHub). Pendências restantes são gates humanos ou decisões comerciais — ver TASKS.md e NEEDS_CONNECTION.md.
 Complementa (não substitui) os canônicos: `PROGRESS.md`, `docs/operations/DECISIONS_LOG.md`, `RISCOS_E_PENDENCIAS.md`, `FINAL_AUDIT_REPORT.md`.
 
 ## O que JÁ funciona (verificado)
