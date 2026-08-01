@@ -66,6 +66,22 @@ jobs:
           NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY: sb_publishable_placeholder
         run: pnpm --filter @axtro/portal run build
 
+  check-e2e-secrets:
+    # jobs.<job_id>.if só aceita os contextos github/needs/vars/inputs — não
+    # secrets (achado real 2026-08-01: um `if: ${{ secrets... }}` direto no
+    # job invalida o workflow INTEIRO, os 4 jobs somem e todo run vira
+    # "workflow file issue" com 0 jobs, silenciosamente, sem nenhum erro
+    # visível em lint local nem no docs_qa.py). Contorno padrão: checar o
+    # segredo dentro de um step (secrets É permitido em `run:`) e expor via
+    # output, que aí sim pode ser lido em jobs.<job_id>.if via `needs`.
+    runs-on: ubuntu-latest
+    timeout-minutes: 2
+    outputs:
+      has-secrets: ${{ steps.check.outputs.has-secrets }}
+    steps:
+      - id: check
+        run: echo "has-secrets=${{ secrets.DEMO_PASSWORD != '' }}" >> "$GITHUB_OUTPUT"
+
   e2e-portal:
     # Roda só quando os segredos de conta demo existem no repositório
     # (Settings → Secrets and variables → Actions). Sem eles o job é pulado
@@ -73,9 +89,10 @@ jobs:
     # resto do projeto: implementar + documentar em NEEDS_CONNECTION.md,
     # deixando a credencial real como gate humano. PRs de fork também não
     # têm acesso aos secrets, então o skip aqui é automático e seguro.
+    needs: check-e2e-secrets
     runs-on: ubuntu-latest
     timeout-minutes: 15
-    if: ${{ secrets.DEMO_PASSWORD != '' }}
+    if: ${{ needs.check-e2e-secrets.outputs.has-secrets == 'true' }}
     steps:
       - uses: actions/checkout@v4
       - uses: pnpm/action-setup@v4
@@ -87,6 +104,8 @@ jobs:
           cache: pnpm
       - name: Install workspace dependencies
         run: pnpm install --frozen-lockfile
+      - name: Build workspace packages (@axtro/domain, provider adapters, ...)
+        run: pnpm typecheck
       - name: Install Playwright Chromium
         run: pnpm --filter @axtro/portal exec playwright install --with-deps chromium
       - name: Write credenciais demo para o e2e (nunca commitadas, só no runner efêmero)

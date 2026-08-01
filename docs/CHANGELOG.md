@@ -1,11 +1,16 @@
 # CHANGELOG (resumo por onda — detalhes em PROGRESS.md e DECISIONS_LOG.md)
 
-## 2026-08-01 — Domínio próprio
+## 2026-08-01 — Domínio próprio + CI do e2e destravado
 
 - **fix(domain):** `PORTAL_PUBLIC_URL` e `NEXT_PUBLIC_SITE_URL` atualizadas de volta pra
   `closer.axtroai.com` (domínio já conectado no Railway, mas as variáveis ainda apontavam
   pra raw URL) — e-mails, sitemap, `og:url` e canonical corrigidos e verificados ao vivo
   (D-V2-097).
+- **fix(ci):** os 4 secrets do e2e cadastrados no GitHub, e dois bugs reais corrigidos que
+  mantinham o CI inteiro quebrado desde D-V2-096 (`if` de job referenciando `secrets` —
+  contexto não permitido, invalida o workflow inteiro; pacotes do monorepo não buildados
+  antes do e2e). Validado com 2 runs completos numa branch de teste; `main` agora roda os
+  5 jobs verdes, incluindo os 14 specs Playwright de verdade (D-V2-098).
 
 ## 2026-07-31 — Reunião externa ao vivo + produto aberto para contratação
 
