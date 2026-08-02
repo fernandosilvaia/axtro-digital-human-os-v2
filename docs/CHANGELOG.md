@@ -14,6 +14,10 @@
 - **chore(recall):** segundo endpoint de webhook cadastrado no dashboard do Recall.ai
   apontando pro domínio próprio, em paralelo ao endpoint antigo (raw URL do Railway) —
   nenhum removido, sanity check 401 confirmado no endpoint novo.
+- **feat(security):** verificação de assinatura HMAC nos webhooks do Recall.ai
+  (`webhook-id`/`webhook-timestamp`/`webhook-signature`, formato Standard Webhooks/Svix),
+  somada ao token na URL já existente — opcional, fail closed quando configurada, janela
+  anti-replay de 5min, suporta rotação de segredo. 9 testes novos (D-V2-099).
 
 ## 2026-07-31 — Reunião externa ao vivo + produto aberto para contratação
 

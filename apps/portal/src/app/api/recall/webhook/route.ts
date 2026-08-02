@@ -1,16 +1,21 @@
 import { NextRequest, NextResponse } from "next/server";
 
-import { parseRecallWebhookPayload, statusForRecallEvent } from "@/lib/meetings/webhook";
+import { parseRecallWebhookPayload, statusForRecallEvent, verifyRecallWebhookSignature } from "@/lib/meetings/webhook";
 import { createServiceRoleClient, ServiceRoleUnavailableError } from "@/lib/supabase/service";
 import { logError as trackError } from "@/lib/telemetry";
 
 /**
- * Recebe eventos de status de bot do Recall.ai. Autenticado por token na
- * URL (?token=...) — mecanismo oficial documentado (docs.recall.ai/docs/
- * real-time-webhook-endpoints): a URL configurada no dashboard/na criação
- * do bot já carrega o token, e o Recall.ai chama exatamente essa URL de
- * volta. Servidor-a-servidor, sem sessão de usuário — mesmo padrão de
- * /api/brain e /api/leads/video-session.
+ * Recebe eventos de status de bot do Recall.ai. Duas camadas de
+ * autenticação, ambas exigidas quando configuradas: (1) token na URL
+ * (?token=...) — mecanismo oficial original (docs.recall.ai/docs/
+ * real-time-webhook-endpoints), a URL configurada no dashboard já carrega
+ * o token; (2) assinatura HMAC nos cabeçalhos `webhook-id`/
+ * `webhook-timestamp`/`webhook-signature` (docs.recall.ai/docs/
+ * authenticating-requests-from-recallai), exigida só se
+ * RECALL_WEBHOOK_SECRET estiver configurado — opcional pra não quebrar
+ * ambientes sem o segredo do workspace gerado ainda. Servidor-a-servidor,
+ * sem sessão de usuário — mesmo padrão de /api/brain e
+ * /api/leads/video-session.
  */
 export const dynamic = "force-dynamic";
 
@@ -24,9 +29,28 @@ export async function POST(request: NextRequest): Promise<Response> {
     return NextResponse.json({ error: "unauthorized" }, { status: 401 });
   }
 
+  const rawBody = await request.text();
+
+  const webhookSecret = process.env.RECALL_WEBHOOK_SECRET ?? "";
+  if (webhookSecret.length > 0) {
+    const signatureValid = verifyRecallWebhookSignature(
+      webhookSecret,
+      {
+        id: request.headers.get("webhook-id"),
+        timestamp: request.headers.get("webhook-timestamp"),
+        signature: request.headers.get("webhook-signature"),
+      },
+      rawBody,
+      Math.floor(Date.now() / 1000),
+    );
+    if (!signatureValid) {
+      return NextResponse.json({ error: "invalid_signature" }, { status: 401 });
+    }
+  }
+
   let body: unknown;
   try {
-    body = await request.json();
+    body = JSON.parse(rawBody);
   } catch {
     return NextResponse.json({ error: "invalid_json_body" }, { status: 400 });
   }
