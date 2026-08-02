@@ -11,6 +11,9 @@
   contexto não permitido, invalida o workflow inteiro; pacotes do monorepo não buildados
   antes do e2e). Validado com 2 runs completos numa branch de teste; `main` agora roda os
   5 jobs verdes, incluindo os 14 specs Playwright de verdade (D-V2-098).
+- **chore(recall):** segundo endpoint de webhook cadastrado no dashboard do Recall.ai
+  apontando pro domínio próprio, em paralelo ao endpoint antigo (raw URL do Railway) —
+  nenhum removido, sanity check 401 confirmado no endpoint novo.
 
 ## 2026-07-31 — Reunião externa ao vivo + produto aberto para contratação
 
