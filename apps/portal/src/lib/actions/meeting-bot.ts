@@ -10,7 +10,7 @@ import { handleJoinMeeting, JoinMeetingError, type AgentPersonaForMeeting } from
 import { fetchAgents } from "@/lib/portal-data";
 import { createClient } from "@/lib/supabase/server";
 import { logError as trackError } from "@/lib/telemetry";
-import { checkVideoCap, VIDEO_CAP_CHECK_FAILED_MESSAGE, VIDEO_CAP_MESSAGE } from "@/lib/video-cap";
+import { checkVideoCap, reportConversationOverageIfNeeded, VIDEO_CAP_CHECK_FAILED_MESSAGE, VIDEO_CAP_MESSAGE } from "@/lib/video-cap";
 
 /**
  * Coloca um agente numa reunião externa de verdade (Zoom/Meet/Teams) —
@@ -73,10 +73,11 @@ export async function joinExternalMeeting(
 
   const supabase = await createClient();
 
-  // Teto diário de vídeo por tenant — reunião externa também cria conversa
-  // Tavus (e ainda soma a hora do bot), então conta no mesmo teto.
+  // Teto diário de segurança (sempre) — reunião externa também cria conversa
+  // Tavus (e ainda soma a hora do bot), então conta no mesmo teto. Passar do
+  // incluído mensal do plano não bloqueia (overage cobrado depois do sucesso).
   const capVerdict = await checkVideoCap(supabase);
-  if (capVerdict !== "allowed") {
+  if (capVerdict === "capped" || capVerdict === "check_failed") {
     return {
       conversationUrl: null,
       scheduled: false,
@@ -137,8 +138,13 @@ export async function joinExternalMeeting(
           // comentário do cap prometia isso e o código não fazia; o teto
           // nunca incrementava e o gasto ficava invisível no painel).
           if (params.conversationId !== null) {
-            const { error: usageError } = await supabase.rpc("portal_log_video_usage", { p_id: createUuidV7() });
-            if (usageError) trackError("meeting_bot_log_video_usage_failed", usageError, { agent_id: agentId });
+            const meetingUsageEventId = createUuidV7();
+            const { error: usageError } = await supabase.rpc("portal_log_video_usage", { p_id: meetingUsageEventId });
+            if (usageError) {
+              trackError("meeting_bot_log_video_usage_failed", usageError, { agent_id: agentId });
+            } else {
+              await reportConversationOverageIfNeeded(supabase, capVerdict, meetingUsageEventId);
+            }
           }
         },
         endVideoConversation: (conversationId) => tavusPort.endConversation(conversationId),

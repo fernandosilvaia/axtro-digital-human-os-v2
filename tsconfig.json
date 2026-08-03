@@ -32,6 +32,7 @@
     { "path": "./packages/provider-openrouter" },
     { "path": "./packages/provider-tavus" },
     { "path": "./packages/provider-recall" },
+    { "path": "./packages/provider-stripe" },
     { "path": "./packages/evaluation" },
     { "path": "./apps/ingestion-worker" },
     { "path": "./packages/turn-coordinator" },

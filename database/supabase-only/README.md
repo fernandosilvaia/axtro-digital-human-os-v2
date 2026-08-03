@@ -37,6 +37,8 @@ Racional completo: D-V2-055, D-V2-056 e D-V2-058 em
 | `0018_agent_brain_config.sql` | sim (2026-07-27, via MCP `apply_migration`, autorizado explicitamente pelo Fernando) |
 | `0020_agent_video_config_presentation_kind.sql` | sim (2026-07-29, via MCP `apply_migration`) — corrigiu o acoplamento frágil antes do rename Aurora → Raissa (D-V2-086) |
 | `0024_hardening_audit_fixes.sql` | sim (2026-08-02, via MCP `apply_migration`) — 'platform' fora do self-service, status terminal pegajoso, log de vídeo service (D-V2-100) |
+| `0025_fix_cost_events_conversation_unit_type.sql` | **NÃO aplicado ainda** — achado crítico 2026-08-03: `cost_events_unit_type_check` nunca permitiu `unit_type='conversation'`, então todo log de custo de vídeo falhava silenciosamente desde 0011 (2026-07-18) e o teto diário de vídeo nunca esteve ativo. Confirmado via `execute_sql` em produção (zero linhas `unit_type='conversation'` existem). Aguardando autorização explícita do Fernando |
+| `0026_tenant_subscriptions.sql` | **NÃO aplicado ainda** — tabela + 2 RPCs de cobrança Stripe (D-V2-101). Depende de 0025 (o teto/contagem de conversas que a cobrança usa). Aguardando autorização explícita do Fernando |
 | `0021_meeting_bot_sessions.sql` | sim (2026-07-30, via MCP `apply_migration`, autorizado explicitamente pelo Fernando) — tabela + 3 funções confirmadas via `execute_sql`, RLS forçada |
 | `0022_agent_video_config_rpc.sql` | sim (2026-07-31, via Management API `database/query`) — RPC testada ao vivo provisionando a persona da Marina |
 | `0023_cleanup_rpcs.sql` | sim (2026-07-31, via Management API `database/query`) — exclusão de rascunho de agente e de fonte revogada, testada no e2e |

@@ -4,7 +4,7 @@ import { createUuidV7 } from "@axtro/domain";
 import { createTavusVideoConversationPort, VideoProviderError } from "@axtro/provider-tavus";
 
 import { fakeProvidersEnabled } from "@/lib/knowledge";
-import { checkVideoCap, VIDEO_CAP_CHECK_FAILED_MESSAGE, VIDEO_CAP_MESSAGE } from "@/lib/video-cap";
+import { checkVideoCap, reportConversationOverageIfNeeded, VIDEO_CAP_CHECK_FAILED_MESSAGE, VIDEO_CAP_MESSAGE } from "@/lib/video-cap";
 import { fetchAgents, fetchTenantOverview } from "@/lib/portal-data";
 import { buildDeckContext, buildPlatformDeck, buildSalesDeck, type Deck } from "@/lib/presentation/deck";
 import { createClient } from "@/lib/supabase/server";
@@ -52,9 +52,9 @@ export async function startVideoConversation(agentId: string): Promise<VideoConv
   // Config de vídeo específica do agente (persona própria = voz/percepção próprias).
   const supabase = await createClient();
 
-  // Teto diário de vídeo por tenant (custo real por conversa) — falha fechada.
+  // Teto diário de segurança (sempre) + teto mensal do plano (overage cobrado, nunca bloqueia) — falha fechada só no diário.
   const capVerdict = await checkVideoCap(supabase);
-  if (capVerdict !== "allowed") {
+  if (capVerdict === "capped" || capVerdict === "check_failed") {
     return { url: null, error: capVerdict === "capped" ? VIDEO_CAP_MESSAGE : VIDEO_CAP_CHECK_FAILED_MESSAGE };
   }
 
@@ -115,9 +115,12 @@ export async function startVideoConversation(agentId: string): Promise<VideoConv
     // Cada conversa criada vira uma linha no ledger de custos (unit
     // 'conversation'; preço entra na reconciliação). Falha de log não pode
     // derrubar a chamada já criada — mas fica visível no servidor.
-    const { error: logError } = await supabase.rpc("portal_log_video_usage", { p_id: createUuidV7() });
+    const videoUsageEventId = createUuidV7();
+    const { error: logError } = await supabase.rpc("portal_log_video_usage", { p_id: videoUsageEventId });
     if (logError) {
       trackError("portal_log_video_usage_failed", logError, { agent_id: agentId, mode: "video" });
+    } else {
+      await reportConversationOverageIfNeeded(supabase, capVerdict, videoUsageEventId);
     }
     return { url: conversation.conversationUrl, error: null };
   } catch (error) {
@@ -173,9 +176,9 @@ export async function startPresentationConversation(agentId: string): Promise<Pr
     return { url: null, conversationId: "simulated", deck, error: null, simulated: true };
   }
 
-  // Teto diário de vídeo por tenant (custo real por conversa) — falha fechada.
+  // Teto diário de segurança (sempre) + teto mensal do plano (overage cobrado, nunca bloqueia) — falha fechada só no diário.
   const capVerdict = await checkVideoCap(supabase);
-  if (capVerdict !== "allowed") {
+  if (capVerdict === "capped" || capVerdict === "check_failed") {
     return {
       url: null,
       conversationId: null,
@@ -216,9 +219,12 @@ export async function startPresentationConversation(agentId: string): Promise<Pr
       language,
       maxCallDurationSeconds: 900,
     });
-    const { error: logError } = await supabase.rpc("portal_log_video_usage", { p_id: createUuidV7() });
+    const presentationUsageEventId = createUuidV7();
+    const { error: logError } = await supabase.rpc("portal_log_video_usage", { p_id: presentationUsageEventId });
     if (logError) {
       trackError("portal_log_video_usage_failed", logError, { agent_id: agentId, mode: "presentation" });
+    } else {
+      await reportConversationOverageIfNeeded(supabase, capVerdict, presentationUsageEventId);
     }
     return { url: conversation.conversationUrl, conversationId: conversation.conversationId, deck, error: null };
   } catch (error) {

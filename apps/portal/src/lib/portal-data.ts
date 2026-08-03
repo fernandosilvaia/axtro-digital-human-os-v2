@@ -135,3 +135,20 @@ export async function fetchTeam(): Promise<TeamOverview> {
   if (error) throw new Error(`team fetch failed: ${error.message}`);
   return data as TeamOverview;
 }
+
+export interface BillingStatus {
+  readonly plan_id: string | null;
+  readonly status: string | null;
+  readonly stripe_customer_id: string | null;
+  readonly current_period_start: string | null;
+  readonly current_period_end: string | null;
+  readonly conversations_today: number;
+  readonly conversations_this_period: number;
+}
+
+export async function fetchBillingStatus(): Promise<BillingStatus> {
+  const supabase = await createClient();
+  const { data, error } = await supabase.rpc("portal_billing_status");
+  if (error) throw new Error(`billing status fetch failed: ${error.message}`);
+  return data as BillingStatus;
+}
