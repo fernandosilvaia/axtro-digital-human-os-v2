@@ -3,30 +3,50 @@ import { NextRequest, NextResponse } from "next/server";
 import { createUuidV7 } from "@axtro/domain";
 import { createOpenRouterTextGenerationPort } from "@axtro/provider-openrouter";
 
-import { BrainHttpError, handleBrainChatRequest, type ResolvedBrainAgent } from "@/lib/brain/handle-chat-request";
+import type { BrainLanguage } from "@/lib/brain/metodo-silva";
+import { BrainHttpError, handleBrainChatRequest, type BudgetVerdict, type ResolvedBrainAgent } from "@/lib/brain/handle-chat-request";
 import { createServiceRoleClient, ServiceRoleUnavailableError } from "@/lib/supabase/service";
-import { logError as trackError } from "@/lib/telemetry";
+import { logError as trackError, logEvent } from "@/lib/telemetry";
 
 /**
  * Endpoint OpenAI-compatible que o Tavus chama como LLM da persona de vídeo
  * (`layers.llm.base_url`, M4-04). Wiring fino sobre `handleBrainChatRequest`
- * (M4-01/M4-02/M4-03, puro e já testado): resolve o segredo via service
- * role (sem sessão de usuário — é chamada servidor-a-servidor), formata a
- * resposta em SSE `chat.completion.chunk`.
+ * (puro e testado): resolve o segredo via service role (sem sessão de
+ * usuário — chamada servidor-a-servidor), aplica teto diário de tokens e
+ * rate limit, e formata a resposta em SSE `chat.completion.chunk`.
  *
- * GAP CONHECIDO E DECLARADO (Art. 16 — honestidade estrutural): RAG real
- * ainda não está ligado neste caminho — `portal_search_knowledge` exige
- * `auth.uid()`, que não existe aqui. Enquanto uma RPC `_service` equivalente
- * não existe, o cérebro responde só com identidade + Método Silva +
- * percepção, sem fontes de conhecimento da conta (Art. 14: RAG indisponível,
- * o agente não inventa — segue sem, não finge ter).
- *
- * NÃO chamar em produção: a migration 0018/0019 ainda não foi aplicada no
- * Supabase real (bloqueio do classificador de segurança da sessão que
- * escreveu este código — ver PROGRESS.md/DECISIONS_LOG D-V2-082) e nenhuma
- * persona Tavus real aponta pra este endpoint ainda.
+ * GAP CONHECIDO E DECLARADO (Art. 16): RAG real ainda não está ligado neste
+ * caminho — `portal_search_knowledge` exige `auth.uid()`, que não existe
+ * aqui. Sem fontes, o agente não inventa (Art. 14) — segue sem.
  */
 export const dynamic = "force-dynamic";
+
+/** Mesmo teto do sandbox de chat (agent-preview.ts) — um orçamento por tenant, não por superfície. */
+const DAILY_TOKEN_CAP = 500_000;
+
+/**
+ * Rate limit em memória por agente: uma call de vídeo real gera no máximo
+ * um turno a cada poucos segundos — 40/min é folga generosa e ainda corta
+ * um loop de script. Processo único no Railway; se um dia houver réplicas,
+ * isto vira melhor-esforço por instância (o teto diário de tokens continua
+ * sendo a proteção dura de gasto).
+ */
+const RATE_LIMIT_WINDOW_MS = 60_000;
+const RATE_LIMIT_MAX_REQUESTS = 40;
+const requestTimestampsByAgent = new Map<string, number[]>();
+
+function isRateLimited(agentId: string): boolean {
+  const now = Date.now();
+  const cutoff = now - RATE_LIMIT_WINDOW_MS;
+  const timestamps = (requestTimestampsByAgent.get(agentId) ?? []).filter((t) => t > cutoff);
+  if (timestamps.length >= RATE_LIMIT_MAX_REQUESTS) {
+    requestTimestampsByAgent.set(agentId, timestamps);
+    return true;
+  }
+  timestamps.push(now);
+  requestTimestampsByAgent.set(agentId, timestamps);
+  return false;
+}
 
 async function resolveConfig(secretHash: string): Promise<ResolvedBrainAgent | null> {
   const supabase = createServiceRoleClient();
@@ -47,13 +67,47 @@ async function resolveConfig(secretHash: string): Promise<ResolvedBrainAgent | n
   ) {
     return null;
   }
+
+  // Idioma da persona (agent_video_config.language) — sem ele o cérebro
+  // sempre falava pt-BR mesmo em persona EN (achado da auditoria 2026-08-02).
+  let language: BrainLanguage | undefined;
+  const { data: videoConfig } = await supabase
+    .from("agent_video_config")
+    .select("language")
+    .eq("tenant_id", record.tenant_id)
+    .eq("agent_id", record.agent_id)
+    .maybeSingle();
+  if (videoConfig?.language === "english") language = "english";
+  else if (videoConfig?.language === "portuguese") language = "portuguese";
+
   return {
     tenantId: record.tenant_id,
     agentId: record.agent_id,
     agentName: record.agent_name,
     tenantName: record.tenant_name,
     enabled: true,
+    ...(language === undefined ? {} : { language }),
   };
+}
+
+/**
+ * Teto diário de tokens por tenant, lido do ledger real (cost_events) via
+ * service role com filtro EXPLÍCITO de tenant (contrato do service.ts).
+ * Falha-fechada: erro de leitura → "unavailable" → o núcleo degrada sem
+ * gerar (auditoria 2026-08-02: antes não havia teto nenhum neste caminho).
+ */
+async function checkBudget(tenantId: string): Promise<BudgetVerdict> {
+  const supabase = createServiceRoleClient();
+  const startOfDayIso = new Date(new Date().toISOString().slice(0, 10) + "T00:00:00.000Z").toISOString();
+  const { data, error } = await supabase
+    .from("cost_events")
+    .select("quantity")
+    .eq("tenant_id", tenantId)
+    .eq("unit_type", "token")
+    .gte("occurred_at", startOfDayIso);
+  if (error || !Array.isArray(data)) return "unavailable";
+  const total = data.reduce((sum, row) => sum + Number((row as { quantity: unknown }).quantity ?? 0), 0);
+  return total >= DAILY_TOKEN_CAP ? "exhausted" : "allowed";
 }
 
 // GAP CONHECIDO — ver docstring do módulo. Retorna sempre vazio até uma RPC
@@ -118,6 +172,11 @@ export async function POST(
     return NextResponse.json({ error: "language_provider_not_configured" }, { status: 503 });
   }
 
+  if (isRateLimited(agentId)) {
+    logEvent("brain_rate_limited", { agent_id: agentId });
+    return NextResponse.json({ error: "rate_limited" }, { status: 429 });
+  }
+
   let body: unknown;
   try {
     body = await request.json();
@@ -144,12 +203,22 @@ export async function POST(
       },
       {
         resolveConfig,
+        checkBudget,
         retrieveKnowledge,
         generate: (messages, maxOutputTokens) =>
           port.generate({ model: process.env.OPENROUTER_MODEL ?? "anthropic/claude-haiku-4.5", messages, maxOutputTokens }),
         logGenerationUsage,
       },
     );
+    if (result.degraded) {
+      // Degradação NUNCA pode parecer saúde na operação (Art. 16) — era um
+      // catch vazio; agora todo fallback vira telemetria com o motivo real.
+      if (result.degradedReason === "generation_failed" || result.degradedReason === "malformed_request") {
+        trackError(`brain_degraded_${result.degradedReason}`, result.cause ?? new Error(result.degradedReason), { agent_id: agentId });
+      } else {
+        logEvent(`brain_degraded_${result.degradedReason ?? "unknown"}`, { agent_id: agentId });
+      }
+    }
     return new Response(buildCompletionStream(result.reply, model), {
       status: 200,
       headers: { "Content-Type": "text/event-stream", "Cache-Control": "no-cache", Connection: "keep-alive" },

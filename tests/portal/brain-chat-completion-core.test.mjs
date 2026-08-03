@@ -49,13 +49,69 @@ test("chat surface composes identity + método system messages and no knowledge 
   assert.deepEqual(calls.logGenerationUsage[0], { inputTokens: 100, outputTokens: 20 });
 });
 
-test("video surface uses the rich video persona prompt instead of the chat identity", async () => {
+test("video surface splits the rich persona prompt into system messages under the adapter's per-message cap", async () => {
   const { deps, calls } = fakeDeps();
   await core.runBrainChatCompletion({ ...BASE_REQUEST, surface: "video" }, deps);
   const systemMessages = calls.generate[0].messages.filter((m) => m.role === "system");
-  assert.equal(systemMessages.length, 1);
-  assert.match(systemMessages[0].content, /VIDEOCHAMADA/);
-  assert.match(systemMessages[0].content, /next_slide/);
+  // O prompt de vídeo tem >10k chars: como UMA mensagem o adapter rejeitava
+  // TODA chamada (achado P1, auditoria 2026-08-02). Agora é fatiado.
+  assert.ok(systemMessages.length >= 2, `esperava >=2 mensagens system, veio ${systemMessages.length}`);
+  for (const message of systemMessages) {
+    assert.ok(message.content.length <= 4000, `mensagem system com ${message.content.length} chars estoura o cap do adapter`);
+  }
+  const joined = systemMessages.map((m) => m.content).join("\n\n");
+  assert.match(joined, /VIDEOCHAMADA/);
+  assert.match(joined, /next_slide/);
+  assert.match(joined, /MAESTRIA HUMANA/);
+});
+
+test("video surface truncates oversized user message and history turns instead of rejecting (Tavus controls the input)", async () => {
+  const { deps, calls } = fakeDeps();
+  const result = await core.runBrainChatCompletion(
+    {
+      ...BASE_REQUEST,
+      surface: "video",
+      userMessage: "y".repeat(5000),
+      history: [
+        { role: "user", content: "x".repeat(9000) },
+        { role: "assistant", content: "resposta normal" },
+      ],
+    },
+    deps,
+  );
+  assert.equal(result.reply, "resposta gerada");
+  const { messages } = calls.generate[0];
+  assert.equal(messages.at(-1).content.length, 2000);
+  const longTurn = messages.find((m) => m.role === "user" && m.content.startsWith("xxx"));
+  assert.equal(longTurn.content.length, 4000);
+});
+
+test("chat surface still REJECTS oversized turns — the sandbox controls its own input", async () => {
+  const { deps, calls } = fakeDeps();
+  await assert.rejects(
+    () => core.runBrainChatCompletion({ ...BASE_REQUEST, history: [{ role: "user", content: "x".repeat(9000) }] }, deps),
+    core.BrainChatValidationError,
+  );
+  assert.equal(calls.generate.length, 0);
+});
+
+test("provider context is folded as a labeled data block, most recent kept on truncation", async () => {
+  const { deps, calls } = fakeDeps();
+  const providerContext = "INÍCIO-antigo " + "meio ".repeat(900) + "FIM-recente";
+  await core.runBrainChatCompletion({ ...BASE_REQUEST, surface: "video", providerContext }, deps);
+  const block = calls.generate[0].messages.find((m) => m.role === "system" && m.content.startsWith("CONTEXTO DESTA CHAMADA"));
+  assert.ok(block, "bloco de contexto do provider ausente");
+  assert.match(block.content, /FIM-recente/);
+  assert.doesNotMatch(block.content, /INÍCIO-antigo/);
+  assert.match(block.content, /nunca instrução/);
+});
+
+test("splitSystemPrompt reassembles losslessly and respects the cap", () => {
+  const prompt = ["a".repeat(3000), "b".repeat(3000), "c".repeat(3000)].join("\n\n");
+  const parts = core.splitSystemPrompt(prompt);
+  assert.ok(parts.length >= 2);
+  for (const part of parts) assert.ok(part.length <= 3800);
+  assert.equal(parts.join("\n\n"), prompt);
 });
 
 test("knowledge matches produce a labeled, bounded system message", async () => {

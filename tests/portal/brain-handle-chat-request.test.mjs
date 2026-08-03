@@ -18,13 +18,18 @@ const AGENT = {
 };
 
 function fakeDeps(overrides = {}) {
-  const calls = { resolveConfig: [], retrieveKnowledge: [], generate: [], logGenerationUsage: [] };
+  const calls = { resolveConfig: [], checkBudget: [], retrieveKnowledge: [], generate: [], logGenerationUsage: [] };
   return {
     calls,
     deps: {
       resolveConfig: async (hash) => {
         calls.resolveConfig.push(hash);
         return overrides.resolveConfig ? overrides.resolveConfig(hash) : (hash === SECRET_HASH ? AGENT : null);
+      },
+      checkBudget: async (tenantId) => {
+        calls.checkBudget.push(tenantId);
+        if (overrides.checkBudgetThrows) throw new Error("ledger down");
+        return overrides.budget ?? "allowed";
       },
       retrieveKnowledge: async (tenantId, queryText) => {
         calls.retrieveKnowledge.push({ tenantId, queryText });
@@ -147,4 +152,65 @@ test("authenticateBrainRequest alone rejects without ever needing a request body
     deps.resolveConfig,
   );
   assert.deepEqual(agent, AGENT);
+});
+
+test("teto diário esgotado degrada com fala de encerramento ANTES de gerar (dinheiro não vaza)", async () => {
+  const { deps, calls } = fakeDeps({ budget: "exhausted" });
+  const result = await handler.handleBrainChatRequest(
+    { authorizationHeader: `Bearer ${RAW_SECRET}`, agentIdFromPath: "agent-1", rawMessages: VALID_MESSAGES },
+    deps,
+  );
+  assert.equal(result.degraded, true);
+  assert.equal(result.degradedReason, "budget_exhausted");
+  assert.match(result.reply, /limite da sessão/);
+  assert.equal(calls.generate.length, 0);
+  assert.equal(calls.logGenerationUsage.length, 0);
+});
+
+test("teto ilegível é falha-FECHADA: degrada sem gerar (budget_unavailable), inclusive quando checkBudget lança", async () => {
+  for (const overrides of [{ budget: "unavailable" }, { checkBudgetThrows: true }]) {
+    const { deps, calls } = fakeDeps(overrides);
+    const result = await handler.handleBrainChatRequest(
+      { authorizationHeader: `Bearer ${RAW_SECRET}`, agentIdFromPath: "agent-1", rawMessages: VALID_MESSAGES },
+      deps,
+    );
+    assert.equal(result.degraded, true);
+    assert.equal(result.degradedReason, "budget_unavailable");
+    assert.equal(calls.generate.length, 0);
+  }
+});
+
+test("persona EN degrada em inglês (fallback e teto localizados) e passa o idioma ao núcleo", async () => {
+  const enAgent = { ...AGENT, language: "english" };
+  const { deps } = fakeDeps({ resolveConfig: () => enAgent, budget: "exhausted" });
+  const capped = await handler.handleBrainChatRequest(
+    { authorizationHeader: `Bearer ${RAW_SECRET}`, agentIdFromPath: "agent-1", rawMessages: VALID_MESSAGES },
+    deps,
+  );
+  assert.match(capped.reply, /session limit/);
+
+  const ok = fakeDeps({ resolveConfig: () => enAgent });
+  await handler.handleBrainChatRequest(
+    { authorizationHeader: `Bearer ${RAW_SECRET}`, agentIdFromPath: "agent-1", rawMessages: VALID_MESSAGES },
+    ok.deps,
+  );
+  const joined = ok.calls.generate[0].messages.filter((m) => m.role === "system").map((m) => m.content).join("\n");
+  assert.match(joined, /LIVE VIDEO sales call/);
+});
+
+test("toda degradação carrega degradedReason (a rota telemetra — catch vazio era achado real)", async () => {
+  const malformed = fakeDeps();
+  const r1 = await handler.handleBrainChatRequest(
+    { authorizationHeader: `Bearer ${RAW_SECRET}`, agentIdFromPath: "agent-1", rawMessages: [] },
+    malformed.deps,
+  );
+  assert.equal(r1.degradedReason, "malformed_request");
+
+  const genFail = fakeDeps({ generateThrows: true });
+  const r2 = await handler.handleBrainChatRequest(
+    { authorizationHeader: `Bearer ${RAW_SECRET}`, agentIdFromPath: "agent-1", rawMessages: VALID_MESSAGES },
+    genFail.deps,
+  );
+  assert.equal(r2.degradedReason, "generation_failed");
+  assert.ok(r2.cause instanceof Error);
 });
