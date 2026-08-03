@@ -161,7 +161,7 @@ export default async function DashboardPage() {
               <strong style={{ color: "var(--text)" }}>Revise os dados da conta</strong> em Configurações — nome, idioma e fuso horário padrão.
             </li>
             <li>
-              <strong style={{ color: "var(--text)" }}>Cadastre seu primeiro agente</strong> quando os provedores de voz e avatar forem conectados.
+              <strong style={{ color: "var(--text)" }}>Cadastre e ative seu primeiro agente</strong> — a persona de vídeo é provisionada automaticamente na ativação.
             </li>
             <li>
               <strong style={{ color: "var(--text)" }}>Adicione fontes de conhecimento</strong> autorizadas para o agente citar com segurança.

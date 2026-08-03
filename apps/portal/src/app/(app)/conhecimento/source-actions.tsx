@@ -33,6 +33,9 @@ export function SourceActions({ sourceId, sourceName, status }: SourceActionsPro
   const onDelete = () => {
     if (!confirmingDelete) {
       setConfirmingDelete(true);
+      // Desarma em 5s sem clique — confirmação destrutiva não fica armada
+      // pra sempre (auditoria 2026-08-02).
+      setTimeout(() => setConfirmingDelete(false), 5000);
       return;
     }
     setStatusError(null);

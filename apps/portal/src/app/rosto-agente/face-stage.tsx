@@ -42,6 +42,16 @@ export function FaceStage({ roomUrl }: { roomUrl: string }) {
   useEffect(() => {
     let cancelled = false;
 
+    // Watchdog (auditoria 2026-08-02): se a sala aceitou o join mas a agente
+    // nunca publica vídeo (conversa expirada/encerrada), a página ficava em
+    // "Conectando…" pra sempre — e é isso que o bot transmitiria como câmera
+    // dentro da reunião real. 45s sem track remoto → estado de erro honesto.
+    const watchdog = setTimeout(() => {
+      if (!cancelled) {
+        setState((current) => (current === "joining" ? "error" : current));
+      }
+    }, 45_000);
+
     void (async () => {
       try {
         const DailyIframe = (await import("@daily-co/daily-js")).default;
@@ -99,6 +109,7 @@ export function FaceStage({ roomUrl }: { roomUrl: string }) {
 
     return () => {
       cancelled = true;
+      clearTimeout(watchdog);
       const call = callRef.current;
       callRef.current = null;
       if (call) void call.leave().then(() => call.destroy()).catch(() => undefined);

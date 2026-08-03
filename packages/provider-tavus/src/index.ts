@@ -100,21 +100,36 @@ export function createTavusVideoConversationPort(options: TavusAdapterOptions): 
         body: JSON.stringify(body),
       });
     } catch (error) {
+      clearTimeout(timer);
       if (error instanceof Error && error.name === "AbortError") {
         throw new VideoProviderError("provider_timeout", `Tavus timed out after ${timeoutMs}ms`);
       }
       throw new VideoProviderError("provider_unavailable", "Tavus request failed before a response");
+    }
+    // O timer segue vivo até o CORPO ser consumido — headers rápidos com body
+    // pendurado não podem escapar do timeout (auditoria 2026-08-02).
+    try {
+      if (!response.ok) {
+        const code: VideoProviderErrorCode = response.status >= 500 ? "provider_unavailable" : "provider_rejected";
+        throw new VideoProviderError(code, `Tavus respondeu HTTP ${response.status}`);
+      }
+      // 204/corpo vazio é sucesso (caso real do POST /conversations/{id}/end) —
+      // exigir JSON aqui transformava operação bem-sucedida em erro.
+      if (response.status === 204) return null;
+      const text = await response.text();
+      if (text.length === 0) return null;
+      try {
+        return JSON.parse(text);
+      } catch {
+        throw new VideoProviderError("malformed_provider_response", "Tavus returned non-JSON output");
+      }
+    } catch (error) {
+      if (error instanceof Error && error.name === "AbortError") {
+        throw new VideoProviderError("provider_timeout", `Tavus timed out after ${timeoutMs}ms`);
+      }
+      throw error;
     } finally {
       clearTimeout(timer);
-    }
-    if (!response.ok) {
-      const code: VideoProviderErrorCode = response.status >= 500 ? "provider_unavailable" : "provider_rejected";
-      throw new VideoProviderError(code, `Tavus respondeu HTTP ${response.status}`);
-    }
-    try {
-      return await response.json();
-    } catch {
-      throw new VideoProviderError("malformed_provider_response", "Tavus returned non-JSON output");
     }
   }
 

@@ -82,6 +82,7 @@ export function ExternalMeeting({ agentId, agentName }: { agentId: string; agent
           <input
             id="meeting-schedule"
             type="datetime-local"
+            min={new Intl.DateTimeFormat("sv-SE", { timeZone: "America/New_York", year: "numeric", month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit", hour12: false }).format(new Date()).replace(" ", "T")}
             value={scheduleAt}
             onChange={(event) => setScheduleAt(event.target.value)}
             style={{

@@ -1303,7 +1303,10 @@ table.data tbody tr:hover { background: rgba(139,123,255,0.06); }
 
 @media (max-width: 720px) {
   .landing-nav-inner { padding-inline: 18px; }
-  .landing-nav-actions .btn-ghost { display: none; }
+  /* Auditoria 2026-08-02: esconder o btn-ghost aqui sumia com o "Entrar" —
+     usuário existente no celular ficava sem caminho de login. Mantido
+     visível, só mais compacto. */
+  .landing-nav-actions .btn-ghost { padding: 8px 12px; font-size: 0.82rem; }
   .hero-premium { min-height: auto; padding: 62px 20px 64px; }
   .hero h1 { font-size: clamp(3rem, 14vw, 4.5rem); }
   .hero-lead { font-size: 0.92rem; }

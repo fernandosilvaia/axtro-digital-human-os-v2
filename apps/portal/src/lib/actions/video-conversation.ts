@@ -58,7 +58,14 @@ export async function startVideoConversation(agentId: string): Promise<VideoConv
     return { url: null, error: capVerdict === "capped" ? VIDEO_CAP_MESSAGE : VIDEO_CAP_CHECK_FAILED_MESSAGE };
   }
 
-  const { data: configData } = await supabase.rpc("portal_agent_video_config", { p_agent_id: agentId });
+  const { data: configData, error: configError } = await supabase.rpc("portal_agent_video_config", { p_agent_id: agentId });
+  if (configError) {
+    // Falha TRANSITÓRIA de leitura não pode virar silenciosamente "sem
+    // persona" (a call abriria com a réplica default e contexto genérico —
+    // degradação não declarada, Art. 14/16; achado da auditoria 2026-08-02).
+    trackError("portal_agent_video_config_failed", configError, { agent_id: agentId, mode: "video" });
+    return { url: null, error: "Não foi possível ler a configuração de vídeo do agente. Tente novamente." };
+  }
   const config = (configData ?? { configured: false }) as AgentVideoConfig;
 
   // Conhecimento ativo da conta vira contexto da chamada (RAG de vídeo).
@@ -148,7 +155,11 @@ export async function startPresentationConversation(agentId: string): Promise<Pr
   }
 
   const supabase = await createClient();
-  const { data: configData } = await supabase.rpc("portal_agent_video_config", { p_agent_id: agentId });
+  const { data: configData, error: configError } = await supabase.rpc("portal_agent_video_config", { p_agent_id: agentId });
+  if (configError) {
+    trackError("portal_agent_video_config_failed", configError, { agent_id: agentId, mode: "presentation" });
+    return { url: null, conversationId: null, deck: null, error: "Não foi possível ler a configuração de vídeo do agente. Tente novamente." };
+  }
   const config = (configData ?? { configured: false }) as AgentVideoConfig;
   const language: "portuguese" | "english" = config.language === "english" ? "english" : "portuguese";
 

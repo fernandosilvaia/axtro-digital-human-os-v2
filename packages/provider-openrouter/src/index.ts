@@ -110,27 +110,34 @@ export function createOpenRouterTextGenerationPort(options: OpenRouterAdapterOpt
           }),
         });
       } catch (error) {
+        clearTimeout(timer);
         if (error instanceof Error && error.name === "AbortError") {
           throw new TextGenerationError("provider_timeout", `OpenRouter timed out after ${timeoutMs}ms`);
         }
         throw new TextGenerationError("provider_unavailable", "OpenRouter request failed before a response");
+      }
+
+      // O timer segue vivo até o corpo ser consumido — headers rápidos com
+      // body pendurado não escapam do timeout (auditoria 2026-08-02).
+      try {
+        if (!response.ok) {
+          // Corpo de erro nunca é repassado cru: pode ecoar headers/entrada.
+          const code: TextGenerationErrorCode = response.status >= 500 ? "provider_unavailable" : "provider_rejected";
+          throw new TextGenerationError(code, `OpenRouter respondeu HTTP ${response.status}`);
+        }
+        let payload: unknown;
+        try {
+          payload = await response.json();
+        } catch (error) {
+          if (error instanceof Error && error.name === "AbortError") {
+            throw new TextGenerationError("provider_timeout", `OpenRouter timed out after ${timeoutMs}ms`);
+          }
+          throw new TextGenerationError("malformed_provider_response", "OpenRouter returned non-JSON output");
+        }
+        return parseCompletion(payload);
       } finally {
         clearTimeout(timer);
       }
-
-      if (!response.ok) {
-        // Corpo de erro nunca é repassado cru: pode ecoar headers/entrada.
-        const code: TextGenerationErrorCode = response.status >= 500 ? "provider_unavailable" : "provider_rejected";
-        throw new TextGenerationError(code, `OpenRouter respondeu HTTP ${response.status}`);
-      }
-
-      let payload: unknown;
-      try {
-        payload = await response.json();
-      } catch {
-        throw new TextGenerationError("malformed_provider_response", "OpenRouter returned non-JSON output");
-      }
-      return parseCompletion(payload);
     },
   });
 }
@@ -190,27 +197,32 @@ export function createOpenRouterEmbeddingPort(options: OpenRouterAdapterOptions)
           body: JSON.stringify({ model: request.model, input: request.inputs }),
         });
       } catch (error) {
+        clearTimeout(timer);
         if (error instanceof Error && error.name === "AbortError") {
           throw new TextGenerationError("provider_timeout", `OpenRouter timed out after ${timeoutMs}ms`);
         }
         throw new TextGenerationError("provider_unavailable", "OpenRouter request failed before a response");
+      }
+
+      try {
+        if (!response.ok) {
+          // Corpo de erro nunca é repassado cru: pode ecoar headers/entrada.
+          const code: TextGenerationErrorCode = response.status >= 500 ? "provider_unavailable" : "provider_rejected";
+          throw new TextGenerationError(code, `OpenRouter respondeu HTTP ${response.status}`);
+        }
+        let payload: unknown;
+        try {
+          payload = await response.json();
+        } catch (error) {
+          if (error instanceof Error && error.name === "AbortError") {
+            throw new TextGenerationError("provider_timeout", `OpenRouter timed out after ${timeoutMs}ms`);
+          }
+          throw new TextGenerationError("malformed_provider_response", "OpenRouter returned non-JSON output");
+        }
+        return parseEmbeddings(payload, request.inputs.length);
       } finally {
         clearTimeout(timer);
       }
-
-      if (!response.ok) {
-        // Corpo de erro nunca é repassado cru: pode ecoar headers/entrada.
-        const code: TextGenerationErrorCode = response.status >= 500 ? "provider_unavailable" : "provider_rejected";
-        throw new TextGenerationError(code, `OpenRouter respondeu HTTP ${response.status}`);
-      }
-
-      let payload: unknown;
-      try {
-        payload = await response.json();
-      } catch {
-        throw new TextGenerationError("malformed_provider_response", "OpenRouter returned non-JSON output");
-      }
-      return parseEmbeddings(payload, request.inputs.length);
     },
   });
 }

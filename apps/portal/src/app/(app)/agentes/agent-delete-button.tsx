@@ -17,6 +17,9 @@ export function AgentDeleteButton({ agentId, agentName }: { agentId: string; age
   function onClick() {
     if (!confirming) {
       setConfirming(true);
+      // Confirmação destrutiva não fica "armada" pra sempre: desarma em 5s
+      // sem clique (auditoria 2026-08-02 — clique acidental atrasado excluía).
+      setTimeout(() => setConfirming(false), 5000);
       return;
     }
     setError(null);
