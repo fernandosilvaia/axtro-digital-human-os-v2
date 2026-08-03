@@ -6,7 +6,7 @@ const joinMeeting = await import("../../apps/portal/src/lib/meetings/join-meetin
 const PERSONA = { personaId: "pa2dcc2d9c3e", agentName: "Raissa" };
 
 function fakeDeps(overrides = {}) {
-  const calls = { resolveAgentPersona: [], createVideoConversation: [], createMeetingBot: [], recordSession: [] };
+  const calls = { resolveAgentPersona: [], createVideoConversation: [], createMeetingBot: [], recordSession: [], endVideoConversation: [] };
   return {
     calls,
     deps: {
@@ -28,6 +28,10 @@ function fakeDeps(overrides = {}) {
         calls.recordSession.push(params);
         if (overrides.recordSessionThrows) throw new Error("db down");
       },
+      endVideoConversation: async (conversationId) => {
+        calls.endVideoConversation.push(conversationId);
+        if (overrides.endVideoConversationThrows) throw new Error("end failed");
+      },
     },
   };
 }
@@ -45,12 +49,34 @@ test("happy path: entrada imediata cria a sala de vídeo, o bot já com câmera 
   assert.deepEqual(calls.recordSession[0], { agentId: "agent-1", botId: "550e8400-e29b-41d4-a716-446655440000", meetingUrl: "https://zoom.us/j/123", conversationId: "abc123" });
 });
 
-test("entrada agendada cria o bot sentinela SEM câmera assumida ainda", async () => {
+test("entrada agendada NÃO cria sala Tavus agora (expiraria antes do horário) — só o bot sentinela", async () => {
   const { deps, calls } = fakeDeps();
   const result = await joinMeeting.handleJoinMeeting({ ...BASE_REQUEST, joinAtIso: "2026-08-01T18:00:00.000Z" }, deps);
   assert.equal(result.scheduled, true);
+  assert.equal(result.conversationUrl, null);
+  // Dinheiro: nenhuma sala paga criada na hora do agendamento.
+  assert.equal(calls.createVideoConversation.length, 0);
   assert.equal(calls.createMeetingBot[0].joinAtIso, "2026-08-01T18:00:00.000Z");
   assert.equal(calls.createMeetingBot[0].outputMediaWebpageUrl, undefined);
+  assert.equal(calls.recordSession[0].conversationId, null);
+});
+
+test("falha do bot depois da sala criada ENCERRA a sala paga (best-effort) antes de propagar", async () => {
+  const { deps, calls } = fakeDeps({ createMeetingBotThrows: true });
+  await assert.rejects(
+    () => joinMeeting.handleJoinMeeting(BASE_REQUEST, deps),
+    (e) => e.code === "provider_unavailable",
+  );
+  assert.deepEqual(calls.endVideoConversation, ["abc123"]);
+});
+
+test("se até o encerramento da sala falhar, a falha primária (bot) ainda é a que sobe", async () => {
+  const { deps, calls } = fakeDeps({ createMeetingBotThrows: true, endVideoConversationThrows: true });
+  await assert.rejects(
+    () => joinMeeting.handleJoinMeeting(BASE_REQUEST, deps),
+    (e) => e.code === "provider_unavailable",
+  );
+  assert.equal(calls.endVideoConversation.length, 1);
 });
 
 test("rejeita meetingUrl ausente, vazio ou não-https antes de chamar qualquer provider", async () => {

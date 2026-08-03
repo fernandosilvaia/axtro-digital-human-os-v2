@@ -11,7 +11,7 @@
  * erro tipado — o chamador decide o fallback (Art. 14: nunca promete o que
  * não existe; aqui o "não existe" vira "agende" do lado do control-tower).
  */
-import { timingSafeEqual } from "node:crypto";
+import { constantTimeEquals } from "../security.ts";
 
 export interface RaissaVideoConversation {
   readonly url: string;
@@ -62,16 +62,7 @@ function extractBearer(authorizationHeader: string | null): string | null {
 }
 
 /** Comparação em tempo constante para um segredo estático único — nunca `===` direto num bearer. */
-function secretsMatch(provided: string, expected: string): boolean {
-  const providedBuf = Buffer.from(provided, "utf8");
-  const expectedBuf = Buffer.from(expected, "utf8");
-  if (providedBuf.length !== expectedBuf.length) {
-    // Ainda assim consome um compare de tamanho fixo, pra não vazar o comprimento certo por timing.
-    timingSafeEqual(Buffer.alloc(32), Buffer.alloc(32));
-    return false;
-  }
-  return timingSafeEqual(providedBuf, expectedBuf);
-}
+const secretsMatch = constantTimeEquals;
 
 export function authenticateVideoSessionRequest(request: Pick<VideoSessionRequest, "authorizationHeader" | "expectedSecret">): void {
   const expected = request.expectedSecret;

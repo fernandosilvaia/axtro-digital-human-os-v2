@@ -5,6 +5,7 @@ import { createRecallMeetingBotPort, MeetingBotError } from "@axtro/provider-rec
 import { createTavusVideoConversationPort, VideoProviderError } from "@axtro/provider-tavus";
 
 import { floridaWallClockToUtcIso, FloridaTimeError } from "@/lib/time/florida";
+import { agentFaceStageUrl } from "@/lib/meetings/stage";
 import { handleJoinMeeting, JoinMeetingError, type AgentPersonaForMeeting } from "@/lib/meetings/join-meeting";
 import { fetchAgents } from "@/lib/portal-data";
 import { createClient } from "@/lib/supabase/server";
@@ -30,15 +31,6 @@ interface AgentVideoConfigRow {
 
 function requiredEnv(name: string): string {
   return (process.env[name] ?? "").trim();
-}
-
-/**
- * URL pública do palco que o bot do Recall.ai renderiza como câmera dele.
- * Precisa ser absoluta e alcançável da internet — o bot roda fora daqui.
- */
-function agentFaceStageUrl(tavusRoomUrl: string): string {
-  const base = (process.env.PORTAL_PUBLIC_URL ?? process.env.NEXT_PUBLIC_SITE_URL ?? "https://portal-production-b43e.up.railway.app").replace(/\/$/, "");
-  return `${base}/rosto-agente?sala=${encodeURIComponent(tavusRoomUrl)}`;
 }
 
 export async function joinExternalMeeting(
@@ -67,6 +59,9 @@ export async function joinExternalMeeting(
         return { conversationUrl: null, scheduled: false, error: "Horário inválido — use o formato AAAA-MM-DDTHH:mm no horário da Flórida." };
       }
       throw error;
+    }
+    if (new Date(joinAtIso).getTime() <= Date.now()) {
+      return { conversationUrl: null, scheduled: false, error: "O horário agendado já passou — escolha um horário futuro (horário da Flórida)." };
     }
   }
 
@@ -137,7 +132,16 @@ export async function joinExternalMeeting(
             p_tavus_conversation_id: params.conversationId,
           });
           if (error) trackError("meeting_bot_record_session_failed", error, { agent_id: agentId });
+          // A reunião externa criou uma conversa Tavus real — ela PRECISA
+          // contar no mesmo teto/ledger de vídeo (auditoria 2026-08-02: o
+          // comentário do cap prometia isso e o código não fazia; o teto
+          // nunca incrementava e o gasto ficava invisível no painel).
+          if (params.conversationId !== null) {
+            const { error: usageError } = await supabase.rpc("portal_log_video_usage", { p_id: createUuidV7() });
+            if (usageError) trackError("meeting_bot_log_video_usage_failed", usageError, { agent_id: agentId });
+          }
         },
+        endVideoConversation: (conversationId) => tavusPort.endConversation(conversationId),
       },
     );
     return { conversationUrl: result.conversationUrl, scheduled: result.scheduled, error: null };

@@ -176,6 +176,17 @@ export function createRecallMeetingBotPort(options: RecallAdapterOptions): Meeti
         ...(request.variant
           ? { variant: { zoom: request.variant, google_meet: request.variant, microsoft_teams: request.variant } }
           : {}),
+        // Teto duro de bot-hora (auditoria 2026-08-02: sem isto e sem nenhum
+        // call site de leaveCall, o bot ficava na reunião cobrando por hora
+        // indefinidamente). Campos oficiais da doc (reference/bot_create):
+        // sala Tavus vive no máx. 1800s, então 2400s de teto em call cobre
+        // a conversa inteira com folga e ainda corta o pior caso.
+        automatic_leave: {
+          waiting_room_timeout: 900,
+          noone_joined_timeout: 900,
+          everyone_left_timeout: { timeout: 30 },
+          in_call_not_recording_timeout: 2400,
+        },
       });
       const record = (payload ?? {}) as Record<string, unknown>;
       const botId = record.id;

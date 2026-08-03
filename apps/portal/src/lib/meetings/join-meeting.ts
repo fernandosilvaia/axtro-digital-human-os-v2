@@ -1,11 +1,11 @@
 /**
  * Núcleo puro (ports injetadas) que coloca um agente numa reunião externa
- * de verdade: cria a sala de vídeo do agente (Tavus), cria o bot do
- * Recall.ai apontado pra essa reunião, e — só na entrada IMEDIATA — já liga
- * a câmera do bot pra sala do agente na mesma chamada de criação. Entrada
- * AGENDADA cria o bot silencioso (sentinela); ligar a câmera depois é
- * responsabilidade de quem trata o fallback (ex.: humano não apareceu),
- * não deste núcleo.
+ * de verdade. Entrada IMEDIATA: cria a sala de vídeo do agente (Tavus) e o
+ * bot do Recall.ai já com a câmera ligada nessa sala. Entrada AGENDADA:
+ * cria SÓ o bot sentinela com join_at — a sala Tavus NÃO é criada agora
+ * (auditoria 2026-08-02: a sala expirava — máx. 1800s — muito antes do
+ * horário marcado, dinheiro gasto numa sala morta); quem liga a câmera é o
+ * webhook de status do Recall quando o bot entra de verdade na reunião.
  */
 export interface JoinMeetingRequest {
   readonly agentId: string;
@@ -40,6 +40,8 @@ export interface JoinMeetingDeps {
     meetingUrl: string;
     conversationId: string | null;
   }) => Promise<void>;
+  /** Encerra a sala Tavus já criada quando o bot falha — sem isto a sala paga ficava aberta (auditoria 2026-08-02). Best-effort. */
+  readonly endVideoConversation: (conversationId: string) => Promise<void>;
 }
 
 export type JoinMeetingErrorCode = "invalid_request" | "agent_not_configured" | "provider_unavailable";
@@ -55,8 +57,8 @@ export class JoinMeetingError extends Error {
 
 export interface JoinMeetingResult {
   readonly botId: string;
-  /** Sala para um humano acompanhar (cai no palco se não houver separada). */
-  readonly conversationUrl: string;
+  /** Sala para um humano acompanhar (null no agendado: a sala só nasce quando o bot entra). */
+  readonly conversationUrl: string | null;
   readonly scheduled: boolean;
 }
 
@@ -86,11 +88,16 @@ export async function handleJoinMeeting(request: JoinMeetingRequest, deps: JoinM
     throw new JoinMeetingError("agent_not_configured", "this agent has no video persona configured");
   }
 
-  let conversation: { url: string; conversationId: string; humanUrl?: string };
-  try {
-    conversation = await deps.createVideoConversation(persona);
-  } catch {
-    throw new JoinMeetingError("provider_unavailable", "failed to create the agent's video room");
+  // Agendado: NÃO cria a sala Tavus agora — ela expiraria (máx. 1800s) antes
+  // do horário. O webhook de status do Recall cria a sala e liga a câmera
+  // quando o bot realmente entra (auditoria 2026-08-02).
+  let conversation: { url: string; conversationId: string; humanUrl?: string } | null = null;
+  if (!scheduled) {
+    try {
+      conversation = await deps.createVideoConversation(persona);
+    } catch {
+      throw new JoinMeetingError("provider_unavailable", "failed to create the agent's video room");
+    }
   }
 
   let bot: { botId: string };
@@ -99,15 +106,25 @@ export async function handleJoinMeeting(request: JoinMeetingRequest, deps: JoinM
       meetingUrl: request.meetingUrl,
       botName: persona.agentName,
       ...(joinAtIso ? { joinAtIso } : {}),
-      // Entrada imediata: já liga a câmera na criação do bot. Entrada agendada:
-      // bot entra silencioso (sentinela) — quem trata o fallback liga a câmera depois.
-      // Com a câmera ligada, o bot roda uma chamada WebRTC completa dentro da
-      // página — o variant default (250 millicores) produz áudio picotado e
-      // robotizado (comprovado ao vivo, D-V2-093); 4 cores resolve.
-      ...(scheduled ? {} : { outputMediaWebpageUrl: conversation.url, variant: "web_4_core" as const }),
+      // Entrada imediata: já liga a câmera na criação do bot. Com a câmera
+      // ligada, o bot roda uma chamada WebRTC completa dentro da página — o
+      // variant default (250 millicores) produz áudio picotado e robotizado
+      // (comprovado ao vivo, D-V2-093); 4 cores resolve.
+      ...(conversation ? { outputMediaWebpageUrl: conversation.url, variant: "web_4_core" as const } : {}),
     });
-  } catch {
-    throw new JoinMeetingError("provider_unavailable", "failed to create the meeting bot");
+  } catch (botError) {
+    if (conversation) {
+      // A sala Tavus já existe e é paga — encerra best-effort em vez de
+      // deixá-la aberta sem ninguém (endConversation é idempotente).
+      try {
+        await deps.endVideoConversation(conversation.conversationId);
+      } catch {
+        // best-effort: a falha primária (bot) é a que sobe.
+      }
+    }
+    throw botError instanceof JoinMeetingError
+      ? botError
+      : new JoinMeetingError("provider_unavailable", "failed to create the meeting bot");
   }
 
   try {
@@ -115,12 +132,16 @@ export async function handleJoinMeeting(request: JoinMeetingRequest, deps: JoinM
       agentId: request.agentId,
       botId: bot.botId,
       meetingUrl: request.meetingUrl,
-      conversationId: conversation.conversationId,
+      conversationId: conversation?.conversationId ?? null,
     });
   } catch {
     // O bot já entrou de verdade — não desfazemos por falha de log (mesma
     // disciplina do resto do projeto: recibo pode falhar sem desfazer o efeito).
   }
 
-  return { botId: bot.botId, conversationUrl: conversation.humanUrl ?? conversation.url, scheduled };
+  return {
+    botId: bot.botId,
+    conversationUrl: conversation ? (conversation.humanUrl ?? conversation.url) : null,
+    scheduled,
+  };
 }

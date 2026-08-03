@@ -24,6 +24,14 @@ test("createBot envia payload fechado à região configurada e devolve o botId",
   assert.equal(body.meeting_url, "https://zoom.us/j/123?pwd=456");
   assert.equal(body.bot_name, "Raissa");
   assert.equal(body.join_at, undefined);
+  // Teto duro de bot-hora (auditoria 2026-08-02): sem automatic_leave e sem
+  // call site de leaveCall, o bot ficava na reunião cobrando indefinidamente.
+  assert.deepEqual(body.automatic_leave, {
+    waiting_room_timeout: 900,
+    noone_joined_timeout: 900,
+    everyone_left_timeout: { timeout: 30 },
+    in_call_not_recording_timeout: 2400,
+  });
 });
 
 test("createBot valida meetingUrl (https-only), botName e joinAtIso antes da rede; chave nunca vaza em erro", async () => {
