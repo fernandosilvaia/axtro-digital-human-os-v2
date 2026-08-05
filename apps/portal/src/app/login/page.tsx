@@ -13,9 +13,9 @@ export const metadata: Metadata = createPageMetadata({
 export default async function LoginPage({
   searchParams,
 }: {
-  searchParams: Promise<{ confirm?: string }>;
+  searchParams: Promise<{ confirm?: string; demo?: string }>;
 }) {
-  const { confirm } = await searchParams;
+  const { confirm, demo } = await searchParams;
 
   return (
     <div className="auth-shell">
@@ -29,6 +29,11 @@ export default async function LoginPage({
         {confirm === "1" && (
           <p className="notice" role="status">
             Conta criada. Confirme seu e-mail antes de entrar — enviamos um link de verificação.
+          </p>
+        )}
+        {demo === "unavailable" && (
+          <p className="notice" role="status">
+            A demonstração ao vivo está temporariamente indisponível. Você pode criar sua própria conta abaixo ou tentar de novo em instantes.
           </p>
         )}
         <LoginForm />

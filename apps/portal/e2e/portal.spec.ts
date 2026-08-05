@@ -40,7 +40,12 @@ test("superfícies públicas de SEO/AEO respondem 200 sem sessão", async ({ req
   // propósito de AEO (crawlers de IA não autenticam). Só um teste HTTP real
   // pega essa classe de bug; asserção de string no source (portal-seo-surface
   // .test.mjs) não pegou. Cobre todas as rotas públicas do middleware.
-  for (const path of ["/robots.txt", "/sitemap.xml", "/manifest.json", "/llms.txt", "/llms-full.txt", "/opengraph-image"]) {
+  // /rosto-agente é a CÂMERA do bot do Recall.ai nas reuniões externas — o
+  // bot navega sem sessão nossa; se o matcher do middleware derrubar essa
+  // rota, o agente perde o rosto em TODAS as reuniões Meet/Zoom/Teams em
+  // produção. /recuperar-senha idem para usuários sem senha. Mesma classe
+  // de bug que já aconteceu duas vezes (llms.txt, api/*).
+  for (const path of ["/robots.txt", "/sitemap.xml", "/manifest.json", "/llms.txt", "/llms-full.txt", "/opengraph-image", "/rosto-agente", "/recuperar-senha"]) {
     const response = await request.get(path, { maxRedirects: 0 });
     expect(response.status(), `${path} deveria responder 200 sem redirecionar`).toBe(200);
   }
@@ -90,6 +95,15 @@ test("agentes: lista carrega e admin ativa e pausa um rascunho", async ({ page }
   const brunoRow = page.locator("tr", { hasText: BRUNO_NAME });
   await expect(brunoRow).toBeVisible();
 
+  // Auto-reparo: se um run anterior falhou ENTRE ativar e pausar, o Bruno
+  // ficou ativo no tenant compartilhado e todo run seguinte quebraria aqui
+  // pra sempre (auditoria 2026-08-02). Restaura o baseline antes de agir.
+  const leftoverPause = brunoRow.getByRole("button", { name: "Pausar" });
+  if (await leftoverPause.isVisible().catch(() => false)) {
+    await leftoverPause.click();
+    await expect(brunoRow.getByRole("button", { name: "Ativar" })).toBeVisible({ timeout: 20_000 });
+  }
+
   // Ativa o rascunho e confirma a mudança de status na própria linha.
   await brunoRow.getByRole("button", { name: "Ativar" }).click();
   await expect(brunoRow.getByRole("button", { name: "Pausar" })).toBeVisible({ timeout: 20_000 });
@@ -130,8 +144,11 @@ test("signup renderiza o formulário de criação de conta", async ({ page }) =>
 test("configurações: seção de plano visível e ciclo completo de convite (criar → revogar)", async ({ page }) => {
   await login(page);
   await page.goto("/configuracoes");
-  await expect(page.getByText("Plano e contratação")).toBeVisible();
-  await expect(page.getByText("20 conversas de vídeo por dia", { exact: false })).toBeVisible();
+  // D-V2-101 trocou a seção estática "Plano e contratação" pela cobrança
+  // real ("Plano e cobrança", com card de plano OU aviso de indisponível —
+  // os dois estados válidos do BillingSection desacoplado).
+  await expect(page.getByText("Plano e cobrança")).toBeVisible();
+  await expect(page.getByRole("link", { name: "Ver todos os planos" })).toBeVisible();
 
   // Convite com e-mail único por execução; revogado ao final pra não deixar
   // estado sujo no tenant demo (e o envio de e-mail é mock no fake mode).
@@ -153,6 +170,14 @@ test("conhecimento: revogar e reativar uma fonte restaura o estado", async ({ pa
   // (achado real — a fonte seed "FAQ" nunca teve ingestão e não reativa).
   const sourceName = "Método Silva — Biblioteca de Objeções e Respostas (Kit 05)";
   await expect(page.getByText(sourceName)).toBeVisible();
+
+  // Auto-reparo: run anterior pode ter morrido com a fonte revogada — reativa
+  // antes, senão o botão "Revogar" não existe e o teste quebra pra sempre.
+  const leftoverReactivate = page.getByRole("button", { name: `Reativar a fonte ${sourceName}` });
+  if (await leftoverReactivate.isVisible().catch(() => false)) {
+    await leftoverReactivate.click();
+    await expect(page.getByRole("button", { name: `Revogar a fonte ${sourceName}` })).toBeVisible({ timeout: 20_000 });
+  }
 
   await page.getByRole("button", { name: `Revogar a fonte ${sourceName}` }).click();
   await expect(page.getByRole("button", { name: `Reativar a fonte ${sourceName}` })).toBeVisible({ timeout: 20_000 });

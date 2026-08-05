@@ -6,7 +6,7 @@ import { createUuidV7 } from "@axtro/domain";
 
 import { provisionAgentVideoIfMissing } from "@/lib/agent-video";
 import { sendAgentActivatedEmail } from "@/lib/email";
-import { chunkContent, contentSha256, embedChunks, MAX_CONTENT_CHARS } from "@/lib/knowledge";
+import { chunkContent, contentSha256, embedChunks, fakeProvidersEnabled, MAX_CONTENT_CHARS } from "@/lib/knowledge";
 import { fetchAgents, fetchTenantOverview } from "@/lib/portal-data";
 import { createClient } from "@/lib/supabase/server";
 import { logError as trackError } from "@/lib/telemetry";
@@ -69,7 +69,10 @@ export async function createKnowledgeSource(
   if (content.length > MAX_CONTENT_CHARS) {
     return { error: `O conteúdo pode ter no máximo ${MAX_CONTENT_CHARS.toLocaleString("pt-BR")} caracteres.`, done: false };
   }
-  if (content.length > 0 && (process.env.OPENROUTER_API_KEY ?? "").trim().length === 0) {
+  // Modo demonstração tem embeddings determinísticos (embedChunks resolve
+  // sozinho) — a guarda de chave só vale fora dele (contrato T3: todos os
+  // fluxos de UI testáveis sem chave; auditoria 2026-08-02).
+  if (content.length > 0 && !fakeProvidersEnabled() && (process.env.OPENROUTER_API_KEY ?? "").trim().length === 0) {
     return { error: "O provider de embeddings ainda não está configurado neste ambiente.", done: false };
   }
 
@@ -90,7 +93,9 @@ export async function createKnowledgeSource(
   if (content.length > 0) {
     const ingestError = await ingestContentForSource(supabase, sourceId, content);
     if (ingestError) {
-      return { error: `A fonte foi registrada, mas ${ingestError} Ela segue pendente — tente novamente.`, done: false };
+      // NUNCA sugerir reenviar este form: a fonte JÁ foi criada — reenvio
+      // criaria uma duplicata pendente e queimaria mais uma vaga do limite.
+      return { error: `A fonte foi registrada, mas ${ingestError} Ela aparece como pendente na lista abaixo — adicione o conteúdo por lá quando quiser tentar de novo.`, done: false };
     }
   }
 
@@ -151,7 +156,7 @@ export async function updateKnowledgeSourceContent(
   if (content.length === 0 || content.length > MAX_CONTENT_CHARS) {
     return { error: `O conteúdo precisa ter entre 1 e ${MAX_CONTENT_CHARS.toLocaleString("pt-BR")} caracteres.`, done: false };
   }
-  if ((process.env.OPENROUTER_API_KEY ?? "").trim().length === 0) {
+  if (!fakeProvidersEnabled() && (process.env.OPENROUTER_API_KEY ?? "").trim().length === 0) {
     return { error: "O provider de embeddings ainda não está configurado neste ambiente.", done: false };
   }
 

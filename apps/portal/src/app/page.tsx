@@ -1,6 +1,7 @@
 import Image from "next/image";
 
 import { RevealOnScroll } from "@/components/reveal-on-scroll";
+import { DemoSubmitButton } from "./demo-button";
 import { signInDemo } from "@/lib/actions/demo";
 import { createClient } from "@/lib/supabase/server";
 import { absoluteUrl, createPageMetadata, SITE_NAME } from "@/lib/site";
@@ -155,7 +156,7 @@ export default async function LandingPage() {
             </p>
             <div className="hero-ctas hero-ctas-left">
               <form action={signInDemo}>
-                <button type="submit" className="btn btn-primary btn-large">Ver demonstração ao vivo <ArrowIcon /></button>
+                <DemoSubmitButton className="btn btn-primary btn-large">Ver demonstração ao vivo <ArrowIcon /></DemoSubmitButton>
               </form>
               <a className="btn btn-ghost btn-large" href="#sistema">Entender o sistema <ChevronIcon /></a>
             </div>
@@ -298,7 +299,7 @@ export default async function LandingPage() {
             <h2>O próximo grande salto comercial da sua empresa pode começar por uma conversa.</h2>
             <p>Veja a Rafaela em ação e descubra como uma presença digital pode entrar na sua operação.</p>
             <form action={signInDemo}>
-              <button type="submit" className="btn btn-light btn-large">Entrar na demonstração <ArrowIcon /></button>
+              <DemoSubmitButton className="btn btn-light btn-large">Entrar na demonstração <ArrowIcon /></DemoSubmitButton>
             </form>
             <span className="closing-note">Demo compartilhada, dados fictícios, sem cadastro e sem cartão.</span>
           </RevealOnScroll>
@@ -308,6 +309,8 @@ export default async function LandingPage() {
       <footer className="landing-footer">
         <div className="brand-lockup"><span className="brand-mark" aria-hidden="true">A</span><span><span className="brand-word">Axtro</span><span className="brand-subword">Digital Human OS</span></span></div>
         <span>© 2026 Axtro AI. Vendas com presença, operação com clareza.</span>
+        <a href="/termos">Termos de Uso</a>
+        <a href="/privacidade">Privacidade</a>
         <a href="mailto:fernando@axtroai.com">fernando@axtroai.com</a>
       </footer>
       <script type="application/ld+json" dangerouslySetInnerHTML={{ __html: JSON.stringify(STRUCTURED_DATA) }} />

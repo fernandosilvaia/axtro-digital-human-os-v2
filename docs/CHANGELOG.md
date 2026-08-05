@@ -1,5 +1,24 @@
 # CHANGELOG (resumo por onda — detalhes em PROGRESS.md e DECISIONS_LOG.md)
 
+## 2026-08-02/03 — Hardening autônomo + cobrança Stripe + fecho da auditoria
+
+- **fix(auditoria):** rodada de hardening D-V2-100 (auditoria multi-agente, 44 achados,
+  25 correções em 3 lotes): cérebro de vídeo destravado (prompt >10k vs cap de 4k do
+  adapter), 4 caminhos de gasto sem teto fechados, percepção emocional priorizando o
+  MAIS RECENTE, persona institucional protegida, resiliência de UI.
+- **feat(billing):** cobrança real dos planos via Stripe (D-V2-101): Piloto/Crescimento/
+  Escala, checkout, portal de assinatura, webhook assinado, overage por conversa via
+  Billing Meters. Aguardando chaves + migrations 0025/0026 (gate humano) para ligar.
+- **fix(fecho):** lote final da auditoria (D-V2-102): headers de segurança HTTP em
+  produção (HSTS, nosniff, X-Frame-Options com exceção do palco do bot, Permissions-
+  Policy delegando câmera/mic ao Daily), erros de login/cadastro em pt-BR com
+  role="alert", aviso de demo indisponível, 404 em pt-BR, botão encerrar/copiar link na
+  sala de vídeo, CTAs da landing com estado pendente + footer com termos/privacidade,
+  painel "Reuniões externas" (RPC 0021 que estava órfã), ingestão funcionando no modo
+  demonstração, DST da Flórida corrigido (2ª iteração), CI com concurrency group e
+  heredoc quotado, e2e auto-reparável cobrindo /rosto-agente e /recuperar-senha,
+  telemetria redigindo mensagens de erro de provider.
+
 ## 2026-08-01 — Domínio próprio + CI do e2e destravado
 
 - **fix(domain):** `PORTAL_PUBLIC_URL` e `NEXT_PUBLIC_SITE_URL` atualizadas de volta pra

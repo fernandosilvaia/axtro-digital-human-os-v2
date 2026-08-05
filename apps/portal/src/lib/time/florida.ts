@@ -59,6 +59,15 @@ export function floridaWallClockToUtcIso(wallClock: string): string {
     throw new FloridaTimeError("wallClock does not represent a valid calendar date/time");
   }
   const offsetMinutes = timeZoneOffsetMinutesAt(TIME_ZONE, guessUtcMs);
-  const actualUtcMs = guessUtcMs - offsetMinutes * 60_000;
+  let actualUtcMs = guessUtcMs - offsetMinutes * 60_000;
+  // Segunda iteração: perto das transições de horário de verão, o offset no
+  // instante-chute (wall-clock lido como UTC, ~4-5h antes do instante real)
+  // pode divergir do offset no instante REAL — ex.: "03:30" do dia do
+  // spring-forward avaliava EST e devolvia 1h atrasado. Recalcular no
+  // instante encontrado e reaplicar corrige (auditoria 2026-08-02).
+  const offsetAtActual = timeZoneOffsetMinutesAt(TIME_ZONE, actualUtcMs);
+  if (offsetAtActual !== offsetMinutes) {
+    actualUtcMs = guessUtcMs - offsetAtActual * 60_000;
+  }
   return new Date(actualUtcMs).toISOString();
 }

@@ -10,6 +10,9 @@
 
 const REDACT_KEY_PATTERN = /email|token|password|secret|key|authorization/i;
 const EMAIL_PATTERN = /[^\s@]+@[^\s@]+\.[^\s@]+/g;
+// Formatos de credencial que aparecem em mensagens de erro de provider:
+// prefixos conhecidos (sk-, whsec_, re_, tvly-...) ou hex/base64 longos.
+const SECRET_PATTERN = /\b(?:sk-[A-Za-z0-9_-]{8,}|whsec_[A-Za-z0-9+/=]{8,}|re_[A-Za-z0-9_-]{8,}|[A-Fa-f0-9]{32,})\b/g;
 
 function redact(context?: Readonly<Record<string, unknown>>): Record<string, unknown> | undefined {
   if (!context) return undefined;
@@ -30,7 +33,10 @@ export function logEvent(event: string, context?: Readonly<Record<string, unknow
 
 export function logError(event: string, error: unknown, context?: Readonly<Record<string, unknown>>): void {
   const errorInfo = error instanceof Error
-    ? { error_name: error.name, error_message: error.message }
+    ? // Mensagens de erro de terceiros (Supabase, Resend, Tavus...) podem
+      // embutir e-mail de destinatário ou trecho de credencial — passam pela
+      // mesma redação do context (auditoria 2026-08-02).
+      { error_name: error.name, error_message: error.message.replace(EMAIL_PATTERN, "[redacted-email]").replace(SECRET_PATTERN, "[redacted-secret]") }
     : { error_name: "unknown" };
   console.error(JSON.stringify({ level: "error", event, ...errorInfo, ...redact(context) }));
 }

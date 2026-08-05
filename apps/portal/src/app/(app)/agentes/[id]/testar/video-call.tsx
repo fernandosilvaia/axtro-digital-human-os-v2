@@ -7,6 +7,7 @@ import { startVideoConversation } from "@/lib/actions/video-conversation";
 export function VideoCall({ agentId, agentName }: { agentId: string; agentName: string }) {
   const [url, setUrl] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [copied, setCopied] = useState(false);
   const [pending, startTransition] = useTransition();
 
   function start() {
@@ -18,6 +19,16 @@ export function VideoCall({ agentId, agentName }: { agentId: string; agentName: 
     });
   }
 
+  async function copyRoomLink(roomUrl: string) {
+    try {
+      await navigator.clipboard.writeText(roomUrl);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2500);
+    } catch {
+      // Clipboard bloqueado (permissão/contexto): o link segue disponível em "Abrir em nova aba".
+    }
+  }
+
   if (url) {
     return (
       <section className="card" style={{ marginTop: 16, padding: 12 }}>
@@ -27,9 +38,22 @@ export function VideoCall({ agentId, agentName }: { agentId: string; agentName: 
           style={{ width: "100%", height: 480, border: "none", borderRadius: 10, background: "#000" }}
           title={`Conversa em vídeo com ${agentName}`}
         />
-        <p style={{ fontSize: "0.78rem", color: "var(--text-faint)", margin: "10px 4px 2px" }}>
-          Libere câmera e microfone quando o navegador pedir. A chamada encerra sozinha em 10 minutos.
-        </p>
+        <div style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap", margin: "10px 4px 2px" }}>
+          <p style={{ fontSize: "0.78rem", color: "var(--text-faint)", margin: 0, flex: 1, minWidth: 220 }}>
+            Libere câmera e microfone quando o navegador pedir. A chamada encerra sozinha em 10 minutos.
+          </p>
+          {/* A sala é uma URL comum do provider: dá pra testar do celular ou
+              chamar um colega pra avaliar — não precisa ficar presa ao iframe. */}
+          <button type="button" className="btn" onClick={() => copyRoomLink(url)} style={{ padding: "7px 12px", fontSize: "0.8rem" }}>
+            {copied ? "Link copiado ✓" : "Copiar link da sala"}
+          </button>
+          <a href={url} target="_blank" rel="noreferrer" className="btn" style={{ padding: "7px 12px", fontSize: "0.8rem" }}>
+            Abrir em nova aba
+          </a>
+          <button type="button" className="btn" onClick={() => setUrl(null)} style={{ padding: "7px 12px", fontSize: "0.8rem" }}>
+            Encerrar conversa
+          </button>
+        </div>
       </section>
     );
   }

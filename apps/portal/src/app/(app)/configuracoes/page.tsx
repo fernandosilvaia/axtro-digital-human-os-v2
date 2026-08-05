@@ -16,15 +16,24 @@ export default async function SettingsPage({
 
   let overview;
   let team;
-  let billing;
   try {
-    [overview, team, billing] = await Promise.all([fetchTenantOverview(), fetchTeam(), fetchBillingStatus()]);
+    [overview, team] = await Promise.all([fetchTenantOverview(), fetchTeam()]);
   } catch {
     return (
       <div className="error-banner" role="alert">
         Não foi possível carregar as configurações agora. Recarregue a página; se persistir, contate o suporte.
       </div>
     );
+  }
+
+  // A leitura de cobrança degrada SOZINHA: uma falha aqui (RPC de billing
+  // indisponível, ambiente sem a migration 0026) não pode derrubar perfil,
+  // equipe e convites junto — só o card de plano mostra o aviso.
+  let billing = null;
+  try {
+    billing = await fetchBillingStatus();
+  } catch {
+    billing = null;
   }
 
   const tenant = overview.tenant;

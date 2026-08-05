@@ -52,7 +52,7 @@ export default async function KnowledgePage() {
           <h3>Nenhuma fonte cadastrada</h3>
           <p>
             {isAdmin
-              ? "Registre abaixo as fontes que os agentes poderão citar. A ingestão do conteúdo é habilitada quando o provedor de embeddings for conectado."
+              ? "Registre abaixo as fontes que os agentes poderão citar. O conteúdo é ingerido na hora e fica disponível para a busca dos agentes em segundos."
               : "Nenhuma fonte foi cadastrada nesta conta ainda. Peça a um administrador para registrar a primeira."}
           </p>
         </div>

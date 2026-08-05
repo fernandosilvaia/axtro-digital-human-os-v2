@@ -3,7 +3,17 @@ name: Foundation quality gates
 on:
   pull_request:
   push:
+    # Só main: PR já cobre branches de PR — sem o filtro, cada commit numa
+    # branch de PR rodava o workflow em DOBRO (push + pull_request), e os dois
+    # runs de e2e mutavam o MESMO tenant demo em paralelo (auditoria 2026-08-02).
+    branches: [main]
   workflow_dispatch:
+
+# Um run por ref: o e2e loga na mesma conta demo e muta as mesmas entidades
+# seed — dois runs simultâneos correm um contra o outro com retries: 0.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
 
 permissions:
   contents: read
@@ -111,7 +121,11 @@ jobs:
       - name: Write credenciais demo para o e2e (nunca commitadas, só no runner efêmero)
         working-directory: apps/portal
         run: |
-          cat > .env.local <<EOF
+          # Delimitador QUOTADO: o runner substitui as expressões de secrets
+          # ANTES de o bash rodar; sem o quote o bash faria uma SEGUNDA
+          # expansão e corromperia senha/chave contendo cifrão, crase ou
+          # backslash (auditoria 2026-08-02).
+          cat > .env.local <<'EOF'
           NEXT_PUBLIC_SUPABASE_URL=${{ secrets.SUPABASE_URL }}
           NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY=${{ secrets.SUPABASE_PUBLISHABLE_KEY }}
           DEMO_EMAIL=${{ secrets.DEMO_EMAIL }}

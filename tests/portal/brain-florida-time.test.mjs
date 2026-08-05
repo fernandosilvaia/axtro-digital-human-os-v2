@@ -34,3 +34,18 @@ test("a transição de horário de verão de 2026 (8 de março) muda o offset no
   assert.equal(florida.floridaWallClockToUtcIso("2026-03-07T10:00:00"), "2026-03-07T15:00:00.000Z");
   assert.equal(florida.floridaWallClockToUtcIso("2026-03-09T10:00:00"), "2026-03-09T14:00:00.000Z");
 });
+
+test("madrugada logo APÓS o spring-forward não erra 1 hora (bug da iteração única, auditoria 2026-08-02)", () => {
+  // 08/03/2026 03:30 já é EDT (o pulo 02:00→03:00 aconteceu). O chute lido
+  // como UTC (03:30Z) ainda avalia EST e devolvia 08:30Z — 1h atrasado.
+  assert.equal(florida.floridaWallClockToUtcIso("2026-03-08T03:30:00"), "2026-03-08T07:30:00.000Z");
+  // Horas seguintes do mesmo dia também já são EDT.
+  assert.equal(florida.floridaWallClockToUtcIso("2026-03-08T05:00:00"), "2026-03-08T09:00:00.000Z");
+});
+
+test("madrugada do fall-back de 2026 (1º de novembro) resolve sem erro de 1 hora", () => {
+  // DST 2026 termina em 1º de novembro. 03:00 local já é EST inequívoco → 08:00Z.
+  assert.equal(florida.floridaWallClockToUtcIso("2026-11-01T03:00:00"), "2026-11-01T08:00:00.000Z");
+  // 10:00 do mesmo dia, bem depois da transição, idem.
+  assert.equal(florida.floridaWallClockToUtcIso("2026-11-01T10:00:00"), "2026-11-01T15:00:00.000Z");
+});

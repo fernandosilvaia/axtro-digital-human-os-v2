@@ -43,7 +43,15 @@ export async function provisionAgentVideoIfMissing(
     return { provisioned: false };
   }
 
-  const { data: configData } = await supabase.rpc("portal_agent_video_config", { p_agent_id: agent.id });
+  const { data: configData, error: configError } = await supabase.rpc("portal_agent_video_config", { p_agent_id: agent.id });
+  if (configError) {
+    // Falha de LEITURA não é "não configurado": seguir adiante criaria uma
+    // persona duplicada no provider e sobrescreveria uma persona curada à
+    // mão (auditoria 2026-08-02). Ativação continua — provisão fica pra
+    // próxima ativação/pausa+ativação.
+    trackError("agent_video_config_read_failed", configError, { agent_id: agent.id });
+    return { provisioned: false };
+  }
   const config = (configData ?? { configured: false }) as { configured: boolean };
   if (config.configured) return { provisioned: false };
 

@@ -34,11 +34,24 @@ export function BillingSection({
   billingSuccess,
   billingError,
 }: {
-  readonly billing: BillingStatus;
+  /** null = leitura de cobrança indisponível agora (o resto da página segue funcionando). */
+  readonly billing: BillingStatus | null;
   readonly isAdmin: boolean;
   readonly billingSuccess: boolean;
   readonly billingError: string | null;
 }) {
+  if (billing === null) {
+    return (
+      <section className="card" aria-labelledby="plano-conta">
+        <h2 id="plano-conta" className="section-title">Plano e cobrança</h2>
+        <p style={{ color: "var(--text-muted)", fontSize: "0.88rem", margin: 0 }}>
+          As informações de plano estão indisponíveis neste momento. Recarregue a página em instantes —
+          o restante das configurações continua funcionando normalmente.
+        </p>
+      </section>
+    );
+  }
+
   const hasActivePlan = isPlanId(billing.plan_id) && billing.status !== null && ACTIVE_STATUSES.has(billing.status);
 
   return (

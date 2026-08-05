@@ -5,6 +5,7 @@ import { fetchAgents } from "@/lib/portal-data";
 import { StatusBadge } from "@/components/status-badge";
 
 import { ExternalMeeting } from "./external-meeting";
+import { MeetingSessions } from "./meeting-sessions";
 import { PresentationRoom } from "./presentation-room";
 import { PreviewChat } from "./preview-chat";
 import { VideoCall } from "./video-call";
@@ -13,7 +14,18 @@ export const metadata: Metadata = { title: "Testar agente — Axtro Digital Huma
 
 export default async function AgentPreviewPage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
-  const agents = await fetchAgents();
+  // Falha transitória da RPC não pode virar a tela de erro genérica do Next
+  // (mesmo padrão de banner das páginas irmãs; auditoria 2026-08-02).
+  let agents;
+  try {
+    agents = await fetchAgents();
+  } catch {
+    return (
+      <div className="error-banner" role="alert">
+        Não foi possível carregar o agente agora. Recarregue a página; se persistir, contate o suporte.
+      </div>
+    );
+  }
   const agent = agents.find((candidate) => candidate.id === id);
   if (!agent) notFound();
 
@@ -34,6 +46,7 @@ export default async function AgentPreviewPage({ params }: { params: Promise<{ i
         </p>
       </header>
       <ExternalMeeting agentId={agent.id} agentName={agent.name} />
+      <MeetingSessions agentId={agent.id} />
       <PresentationRoom agentId={agent.id} agentName={agent.name} />
       <VideoCall agentId={agent.id} agentName={agent.name} />
       <div style={{ height: 16 }} />
