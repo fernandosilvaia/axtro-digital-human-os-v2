@@ -1,5 +1,21 @@
 # CHANGELOG (resumo por onda — detalhes em PROGRESS.md e DECISIONS_LOG.md)
 
+## 2026-08-05 — Página de venda publicada + fecho do backlog da auditoria (W4)
+
+- **feat(venda):** /precos linkada na nav ("Planos") e no footer da landing + sitemap —
+  a página de venda existia mas não era alcançável de lugar nenhum (D-V2-103).
+- **fix(conhecimento):** digest de vídeo round-robin por fonte, recentes primeiro (0027) —
+  antes, com 2+ fontes, a closer só via o começo da fonte mais antiga; piso de
+  similaridade 0.25 no RAG do chat corta chunks irrelevantes de todo turno.
+- **feat(custos):** custo faturado real do OpenRouter no ledger (`provider_reported`) +
+  cost_event do bot Recall por sessão de reunião externa.
+- **feat(meetings):** agendamento no fuso da CONTA (default_timezone do tenant) com
+  conversão IANA genérica — "15:00" agora é 15:00 no relógio do dono; Flórida segue default.
+- **feat(video):** modo réplica em inglês (saudação + contexto EN quando o agente é EN);
+  "Copiar conversa" no chat de teste.
+- **ci:** e2e roda contra `next build && next start` no CI — o build de produção passa a
+  ser validado antes de todo deploy.
+
 ## 2026-08-02/03 — Hardening autônomo + cobrança Stripe + fecho da auditoria
 
 - **fix(auditoria):** rodada de hardening D-V2-100 (auditoria multi-agente, 44 achados,

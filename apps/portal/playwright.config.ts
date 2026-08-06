@@ -22,10 +22,15 @@ export default defineConfig({
     trace: "retain-on-failure",
   },
   webServer: {
-    command: "next dev -p 3100",
+    // CI valida o BUILD DE PRODUÇÃO (next build && next start): uma classe
+    // inteira de falha só-de-produção (prerender congelando env, rota que
+    // quebra otimizada) passava 100% verde contra o dev server e só
+    // aparecia depois do deploy (auditoria 2026-08-02). Dev local continua
+    // no dev server, rápido.
+    command: process.env.CI ? "next build && next start -p 3100" : "next dev -p 3100",
     url: "http://localhost:3100",
     reuseExistingServer: false,
-    timeout: 120_000,
+    timeout: process.env.CI ? 420_000 : 120_000,
     env: { PORTAL_FAKE_PROVIDERS: "1" },
   },
 });

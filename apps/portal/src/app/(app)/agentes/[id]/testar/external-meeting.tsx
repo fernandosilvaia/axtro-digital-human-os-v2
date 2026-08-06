@@ -11,10 +11,10 @@ import { joinExternalMeeting } from "@/lib/actions/meeting-bot";
  * um participante comum.
  *
  * Entrada imediata liga a câmera na mesma chamada. Entrada agendada cria o
- * bot silencioso (sentinela) no horário da Flórida — quem trata o fallback
- * decide depois se liga a câmera.
+ * bot silencioso (sentinela) no fuso da CONTA (default_timezone do tenant)
+ * — quem trata o fallback decide depois se liga a câmera.
  */
-export function ExternalMeeting({ agentId, agentName }: { agentId: string; agentName: string }) {
+export function ExternalMeeting({ agentId, agentName, timeZone }: { agentId: string; agentName: string; timeZone: string }) {
   const [meetingUrl, setMeetingUrl] = useState("");
   const [scheduleAt, setScheduleAt] = useState("");
   const [error, setError] = useState<string | null>(null);
@@ -30,6 +30,7 @@ export function ExternalMeeting({ agentId, agentName }: { agentId: string; agent
         agentId,
         meetingUrl.trim(),
         scheduleAt.trim().length > 0 ? scheduleAt.trim() : null,
+        timeZone,
       );
       if (result.error) {
         setError(result.error);
@@ -77,12 +78,12 @@ export function ExternalMeeting({ agentId, agentName }: { agentId: string; agent
 
         <div className="field" style={{ marginBottom: 14 }}>
           <label htmlFor="meeting-schedule">
-            Agendar entrada <span style={{ color: "var(--text-faint)", fontWeight: 400 }}>(opcional — horário da Flórida)</span>
+            Agendar entrada <span style={{ color: "var(--text-faint)", fontWeight: 400 }}>(opcional — horário de {timeZone})</span>
           </label>
           <input
             id="meeting-schedule"
             type="datetime-local"
-            min={new Intl.DateTimeFormat("sv-SE", { timeZone: "America/New_York", year: "numeric", month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit", hour12: false }).format(new Date()).replace(" ", "T")}
+            min={new Intl.DateTimeFormat("sv-SE", { timeZone, year: "numeric", month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit", hour12: false }).format(new Date()).replace(" ", "T")}
             value={scheduleAt}
             onChange={(event) => setScheduleAt(event.target.value)}
             style={{

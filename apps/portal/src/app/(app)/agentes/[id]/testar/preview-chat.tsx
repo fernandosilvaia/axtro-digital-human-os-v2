@@ -8,8 +8,24 @@ export function PreviewChat({ agentId, agentName }: { agentId: string; agentName
   const [turns, setTurns] = useState<readonly PreviewTurn[]>([]);
   const [draft, setDraft] = useState("");
   const [error, setError] = useState<string | null>(null);
+  const [copied, setCopied] = useState(false);
   const [pending, startTransition] = useTransition();
   const scrollRef = useRef<HTMLDivElement>(null);
+
+  async function copyConversation() {
+    // A conversa vive só em memória (some ao navegar) — copiar é o jeito de
+    // levar uma resposta boa/ruim pra revisão de prompt com o time.
+    const serialized = turns
+      .map((turn) => `${turn.role === "user" ? "Cliente" : agentName}: ${turn.content}`)
+      .join("\n\n");
+    try {
+      await navigator.clipboard.writeText(serialized);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2500);
+    } catch {
+      // Clipboard bloqueado: sem fallback barulhento — o texto segue na tela.
+    }
+  }
 
   function submit(event: React.FormEvent) {
     event.preventDefault();
@@ -69,6 +85,13 @@ export function PreviewChat({ agentId, agentName }: { agentId: string; agentName
         )}
       </div>
       {error && <p className="form-error" role="alert" style={{ margin: 0 }}>{error}</p>}
+      {turns.length > 0 && (
+        <div style={{ display: "flex", justifyContent: "flex-end" }}>
+          <button type="button" className="btn" onClick={copyConversation} style={{ padding: "6px 12px", fontSize: "0.78rem" }}>
+            {copied ? "Conversa copiada ✓" : "Copiar conversa"}
+          </button>
+        </div>
+      )}
       <form onSubmit={submit} style={{ display: "flex", gap: 10 }}>
         <label htmlFor="preview-message" className="sr-only">Mensagem para {agentName}</label>
         <input

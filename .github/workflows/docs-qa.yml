@@ -101,7 +101,10 @@ jobs:
     # têm acesso aos secrets, então o skip aqui é automático e seguro.
     needs: check-e2e-secrets
     runs-on: ubuntu-latest
-    timeout-minutes: 15
+    # 20min: o webServer do Playwright agora faz `next build && next start`
+    # no CI (valida o build de produção antes do deploy) — o build soma
+    # ~2min ao job.
+    timeout-minutes: 20
     if: ${{ needs.check-e2e-secrets.outputs.has-secrets == 'true' }}
     steps:
       - uses: actions/checkout@v4

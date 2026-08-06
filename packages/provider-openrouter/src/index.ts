@@ -29,6 +29,12 @@ export interface TextGenerationRequest {
 export interface TextGenerationUsage {
   readonly inputTokens: number;
   readonly outputTokens: number;
+  /**
+   * Custo faturado em USD reportado pelo próprio OpenRouter (usage.cost,
+   * pedido via `usage: {include: true}` no request). Ausente quando o
+   * provider não reporta — o caller decide se estima por tabela.
+   */
+  readonly reportedCostUsd?: number;
 }
 
 export interface TextGenerationResult {
@@ -107,6 +113,10 @@ export function createOpenRouterTextGenerationPort(options: OpenRouterAdapterOpt
             model: request.model,
             messages: request.messages.map((message) => ({ role: message.role, content: message.content })),
             max_tokens: request.maxOutputTokens,
+            // Pede o custo faturado real na resposta (usage.cost) — evita
+            // dupla manutenção de preço de tabela no SQL pro caminho de chat
+            // e cobre qualquer OPENROUTER_MODEL configurado (0027).
+            usage: { include: true },
           }),
         });
       } catch (error) {
@@ -319,13 +329,24 @@ function parseCompletion(payload: unknown): TextGenerationResult {
   const usageRecord = (record.usage ?? {}) as Record<string, unknown>;
   const inputTokens = normalizeTokenCount(usageRecord.prompt_tokens);
   const outputTokens = normalizeTokenCount(usageRecord.completion_tokens);
+  const reportedCostUsd = normalizeReportedCost(usageRecord.cost);
   const model = typeof record.model === "string" && record.model.length > 0 ? record.model : "openrouter/unknown";
 
   return Object.freeze({
     text,
     model,
-    usage: Object.freeze({ inputTokens, outputTokens }),
+    usage: Object.freeze({
+      inputTokens,
+      outputTokens,
+      ...(reportedCostUsd !== undefined ? { reportedCostUsd } : {}),
+    }),
   });
+}
+
+/** usage.cost do OpenRouter: só aceita número finito não-negativo e plausível pra UMA chamada. */
+function normalizeReportedCost(value: unknown): number | undefined {
+  if (typeof value !== "number" || !Number.isFinite(value) || value < 0 || value > 10) return undefined;
+  return value;
 }
 
 function normalizeTokenCount(value: unknown): number {

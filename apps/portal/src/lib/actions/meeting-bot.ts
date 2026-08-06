@@ -4,7 +4,7 @@ import { createUuidV7 } from "@axtro/domain";
 import { createRecallMeetingBotPort, MeetingBotError } from "@axtro/provider-recall";
 import { createTavusVideoConversationPort, VideoProviderError } from "@axtro/provider-tavus";
 
-import { floridaWallClockToUtcIso, FloridaTimeError } from "@/lib/time/florida";
+import { FloridaTimeError, wallClockToUtcIso } from "@/lib/time/florida";
 import { agentFaceStageUrl } from "@/lib/meetings/stage";
 import { handleJoinMeeting, JoinMeetingError, type AgentPersonaForMeeting } from "@/lib/meetings/join-meeting";
 import { fetchAgents } from "@/lib/portal-data";
@@ -36,8 +36,10 @@ function requiredEnv(name: string): string {
 export async function joinExternalMeeting(
   agentId: string,
   meetingUrl: string,
-  /** Horário local da Flórida ("YYYY-MM-DDTHH:mm"), ausente = agora. */
-  floridaJoinAt?: string | null,
+  /** Horário local no fuso da conta ("YYYY-MM-DDTHH:mm"), ausente = agora. */
+  joinAtWallClock?: string | null,
+  /** Fuso IANA do wall-clock (default_timezone do tenant). Default: Flórida (compat). */
+  joinTimeZone?: string | null,
 ): Promise<JoinExternalMeetingResult> {
   const tavusApiKey = requiredEnv("TAVUS_API_KEY");
   const recallApiKey = requiredEnv("RECALL_API_KEY");
@@ -50,18 +52,22 @@ export async function joinExternalMeeting(
     return { conversationUrl: null, scheduled: false, error: "A região do provider de reuniões externas não está configurada corretamente." };
   }
 
+  // Fuso do agendamento: o default_timezone do tenant (multi-tenant de
+  // verdade — "15:00" tem que ser 15:00 no relógio do DONO da conta, não da
+  // Flórida; auditoria 2026-08-02). Flórida segue como default por compat.
+  const timeZone = typeof joinTimeZone === "string" && joinTimeZone.trim().length > 0 ? joinTimeZone.trim() : "America/New_York";
   let joinAtIso: string | undefined;
-  if (typeof floridaJoinAt === "string" && floridaJoinAt.trim().length > 0) {
+  if (typeof joinAtWallClock === "string" && joinAtWallClock.trim().length > 0) {
     try {
-      joinAtIso = floridaWallClockToUtcIso(floridaJoinAt.trim());
+      joinAtIso = wallClockToUtcIso(joinAtWallClock.trim(), timeZone);
     } catch (error) {
       if (error instanceof FloridaTimeError) {
-        return { conversationUrl: null, scheduled: false, error: "Horário inválido — use o formato AAAA-MM-DDTHH:mm no horário da Flórida." };
+        return { conversationUrl: null, scheduled: false, error: `Horário inválido — use o formato AAAA-MM-DDTHH:mm no fuso ${timeZone}.` };
       }
       throw error;
     }
     if (new Date(joinAtIso).getTime() <= Date.now()) {
-      return { conversationUrl: null, scheduled: false, error: "O horário agendado já passou — escolha um horário futuro (horário da Flórida)." };
+      return { conversationUrl: null, scheduled: false, error: `O horário agendado já passou — escolha um horário futuro (fuso ${timeZone}).` };
     }
   }
 
@@ -85,7 +91,14 @@ export async function joinExternalMeeting(
     };
   }
 
-  const { data: configData } = await supabase.rpc("portal_agent_video_config", { p_agent_id: agentId });
+  const { data: configData, error: configError } = await supabase.rpc("portal_agent_video_config", { p_agent_id: agentId });
+  if (configError) {
+    // Falha de LEITURA não pode virar a mensagem enganosa "sem persona
+    // configurada" (mesma classe do fix em video-conversation.ts, auditoria
+    // 2026-08-02 — este call site tinha ficado de fora).
+    trackError("portal_agent_video_config_failed", configError, { agent_id: agentId, mode: "meeting" });
+    return { conversationUrl: null, scheduled: false, error: "Não foi possível ler a configuração de vídeo do agente. Tente novamente." };
+  }
   const config = (configData ?? { configured: false }) as AgentVideoConfigRow;
 
   const tavusPort = createTavusVideoConversationPort({ apiKey: tavusApiKey });
@@ -131,6 +144,8 @@ export async function joinExternalMeeting(
             p_recall_bot_id: params.botId,
             p_meeting_url: params.meetingUrl,
             p_tavus_conversation_id: params.conversationId,
+            // Rastro de custo do bot no ledger (0027) — id nasce no app (D-V2-010).
+            p_cost_event_id: createUuidV7(),
           });
           if (error) trackError("meeting_bot_record_session_failed", error, { agent_id: agentId });
           // A reunião externa criou uma conversa Tavus real — ela PRECISA

@@ -128,6 +128,7 @@ export default async function LandingPage() {
             <a href="#sistema">O sistema</a>
             <a href="#momentos">Casos de uso</a>
             <a href="#governanca">Governança</a>
+            <a href="/precos">Planos</a>
             <a href="#faq">FAQ</a>
           </nav>
           <nav className="landing-nav-actions">
@@ -309,6 +310,7 @@ export default async function LandingPage() {
       <footer className="landing-footer">
         <div className="brand-lockup"><span className="brand-mark" aria-hidden="true">A</span><span><span className="brand-word">Axtro</span><span className="brand-subword">Digital Human OS</span></span></div>
         <span>© 2026 Axtro AI. Vendas com presença, operação com clareza.</span>
+        <a href="/precos">Planos e preços</a>
         <a href="/termos">Termos de Uso</a>
         <a href="/privacidade">Privacidade</a>
         <a href="mailto:fernando@axtroai.com">fernando@axtroai.com</a>

@@ -55,9 +55,26 @@ test("generate envia o payload fechado ao endpoint fixo e devolve texto e usage"
   assert.equal(calls.length, 1);
   assert.equal(calls[0].url, "https://openrouter.ai/api/v1/chat/completions");
   const body = JSON.parse(calls[0].init.body);
-  assert.deepEqual(Object.keys(body).sort(), ["max_tokens", "messages", "model"]);
+  assert.deepEqual(Object.keys(body).sort(), ["max_tokens", "messages", "model", "usage"]);
+  // usage.include pede o custo faturado real na resposta (0027).
+  assert.deepEqual(body.usage, { include: true });
   assert.equal(calls[0].init.headers.Authorization, `Bearer ${API_KEY}`);
   assert.equal(calls[0].init.headers["HTTP-Referer"], "https://portal.example");
+});
+
+test("usage.cost reportado pelo provider vira reportedCostUsd; valor absurdo ou inválido é descartado", async () => {
+  const withCost = (cost) => fakeFetch(async () =>
+    new Response(JSON.stringify(completionPayload({ usage: { prompt_tokens: 42, completion_tokens: 17, cost } })), { status: 200 }));
+
+  const ok = provider.createOpenRouterTextGenerationPort({ apiKey: API_KEY, fetchImplementation: withCost(0.00123).implementation });
+  const okResult = await ok.generate(request());
+  assert.deepEqual(okResult.usage, { inputTokens: 42, outputTokens: 17, reportedCostUsd: 0.00123 });
+
+  for (const bad of [-1, Number.NaN, Number.POSITIVE_INFINITY, 999, "0.01"]) {
+    const port = provider.createOpenRouterTextGenerationPort({ apiKey: API_KEY, fetchImplementation: withCost(bad).implementation });
+    const result = await port.generate(request());
+    assert.deepEqual(result.usage, { inputTokens: 42, outputTokens: 17 }, `cost=${String(bad)} deveria ser descartado`);
+  }
 });
 
 test("a chave nunca vaza em erros e o corpo de erro do provider nunca é repassado", async () => {

@@ -49,3 +49,20 @@ test("madrugada do fall-back de 2026 (1º de novembro) resolve sem erro de 1 hor
   // 10:00 do mesmo dia, bem depois da transição, idem.
   assert.equal(florida.floridaWallClockToUtcIso("2026-11-01T10:00:00"), "2026-11-01T15:00:00.000Z");
 });
+
+test("wallClockToUtcIso genérico converte no fuso do tenant (multi-tenant, W4)", () => {
+  // São Paulo é UTC-3 o ano todo (Brasil aboliu o horário de verão em 2019).
+  assert.equal(florida.wallClockToUtcIso("2026-08-05T15:00:00", "America/Sao_Paulo"), "2026-08-05T18:00:00.000Z");
+  // Lisboa em agosto é WEST (UTC+1).
+  assert.equal(florida.wallClockToUtcIso("2026-08-05T15:00:00", "Europe/Lisbon"), "2026-08-05T14:00:00.000Z");
+  // O atalho da Flórida continua batendo com o genérico.
+  assert.equal(
+    florida.wallClockToUtcIso("2026-08-01T14:00:00", "America/New_York"),
+    florida.floridaWallClockToUtcIso("2026-08-01T14:00:00"),
+  );
+});
+
+test("fuso IANA desconhecido é rejeitado com erro tipado, nunca conversão silenciosa", () => {
+  assert.throws(() => florida.wallClockToUtcIso("2026-08-05T15:00:00", "America/Nao_Existe"), florida.FloridaTimeError);
+  assert.throws(() => florida.wallClockToUtcIso("2026-08-05T15:00:00", ""), florida.FloridaTimeError);
+});

@@ -10,6 +10,7 @@ export default function sitemap(): MetadataRoute.Sitemap {
       changeFrequency: "weekly",
       priority: 1,
     },
+    { url: absoluteUrl("/precos"), lastModified: new Date("2026-08-05T00:00:00.000Z"), changeFrequency: "weekly", priority: 0.8 },
     { url: absoluteUrl("/termos"), lastModified: new Date("2026-07-31T00:00:00.000Z"), changeFrequency: "monthly", priority: 0.3 },
     { url: absoluteUrl("/privacidade"), lastModified: new Date("2026-07-31T00:00:00.000Z"), changeFrequency: "monthly", priority: 0.3 },
   ];

@@ -27,7 +27,8 @@ export interface BrainKnowledgeMatch {
 
 export interface BrainChatDeps {
   readonly generate: (messages: readonly TextGenerationMessage[], maxOutputTokens: number) => Promise<TextGenerationResult>;
-  readonly logGenerationUsage: (inputTokens: number, outputTokens: number) => Promise<void>;
+  /** `reportedCostUsd` presente quando o provider reporta o custo faturado real (0027). */
+  readonly logGenerationUsage: (inputTokens: number, outputTokens: number, reportedCostUsd?: number) => Promise<void>;
 }
 
 export interface BrainChatRequest {
@@ -221,6 +222,6 @@ export async function runBrainChatCompletion(request: BrainChatRequest, deps: Br
   ];
 
   const result = await deps.generate(messages, request.maxOutputTokens ?? DEFAULT_MAX_OUTPUT_TOKENS);
-  await deps.logGenerationUsage(result.usage.inputTokens, result.usage.outputTokens);
+  await deps.logGenerationUsage(result.usage.inputTokens, result.usage.outputTokens, result.usage.reportedCostUsd);
   return { reply: result.text, usage: result.usage };
 }

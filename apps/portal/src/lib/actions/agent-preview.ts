@@ -99,7 +99,14 @@ export async function sendAgentPreviewMessage(
     if (searchError) {
       trackError("portal_search_knowledge_failed", searchError, { agent_id: agentId });
     } else if (Array.isArray(searchData)) {
-      knowledgeMatches = searchData as KnowledgeMatch[];
+      // Piso de similaridade: a RPC devolve sempre os top-N vizinhos, mesmo
+      // pra "oi" — sem piso, ~1k tokens de chunks irrelevantes entravam em
+      // TODO turno rotulados como "mais relevantes" (auditoria 2026-08-02).
+      // 0.25 em cosine do text-embedding-3-small separa bem ruído de match
+      // real; entrada sem similarity numérica passa (defensivo).
+      knowledgeMatches = (searchData as (KnowledgeMatch & { similarity?: number })[]).filter(
+        (match) => typeof match.similarity !== "number" || match.similarity >= 0.25,
+      );
       const { error: retrievalLogError } = await supabase.rpc("portal_log_ai_usage", {
         p_id: createUuidV7(),
         p_service: "portal.knowledge_retrieval",
@@ -133,14 +140,18 @@ export async function sendAgentPreviewMessage(
       {
         generate: (messages, maxOutputTokens) =>
           port.generate({ model: process.env.OPENROUTER_MODEL ?? DEFAULT_MODEL, messages, maxOutputTokens }),
-        logGenerationUsage: async (inputTokens, outputTokens) => {
+        logGenerationUsage: async (inputTokens, outputTokens, reportedCostUsd) => {
           // Registro de uso no ledger de custo do tenant. Falha de log não pode
           // sumir com a resposta já paga — mas precisa ficar visível no servidor.
+          // Com o custo faturado reportado pelo OpenRouter, o evento entra como
+          // 'provider_reported' (valor exato, qualquer modelo) em vez de
+          // estimativa por tabela do Haiku (0027).
           const { error: logError } = await supabase.rpc("portal_log_ai_usage", {
             p_id: createUuidV7(),
             p_service: "portal.agent_preview",
             p_input_tokens: inputTokens,
             p_output_tokens: outputTokens,
+            ...(reportedCostUsd !== undefined ? { p_reported_cost_usd: reportedCostUsd } : {}),
           });
           if (logError) {
             trackError("portal_log_ai_usage_failed", logError, { agent_id: agentId, service: "portal.agent_preview" });

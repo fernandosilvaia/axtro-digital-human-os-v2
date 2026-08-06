@@ -1,7 +1,7 @@
 import type { Metadata } from "next";
 import { notFound } from "next/navigation";
 
-import { fetchAgents } from "@/lib/portal-data";
+import { fetchAgents, fetchTenantOverview } from "@/lib/portal-data";
 import { StatusBadge } from "@/components/status-badge";
 
 import { ExternalMeeting } from "./external-meeting";
@@ -17,8 +17,9 @@ export default async function AgentPreviewPage({ params }: { params: Promise<{ i
   // Falha transitória da RPC não pode virar a tela de erro genérica do Next
   // (mesmo padrão de banner das páginas irmãs; auditoria 2026-08-02).
   let agents;
+  let overview;
   try {
-    agents = await fetchAgents();
+    [agents, overview] = await Promise.all([fetchAgents(), fetchTenantOverview()]);
   } catch {
     return (
       <div className="error-banner" role="alert">
@@ -28,6 +29,9 @@ export default async function AgentPreviewPage({ params }: { params: Promise<{ i
   }
   const agent = agents.find((candidate) => candidate.id === id);
   if (!agent) notFound();
+  // Fuso da CONTA pro agendamento/painel de reuniões — "15:00" tem que ser
+  // 15:00 no relógio do dono da conta (auditoria 2026-08-02).
+  const timeZone = overview.tenant?.default_timezone ?? "America/New_York";
 
   return (
     <>
@@ -45,8 +49,8 @@ export default async function AgentPreviewPage({ params }: { params: Promise<{ i
           sem fontes, ele não cita preços nem condições.
         </p>
       </header>
-      <ExternalMeeting agentId={agent.id} agentName={agent.name} />
-      <MeetingSessions agentId={agent.id} />
+      <ExternalMeeting agentId={agent.id} agentName={agent.name} timeZone={timeZone} />
+      <MeetingSessions agentId={agent.id} timeZone={timeZone} />
       <PresentationRoom agentId={agent.id} agentName={agent.name} />
       <VideoCall agentId={agent.id} agentName={agent.name} />
       <div style={{ height: 16 }} />

@@ -26,17 +26,16 @@ const STATUS_LABEL: Record<string, string> = {
   failed: "Falhou",
 };
 
-const FLORIDA_FORMATTER = new Intl.DateTimeFormat("pt-BR", {
-  timeZone: "America/New_York",
-  day: "2-digit",
-  month: "2-digit",
-  hour: "2-digit",
-  minute: "2-digit",
-});
-
-function formatFlorida(iso: string): string {
+function formatInZone(iso: string, timeZone: string): string {
   const parsed = new Date(iso);
-  return Number.isNaN(parsed.getTime()) ? "—" : FLORIDA_FORMATTER.format(parsed);
+  if (Number.isNaN(parsed.getTime())) return "—";
+  return new Intl.DateTimeFormat("pt-BR", {
+    timeZone,
+    day: "2-digit",
+    month: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+  }).format(parsed);
 }
 
 function meetingHost(url: string): string {
@@ -47,7 +46,7 @@ function meetingHost(url: string): string {
   }
 }
 
-export async function MeetingSessions({ agentId }: { agentId: string }) {
+export async function MeetingSessions({ agentId, timeZone }: { agentId: string; timeZone: string }) {
   const supabase = await createClient();
   const { data, error } = await supabase.rpc("portal_list_meeting_bot_sessions");
   if (error) {
@@ -63,7 +62,7 @@ export async function MeetingSessions({ agentId }: { agentId: string }) {
     <section className="card" style={{ marginTop: 16 }} aria-labelledby="reunioes-externas">
       <h3 id="reunioes-externas" style={{ fontSize: "0.95rem", marginBottom: 4 }}>Reuniões externas deste agente</h3>
       <p style={{ color: "var(--text-muted)", fontSize: "0.8rem", margin: "0 0 10px" }}>
-        Status atualizado pelo provider de reuniões (horários no fuso da Flórida). Recarregue a página para ver o mais recente.
+        Status atualizado pelo provider de reuniões (horários no fuso {timeZone}). Recarregue a página para ver o mais recente.
       </p>
       <div className="table-wrap">
         <table>
@@ -80,8 +79,8 @@ export async function MeetingSessions({ agentId }: { agentId: string }) {
               <tr key={session.id}>
                 <td className="mono" style={{ fontSize: "0.8rem" }}>{meetingHost(session.meetingUrl)}</td>
                 <td>{STATUS_LABEL[session.status] ?? session.status}</td>
-                <td style={{ fontSize: "0.82rem" }}>{formatFlorida(session.createdAt)}</td>
-                <td style={{ fontSize: "0.82rem" }}>{session.endedAt ? formatFlorida(session.endedAt) : "—"}</td>
+                <td style={{ fontSize: "0.82rem" }}>{formatInZone(session.createdAt, timeZone)}</td>
+                <td style={{ fontSize: "0.82rem" }}>{session.endedAt ? formatInZone(session.endedAt, timeZone) : "—"}</td>
               </tr>
             ))}
           </tbody>

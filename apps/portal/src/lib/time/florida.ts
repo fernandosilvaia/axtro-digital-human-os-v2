@@ -44,11 +44,18 @@ function timeZoneOffsetMinutesAt(timeZone: string, atMs: number): number {
 }
 
 /**
- * `wallClock` é hora LOCAL da Flórida, sem fuso (ex.: "2026-08-01T14:00:00" =
- * 14h em Miami/Orlando/Jacksonville naquele dia, seja EST ou EDT). Devolve o
- * ISO 8601 em UTC correspondente, pronto pro `joinAtIso` do Recall.ai.
+ * `wallClock` é hora LOCAL do fuso `timeZone` (IANA), sem offset embutido.
+ * Devolve o ISO 8601 em UTC correspondente, pronto pro `joinAtIso` do
+ * Recall.ai. Generalizado do caso Flórida (auditoria 2026-08-02: o produto
+ * é multi-tenant e cada conta tem `default_timezone` próprio — um dono em
+ * São Paulo que agendava "15:00" colocava o bot 1-2h errado).
  */
-export function floridaWallClockToUtcIso(wallClock: string): string {
+export function wallClockToUtcIso(wallClock: string, timeZone: string): string {
+  try {
+    new Intl.DateTimeFormat("en-US", { timeZone });
+  } catch {
+    throw new FloridaTimeError(`unknown IANA time zone: ${timeZone}`);
+  }
   const match = NAIVE_DATETIME_PATTERN.exec(wallClock);
   if (match === null) {
     throw new FloridaTimeError('wallClock must look like "YYYY-MM-DDTHH:mm" or "YYYY-MM-DDTHH:mm:ss", with no timezone');
@@ -58,16 +65,21 @@ export function floridaWallClockToUtcIso(wallClock: string): string {
   if (!Number.isFinite(guessUtcMs)) {
     throw new FloridaTimeError("wallClock does not represent a valid calendar date/time");
   }
-  const offsetMinutes = timeZoneOffsetMinutesAt(TIME_ZONE, guessUtcMs);
+  const offsetMinutes = timeZoneOffsetMinutesAt(timeZone, guessUtcMs);
   let actualUtcMs = guessUtcMs - offsetMinutes * 60_000;
   // Segunda iteração: perto das transições de horário de verão, o offset no
-  // instante-chute (wall-clock lido como UTC, ~4-5h antes do instante real)
-  // pode divergir do offset no instante REAL — ex.: "03:30" do dia do
-  // spring-forward avaliava EST e devolvia 1h atrasado. Recalcular no
-  // instante encontrado e reaplicar corrige (auditoria 2026-08-02).
-  const offsetAtActual = timeZoneOffsetMinutesAt(TIME_ZONE, actualUtcMs);
+  // instante-chute (wall-clock lido como UTC) pode divergir do offset no
+  // instante REAL — ex.: "03:30" do dia do spring-forward avaliava EST e
+  // devolvia 1h atrasado. Recalcular no instante encontrado e reaplicar
+  // corrige (auditoria 2026-08-02).
+  const offsetAtActual = timeZoneOffsetMinutesAt(timeZone, actualUtcMs);
   if (offsetAtActual !== offsetMinutes) {
     actualUtcMs = guessUtcMs - offsetAtActual * 60_000;
   }
   return new Date(actualUtcMs).toISOString();
+}
+
+/** Atalho legado: hora local da Flórida (America/New_York) → UTC. */
+export function floridaWallClockToUtcIso(wallClock: string): string {
+  return wallClockToUtcIso(wallClock, TIME_ZONE);
 }
