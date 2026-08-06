@@ -205,7 +205,9 @@ test("ciclo de vida completo do agente: criar → ativar → pausar → excluir"
   await page.fill("#agent-name", agentName);
   await page.getByRole("button", { name: "Criar rascunho" }).click();
   const row = page.locator("tr", { hasText: agentName });
-  await expect(row).toBeVisible({ timeout: 20_000 });
+  // 30s: no CI o e2e roda contra o build de produção num runner lento —
+  // action + revalidação + RSC levam mais que no dev server local.
+  await expect(row).toBeVisible({ timeout: 30_000 });
 
   await row.getByRole("button", { name: "Ativar" }).click();
   await expect(row.getByRole("button", { name: "Pausar" })).toBeVisible({ timeout: 20_000 });
@@ -227,7 +229,7 @@ test("ciclo de vida da fonte: criar pendente → excluir", async ({ page }) => {
   await page.fill("#source-name", sourceName);
   await page.getByRole("button", { name: /Cadastrar/ }).click();
   const row = page.locator("tr", { hasText: sourceName });
-  await expect(row).toBeVisible({ timeout: 20_000 });
+  await expect(row).toBeVisible({ timeout: 30_000 });
 
   await row.getByRole("button", { name: `Excluir a fonte ${sourceName}` }).click();
   await row.getByRole("button", { name: `Confirmar exclusão da fonte ${sourceName}` }).click();

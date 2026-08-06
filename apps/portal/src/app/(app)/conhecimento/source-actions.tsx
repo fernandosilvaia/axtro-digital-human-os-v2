@@ -1,5 +1,6 @@
 "use client";
 
+import { useRouter } from "next/navigation";
 import { useActionState, useState, useTransition } from "react";
 
 import {
@@ -20,6 +21,7 @@ interface SourceActionsProps {
 export function SourceActions({ sourceId, sourceName, status }: SourceActionsProps) {
   const [statusError, setStatusError] = useState<string | null>(null);
   const [pending, startTransition] = useTransition();
+  const router = useRouter();
   const [updateState, updateAction, updatePending] = useActionState(updateKnowledgeSourceContent, initialState);
   const [showUpdate, setShowUpdate] = useState(false);
 
@@ -35,7 +37,7 @@ export function SourceActions({ sourceId, sourceName, status }: SourceActionsPro
       setConfirmingDelete(true);
       // Desarma em 5s sem clique — confirmação destrutiva não fica armada
       // pra sempre (auditoria 2026-08-02).
-      setTimeout(() => setConfirmingDelete(false), 5000);
+      setTimeout(() => setConfirmingDelete(false), 8000); // 8s: ver agent-delete-button (5s desarmava antes do clique legítimo em prod)
       return;
     }
     setStatusError(null);
@@ -44,6 +46,9 @@ export function SourceActions({ sourceId, sourceName, status }: SourceActionsPro
       if (result.error) {
         setStatusError(result.error);
         setConfirmingDelete(false);
+      } else {
+        // Refresh explícito: ver nota no AgentStatusToggle (flake de revalidação em prod).
+        router.refresh();
       }
     });
   };
@@ -53,6 +58,7 @@ export function SourceActions({ sourceId, sourceName, status }: SourceActionsPro
     startTransition(async () => {
       const result = await setKnowledgeSourceStatus(sourceId, next);
       if (result.error) setStatusError(result.error);
+      else router.refresh();
     });
   };
 

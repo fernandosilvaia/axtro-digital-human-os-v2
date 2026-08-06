@@ -1,5 +1,6 @@
 "use client";
 
+import { useRouter } from "next/navigation";
 import { useState, useTransition } from "react";
 
 import { setAgentStatus } from "@/lib/actions/resources";
@@ -12,6 +13,7 @@ import { setAgentStatus } from "@/lib/actions/resources";
 export function AgentStatusToggle({ agentId, status }: { agentId: string; status: string }) {
   const [error, setError] = useState<string | null>(null);
   const [pending, startTransition] = useTransition();
+  const router = useRouter();
 
   if (status !== "draft" && status !== "active") return null;
   const target = status === "draft" ? "active" : "draft";
@@ -21,6 +23,8 @@ export function AgentStatusToggle({ agentId, status }: { agentId: string; status
     startTransition(async () => {
       const result = await setAgentStatus(agentId, target);
       if (result.error) setError(result.error);
+      // Next 16 em build de produção descarta a revalidação da server action de forma intermitente (flake pego pelo e2e em modo produção, D-V2-103) — router.refresh() explícito torna a atualização da UI determinística.
+      else router.refresh();
     });
   }
 

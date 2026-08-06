@@ -29,7 +29,9 @@ export default defineConfig({
     // no dev server, rápido.
     command: process.env.CI ? "next build && next start -p 3100" : "next dev -p 3100",
     url: "http://localhost:3100",
-    reuseExistingServer: false,
+    // PW_REUSE=1: aponta pra um servidor ja rodando (debug do modo producao
+    // local: `next build && next start -p 3100` + spec isolado).
+    reuseExistingServer: process.env.PW_REUSE === "1",
     timeout: process.env.CI ? 420_000 : 120_000,
     env: { PORTAL_FAKE_PROVIDERS: "1" },
   },

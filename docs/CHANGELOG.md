@@ -15,6 +15,11 @@
   "Copiar conversa" no chat de teste.
 - **ci:** e2e roda contra `next build && next start` no CI — o build de produção passa a
   ser validado antes de todo deploy.
+- **fix(framework):** o novo gate pegou NO PRIMEIRO RUN um hang intermitente de server
+  actions no build de produção (bug do React empacotado no Next 16.2.x — usuário ficava
+  com "Criando..." eterno): Next 16.2.10 → 16.3.0 + React 19.2.8, flake 50% → 0 em 3
+  rodadas; router.refresh() explícito nos 5 componentes de mutação como hardening
+  (D-V2-104).
 
 ## 2026-08-02/03 — Hardening autônomo + cobrança Stripe + fecho da auditoria
 

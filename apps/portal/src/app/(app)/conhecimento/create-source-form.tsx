@@ -1,6 +1,7 @@
 "use client";
 
-import { useActionState } from "react";
+import { useRouter } from "next/navigation";
+import { useActionState, useEffect } from "react";
 
 import { createKnowledgeSource, type ResourceActionState } from "@/lib/actions/resources";
 
@@ -8,6 +9,13 @@ const initialState: ResourceActionState = { error: null, done: false };
 
 export function CreateSourceForm() {
   const [state, formAction, pending] = useActionState(createKnowledgeSource, initialState);
+  const router = useRouter();
+
+  // Refresh explícito pós-criação: ver nota no AgentStatusToggle (flake de
+  // revalidação da server action no build de produção).
+  useEffect(() => {
+    if (state.done && !state.error) router.refresh();
+  }, [state.done, state.error, router]);
 
   return (
     <form action={formAction}>
