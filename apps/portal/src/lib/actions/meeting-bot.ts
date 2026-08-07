@@ -11,6 +11,7 @@ import { fetchAgents } from "@/lib/portal-data";
 import { createClient } from "@/lib/supabase/server";
 import { logError as trackError } from "@/lib/telemetry";
 import { checkVideoCap, reportConversationOverageIfNeeded, VIDEO_CAP_CHECK_FAILED_MESSAGE, VIDEO_CAP_MESSAGE } from "@/lib/video-cap";
+import { resolveAgentVideoConfig } from "@/lib/video-config";
 
 /**
  * Coloca um agente numa reunião externa de verdade (Zoom/Meet/Teams) —
@@ -22,11 +23,6 @@ export interface JoinExternalMeetingResult {
   readonly conversationUrl: string | null;
   readonly scheduled: boolean;
   readonly error: string | null;
-}
-
-interface AgentVideoConfigRow {
-  readonly configured: boolean;
-  readonly persona_id?: string | null;
 }
 
 function requiredEnv(name: string): string {
@@ -91,15 +87,11 @@ export async function joinExternalMeeting(
     };
   }
 
-  const { data: configData, error: configError } = await supabase.rpc("portal_agent_video_config", { p_agent_id: agentId });
-  if (configError) {
-    // Falha de LEITURA não pode virar a mensagem enganosa "sem persona
-    // configurada" (mesma classe do fix em video-conversation.ts, auditoria
-    // 2026-08-02 — este call site tinha ficado de fora).
-    trackError("portal_agent_video_config_failed", configError, { agent_id: agentId, mode: "meeting" });
-    return { conversationUrl: null, scheduled: false, error: "Não foi possível ler a configuração de vídeo do agente. Tente novamente." };
+  const configResult = await resolveAgentVideoConfig(supabase, agentId, "meeting");
+  if (!configResult.ok) {
+    return { conversationUrl: null, scheduled: false, error: configResult.error };
   }
-  const config = (configData ?? { configured: false }) as AgentVideoConfigRow;
+  const config = configResult.config;
 
   const tavusPort = createTavusVideoConversationPort({ apiKey: tavusApiKey });
   const recallPort = createRecallMeetingBotPort({ apiKey: recallApiKey, region: recallRegion });

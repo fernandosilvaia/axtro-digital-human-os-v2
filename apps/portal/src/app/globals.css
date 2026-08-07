@@ -8,7 +8,7 @@
   --border-strong: #2e3342;
   --text: #eef0f5;
   --text-muted: #9aa1b1;
-  --text-faint: #6b7280;
+  --text-faint: #7f8290; /* auditoria 2026-08-06: #6b7280 dava ~4.07:1 sobre --bg, abaixo do minimo AA 4.5:1 */
   --accent: #6d8bff;
   --accent-strong: #5b78f0;
   --accent-soft: rgba(109, 139, 255, 0.14);
@@ -689,12 +689,21 @@ table.data tbody tr:hover {
     position: fixed;
     z-index: 40;
     transform: translateX(-100%);
-    transition: transform 0.24s var(--ease);
+    /* visibility some do fluxo de acessibilidade/tabulação assim que o
+       menu termina de sair da tela — transform sozinho só o move
+       visualmente, os 5 links continuavam focáveis por teclado/leitor de
+       tela fora da tela (achado da auditoria 2026-08-06). A transição de
+       visibility é "discreta" por spec: abrindo, vira visível IMEDIATAMENTE
+       (0%) — o slide-in continua visível do início ao fim; fechando, só
+       vira hidden no FIM (100%) — depois de já estar fora da tela. */
+    visibility: hidden;
+    transition: transform 0.24s var(--ease), visibility 0.24s var(--ease);
     width: var(--sidebar-width);
     box-shadow: var(--shadow);
   }
   .app-shell[data-menu="open"] .sidebar {
     transform: none;
+    visibility: visible;
   }
   .app-shell[data-menu="open"] .scrim {
     display: block;
@@ -849,7 +858,7 @@ table.data tbody tr:hover {
   --border-strong: rgba(255, 255, 255, 0.2);
   --text: #f5f4f1;
   --text-muted: #a5a5b2;
-  --text-faint: #6f7180;
+  --text-faint: #7f8290; /* auditoria 2026-08-06: #6f7180 dava ~4.13:1 sobre este --bg (bloco que vence a cascata), abaixo do minimo AA 4.5:1 */
   --accent: #8b7bff;
   --accent-strong: #a397ff;
   --accent-soft: rgba(139, 123, 255, 0.14);

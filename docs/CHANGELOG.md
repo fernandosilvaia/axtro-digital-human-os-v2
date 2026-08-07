@@ -1,5 +1,28 @@
 # CHANGELOG (resumo por onda — detalhes em PROGRESS.md e DECISIONS_LOG.md)
 
+## 2026-08-06 — Onda W5: hardening de billing, acessibilidade e equipe
+
+- **fix(billing):** checkout Stripe ganha idempotência (janela de 1min) + botão "Assinar"
+  desabilita no primeiro clique — duplo clique/duas abas não geram mais duas assinaturas
+  cobrando em paralelo. `existingStripeCustomerId` reaproveitado ao reassinar após
+  cancelar. Webhook Stripe loga evento malformado dentro de escopo (antes: silêncio).
+- **feat(equipe):** `portal_remove_member` — não existia forma de revogar acesso de um
+  membro já aceito (só convite pendente tinha "Revogar"); guarda contra remover o último
+  admin e contra auto-remoção.
+- **fix(a11y):** sidebar mobile fechada sai da árvore de tabulação/leitor de tela
+  (`visibility:hidden`); `--text-faint` corrigido pro mínimo AA (~4.1:1 → ~5.6:1).
+- **docs(rls):** `database/rls-policy-matrix.md` corrigido — descrevia um mecanismo
+  (`SET LOCAL app.tenant_id`) nunca implementado; a policy do kernel é código morto
+  fail-closed (nunca foi vulnerabilidade), mas o doc lia como proteção ativa.
+- **refactor:** dedup do padrão "ler config de vídeo do agente" (4 call sites → 1 helper,
+  `lib/video-config.ts`) — o mesmo bug de fail-open tinha sido corrigido separadamente
+  4 vezes ao longo de duas auditorias porque a lógica estava copiada.
+- **feat(meetings):** e-mail aos admins quando reunião externa termina (ended/failed) —
+  o evento de negócio mais importante do produto não notificava ninguém.
+- **decision:** persistência de transcript/histórico de conversa (chat, vídeo, reunião
+  externa) identificada como a lacuna de maior valor — documentada como próximo passo em
+  vez de implementada nesta onda (feature nova de escopo maior, não bug; D-V2-105).
+
 ## 2026-08-05 — Página de venda publicada + fecho do backlog da auditoria (W4)
 
 - **feat(venda):** /precos linkada na nav ("Planos") e no footer da landing + sitemap —

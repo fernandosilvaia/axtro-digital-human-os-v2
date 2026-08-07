@@ -33,6 +33,7 @@ test("createCheckoutSession envia payload form-encoded fechado e devolve session
     customerEmail: "dono@empresa.com",
     successUrl: "https://closer.axtroai.com/configuracoes?checkout=ok",
     cancelUrl: "https://closer.axtroai.com/configuracoes?checkout=cancel",
+    idempotencyKey: "checkout:tenant-abc:crescimento:12345",
   });
 
   assert.deepEqual(result, { sessionId: "cs_test_123", checkoutUrl: "https://checkout.stripe.com/c/pay/cs_test_123" });
@@ -41,6 +42,7 @@ test("createCheckoutSession envia payload form-encoded fechado e devolve session
   assert.equal(calls[0].init.headers.Authorization, `Bearer ${API_KEY}`);
   assert.equal(calls[0].init.headers["Content-Type"], "application/x-www-form-urlencoded");
   assert.ok(calls[0].init.headers["Stripe-Version"]);
+  assert.equal(calls[0].init.headers["Idempotency-Key"], "checkout:tenant-abc:crescimento:12345", "duplo clique/duas abas não podem criar duas assinaturas — achado da auditoria 2026-08-06");
 
   const body = parseFormBody(calls[0].init.body);
   assert.equal(body.mode, "subscription");
@@ -67,6 +69,7 @@ test("createCheckoutSession reaproveita existingStripeCustomerId em vez de custo
     customerEmail: "ignored@example.com",
     successUrl: "https://closer.axtroai.com/ok",
     cancelUrl: "https://closer.axtroai.com/cancel",
+    idempotencyKey: "checkout:tenant-abc:escala:12345",
   });
   const body = parseFormBody(calls[0].init.body);
   assert.equal(body.customer, CUSTOMER_ID);
@@ -78,7 +81,7 @@ test("createCheckoutSession valida price ids, urls e customer id antes da rede",
   const port = provider.createStripeBillingPort({ apiKey: API_KEY, fetchImplementation: implementation });
   const base = {
     tenantId: "t1", planId: "piloto", basePriceId: BASE_PRICE_ID, overagePriceId: OVERAGE_PRICE_ID,
-    successUrl: "https://a.com/ok", cancelUrl: "https://a.com/cancel",
+    successUrl: "https://a.com/ok", cancelUrl: "https://a.com/cancel", idempotencyKey: "checkout:t1:piloto:1",
   };
   for (const bad of [
     { ...base, basePriceId: "not-a-price-id" },
@@ -87,9 +90,23 @@ test("createCheckoutSession valida price ids, urls e customer id antes da rede",
     { ...base, cancelUrl: "" },
     { ...base, tenantId: "" },
     { ...base, existingStripeCustomerId: "not-a-customer-id" },
+    { ...base, idempotencyKey: "" },
   ]) {
     await assert.rejects(() => port.createCheckoutSession(bad), (e) => e.code === "invalid_request");
   }
+  assert.equal(calls.length, 0);
+});
+
+test("createCheckoutSession sem idempotencyKey é rejeitado antes da rede — duplo clique/duas abas não podem gerar duas assinaturas", async () => {
+  const { calls, implementation } = fakeFetch(async () => new Response("{}", { status: 200 }));
+  const port = provider.createStripeBillingPort({ apiKey: API_KEY, fetchImplementation: implementation });
+  await assert.rejects(
+    () => port.createCheckoutSession({
+      tenantId: "t1", planId: "piloto", basePriceId: BASE_PRICE_ID, overagePriceId: OVERAGE_PRICE_ID,
+      successUrl: "https://a.com/ok", cancelUrl: "https://a.com/cancel",
+    }),
+    (e) => e.code === "invalid_request" && e.message.includes("idempotencyKey"),
+  );
   assert.equal(calls.length, 0);
 });
 

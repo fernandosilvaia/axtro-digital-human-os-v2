@@ -1,6 +1,7 @@
 import { openBillingPortal, startCheckout } from "@/lib/actions/billing";
 import { formatUsdCents, isPlanId, PLAN_CATALOG, PLAN_ORDER, type PlanId } from "@/lib/billing/plans";
 import type { BillingStatus } from "@/lib/portal-data";
+import { SubmitOnceButton } from "./submit-once-button";
 
 const ACTIVE_STATUSES = new Set(["active", "trialing", "past_due"]);
 
@@ -150,9 +151,9 @@ function NoPlanCards({ isAdmin }: { isAdmin: boolean }) {
               {isAdmin ? (
                 <form action={startCheckout} style={{ marginTop: "auto" }}>
                   <input type="hidden" name="plan_id" value={plan.id} />
-                  <button type="submit" className="btn btn-primary" style={{ width: "100%", justifyContent: "center", padding: "8px 12px", fontSize: "0.84rem" }}>
+                  <SubmitOnceButton className="btn btn-primary" style={{ width: "100%", justifyContent: "center", padding: "8px 12px", fontSize: "0.84rem" }}>
                     Assinar
-                  </button>
+                  </SubmitOnceButton>
                 </form>
               ) : (
                 <span style={{ fontSize: "0.76rem", color: "var(--text-faint)" }}>Só um administrador pode assinar</span>

@@ -128,3 +128,46 @@ export async function sendAgentActivatedEmail(options: {
     logEvent: "agent_activated_email",
   });
 }
+
+const MEETING_STATUS_LABEL: Readonly<Record<string, string>> = {
+  ended: "encerrou",
+  failed: "não conseguiu concluir",
+};
+
+/**
+ * E-mail aos admins quando uma reunião externa termina (achado da auditoria
+ * 2026-08-06): o evento de negócio mais importante do produto — "seu agente
+ * acabou de representar você numa reunião de verdade" — não disparava nada;
+ * o dono só sabia se voltasse a abrir /testar e olhar a tabela. Best-effort,
+ * mesma disciplina dos outros e-mails deste módulo.
+ */
+export async function sendMeetingEndedEmail(options: {
+  readonly to: readonly string[];
+  readonly workspaceName: string;
+  readonly agentName: string;
+  readonly meetingUrl: string;
+  readonly status: "ended" | "failed";
+}): Promise<EmailSendResult> {
+  if (options.to.length === 0) {
+    return { sent: false, reason: "mocked_no_key" };
+  }
+  const dashboardUrl = `${process.env.PORTAL_PUBLIC_URL ?? "https://portal-production-b43e.up.railway.app"}/agentes`;
+  const agent = escapeHtml(options.agentName);
+  const workspace = escapeHtml(options.workspaceName);
+  const statusLabel = MEETING_STATUS_LABEL[options.status];
+  const html = [
+    `<div style="font-family:system-ui,-apple-system,sans-serif;max-width:520px;margin:0 auto;padding:24px">`,
+    `<h2 style="font-size:18px;margin:0 0 12px">Reunião externa ${statusLabel} — ${workspace}</h2>`,
+    `<p style="color:#444;line-height:1.5;margin:0 0 12px"><strong>${agent}</strong> ${statusLabel} a reunião externa que você agendou.</p>`,
+    `<p style="color:#444;line-height:1.5;margin:0 0 18px">Reunião: <a href="${escapeHtml(options.meetingUrl)}" style="color:#5b4dff">${escapeHtml(options.meetingUrl)}</a></p>`,
+    `<p style="margin:0 0 18px"><a href="${dashboardUrl}" style="background:#5b4dff;color:#fff;text-decoration:none;padding:11px 20px;border-radius:8px;display:inline-block">Ver agentes</a></p>`,
+    `</div>`,
+  ].join("");
+
+  return sendHtmlEmail({
+    to: options.to,
+    subject: `${options.agentName} ${statusLabel} a reunião externa — ${options.workspaceName}`,
+    html,
+    logEvent: "meeting_ended_email",
+  });
+}

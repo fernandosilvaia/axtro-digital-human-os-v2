@@ -111,6 +111,7 @@ export async function fetchUsageSummary(): Promise<UsageSummary> {
 }
 
 export interface TeamMemberRow {
+  readonly user_id: string;
   readonly email: string;
   readonly role: string;
   readonly joined_at: string;

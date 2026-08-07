@@ -8,6 +8,7 @@ import { parseRecallWebhookPayload, statusForRecallEvent, verifyRecallWebhookSig
 import { constantTimeEquals } from "@/lib/security";
 import { createServiceRoleClient, ServiceRoleUnavailableError } from "@/lib/supabase/service";
 import { logError as trackError, logEvent } from "@/lib/telemetry";
+import { sendMeetingEndedEmail } from "@/lib/email";
 
 /**
  * Recebe eventos de status de bot do Recall.ai. Duas camadas de
@@ -124,6 +125,48 @@ async function attachSentinelCamera(botId: string): Promise<void> {
   logEvent("recall_sentinel_camera_attached", { bot_id: botId, agent_name: typeof agent?.name === "string" ? agent.name : "?" });
 }
 
+/**
+ * Notifica os admins do tenant quando a reunião externa termina (achado da
+ * auditoria 2026-08-06) — best-effort, nunca falha o webhook. Só dispara em
+ * transição REAL (applied=true na RPC de status): um retry do Recall.ai
+ * reentregando o mesmo evento 'ended' não deve mandar um segundo e-mail.
+ */
+async function notifyMeetingEnded(botId: string, status: "ended" | "failed"): Promise<void> {
+  const supabase = createServiceRoleClient();
+  const { data: session, error: sessionError } = await supabase
+    .from("meeting_bot_sessions")
+    .select("tenant_id, agent_id, meeting_url")
+    .eq("recall_bot_id", botId)
+    .maybeSingle();
+  if (sessionError || session === null) {
+    if (sessionError) trackError("recall_webhook_notify_lookup_failed", sessionError, { bot_id: botId });
+    return;
+  }
+  const row = session as { tenant_id: string; agent_id: string; meeting_url: string };
+
+  const [agentResult, tenantResult, adminsResult] = await Promise.all([
+    supabase.from("agents").select("name").eq("tenant_id", row.tenant_id).eq("id", row.agent_id).maybeSingle(),
+    supabase.from("tenants").select("legal_name").eq("id", row.tenant_id).maybeSingle(),
+    supabase.rpc("portal_list_admin_emails_service", { p_tenant_id: row.tenant_id }),
+  ]);
+  const agentName = typeof agentResult.data?.name === "string" ? agentResult.data.name : "Agente";
+  const workspaceName = typeof tenantResult.data?.legal_name === "string" ? tenantResult.data.legal_name : "sua conta";
+  const admins = Array.isArray(adminsResult.data) ? (adminsResult.data as string[]) : [];
+  if (adminsResult.error) {
+    trackError("recall_webhook_notify_admins_lookup_failed", adminsResult.error, { bot_id: botId });
+    return;
+  }
+  if (admins.length === 0) return;
+
+  await sendMeetingEndedEmail({
+    to: admins,
+    workspaceName,
+    agentName,
+    meetingUrl: row.meeting_url,
+    status,
+  });
+}
+
 export async function POST(request: NextRequest): Promise<Response> {
   const expectedToken = process.env.RECALL_WEBHOOK_TOKEN ?? "";
   if (expectedToken.trim().length < 16) {
@@ -181,7 +224,9 @@ export async function POST(request: NextRequest): Promise<Response> {
       trackError("recall_webhook_update_status_failed", error, { event: parsed.event });
       return NextResponse.json({ error: "internal_error" }, { status: 500 });
     }
-    const found = (data as { found?: boolean } | null)?.found === true;
+    const result = data as { found?: boolean; applied?: boolean } | null;
+    const found = result?.found === true;
+    const applied = result?.applied === true;
 
     if (found && IN_CALL_EVENTS.has(parsed.event)) {
       try {
@@ -190,6 +235,14 @@ export async function POST(request: NextRequest): Promise<Response> {
         // O attach nunca pode derrubar o webhook (o Recall re-tenta e o
         // próximo in_call re-tenta o attach) — mas fica 100% visível.
         trackError("recall_webhook_sentinel_attach_failed", attachError, { bot_id: parsed.botId });
+      }
+    }
+
+    if (applied && (status === "ended" || status === "failed")) {
+      try {
+        await notifyMeetingEnded(parsed.botId, status);
+      } catch (notifyError) {
+        trackError("recall_webhook_notify_failed", notifyError, { bot_id: parsed.botId });
       }
     }
 

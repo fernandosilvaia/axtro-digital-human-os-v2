@@ -9,6 +9,7 @@ import { fetchAgents, fetchTenantOverview } from "@/lib/portal-data";
 import { buildDeckContext, buildPlatformDeck, buildSalesDeck, type Deck } from "@/lib/presentation/deck";
 import { createClient } from "@/lib/supabase/server";
 import { logError as trackError } from "@/lib/telemetry";
+import { fetchKnowledgeDigest, resolveAgentVideoConfig } from "@/lib/video-config";
 
 export interface VideoConversationResult {
   readonly url: string | null;
@@ -22,15 +23,6 @@ export interface PresentationConversationResult {
   readonly error: string | null;
   /** Modo demonstração sem provider de vídeo: deck navegável manualmente. */
   readonly simulated?: boolean;
-}
-
-interface AgentVideoConfig {
-  readonly configured: boolean;
-  readonly persona_id?: string | null;
-  readonly replica_id?: string | null;
-  readonly language?: string | null;
-  /** "platform" = apresenta a própria Axtro; "sales" (padrão) = vende o negócio do tenant. Campo explícito (0020) — nunca inferir do nome do agente. */
-  readonly presentation_kind?: "sales" | "platform" | null;
 }
 
 export async function startVideoConversation(agentId: string): Promise<VideoConversationResult> {
@@ -58,30 +50,14 @@ export async function startVideoConversation(agentId: string): Promise<VideoConv
     return { url: null, error: capVerdict === "capped" ? VIDEO_CAP_MESSAGE : VIDEO_CAP_CHECK_FAILED_MESSAGE };
   }
 
-  const { data: configData, error: configError } = await supabase.rpc("portal_agent_video_config", { p_agent_id: agentId });
-  if (configError) {
-    // Falha TRANSITÓRIA de leitura não pode virar silenciosamente "sem
-    // persona" (a call abriria com a réplica default e contexto genérico —
-    // degradação não declarada, Art. 14/16; achado da auditoria 2026-08-02).
-    trackError("portal_agent_video_config_failed", configError, { agent_id: agentId, mode: "video" });
-    return { url: null, error: "Não foi possível ler a configuração de vídeo do agente. Tente novamente." };
+  const configResult = await resolveAgentVideoConfig(supabase, agentId, "video");
+  if (!configResult.ok) {
+    return { url: null, error: configResult.error };
   }
-  const config = (configData ?? { configured: false }) as AgentVideoConfig;
+  const config = configResult.config;
 
   // Conhecimento ativo da conta vira contexto da chamada (RAG de vídeo).
-  // Falha aqui degrada para a chamada sem digest — nunca bloqueia o vídeo.
-  let knowledgeDigest: string | null = null;
-  try {
-    const { data: digestData, error: digestError } = await supabase.rpc("portal_knowledge_digest", { p_max_chars: 3500 });
-    if (digestError) {
-      trackError("portal_knowledge_digest_failed", digestError, { agent_id: agentId, mode: "video" });
-    } else {
-      const digest = (digestData ?? {}) as { content?: string | null };
-      knowledgeDigest = typeof digest.content === "string" && digest.content.length > 0 ? digest.content : null;
-    }
-  } catch (digestUnexpected) {
-    trackError("portal_knowledge_digest_failed", digestUnexpected, { agent_id: agentId, mode: "video" });
-  }
+  const knowledgeDigest = await fetchKnowledgeDigest(supabase, agentId, "video", 3500);
 
   const personaId = config.configured && config.persona_id ? config.persona_id : undefined;
   const replicaId = config.configured && config.replica_id ? config.replica_id : defaultReplicaId;
@@ -163,12 +139,11 @@ export async function startPresentationConversation(agentId: string): Promise<Pr
   }
 
   const supabase = await createClient();
-  const { data: configData, error: configError } = await supabase.rpc("portal_agent_video_config", { p_agent_id: agentId });
-  if (configError) {
-    trackError("portal_agent_video_config_failed", configError, { agent_id: agentId, mode: "presentation" });
-    return { url: null, conversationId: null, deck: null, error: "Não foi possível ler a configuração de vídeo do agente. Tente novamente." };
+  const configResult = await resolveAgentVideoConfig(supabase, agentId, "presentation");
+  if (!configResult.ok) {
+    return { url: null, conversationId: null, deck: null, error: configResult.error };
   }
-  const config = (configData ?? { configured: false }) as AgentVideoConfig;
+  const config = configResult.config;
   const language: "portuguese" | "english" = config.language === "english" ? "english" : "portuguese";
 
   const deck = config.presentation_kind === "platform"
@@ -198,18 +173,7 @@ export async function startPresentationConversation(agentId: string): Promise<Pr
 
   // Digest menor que no modo livre: o roteiro do deck divide o mesmo teto de
   // 6000 chars do conversational_context do adapter.
-  let knowledgeDigest: string | null = null;
-  try {
-    const { data: digestData, error: digestError } = await supabase.rpc("portal_knowledge_digest", { p_max_chars: 2400 });
-    if (digestError) {
-      trackError("portal_knowledge_digest_failed", digestError, { agent_id: agentId, mode: "presentation" });
-    } else {
-      const digest = (digestData ?? {}) as { content?: string | null };
-      knowledgeDigest = typeof digest.content === "string" && digest.content.length > 0 ? digest.content : null;
-    }
-  } catch (digestUnexpected) {
-    trackError("portal_knowledge_digest_failed", digestUnexpected, { agent_id: agentId, mode: "presentation" });
-  }
+  const knowledgeDigest = await fetchKnowledgeDigest(supabase, agentId, "presentation", 2400);
 
   const contextParts = [buildDeckContext(deck, language)];
   if (knowledgeDigest) contextParts.push("", buildKnowledgeContext(knowledgeDigest));

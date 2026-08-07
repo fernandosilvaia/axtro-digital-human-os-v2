@@ -10,6 +10,7 @@ import { createTavusVideoConversationPort } from "@axtro/provider-tavus";
 import { buildCloserVideoSystemPrompt, buildPerceptionQueries } from "@/lib/brain/metodo-silva";
 import type { createClient } from "@/lib/supabase/server";
 import { logError as trackError, logEvent } from "@/lib/telemetry";
+import { resolveAgentVideoConfig } from "@/lib/video-config";
 
 /**
  * Tools de controle de slides registradas na conta Tavus da plataforma
@@ -43,17 +44,12 @@ export async function provisionAgentVideoIfMissing(
     return { provisioned: false };
   }
 
-  const { data: configData, error: configError } = await supabase.rpc("portal_agent_video_config", { p_agent_id: agent.id });
-  if (configError) {
-    // Falha de LEITURA não é "não configurado": seguir adiante criaria uma
-    // persona duplicada no provider e sobrescreveria uma persona curada à
-    // mão (auditoria 2026-08-02). Ativação continua — provisão fica pra
-    // próxima ativação/pausa+ativação.
-    trackError("agent_video_config_read_failed", configError, { agent_id: agent.id });
-    return { provisioned: false };
-  }
-  const config = (configData ?? { configured: false }) as { configured: boolean };
-  if (config.configured) return { provisioned: false };
+  // Falha de LEITURA não é "não configurado": seguir adiante criaria uma
+  // persona duplicada no provider e sobrescreveria uma persona curada à mão.
+  // Ativação continua mesmo assim — provisão fica pra próxima ativação/pausa+ativação.
+  const configResult = await resolveAgentVideoConfig(supabase, agent.id, "auto-provision");
+  if (!configResult.ok) return { provisioned: false };
+  if (configResult.config.configured) return { provisioned: false };
 
   const firstName = agent.name.split(/[\s—-]+/)[0] ?? agent.name;
   const elevenKey = (process.env.ELEVENLABS_API_KEY ?? "").trim();

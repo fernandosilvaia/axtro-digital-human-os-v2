@@ -52,6 +52,8 @@ export interface CreateCheckoutSessionRequest {
   readonly existingStripeCustomerId?: string;
   readonly successUrl: string;
   readonly cancelUrl: string;
+  /** Chave de idempotência da Stripe — duplo clique/retry/duas abas não criam duas assinaturas. */
+  readonly idempotencyKey: string;
 }
 
 export interface CheckoutSession {
@@ -199,23 +201,31 @@ export function createStripeBillingPort(options: StripeAdapterOptions): StripeBi
       if (!isHttpsUrl(request.successUrl, MAX_URL_CHARS) || !isHttpsUrl(request.cancelUrl, MAX_URL_CHARS)) {
         throw new StripeBillingError("invalid_request", "successUrl/cancelUrl must be https URLs");
       }
+      if (typeof request.idempotencyKey !== "string" || request.idempotencyKey.length === 0 || request.idempotencyKey.length > MAX_ID_CHARS) {
+        throw new StripeBillingError("invalid_request", "idempotencyKey is required");
+      }
 
-      const payload = await call("POST", "/checkout/sessions", {
-        mode: "subscription",
-        client_reference_id: request.tenantId,
-        ...(request.existingStripeCustomerId ? { customer: request.existingStripeCustomerId } : {}),
-        ...(!request.existingStripeCustomerId && request.customerEmail ? { customer_email: request.customerEmail } : {}),
-        success_url: request.successUrl,
-        cancel_url: request.cancelUrl,
-        allow_promotion_codes: true,
-        line_items: [
-          { price: request.basePriceId, quantity: 1 },
-          { price: request.overagePriceId },
-        ],
-        subscription_data: {
-          metadata: { tenant_id: request.tenantId, plan_id: request.planId },
+      const payload = await call(
+        "POST",
+        "/checkout/sessions",
+        {
+          mode: "subscription",
+          client_reference_id: request.tenantId,
+          ...(request.existingStripeCustomerId ? { customer: request.existingStripeCustomerId } : {}),
+          ...(!request.existingStripeCustomerId && request.customerEmail ? { customer_email: request.customerEmail } : {}),
+          success_url: request.successUrl,
+          cancel_url: request.cancelUrl,
+          allow_promotion_codes: true,
+          line_items: [
+            { price: request.basePriceId, quantity: 1 },
+            { price: request.overagePriceId },
+          ],
+          subscription_data: {
+            metadata: { tenant_id: request.tenantId, plan_id: request.planId },
+          },
         },
-      });
+        request.idempotencyKey,
+      );
       const record = (payload ?? {}) as Record<string, unknown>;
       const sessionId = record.id;
       const checkoutUrl = record.url;

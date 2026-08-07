@@ -3,7 +3,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { createUuidV7 } from "@axtro/domain";
 
 import { PLAN_CATALOG, PLAN_ORDER } from "@/lib/billing/plans";
-import { parseStripeSubscriptionEvent, verifyStripeWebhookSignature } from "@/lib/billing/webhook";
+import { isHandledStripeSubscriptionEventType, parseStripeSubscriptionEvent, verifyStripeWebhookSignature } from "@/lib/billing/webhook";
 import { createServiceRoleClient, ServiceRoleUnavailableError } from "@/lib/supabase/service";
 import { logError as trackError, logEvent } from "@/lib/telemetry";
 
@@ -63,6 +63,20 @@ export async function POST(request: NextRequest): Promise<Response> {
 
   const parsed = parseStripeSubscriptionEvent(body);
   if (parsed === null) {
+    // "Fora de escopo" (invoice.*, checkout.session.*...) é silêncio
+    // esperado (Art. 14). Mas se o TIPO é um dos 3 tratados e mesmo assim
+    // o parse falhou, o payload não tem tenant_id/plan_id válidos — sinal
+    // de assinatura órfã (ex.: criada manualmente no dashboard Stripe pra
+    // suporte) que ficava invisível pra investigar, inconsistente com o
+    // resto deste arquivo (achado da auditoria 2026-08-06).
+    const record = body as Record<string, unknown>;
+    if (isHandledStripeSubscriptionEventType(record.type)) {
+      trackError(
+        "stripe_webhook_malformed_subscription_event",
+        new Error("event type in scope but payload failed validation (missing/invalid tenant_id or plan_id metadata)"),
+        { event_id: typeof record.id === "string" ? record.id : "?", event_type: String(record.type) },
+      );
+    }
     return NextResponse.json({ ok: true, handled: false });
   }
 

@@ -114,3 +114,24 @@ test("customer.subscription.deleted (status=canceled) é tratado igual aos outro
   assert.equal(parsed.eventType, "customer.subscription.deleted");
   assert.equal(parsed.status, "canceled");
 });
+
+// D-V2-105: route.ts usa isHandledStripeSubscriptionEventType pra distinguir
+// "tipo fora de escopo" (silêncio esperado) de "tipo tratado mas payload
+// malformado" (deveria emitir telemetria — achado da auditoria 2026-08-06).
+test("isHandledStripeSubscriptionEventType reconhece só os 3 eventos de ciclo de vida de assinatura", () => {
+  assert.equal(webhook.isHandledStripeSubscriptionEventType("customer.subscription.created"), true);
+  assert.equal(webhook.isHandledStripeSubscriptionEventType("customer.subscription.updated"), true);
+  assert.equal(webhook.isHandledStripeSubscriptionEventType("customer.subscription.deleted"), true);
+  assert.equal(webhook.isHandledStripeSubscriptionEventType("invoice.paid"), false);
+  assert.equal(webhook.isHandledStripeSubscriptionEventType("checkout.session.completed"), false);
+  assert.equal(webhook.isHandledStripeSubscriptionEventType(undefined), false);
+  assert.equal(webhook.isHandledStripeSubscriptionEventType(null), false);
+  assert.equal(webhook.isHandledStripeSubscriptionEventType(123), false);
+});
+
+test("evento do tipo certo mas sem tenant_id/plan_id válidos: tipo é reconhecido como 'tratado' mesmo com parse falhando", () => {
+  const orphan = JSON.parse(TEST_BODY);
+  delete orphan.data.object.metadata.tenant_id;
+  assert.equal(webhook.parseStripeSubscriptionEvent(orphan), null, "parse deve falhar sem tenant_id");
+  assert.equal(webhook.isHandledStripeSubscriptionEventType(orphan.type), true, "mas o TIPO segue sendo um dos 3 tratados — route.ts deve logar isso, não silenciar");
+});

@@ -68,3 +68,33 @@ export async function revokeInvite(formData: FormData): Promise<void> {
   await supabase.rpc("portal_revoke_invite", { p_invite_id: inviteId });
   revalidatePath("/configuracoes");
 }
+
+const REMOVE_MEMBER_ERROR_MESSAGES: Readonly<Record<string, string>> = {
+  "only a tenant_admin can remove members": "Somente administradores podem remover membros.",
+  "use sign out to remove yourself": "Você não pode remover a si mesmo — use \"Sair da conta\".",
+  "member not found in this account": "Esse membro não está mais nesta conta.",
+  "cannot remove the last administrator of the account": "Não é possível remover o último administrador da conta.",
+};
+
+export interface RemoveMemberState {
+  readonly error: string | null;
+}
+
+/**
+ * Revoga o acesso de um membro já aceito na equipe (achado da auditoria
+ * 2026-08-06: só existia "Revogar" pra convite pendente — um colaborador
+ * desligado ficava sem forma de perder acesso pelo portal). A RPC garante
+ * tenant_admin, escopo por tenant e nunca deixa a conta sem administrador.
+ */
+export async function removeMember(userId: string): Promise<RemoveMemberState> {
+  if (userId.length === 0) return { error: "Membro inválido." };
+
+  const supabase = await createClient();
+  const { error } = await supabase.rpc("portal_remove_member", { p_user_id: userId });
+  if (error) {
+    return { error: REMOVE_MEMBER_ERROR_MESSAGES[error.message] ?? `Não foi possível remover: ${error.message}` };
+  }
+
+  revalidatePath("/configuracoes");
+  return { error: null };
+}

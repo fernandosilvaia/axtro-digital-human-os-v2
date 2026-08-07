@@ -45,6 +45,11 @@ const SUBSCRIPTION_STATUSES = new Set([
 ]);
 const PLAN_IDS = new Set(["piloto", "crescimento", "escala"]);
 
+/** Tipo de evento tratado por parseStripeSubscriptionEvent — exposto pra route.ts distinguir "fora de escopo" de "payload malformado" (a diferença importa pra telemetria). */
+export function isHandledStripeSubscriptionEventType(eventType: unknown): boolean {
+  return typeof eventType === "string" && HANDLED_EVENT_TYPES.has(eventType);
+}
+
 export function verifyStripeWebhookSignature(
   secret: string,
   signatureHeader: string | null,

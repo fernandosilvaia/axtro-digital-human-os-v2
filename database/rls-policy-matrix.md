@@ -20,6 +20,23 @@ Every table that stores or directly relates tenant data has `tenant_id`, forced 
 
 The authenticated JWT or service identity is mapped to an allowed tenant before `SET LOCAL app.tenant_id`. `X-Tenant-Id` is a requested context, not authority.
 
+**Status note (added 2026-08-06, audit finding, D-V2-105):** this requirement describes the
+original M0-M3 kernel design intent. It was never implemented — no migration, RPC or
+application code anywhere in this repo ever calls `SET LOCAL app.tenant_id` / `set_config`.
+`app.current_tenant_id()` (0001) therefore always returns `NULL`, so every `tenant_isolation`
+policy built on it (0005) is permanently inert — it denies all direct table access rather than
+scoping it, which is fail-closed and not a live vulnerability, but it is dead code that reads
+as active protection. The portal (D-V2-058, `apps/portal`) deliberately does **not** use this
+mechanism: every read/write goes through a `SECURITY DEFINER` RPC (`portal_*`) that resolves
+the tenant from `auth.uid() -> user_tenant_memberships` itself, matching the newer tables'
+pattern (`meeting_bot_sessions`, `tenant_subscriptions`, `agent_video_config`,
+`tenant_invites`: `FORCE ROW LEVEL SECURITY` with zero policies — deny-all-by-default,
+authority lives in the RPC). Do not implement `SET LOCAL app.tenant_id` from a client-supplied
+header (`X-Tenant-Id`) trusting it as authority — this doc already warned against exactly that
+failure mode. If this GUC-based mechanism is needed for a future non-portal consumer of the
+kernel tables, it must set the GUC itself from a verified identity (JWT claim or service
+context), never from client input.
+
 ## Required tests
 
 For each tenant table:

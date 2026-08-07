@@ -69,6 +69,13 @@ export async function startCheckout(formData: FormData): Promise<void> {
     // segunda assinatura cobrando em paralelo da mesma conta).
     redirect("/configuracoes?billing_error=ja_assinante");
   }
+  // Cancelou e voltou a assinar: reaproveita o Customer existente em vez de
+  // criar um novo com o mesmo e-mail — sem isso, o histórico de fatura/forma
+  // de pagamento fragmenta no dashboard Stripe a cada ciclo cancela→assina
+  // (achado da auditoria 2026-08-06).
+  const existingCustomerId = existing.status === "canceled" && typeof existing.stripe_customer_id === "string"
+    ? existing.stripe_customer_id
+    : undefined;
 
   const port = createStripeBillingPort({ apiKey });
   let checkoutUrl: string;
@@ -78,9 +85,16 @@ export async function startCheckout(formData: FormData): Promise<void> {
       planId: plan.id,
       basePriceId,
       overagePriceId,
-      ...(typeof user.email === "string" && user.email.length > 0 ? { customerEmail: user.email } : {}),
+      ...(existingCustomerId ? { existingStripeCustomerId: existingCustomerId } : {}),
+      ...(!existingCustomerId && typeof user.email === "string" && user.email.length > 0 ? { customerEmail: user.email } : {}),
       successUrl: publicUrl("/configuracoes?billing_success=1"),
       cancelUrl: publicUrl("/configuracoes?billing_error=cancelado"),
+      // Janela de 1min: absorve duplo clique, retry de rede e duas abas
+      // abertas na mesma conta/plano sem bloquear uma tentativa legítima
+      // alguns minutos depois (achado da auditoria 2026-08-06 — sem isso,
+      // duas Checkout Sessions completadas criam duas assinaturas cobrando
+      // em paralelo, e o upsert por tenant_id só deixa uma visível na UI).
+      idempotencyKey: `checkout:${overview.tenant.id}:${plan.id}:${Math.floor(Date.now() / 60_000)}`,
     });
     checkoutUrl = session.checkoutUrl;
   } catch (error) {

@@ -2,6 +2,7 @@ import { revokeInvite } from "@/lib/actions/team";
 import type { TeamOverview } from "@/lib/portal-data";
 
 import { InviteForm } from "./invite-form";
+import { MemberRemoveButton } from "./member-remove-button";
 
 const ROLE_LABELS: Readonly<Record<string, string>> = {
   tenant_admin: "Administrador",
@@ -21,11 +22,12 @@ export function TeamSection({ team, isAdmin }: { team: TeamOverview; isAdmin: bo
                 <th scope="col">Membro</th>
                 <th scope="col">Papel</th>
                 <th scope="col">Entrou em</th>
+                {isAdmin && <th scope="col"><span className="sr-only">Ações</span></th>}
               </tr>
             </thead>
             <tbody>
               {team.members.map((member) => (
-                <tr key={member.email}>
+                <tr key={member.user_id}>
                   <td>
                     {member.email}
                     {member.is_you && (
@@ -38,6 +40,12 @@ export function TeamSection({ team, isAdmin }: { team: TeamOverview; isAdmin: bo
                     </span>
                   </td>
                   <td className="mono">{new Date(member.joined_at).toLocaleDateString("pt-BR")}</td>
+                  {isAdmin && (
+                    <td style={{ textAlign: "right" }}>
+                      {/* Remoção de si mesmo é "Sair da conta" (sidebar), não este botão. */}
+                      {!member.is_you && <MemberRemoveButton userId={member.user_id} memberEmail={member.email} />}
+                    </td>
+                  )}
                 </tr>
               ))}
             </tbody>
