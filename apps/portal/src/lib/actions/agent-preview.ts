@@ -23,11 +23,41 @@ const MAX_HISTORY_TURNS = 10;
 const MAX_TURN_CHARS = 2000;
 const DAILY_TOKEN_CAP = 500_000;
 const DEFAULT_MODEL = "anthropic/claude-haiku-4.5";
+/** UUID formato solto — o client gera com crypto.randomUUID(), aceitamos qualquer id de tamanho razoável (é só a chave de idempotência do upsert, nunca é interpolado em SQL fora de bind param). */
+const TRANSCRIPT_ID_PATTERN = /^[a-zA-Z0-9_-]{8,128}$/;
+
+/**
+ * Registra o histórico de conversa (D-V2-106 — antes NENHUMA conversa
+ * ficava guardada pro dono revisar). Best-effort: nunca bloqueia nem atrasa
+ * a resposta ao usuário — falha vira telemetria, a call em si já terminou.
+ */
+async function recordChatTranscript(
+  supabase: Awaited<ReturnType<typeof createClient>>,
+  agentId: string,
+  transcriptId: string | undefined,
+  turns: readonly PreviewTurn[],
+): Promise<void> {
+  if (typeof transcriptId !== "string" || !TRANSCRIPT_ID_PATTERN.test(transcriptId)) return;
+  try {
+    const { error } = await supabase.rpc("portal_upsert_conversation_transcript", {
+      p_id: createUuidV7(),
+      p_agent_id: agentId,
+      p_surface: "chat",
+      p_external_ref: transcriptId,
+      p_turns: turns,
+    });
+    if (error) trackError("chat_transcript_record_failed", error, { agent_id: agentId });
+  } catch (error) {
+    trackError("chat_transcript_record_failed", error, { agent_id: agentId });
+  }
+}
 
 export async function sendAgentPreviewMessage(
   agentId: string,
   history: readonly PreviewTurn[],
   userMessage: string,
+  /** Id estável gerado pelo client (crypto.randomUUID()) — o mesmo em toda mensagem da sessão de teste, pra agrupar os turnos numa única conversa registrada. Ausente = não registra (compat com chamadores antigos). */
+  transcriptId?: string,
 ): Promise<AgentPreviewResult> {
   const message = userMessage.trim();
   if (message.length === 0 || message.length > MAX_TURN_CHARS) {
@@ -159,6 +189,12 @@ export async function sendAgentPreviewMessage(
         },
       },
     );
+
+    await recordChatTranscript(supabase, agentId, transcriptId, [
+      ...history,
+      { role: "user", content: message },
+      { role: "assistant", content: result.reply },
+    ]);
 
     return { reply: result.reply, error: null };
   } catch (error) {

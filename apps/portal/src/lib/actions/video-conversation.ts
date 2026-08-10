@@ -9,6 +9,7 @@ import { fetchAgents, fetchTenantOverview } from "@/lib/portal-data";
 import { buildDeckContext, buildPlatformDeck, buildSalesDeck, type Deck } from "@/lib/presentation/deck";
 import { createClient } from "@/lib/supabase/server";
 import { logError as trackError } from "@/lib/telemetry";
+import { registerTranscriptPlaceholder, tavusWebhookCallbackUrl } from "@/lib/transcripts/register";
 import { fetchKnowledgeDigest, resolveAgentVideoConfig } from "@/lib/video-config";
 
 export interface VideoConversationResult {
@@ -67,6 +68,7 @@ export async function startVideoConversation(agentId: string): Promise<VideoConv
   const language = config.language ?? "portuguese";
 
   const port = createTavusVideoConversationPort({ apiKey });
+  const callbackUrl = tavusWebhookCallbackUrl();
   try {
     const conversation = await port.createConversation(
       personaId
@@ -78,6 +80,7 @@ export async function startVideoConversation(agentId: string): Promise<VideoConv
             ...(knowledgeDigest ? { conversationalContext: buildKnowledgeContext(knowledgeDigest) } : {}),
             language,
             maxCallDurationSeconds: 600,
+            ...(callbackUrl ? { callbackUrl } : {}),
           }
         : {
             replicaId,
@@ -91,6 +94,7 @@ export async function startVideoConversation(agentId: string): Promise<VideoConv
               : `Oi! Eu sou ${firstName(agent.name)}, consultora digital da ${overview.tenant.legal_name}. Que bom te ver! Me conta — o que te trouxe até aqui hoje?`,
             language,
             maxCallDurationSeconds: 600,
+            ...(callbackUrl ? { callbackUrl } : {}),
           },
     );
     // Cada conversa criada vira uma linha no ledger de custos (unit
@@ -103,6 +107,9 @@ export async function startVideoConversation(agentId: string): Promise<VideoConv
     } else {
       await reportConversationOverageIfNeeded(supabase, capVerdict, videoUsageEventId);
     }
+    // Placeholder do histórico (D-V2-106) — o webhook da Tavus preenche
+    // `turns` quando a call terminar (application.transcription_ready).
+    await registerTranscriptPlaceholder(supabase, agentId, "video", conversation.conversationId);
     return { url: conversation.conversationUrl, error: null };
   } catch (error) {
     if (error instanceof VideoProviderError) {
@@ -180,6 +187,7 @@ export async function startPresentationConversation(agentId: string): Promise<Pr
   const conversationalContext = contextParts.join("\n").slice(0, 5900);
 
   const port = createTavusVideoConversationPort({ apiKey });
+  const callbackUrl = tavusWebhookCallbackUrl();
   try {
     const conversation = await port.createConversation({
       personaId,
@@ -187,6 +195,7 @@ export async function startPresentationConversation(agentId: string): Promise<Pr
       conversationalContext,
       language,
       maxCallDurationSeconds: 900,
+      ...(callbackUrl ? { callbackUrl } : {}),
     });
     const presentationUsageEventId = createUuidV7();
     const { error: logError } = await supabase.rpc("portal_log_video_usage", { p_id: presentationUsageEventId });
@@ -195,6 +204,7 @@ export async function startPresentationConversation(agentId: string): Promise<Pr
     } else {
       await reportConversationOverageIfNeeded(supabase, capVerdict, presentationUsageEventId);
     }
+    await registerTranscriptPlaceholder(supabase, agentId, "video", conversation.conversationId);
     return { url: conversation.conversationUrl, conversationId: conversation.conversationId, deck, error: null };
   } catch (error) {
     if (error instanceof VideoProviderError && error.code === "provider_rejected") {

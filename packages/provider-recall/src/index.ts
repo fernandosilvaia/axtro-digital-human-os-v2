@@ -40,10 +40,25 @@ export interface CreateMeetingBotRequest {
   readonly outputMediaWebpageUrl?: string;
   /** Aplicado aos 3 platforms (Zoom/Meet/Teams). Ausente = default do provider (`web`). */
   readonly variant?: MeetingBotVariant;
+  /** Habilita transcrição da reunião (docs.recall.ai/docs/async-transcription) — necessária pra capturar o histórico da conversa depois do evento `transcript.done`. */
+  readonly enableTranscription?: boolean;
 }
 
 export interface MeetingBot {
   readonly botId: string;
+}
+
+export interface TranscriptMetadata {
+  readonly transcriptId: string;
+  /** URL assinada (fora do domínio da Recall.ai) de onde baixar o conteúdo — null enquanto ainda não está pronta. */
+  readonly downloadUrl: string | null;
+}
+
+export interface TranscriptBlock {
+  readonly participantName: string | null;
+  readonly isHost: boolean;
+  /** Palavras do bloco já unidas em texto corrido. */
+  readonly text: string;
 }
 
 export type MeetingBotErrorCode =
@@ -75,6 +90,10 @@ export interface MeetingBotPort {
   startCameraWebpage(botId: string, webpageUrl: string): Promise<void>;
   stopCameraWebpage(botId: string): Promise<void>;
   leaveCall(botId: string): Promise<void>;
+  /** GET /api/v1/transcript/{id}/ — metadados + URL de download (fora do domínio Recall.ai). */
+  fetchTranscriptMetadata(transcriptId: string): Promise<TranscriptMetadata>;
+  /** Baixa e faz o parse do conteúdo em downloadUrl (docs.recall.ai/docs/async-transcription). */
+  downloadTranscript(downloadUrl: string): Promise<readonly TranscriptBlock[]>;
 }
 
 export interface RecallAdapterOptions {
@@ -87,8 +106,10 @@ export interface RecallAdapterOptions {
 const MAX_MEETING_URL_CHARS = 500;
 const MAX_BOT_NAME_CHARS = 100;
 const MAX_WEBPAGE_URL_CHARS = 2000;
+const MAX_DOWNLOAD_URL_CHARS = 4000;
+const MAX_TRANSCRIPT_BYTES = 5_000_000;
 const DEFAULT_TIMEOUT_MS = 20_000;
-// Recall.ai bot ids são UUIDs (confirmado na doc oficial: "id (UUID of bot)").
+// Recall.ai bot/transcript ids são UUIDs (confirmado na doc oficial: "id (UUID of bot)").
 const BOT_ID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const ISO_8601_PATTERN = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(\.\d+)?(Z|[+-]\d{2}:\d{2})$/;
 
@@ -108,7 +129,7 @@ export function createRecallMeetingBotPort(options: RecallAdapterOptions): Meeti
   const fetchImplementation = options.fetchImplementation ?? fetch;
   const base = `https://${options.region}.recall.ai/api/v1`;
 
-  async function call(method: "POST" | "DELETE", path: string, body?: Record<string, unknown>): Promise<unknown> {
+  async function call(method: "POST" | "DELETE" | "GET", path: string, body?: Record<string, unknown>): Promise<unknown> {
     const controller = new AbortController();
     const timer = setTimeout(() => controller.abort(), timeoutMs);
     let response: Response;
@@ -146,6 +167,15 @@ export function createRecallMeetingBotPort(options: RecallAdapterOptions): Meeti
     }
   }
 
+  function isHttpsDownloadUrl(value: string): boolean {
+    if (typeof value !== "string" || value.length === 0 || value.length > MAX_DOWNLOAD_URL_CHARS) return false;
+    try {
+      return new URL(value).protocol === "https:";
+    } catch {
+      return false;
+    }
+  }
+
   return Object.freeze({
     providerId: "recall",
     async createBot(request: CreateMeetingBotRequest): Promise<MeetingBot> {
@@ -175,6 +205,9 @@ export function createRecallMeetingBotPort(options: RecallAdapterOptions): Meeti
           : {}),
         ...(request.variant
           ? { variant: { zoom: request.variant, google_meet: request.variant, microsoft_teams: request.variant } }
+          : {}),
+        ...(request.enableTranscription
+          ? { recording_config: { transcript: { provider: { recallai_streaming: {} } } } }
           : {}),
         // Teto duro de bot-hora (auditoria 2026-08-02: sem isto e sem nenhum
         // call site de leaveCall, o bot ficava na reunião cobrando por hora
@@ -214,6 +247,89 @@ export function createRecallMeetingBotPort(options: RecallAdapterOptions): Meeti
     async leaveCall(botId: string): Promise<void> {
       validateBotId(botId);
       await call("POST", `/bot/${botId}/leave_call/`);
+    },
+
+    async fetchTranscriptMetadata(transcriptId: string): Promise<TranscriptMetadata> {
+      if (typeof transcriptId !== "string" || !BOT_ID_PATTERN.test(transcriptId)) {
+        throw new MeetingBotError("invalid_request", "transcriptId must be a plain Recall.ai transcript id");
+      }
+      const payload = await call("GET", `/transcript/${transcriptId}/`);
+      const record = (payload ?? {}) as Record<string, unknown>;
+      const id = record.id;
+      if (typeof id !== "string" || id.length === 0) {
+        throw new MeetingBotError("malformed_provider_response", "Recall.ai transcript payload has no id");
+      }
+      const downloadUrl = record.download_url;
+      return Object.freeze({
+        transcriptId: id,
+        downloadUrl: typeof downloadUrl === "string" && downloadUrl.length > 0 ? downloadUrl : null,
+      });
+    },
+
+    async downloadTranscript(downloadUrl: string): Promise<readonly TranscriptBlock[]> {
+      if (!isHttpsDownloadUrl(downloadUrl)) {
+        throw new MeetingBotError("invalid_request", "downloadUrl must be an https URL");
+      }
+      // URL assinada de storage (fora do domínio da Recall.ai) — sem header
+      // de Authorization da API, e SEM base/timeout compartilhado do call().
+      const controller = new AbortController();
+      const timer = setTimeout(() => controller.abort(), timeoutMs);
+      let response: Response;
+      try {
+        response = await fetchImplementation(downloadUrl, { signal: controller.signal });
+      } catch (error) {
+        if (error instanceof Error && error.name === "AbortError") {
+          throw new MeetingBotError("provider_timeout", `Recall.ai transcript download timed out after ${timeoutMs}ms`);
+        }
+        throw new MeetingBotError("provider_unavailable", "Recall.ai transcript download failed before a response");
+      } finally {
+        clearTimeout(timer);
+      }
+      if (!response.ok) {
+        const code: MeetingBotErrorCode = response.status >= 500 ? "provider_unavailable" : "provider_rejected";
+        throw new MeetingBotError(code, `Recall.ai transcript download respondeu HTTP ${response.status}`);
+      }
+      // Checa Content-Length ANTES de bufferizar (achado P2 da revisão
+      // adversarial 2026-08-10): não evita 100% (um servidor podia mentir
+      // no header), mas corta o caso comum sem segurar o corpo inteiro em
+      // memória primeiro. O teto pós-buffer abaixo continua como rede de
+      // segurança pro caso do header ausente ou mentiroso.
+      const declaredLength = Number(response.headers.get("content-length") ?? "");
+      if (Number.isFinite(declaredLength) && declaredLength > MAX_TRANSCRIPT_BYTES) {
+        throw new MeetingBotError("malformed_provider_response", "Recall.ai transcript exceeds the sanity size cap");
+      }
+      let text: string;
+      try {
+        text = await response.text();
+      } catch {
+        throw new MeetingBotError("provider_unavailable", "Recall.ai transcript download body failed to read");
+      }
+      if (text.length > MAX_TRANSCRIPT_BYTES) {
+        throw new MeetingBotError("malformed_provider_response", "Recall.ai transcript exceeds the sanity size cap");
+      }
+      let parsed: unknown;
+      try {
+        parsed = JSON.parse(text);
+      } catch {
+        throw new MeetingBotError("malformed_provider_response", "Recall.ai transcript download is not valid JSON");
+      }
+      if (!Array.isArray(parsed)) {
+        throw new MeetingBotError("malformed_provider_response", "Recall.ai transcript download must be a JSON array");
+      }
+      return Object.freeze(parsed.map((block): TranscriptBlock => {
+        const record = (block ?? {}) as Record<string, unknown>;
+        const participant = (record.participant ?? {}) as Record<string, unknown>;
+        const words = Array.isArray(record.words) ? record.words : [];
+        const text = words
+          .map((word) => (word as Record<string, unknown>)?.text)
+          .filter((value): value is string => typeof value === "string")
+          .join(" ");
+        return Object.freeze({
+          participantName: typeof participant.name === "string" ? participant.name : null,
+          isHost: participant.is_host === true,
+          text,
+        });
+      }));
     },
   });
 }

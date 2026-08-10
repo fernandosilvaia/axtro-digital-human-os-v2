@@ -16,6 +16,15 @@ export interface VideoConversationRequest {
   readonly greeting?: string;
   readonly language?: string;
   readonly maxCallDurationSeconds?: number;
+  /**
+   * URL que recebe os callbacks da conversa (docs.tavus.io/sections/
+   * webhooks-and-callbacks) — usado pra capturar o transcript quando a
+   * call termina (evento `application.transcription_ready`). Sem
+   * assinatura/HMAC nesses callbacks (confirmado na doc — Tavus não
+   * assina); a rota que recebe precisa da própria camada de autenticação
+   * (token na URL, mesmo padrão do webhook do Recall.ai).
+   */
+  readonly callbackUrl?: string;
 }
 
 export interface VideoConversation {
@@ -163,12 +172,16 @@ export function createTavusVideoConversationPort(options: TavusAdapterOptions): 
       if (!Number.isInteger(maxSeconds) || maxSeconds < 60 || maxSeconds > MAX_CALL_SECONDS_CAP) {
         throw new VideoProviderError("invalid_request", `maxCallDurationSeconds must be 60..${MAX_CALL_SECONDS_CAP}`);
       }
+      if (request.callbackUrl !== undefined && !request.callbackUrl.startsWith("https://")) {
+        throw new VideoProviderError("invalid_request", "callbackUrl must be an https URL");
+      }
 
       const payload = await call("/conversations", {
         ...(usePersona ? { persona_id: request.personaId } : { replica_id: request.replicaId }),
         conversation_name: request.conversationName,
         ...(request.conversationalContext ? { conversational_context: request.conversationalContext } : {}),
         ...(request.greeting ? { custom_greeting: request.greeting } : {}),
+        ...(request.callbackUrl ? { callback_url: request.callbackUrl } : {}),
         properties: {
           max_call_duration: maxSeconds,
           participant_left_timeout: 30,

@@ -10,6 +10,7 @@ import { handleJoinMeeting, JoinMeetingError, type AgentPersonaForMeeting } from
 import { fetchAgents } from "@/lib/portal-data";
 import { createClient } from "@/lib/supabase/server";
 import { logError as trackError } from "@/lib/telemetry";
+import { registerTranscriptPlaceholder } from "@/lib/transcripts/register";
 import { checkVideoCap, reportConversationOverageIfNeeded, VIDEO_CAP_CHECK_FAILED_MESSAGE, VIDEO_CAP_MESSAGE } from "@/lib/video-cap";
 import { resolveAgentVideoConfig } from "@/lib/video-config";
 
@@ -128,6 +129,9 @@ export async function joinExternalMeeting(
           ...(params.joinAtIso ? { joinAtIso: params.joinAtIso } : {}),
           ...(params.outputMediaWebpageUrl ? { outputMediaWebpageUrl: params.outputMediaWebpageUrl } : {}),
           ...(params.variant ? { variant: params.variant } : {}),
+          // Histórico de conversa (D-V2-106) — o webhook transcript.done
+          // preenche `turns` quando a reunião termina.
+          enableTranscription: true,
         }),
         recordSession: async (params) => {
           const { error } = await supabase.rpc("portal_record_meeting_bot_session", {
@@ -140,6 +144,9 @@ export async function joinExternalMeeting(
             p_cost_event_id: createUuidV7(),
           });
           if (error) trackError("meeting_bot_record_session_failed", error, { agent_id: agentId });
+          // Placeholder do histórico (D-V2-106) — o webhook do Recall
+          // (transcript.done) preenche `turns` quando a reunião termina.
+          await registerTranscriptPlaceholder(supabase, agentId, "meeting", params.botId);
           // A reunião externa criou uma conversa Tavus real — ela PRECISA
           // contar no mesmo teto/ledger de vídeo (auditoria 2026-08-02: o
           // comentário do cap prometia isso e o código não fazia; o teto

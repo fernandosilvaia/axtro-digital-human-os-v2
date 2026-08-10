@@ -105,3 +105,32 @@ export function parseRecallWebhookPayload(rawBody: unknown): RecallBotStatusPayl
 export function statusForRecallEvent(event: string): "joining" | "in_call" | "ended" | "failed" | null {
   return STATUS_BY_EVENT[event] ?? null;
 }
+
+/**
+ * `transcript.done` (docs.recall.ai/docs/async-transcription — "Transcript
+ * Status Change" webhook) tem um shape DIFERENTE dos eventos `bot.*` de
+ * status: `data.bot.id` continua lá (mesma convenção), mas o id que
+ * importa aqui é `data.transcript.id` — usado pra buscar o conteúdo
+ * (GET /transcript/{id}/, dois hops: metadata → download_url → conteúdo).
+ * D-V2-106.
+ */
+export interface RecallTranscriptDonePayload {
+  readonly botId: string;
+  readonly transcriptId: string;
+}
+
+export function parseRecallTranscriptDonePayload(rawBody: unknown): RecallTranscriptDonePayload | null {
+  if (rawBody === null || typeof rawBody !== "object") return null;
+  const record = rawBody as Record<string, unknown>;
+  if (record.event !== "transcript.done") return null;
+  const data = record.data;
+  if (data === null || typeof data !== "object") return null;
+  const bot = (data as Record<string, unknown>).bot;
+  const transcript = (data as Record<string, unknown>).transcript;
+  if (bot === null || typeof bot !== "object" || transcript === null || typeof transcript !== "object") return null;
+  const botId = (bot as Record<string, unknown>).id;
+  const transcriptId = (transcript as Record<string, unknown>).id;
+  if (typeof botId !== "string" || botId.length === 0) return null;
+  if (typeof transcriptId !== "string" || transcriptId.length === 0) return null;
+  return { botId, transcriptId };
+}

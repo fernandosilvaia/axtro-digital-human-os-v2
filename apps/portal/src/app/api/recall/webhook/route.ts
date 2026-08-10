@@ -4,7 +4,7 @@ import { createRecallMeetingBotPort, type RecallRegion } from "@axtro/provider-r
 import { createTavusVideoConversationPort } from "@axtro/provider-tavus";
 
 import { agentFaceStageUrl } from "@/lib/meetings/stage";
-import { parseRecallWebhookPayload, statusForRecallEvent, verifyRecallWebhookSignature } from "@/lib/meetings/webhook";
+import { parseRecallTranscriptDonePayload, parseRecallWebhookPayload, statusForRecallEvent, verifyRecallWebhookSignature } from "@/lib/meetings/webhook";
 import { constantTimeEquals } from "@/lib/security";
 import { createServiceRoleClient, ServiceRoleUnavailableError } from "@/lib/supabase/service";
 import { logError as trackError, logEvent } from "@/lib/telemetry";
@@ -167,6 +167,73 @@ async function notifyMeetingEnded(botId: string, status: "ended" | "failed"): Pr
   });
 }
 
+/**
+ * Reunião terminou e a transcrição ficou pronta (D-V2-106) — busca o
+ * conteúdo em 2 hops (metadata → download_url → conteúdo, docs.recall.ai/
+ * docs/async-transcription) e grava como histórico. A Recall não dá um
+ * `role` explícito por bloco (diferente do Tavus) — só o nome do
+ * participante; o bloco cujo nome bate com o nome do agente vira
+ * 'assistant', o resto (o lead e qualquer outro participante real) vira
+ * 'user'. Best-effort: nunca derruba o webhook.
+ *
+ * LIMITAÇÃO CONHECIDA (achado P2 da revisão adversarial 2026-08-10,
+ * confirmado 3x): esse match é por NOME, então um participante que renomeia
+ * a si mesmo pra bater exatamente com o nome do agente sai marcado como
+ * 'assistant' na transcrição. `isHost` não serve de sinal melhor (o bot
+ * normalmente entra como convidado, não host — quem agendou a reunião é
+ * que costuma ser host). Corrigir de verdade exigiria capturar o
+ * participant_id do PRÓPRIO bot via evento de participante em tempo real
+ * durante a call (não capturado hoje) — fora do escopo desta rodada.
+ * Impacto aceito: pior caso é um rótulo trocado numa tela de leitura
+ * (não vaza dado entre tenants, não abre acesso indevido).
+ */
+async function processMeetingTranscript(botId: string, transcriptId: string): Promise<void> {
+  const recallApiKey = (process.env.RECALL_API_KEY ?? "").trim();
+  const recallRegion = (process.env.RECALL_API_REGION ?? "").trim() as RecallRegion;
+  if (recallApiKey.length === 0 || recallRegion.length === 0) return;
+
+  const supabase = createServiceRoleClient();
+  const { data: agentContext, error: agentError } = await supabase.rpc("portal_get_meeting_bot_agent_service", {
+    p_recall_bot_id: botId,
+  });
+  if (agentError || agentContext === null) {
+    if (agentError) trackError("recall_webhook_transcript_agent_lookup_failed", agentError, { bot_id: botId });
+    return;
+  }
+  const agentName = (agentContext as { agentName?: unknown }).agentName;
+  if (typeof agentName !== "string") return;
+
+  const recallPort = createRecallMeetingBotPort({ apiKey: recallApiKey, region: recallRegion });
+  const metadata = await recallPort.fetchTranscriptMetadata(transcriptId);
+  if (metadata.downloadUrl === null) {
+    // Transcrição ainda processando — a Recall reenvia transcript.done quando estiver pronta de verdade.
+    logEvent("recall_webhook_transcript_not_ready", { bot_id: botId, transcript_id: transcriptId });
+    return;
+  }
+
+  const blocks = await recallPort.downloadTranscript(metadata.downloadUrl);
+  const turns = blocks
+    .filter((block) => block.text.trim().length > 0)
+    .map((block) => ({
+      role: block.participantName === agentName ? ("assistant" as const) : ("user" as const),
+      content: block.text,
+    }));
+  if (turns.length === 0) return;
+
+  const { data, error } = await supabase.rpc("portal_append_transcript_turns_service", {
+    p_surface: "meeting",
+    p_external_ref: botId,
+    p_turns: turns,
+    p_ended_at: new Date().toISOString(),
+  });
+  if (error) {
+    trackError("recall_webhook_transcript_append_failed", error, { bot_id: botId });
+    return;
+  }
+  const found = (data as { found?: boolean } | null)?.found === true;
+  if (!found) logEvent("recall_webhook_transcript_no_matching_transcript", { bot_id: botId });
+}
+
 export async function POST(request: NextRequest): Promise<Response> {
   const expectedToken = process.env.RECALL_WEBHOOK_TOKEN ?? "";
   if (expectedToken.trim().length < 16) {
@@ -202,6 +269,17 @@ export async function POST(request: NextRequest): Promise<Response> {
     body = JSON.parse(rawBody);
   } catch {
     return NextResponse.json({ error: "invalid_json_body" }, { status: 400 });
+  }
+
+  const transcriptDone = parseRecallTranscriptDonePayload(body);
+  if (transcriptDone !== null) {
+    try {
+      await processMeetingTranscript(transcriptDone.botId, transcriptDone.transcriptId);
+    } catch (transcriptError) {
+      // Nunca derruba o webhook — o Recall pode reentregar transcript.done em retry.
+      trackError("recall_webhook_transcript_processing_failed", transcriptError, { bot_id: transcriptDone.botId });
+    }
+    return NextResponse.json({ ok: true, handled: true });
   }
 
   const parsed = parseRecallWebhookPayload(body);

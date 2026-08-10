@@ -100,3 +100,29 @@ test("rejeita cabeçalhos ausentes, segredo sem prefixo whsec_, ou assinatura em
   assert.equal(webhook.verifyRecallWebhookSignature(TEST_SECRET, { ...base, signature: "v2,ctSdmK6qGEuy7kU0HmCCsmsGERZFM52VQ65rC2pjOgM=" }, TEST_RAW_BODY, TEST_NOW), false);
   assert.equal(webhook.verifyRecallWebhookSignature(TEST_SECRET, { ...base, signature: "garbage-no-comma" }, TEST_RAW_BODY, TEST_NOW), false);
 });
+
+// D-V2-106: transcript.done tem shape diferente dos eventos bot.* de status
+// — data.transcript.id é o que importa aqui (busca de conteúdo em 2 hops).
+test("parseRecallTranscriptDonePayload extrai botId e transcriptId de transcript.done", () => {
+  const payload = {
+    event: "transcript.done",
+    data: {
+      data: { code: "done", sub_code: null, updated_at: "2026-08-10T18:00:00Z" },
+      transcript: { id: "t-abc123", metadata: {} },
+      recording: { id: "r-abc123", metadata: {} },
+      bot: { id: "550e8400-e29b-41d4-a716-446655440000", metadata: {} },
+    },
+  };
+  assert.deepEqual(webhook.parseRecallTranscriptDonePayload(payload), {
+    botId: "550e8400-e29b-41d4-a716-446655440000",
+    transcriptId: "t-abc123",
+  });
+});
+
+test("parseRecallTranscriptDonePayload ignora outros eventos e payload malformado sem lançar", () => {
+  assert.equal(webhook.parseRecallTranscriptDonePayload({ event: "bot.done", data: {} }), null);
+  assert.equal(webhook.parseRecallTranscriptDonePayload(null), null);
+  assert.equal(webhook.parseRecallTranscriptDonePayload({ event: "transcript.done", data: {} }), null);
+  assert.equal(webhook.parseRecallTranscriptDonePayload({ event: "transcript.done", data: { data: {}, bot: { id: "x" } } }), null);
+  assert.equal(webhook.parseRecallTranscriptDonePayload({ event: "transcript.done", data: { data: {}, transcript: { id: "t" } } }), null);
+});

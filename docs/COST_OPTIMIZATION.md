@@ -33,6 +33,24 @@ invisível no ledger — os maiores buracos financeiros do produto.
    chamada degradar — pagando STT/TTS/vídeo do Tavus numa call que nunca
    respondia de verdade. Corrigido na raiz.
 
+## Superfície de custo nova: transcrição de reunião externa (D-V2-106)
+
+Habilitar `enableTranscription: true` no bot da Recall.ai (histórico de
+conversa) liga a transcrição assíncrona deles — **cobrada separada da
+bot-hora**: US$ 0,15/hora de gravação transcrita (recall.ai/blog/
+new-recall-ai-pricing-for-2026, 2026-08-03), empilhado sobre o US$ 0,50/hora
+de bot já contabilizado. Numa reunião de referência de ~30min isso é
++US$ 0,075 — pequeno frente ao piso de vídeo Tavus (US$ 0,175/conversa), mas
+**ainda não entra no ledger** (`cost_events`): o evento de custo de reunião
+externa registra só o bot-hora + o piso de vídeo, não a transcrição. Gap
+honestamente declarado — candidato de próxima onda (mesma disciplina do
+"custo por conversa é piso, não exato" já aceito pro Tavus).
+
+O chat de teste e o vídeo/apresentação hospedados pelo Tavus não somam
+custo novo: a transcrição ali vem do `application.transcription_ready`
+callback já incluído no preço da conversa (confirmado na doc oficial —
+não é um add-on cobrado à parte).
+
 ## Não medido / honestamente pendente
 
 - Duração real de cada conversa Tavus continua não capturada — o ledger
@@ -42,3 +60,5 @@ invisível no ledger — os maiores buracos financeiros do produto.
   funcionalidade fina (ex.: apresentação vs. conversa) não é separado.
 - Alerta proativo de custo (e-mail quando X% do teto) não existe — os tetos
   cortam, mas não avisam antes. Candidato de próxima onda.
+- Transcrição de reunião externa (Recall, US$0,15/hora) não entra no ledger
+  ainda — ver seção acima.

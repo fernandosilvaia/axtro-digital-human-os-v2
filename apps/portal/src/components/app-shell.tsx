@@ -9,6 +9,7 @@ const NAV_ITEMS = [
   { href: "/dashboard", label: "Visão geral", icon: IconHome },
   { href: "/agentes", label: "Agentes", icon: IconAgent },
   { href: "/conhecimento", label: "Conhecimento", icon: IconBook },
+  { href: "/conversas", label: "Conversas", icon: IconChat },
   { href: "/configuracoes", label: "Configurações", icon: IconGear },
 ] as const;
 
@@ -106,6 +107,14 @@ function IconBook() {
   return (
     <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
       <path d="M4 19V5a2 2 0 0 1 2-2h14v16H6a2 2 0 0 0-2 2Z" /><path d="M4 19a2 2 0 0 0 2 2h14" />
+    </svg>
+  );
+}
+
+function IconChat() {
+  return (
+    <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+      <path d="M4 20l1.4-4.2A8 8 0 1 1 9 19.5L4 20Z" />
     </svg>
   );
 }

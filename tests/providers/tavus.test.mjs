@@ -38,6 +38,22 @@ test("createConversation envia payload fechado ao endpoint fixo e devolve id + u
   assert.equal(body.properties.language, "portuguese");
 });
 
+test("createConversation envia callback_url quando informado, e rejeita se não for https", async () => {
+  const { calls, implementation } = fakeFetch(async () => new Response(
+    JSON.stringify({ conversation_id: "c1", conversation_url: "https://tavus.daily.co/c1" }),
+    { status: 200 },
+  ));
+  const port = provider.createTavusVideoConversationPort({ apiKey: API_KEY, fetchImplementation: implementation });
+  await port.createConversation(request({ callbackUrl: "https://closer.axtroai.com/api/tavus/webhook?token=abc" }));
+  const body = JSON.parse(calls[0].init.body);
+  assert.equal(body.callback_url, "https://closer.axtroai.com/api/tavus/webhook?token=abc");
+
+  await assert.rejects(
+    () => port.createConversation(request({ callbackUrl: "http://not-https.com/webhook" })),
+    (e) => e.code === "invalid_request",
+  );
+});
+
 test("validação fecha replica, nome, contexto e duração antes da rede; chave nunca vaza em erro", async () => {
   const { calls, implementation } = fakeFetch(async () => new Response(`nope ${API_KEY}`, { status: 401 }));
   const port = provider.createTavusVideoConversationPort({ apiKey: API_KEY, fetchImplementation: implementation });

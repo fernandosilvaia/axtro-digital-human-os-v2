@@ -158,3 +158,50 @@ test("timeout vira provider_timeout sem vazar a chave", async () => {
   const port = provider.createRecallMeetingBotPort({ apiKey: API_KEY, region: "us-east-1", timeoutMs: 5, fetchImplementation: timeoutFetch });
   await assert.rejects(() => port.createBot({ meetingUrl: "https://zoom.us/j/1" }), (e) => e.code === "provider_timeout");
 });
+
+test("createBot com enableTranscription envia recording_config no formato oficial", async () => {
+  const { calls, implementation } = fakeFetch(async () => new Response(JSON.stringify({ id: "550e8400-e29b-41d4-a716-446655440000" }), { status: 201 }));
+  const port = provider.createRecallMeetingBotPort({ apiKey: API_KEY, region: "us-west-2", fetchImplementation: implementation });
+  await port.createBot({ meetingUrl: "https://zoom.us/j/1", enableTranscription: true });
+  const body = JSON.parse(calls[0].init.body);
+  assert.deepEqual(body.recording_config, { transcript: { provider: { recallai_streaming: {} } } });
+
+  await port.createBot({ meetingUrl: "https://zoom.us/j/1" });
+  assert.equal(JSON.parse(calls[1].init.body).recording_config, undefined);
+});
+
+test("fetchTranscriptMetadata valida o id e devolve downloadUrl (null enquanto não está pronta)", async () => {
+  const { calls, implementation } = fakeFetch(async () => new Response(JSON.stringify({ id: "550e8400-e29b-41d4-a716-446655440000", download_url: "https://storage.example.com/t.json" }), { status: 200 }));
+  const port = provider.createRecallMeetingBotPort({ apiKey: API_KEY, region: "us-west-2", fetchImplementation: implementation });
+  const meta = await port.fetchTranscriptMetadata("550e8400-e29b-41d4-a716-446655440000");
+  assert.deepEqual(meta, { transcriptId: "550e8400-e29b-41d4-a716-446655440000", downloadUrl: "https://storage.example.com/t.json" });
+  assert.equal(calls[0].url, "https://us-west-2.recall.ai/api/v1/transcript/550e8400-e29b-41d4-a716-446655440000/");
+  assert.equal(calls[0].init.method, "GET");
+
+  await assert.rejects(() => port.fetchTranscriptMetadata("not-a-uuid"), (e) => e.code === "invalid_request");
+});
+
+test("downloadTranscript busca a downloadUrl SEM header de auth da API e agrupa por bloco de participante", async () => {
+  const calls = [];
+  const implementation = async (url, init) => {
+    calls.push({ url, init });
+    return new Response(JSON.stringify([
+      { participant: { name: "Ana", is_host: true }, words: [{ text: "Oi" }, { text: "tudo" }, { text: "bem?" }] },
+      { participant: { name: null, is_host: false }, words: [{ text: "Tudo" }, { text: "sim!" }] },
+    ]), { status: 200 });
+  };
+  const port = provider.createRecallMeetingBotPort({ apiKey: API_KEY, region: "us-west-2", fetchImplementation: implementation });
+  const blocks = await port.downloadTranscript("https://storage.example.com/t.json");
+  assert.deepEqual(blocks, [
+    { participantName: "Ana", isHost: true, text: "Oi tudo bem?" },
+    { participantName: null, isHost: false, text: "Tudo sim!" },
+  ]);
+  assert.equal(calls[0].url, "https://storage.example.com/t.json");
+  assert.equal(calls[0].init.headers, undefined, "download da storage não deve levar o header Authorization da API da Recall");
+});
+
+test("downloadTranscript rejeita URL não-https e payload que não é array", async () => {
+  const port = provider.createRecallMeetingBotPort({ apiKey: API_KEY, region: "us-west-2", fetchImplementation: async () => new Response(JSON.stringify({ not: "an array" }), { status: 200 }) });
+  await assert.rejects(() => port.downloadTranscript("http://not-https.com"), (e) => e.code === "invalid_request");
+  await assert.rejects(() => port.downloadTranscript("https://storage.example.com/t.json"), (e) => e.code === "malformed_provider_response");
+});

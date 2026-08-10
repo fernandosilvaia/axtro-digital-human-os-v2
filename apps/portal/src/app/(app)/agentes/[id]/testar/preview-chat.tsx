@@ -11,6 +11,10 @@ export function PreviewChat({ agentId, agentName }: { agentId: string; agentName
   const [copied, setCopied] = useState(false);
   const [pending, startTransition] = useTransition();
   const scrollRef = useRef<HTMLDivElement>(null);
+  // Id estável pra esta sessão de teste (uma aba aberta = uma conversa
+  // registrada) — o mesmo em toda mensagem, recarregar a página começa
+  // outra conversa nova (D-V2-106: histórico de conversa pro dono revisar).
+  const transcriptIdRef = useRef<string>(crypto.randomUUID());
 
   async function copyConversation() {
     // A conversa vive só em memória (some ao navegar) — copiar é o jeito de
@@ -36,7 +40,7 @@ export function PreviewChat({ agentId, agentName }: { agentId: string; agentName
     const nextTurns = [...turns, { role: "user" as const, content: message }];
     setTurns(nextTurns);
     startTransition(async () => {
-      const result = await sendAgentPreviewMessage(agentId, turns, message);
+      const result = await sendAgentPreviewMessage(agentId, turns, message, transcriptIdRef.current);
       if (result.error || result.reply === null) {
         setError(result.error ?? "Erro inesperado.");
         setTurns(turns);

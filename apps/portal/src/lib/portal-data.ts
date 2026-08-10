@@ -153,3 +153,47 @@ export async function fetchBillingStatus(): Promise<BillingStatus> {
   if (error) throw new Error(`billing status fetch failed: ${error.message}`);
   return data as BillingStatus;
 }
+
+export type TranscriptSurface = "chat" | "video" | "meeting";
+
+export interface TranscriptSummary {
+  readonly id: string;
+  readonly agentId: string;
+  readonly agentName: string;
+  readonly surface: TranscriptSurface;
+  readonly turnCount: number;
+  readonly startedAt: string;
+  readonly endedAt: string | null;
+}
+
+export interface TranscriptTurn {
+  readonly role: "user" | "assistant";
+  readonly content: string;
+}
+
+export interface TranscriptDetail {
+  readonly id: string;
+  readonly agentId: string;
+  readonly agentName: string;
+  readonly surface: TranscriptSurface;
+  readonly turns: readonly TranscriptTurn[];
+  readonly startedAt: string;
+  readonly endedAt: string | null;
+}
+
+/** Histórico de conversa (D-V2-106) — chat de teste, vídeo e reunião externa, tudo num só lugar pro dono revisar depois. */
+export async function fetchConversationTranscripts(agentId?: string): Promise<readonly TranscriptSummary[]> {
+  const supabase = await createClient();
+  const { data, error } = await supabase.rpc("portal_list_conversation_transcripts", {
+    p_agent_id: agentId ?? null,
+  });
+  if (error) throw new Error(`transcripts fetch failed: ${error.message}`);
+  return (data ?? []) as readonly TranscriptSummary[];
+}
+
+export async function fetchConversationTranscript(id: string): Promise<TranscriptDetail> {
+  const supabase = await createClient();
+  const { data, error } = await supabase.rpc("portal_get_conversation_transcript", { p_id: id });
+  if (error) throw new Error(`transcript fetch failed: ${error.message}`);
+  return data as TranscriptDetail;
+}
