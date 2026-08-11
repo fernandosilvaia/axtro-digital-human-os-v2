@@ -121,6 +121,35 @@ test("chat de teste responde em modo demonstração", async ({ page }) => {
   await expect(page.getByText("modo demonstração", { exact: false }).first()).toBeVisible({ timeout: 30_000 });
 });
 
+test("conversas: histórico de chat aparece na lista e no detalhe (D-V2-107 — caminho de leitura sem cobertura)", async ({ page }) => {
+  // Achado da auditoria 2026-08-11: o histórico de conversa (D-V2-106) não
+  // tinha NENHUM teste e2e cobrindo o caminho de LEITURA (portal_list_
+  // conversation_transcripts, portal_get_conversation_transcript, /conversas
+  // e /conversas/[id]) — só o parser do webhook da Tavus e a montagem de URL
+  // eram testados localmente. Marcador único por execução evita depender da
+  // ordem de outros testes que também tocam o chat/vídeo de teste.
+  await login(page);
+  const marker = `E2E histórico ${Date.now().toString(36)}`;
+  await page.goto(`/agentes/${RAFAELA_ID}/testar`);
+  await page.fill("#preview-message", marker);
+  await page.getByRole("button", { name: "Enviar" }).click();
+  await expect(page.getByText("modo demonstração", { exact: false }).first()).toBeVisible({ timeout: 30_000 });
+
+  await page.goto("/conversas");
+  await expect(page.getByRole("heading", { name: "Conversas" })).toBeVisible();
+  const row = page.locator("tbody tr").first();
+  await expect(row).toBeVisible({ timeout: 20_000 });
+  await expect(row.getByText("Chat de teste")).toBeVisible();
+
+  await row.getByRole("link", { name: "Ver" }).click();
+  // .first(): a resposta simulada em modo demonstração ecoa os 80 primeiros
+  // caracteres da mensagem no corpo da própria resposta — com o marcador
+  // curto, os dois turnos (pergunta do usuário e resposta do agente) contêm
+  // o texto, então getByText bate em 2 elementos (strict mode violation).
+  await expect(page.getByText(marker).first()).toBeVisible({ timeout: 20_000 });
+  await expect(page.getByText(`Cliente: ${marker}`)).toBeVisible();
+});
+
 test("apresentação simulada abre o deck e navega slides", async ({ page }) => {
   await login(page);
   await page.goto(`/agentes/${RAFAELA_ID}/testar`);

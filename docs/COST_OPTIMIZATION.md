@@ -58,7 +58,12 @@ não é um add-on cobrado à parte).
   webhook de fim de conversa do Tavus (candidato futuro).
 - Custo por fluxo/por cliente existe no painel (7d por serviço); custo por
   funcionalidade fina (ex.: apresentação vs. conversa) não é separado.
-- Alerta proativo de custo (e-mail quando X% do teto) não existe — os tetos
-  cortam, mas não avisam antes. Candidato de próxima onda.
+- ~~Alerta proativo de custo~~ — implementado (D-V2-107, 2026-08-11, migration
+  0031 ainda não aplicada): e-mail aos admins quando um dos 4 tetos diários
+  (vídeo do portal, vídeo do lead institucional, tokens do brain, tokens do
+  chat de teste) cruza 80% ou 100% do uso do dia. `apps/portal/src/lib/
+  cost-alerts.ts` — chamado inline, no MESMO ponto que cada teto já lê o uso
+  atual (zero query nova); dedup por `(tenant, teto, threshold, dia UTC)` via
+  `portal_claim_cost_alert_service`, nunca duplica sob chamadas concorrentes.
 - Transcrição de reunião externa (Recall, US$0,15/hora) não entra no ledger
   ainda — ver seção acima.

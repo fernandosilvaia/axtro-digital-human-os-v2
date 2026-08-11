@@ -5,6 +5,7 @@ import { createOpenRouterTextGenerationPort } from "@axtro/provider-openrouter";
 
 import type { BrainLanguage } from "@/lib/brain/metodo-silva";
 import { BrainHttpError, handleBrainChatRequest, type BudgetVerdict, type ResolvedBrainAgent } from "@/lib/brain/handle-chat-request";
+import { maybeAlertCostCap } from "@/lib/cost-alerts";
 import { createServiceRoleClient, ServiceRoleUnavailableError } from "@/lib/supabase/service";
 import { logError as trackError, logEvent } from "@/lib/telemetry";
 
@@ -107,6 +108,8 @@ async function checkBudget(tenantId: string): Promise<BudgetVerdict> {
     .gte("occurred_at", startOfDayIso);
   if (error || !Array.isArray(data)) return "unavailable";
   const total = data.reduce((sum, row) => sum + Number((row as { quantity: unknown }).quantity ?? 0), 0);
+  // Alerta proativo (D-V2-107): fire-and-forget, mesmo ponto que já lê o uso do dia.
+  void maybeAlertCostCap({ tenantId, capKind: "daily_tokens", current: total, cap: DAILY_TOKEN_CAP });
   return total >= DAILY_TOKEN_CAP ? "exhausted" : "allowed";
 }
 

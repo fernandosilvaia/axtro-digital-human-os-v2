@@ -47,10 +47,19 @@ export default async function DashboardPage() {
   const tenant = overview.tenant;
   const counts = overview.counts;
   const totalConfigured = counts ? counts.agents + counts.knowledge_sources : 0;
+  // Achado D-V2-107 (proposta "onboarding"): "Conta provisionada" era sempre
+  // true no momento em que a página renderiza (o tenant já foi provisionado
+  // em silêncio dentro de fetchTenantOverview antes do layout devolver a
+  // página) — o usuário nunca "ganhava" esse item, ele celebrava um registro
+  // que sempre existiu, não uma prova de que o produto funciona. Trocado
+  // pelo passo que de fato importa: já testou o agente no chat? O sinal já
+  // chega pronto em `usage.services_7d` (linha "portal.agent_preview" toda
+  // vez que sendAgentPreviewMessage é chamado), sem query nova.
+  const hasTestedAgent = (usage?.services_7d ?? []).some((row) => row.service === "portal.agent_preview");
   const readiness = [
-    { label: "Conta provisionada", done: Boolean(tenant), href: "/configuracoes", action: "Revisar conta" },
     { label: "Primeiro agente", done: (counts?.agents ?? 0) > 0, href: "/agentes", action: "Abrir agentes" },
     { label: "Conhecimento autorizado", done: (counts?.knowledge_sources ?? 0) > 0, href: "/conhecimento", action: "Abrir conhecimento" },
+    { label: "Testar no chat", done: hasTestedAgent, href: "/agentes", action: "Testar agente" },
   ] as const;
   const completedReadiness = readiness.filter((item) => item.done).length;
   const readinessPercent = Math.round((completedReadiness / readiness.length) * 100);

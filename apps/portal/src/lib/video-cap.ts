@@ -9,6 +9,7 @@
 import { createStripeBillingPort } from "@axtro/provider-stripe";
 
 import { conversationOverageEventName, isPlanId, isTrialLimitEnabled, PLAN_CATALOG, TRIAL_INCLUDED_CONVERSATIONS_PER_MONTH } from "./billing/plans.ts";
+import { maybeAlertCostCap } from "./cost-alerts.ts";
 import type { createClient } from "./supabase/server.ts";
 import { logError as trackError } from "./telemetry.ts";
 
@@ -33,6 +34,7 @@ export const VIDEO_TRIAL_CAP_MESSAGE =
 export type VideoCapVerdict = "allowed" | "allowed_overage" | "capped" | "check_failed";
 
 interface BillingStatusRow {
+  readonly tenant_id?: string | null;
   readonly plan_id?: string | null;
   readonly status?: string | null;
   readonly stripe_customer_id?: string | null;
@@ -52,6 +54,12 @@ export async function checkVideoCap(
   }
   const status = (data ?? {}) as BillingStatusRow;
   const conversationsToday = Number(status.conversations_today ?? 0);
+  // Alerta proativo (D-V2-107): fire-and-forget, nunca atrasa a decisão de
+  // liberar/bloquear a conversa. tenant_id vem do MESMO retorno da RPC que
+  // já líamos aqui (0031 acrescentou o campo) — zero query nova.
+  if (typeof status.tenant_id === "string") {
+    void maybeAlertCostCap({ tenantId: status.tenant_id, capKind: "daily_video_conversations", current: conversationsToday, cap: DAILY_VIDEO_CONVERSATION_CAP });
+  }
   if (conversationsToday >= DAILY_VIDEO_CONVERSATION_CAP) return "capped";
 
   const conversationsThisPeriod = Number(status.conversations_this_period ?? 0);

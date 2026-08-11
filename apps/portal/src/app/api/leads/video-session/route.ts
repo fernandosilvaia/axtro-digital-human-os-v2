@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 
 import { createTavusVideoConversationPort, VideoProviderError } from "@axtro/provider-tavus";
 
+import { maybeAlertCostCap } from "@/lib/cost-alerts";
 import {
   handleVideoSessionRequest,
   VideoSessionError,
@@ -82,6 +83,8 @@ async function isUnderDailyCap(tenantId: string): Promise<boolean> {
     .eq("unit_type", "conversation")
     .gte("occurred_at", startOfDayIso);
   if (error || typeof count !== "number") return false;
+  // Alerta proativo (D-V2-107): fire-and-forget, mesmo ponto que já lê o uso do dia.
+  void maybeAlertCostCap({ tenantId, capKind: "daily_video_conversations", current: count, cap: DAILY_VIDEO_CONVERSATION_CAP });
   return count < DAILY_VIDEO_CONVERSATION_CAP;
 }
 

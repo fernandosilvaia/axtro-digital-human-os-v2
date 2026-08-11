@@ -3,7 +3,7 @@
 // mesmo provedor do SMTP de auth (D-V2-063, domínio axtroai.com verificado).
 // Sem RESEND_API_KEY (ou em PORTAL_FAKE_PROVIDERS=1) o envio vira mock
 // logado: o fluxo do produto nunca quebra por falta de chave.
-import { logError as trackError, logEvent } from "@/lib/telemetry";
+import { logError as trackError, logEvent } from "./telemetry.ts";
 
 const RESEND_ENDPOINT = "https://api.resend.com/emails";
 const FROM = "Axtro Digital Human OS <no-reply@axtroai.com>";
@@ -169,5 +169,46 @@ export async function sendMeetingEndedEmail(options: {
     subject: `${options.agentName} ${statusLabel} a reunião externa — ${options.workspaceName}`,
     html,
     logEvent: "meeting_ended_email",
+  });
+}
+
+/**
+ * E-mail aos admins quando um teto diário de uso cruza 80% ou 100% (D-V2-107
+ * — gap declarado em docs/COST_OPTIMIZATION.md: "os tetos cortam, mas não
+ * avisam antes"). Dedup de disparo é responsabilidade do chamador
+ * (lib/cost-alerts.ts) — esta função só formata e envia.
+ */
+export async function sendCostCapAlertEmail(options: {
+  readonly to: readonly string[];
+  readonly workspaceName: string;
+  readonly capLabel: string;
+  readonly currentValue: number;
+  readonly capValue: number;
+  readonly percentUsed: 80 | 100;
+}): Promise<EmailSendResult> {
+  if (options.to.length === 0) {
+    return { sent: false, reason: "mocked_no_key" };
+  }
+  const workspace = escapeHtml(options.workspaceName);
+  const capLabel = escapeHtml(options.capLabel);
+  const isFull = options.percentUsed >= 100;
+  const headline = isFull
+    ? `Teto diário de ${options.capLabel} atingido — bloqueado a partir de agora`
+    : `${options.workspaceName} está perto do teto diário de ${options.capLabel}`;
+  const html = [
+    `<div style="font-family:system-ui,-apple-system,sans-serif;max-width:520px;margin:0 auto;padding:24px">`,
+    `<h2 style="font-size:18px;margin:0 0 12px">${escapeHtml(headline)}</h2>`,
+    `<p style="color:#444;line-height:1.5;margin:0 0 12px">Uso de hoje: <strong>${options.currentValue.toLocaleString("pt-BR")} / ${options.capValue.toLocaleString("pt-BR")}</strong> (${options.percentUsed}%) — ${capLabel}, workspace ${workspace}.</p>`,
+    isFull
+      ? `<p style="color:#444;line-height:1.5;margin:0 0 18px">Novas solicitações desse tipo ficam bloqueadas até a virada do dia (00:00 UTC). O teto existe pra proteger a conta contra gasto inesperado.</p>`
+      : `<p style="color:#444;line-height:1.5;margin:0 0 18px">Sem ação necessária agora — é só um aviso antes de chegar no limite.</p>`,
+    `</div>`,
+  ].join("");
+
+  return sendHtmlEmail({
+    to: options.to,
+    subject: `${options.workspaceName}: ${options.percentUsed}% do teto diário de ${options.capLabel}`,
+    html,
+    logEvent: "cost_cap_alert_email",
   });
 }

@@ -1,9 +1,7 @@
 import { openBillingPortal, startCheckout } from "@/lib/actions/billing";
-import { formatUsdCents, isPlanId, PLAN_CATALOG, PLAN_ORDER, type PlanId } from "@/lib/billing/plans";
+import { ACTIVE_STATUSES, formatUsdCents, hasNonTerminalSubscription, isPlanId, PLAN_CATALOG, PLAN_ORDER, type PlanId } from "@/lib/billing/plans";
 import type { BillingStatus } from "@/lib/portal-data";
 import { SubmitOnceButton } from "./submit-once-button";
-
-const ACTIVE_STATUSES = new Set(["active", "trialing", "past_due"]);
 
 const STATUS_LABEL: Record<string, string> = {
   active: "Ativa",
@@ -54,6 +52,12 @@ export function BillingSection({
   }
 
   const hasActivePlan = isPlanId(billing.plan_id) && billing.status !== null && ACTIVE_STATUSES.has(billing.status);
+  // Assinatura viva mas fora de ACTIVE_STATUSES (unpaid/paused/incomplete) —
+  // precisa de atenção via Customer Portal, não é "sem plano" nem "ativa"
+  // (achado D-V2-107: sem este branch, essas contas caíam em NoPlanCards,
+  // que só oferece "Assinar" — e startCheckout bloqueava isso como
+  // "já assinante" sem nenhum botão de gerenciar na tela pra resolver).
+  const needsAttention = !hasActivePlan && typeof billing.stripe_customer_id === "string" && hasNonTerminalSubscription(billing.status);
 
   return (
     <section className="card" aria-labelledby="plano-conta">
@@ -72,6 +76,8 @@ export function BillingSection({
 
       {hasActivePlan && billing.plan_id !== null ? (
         <CurrentPlanCard billing={billing} planId={billing.plan_id} isAdmin={isAdmin} />
+      ) : needsAttention ? (
+        <NeedsAttentionCard billing={billing} isAdmin={isAdmin} />
       ) : (
         <NoPlanCards isAdmin={isAdmin} />
       )}
@@ -127,6 +133,34 @@ function CurrentPlanCard({ billing, planId, isAdmin }: { billing: BillingStatus;
             Gerenciar assinatura (forma de pagamento, faturas, trocar plano ou cancelar)
           </button>
         </form>
+      )}
+    </div>
+  );
+}
+
+const NEEDS_ATTENTION_MESSAGE: Record<string, string> = {
+  unpaid: "A cobrança da sua assinatura falhou e as tentativas automáticas da Stripe se esgotaram. Atualize a forma de pagamento para reativar.",
+  paused: "Sua assinatura está pausada. Gerencie pelo Customer Portal para retomar quando quiser.",
+  incomplete: "A confirmação do pagamento da sua assinatura ainda não foi concluída. Finalize pelo Customer Portal ou tente novamente.",
+};
+
+/** Assinatura viva mas fora de ACTIVE_STATUSES (unpaid/paused/incomplete) — D-V2-107. */
+function NeedsAttentionCard({ billing, isAdmin }: { billing: BillingStatus; isAdmin: boolean }) {
+  const message = billing.status !== null ? NEEDS_ATTENTION_MESSAGE[billing.status] : undefined;
+  return (
+    <div>
+      <p style={{ color: "var(--text-muted)", fontSize: "0.86rem", margin: "0 0 14px" }}>
+        {message ?? "Sua assinatura precisa de atenção — gerencie pelo Customer Portal."}
+        {billing.status ? ` (status: ${STATUS_LABEL[billing.status] ?? billing.status})` : ""}
+      </p>
+      {isAdmin ? (
+        <form action={openBillingPortal}>
+          <button type="submit" className="btn btn-primary" style={{ padding: "9px 16px" }}>
+            Gerenciar assinatura
+          </button>
+        </form>
+      ) : (
+        <span style={{ fontSize: "0.76rem", color: "var(--text-faint)" }}>Só um administrador pode gerenciar a assinatura</span>
       )}
     </div>
   );

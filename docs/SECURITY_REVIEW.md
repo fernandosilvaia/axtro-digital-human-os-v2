@@ -82,3 +82,32 @@
 - Demais 15 achados: nomenclatura, comentários, sugestões de teste adicional — sem risco de segurança, não rastreados individualmente aqui.
 
 Pipeline após as correções: 594 Node + 26 Python, typecheck, lint, 9 validadores, `next build` — tudo verde. Migrations 0029/0030 aplicadas em produção e confirmadas via `execute_sql` (tabela + índice único global + as duas RPCs de escrita chamando o validador).
+
+## Revisão de segurança — auditoria pós-D-V2-106 (D-V2-107, 2026-08-11)
+
+> Método: workflow multi-agente — 5 finders paralelos (segurança, bugs
+> gerais, onboarding, alertas de custo, prontidão geral de produção),
+> instruídos a ler `SECURITY_REVIEW.md`/`RELEASE_READINESS.md` antes de
+> reportar (evitar re-achar risco já aceito/deferido); achados `P0`/`P1`
+> levados a 3 verificadores adversariais independentes cada, maioria
+> decide. Resultado: **2 achados confirmados (ambos P1, unanimidade 3/3),
+> 0 refutados** — mais 4 achados P2/P3 corrigidos sem verificação
+> adversarial formal (baixo risco, correção direta e óbvia).
+
+| Achado | Severidade | Correção |
+|---|---|---|
+| `startCheckout` (billing.ts) bloqueava checkout novo pra qualquer status Stripe != `canceled`, mas a UI (`billing-section.tsx`) só mostra o botão de gerenciar assinatura pra status `active`/`trialing`/`past_due` — contas com `unpaid`, `incomplete_expired` ou `paused` ficavam travadas: sem conseguir assinar de novo (bloqueado como "já assinante") e sem NENHUM caminho pra `openBillingPortal` na tela (o botão só existe dentro de `CurrentPlanCard`, que não renderiza nesses status) | P1 | Classificação de status compartilhada entre `billing.ts` e `billing-section.tsx` (`BILLING_TERMINAL_STATUSES`/`hasNonTerminalSubscription` em `lib/billing/plans.ts`) — só `canceled`/`incomplete_expired` (e ausência de assinatura) são tratados como terminais, seguros pra checkout novo; qualquer outro status com `stripe_customer_id` bloqueia checkout E mostra um branch de UI novo (`NeedsAttentionCard`) com o botão de gerenciar |
+| `/privacidade` (v1, 31/07/2026) nunca foi atualizada depois do D-V2-106 passar a armazenar e exibir o histórico verbatim de conversas — a página só descrevia "registros de uso (tokens, conversas de vídeo)", nunca o CONTEÚDO da conversa em si, nem que fica visível a qualquer membro do tenant em `/conversas` | P1 | Texto atualizado: seção nova "Histórico de conversa" + "O que coletamos"/"Retenção" corrigidos pra refletir o que o produto realmente faz hoje, mesmo princípio que o próprio arquivo já declarava desde a v1 |
+
+**Corrigido também (P2, sem verificação adversarial — correção direta):**
+
+- `SECRET_PATTERN` de `telemetry.ts` não cobria os formatos de chave secreta da Stripe (`sk_test_`/`sk_live_`/`rk_test_`/`rk_live_` usam `_` depois de sk/rk; o padrão só cobria `sk-` com hífen, formato da OpenRouter). Sem exploração hoje confirmada (nenhum call site de `provider-stripe`/`billing.ts` interpola a chave crua num `Error.message`; a redação por NOME de campo já protege valores estruturados), mas era um ponto cego real deixado pelo billing (D-V2-101) numa classe de segredo que o próprio comentário do código já dizia cobrir. Estendido + teste de regressão com os 4 formatos.
+- Healthcheck do Railway (`railway.json`) apontava pra `/login` — página 100% estática, zero chamada a Supabase/qualquer backend — nunca detectaria um deploy com config quebrada (ex.: env var do Supabase apagada por engano) como não-saudável. Trocado por `/api/health` (sempre HTTP 200, mas lê env vars reais em cada request).
+- Nenhum teste e2e cobria o caminho de LEITURA do histórico de conversa (`/conversas`, `/conversas/[id]`, as RPCs `portal_list_conversation_transcripts`/`portal_get_conversation_transcript`) — mesma classe de gap que D-V2-088/D-V2-098 já provaram só ser pega com HTTP/e2e real. Adicionado; ao rodar de verdade (não só ler o código), o teste expôs um bug funcional real (não de segurança): modo demonstração nunca chamava `recordChatTranscript`, então `/conversas` ficava sempre vazio em CI e para qualquer visitante testando via demo. Confirmado via `railway variables` que `PORTAL_FAKE_PROVIDERS` nunca é setada em produção real (clientes pagantes não afetados); corrigido registrando o transcript também no branch de fake mode.
+- Rotas públicas de primeiro contato (`/login`, `/signup`, `/recuperar-senha`, `/nova-senha`) chamam Supabase Auth direto (`lib/actions/auth.ts`) mas não tinham `error.tsx` — uma env var de Supabase vazia/errada em produção lançaria e o usuário cairia na tela de erro genérica do Next em inglês, no pior momento possível (funil de conversão de cliente novo). Adicionado `app/error.tsx` (root, cobre tudo que não está sob `(app)`), mesma disciplina visual/de recuperação do `(app)/error.tsx` já existente.
+
+**Verificado e aceito sem correção:**
+
+- A nova migration 0031 (alertas de custo) segue a mesma disciplina de RLS/RPC de todo o projeto: `tenant_cost_alerts` com FORCE ROW LEVEL SECURITY e zero policy, acesso só via `portal_claim_cost_alert_service` (`SECURITY DEFINER`, grant exclusivo a `service_role`). `portal_billing_status` ganha `tenant_id` no retorno — campo aditivo, não amplia superfície de leitura (o `auth.uid()` da própria função já resolve exatamente esse tenant; devolvê-lo no jsonb não vaza nada que a função não já soubesse).
+
+Pipeline após as correções: 611 Node + 26 Python, typecheck, lint, 9 validadores, `next build`, 15 e2e (build de produção local, run limpa) — tudo verde. Migration 0031 escrita, **não aplicada** — aguardando autorização explícita do Fernando.

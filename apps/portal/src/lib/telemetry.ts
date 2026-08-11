@@ -11,8 +11,11 @@
 const REDACT_KEY_PATTERN = /email|token|password|secret|key|authorization/i;
 const EMAIL_PATTERN = /[^\s@]+@[^\s@]+\.[^\s@]+/g;
 // Formatos de credencial que aparecem em mensagens de erro de provider:
-// prefixos conhecidos (sk-, whsec_, re_, tvly-...) ou hex/base64 longos.
-const SECRET_PATTERN = /\b(?:sk-[A-Za-z0-9_-]{8,}|whsec_[A-Za-z0-9+/=]{8,}|re_[A-Za-z0-9_-]{8,}|[A-Fa-f0-9]{32,})\b/g;
+// prefixos conhecidos (sk-, sk_test_/sk_live_/rk_test_/rk_live_ da Stripe,
+// whsec_, re_...) ou hex/base64 longos. Achado D-V2-107: a chave secreta da
+// Stripe usa "_" depois de sk/rk (não "-" como o formato da OpenRouter), e
+// não batia em nenhuma alternativa — adicionada explicitamente.
+const SECRET_PATTERN = /\b(?:sk-[A-Za-z0-9_-]{8,}|(?:sk|rk)_(?:test|live)_[A-Za-z0-9]{8,}|whsec_[A-Za-z0-9+/=]{8,}|re_[A-Za-z0-9_-]{8,}|[A-Fa-f0-9]{32,})\b/g;
 
 function redact(context?: Readonly<Record<string, unknown>>): Record<string, unknown> | undefined {
   if (!context) return undefined;

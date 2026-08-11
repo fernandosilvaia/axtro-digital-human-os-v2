@@ -92,3 +92,24 @@ export const TRIAL_INCLUDED_CONVERSATIONS_PER_MONTH = 5;
 export function isTrialLimitEnabled(): boolean {
   return (process.env.BILLING_TRIAL_LIMIT_ENABLED ?? "").trim().toLowerCase() === "true";
 }
+
+/**
+ * Status finais da assinatura Stripe — o cliente Stripe pode ser reaproveitado
+ * e um checkout NOVO é seguro (achado D-V2-107: `startCheckout` e a UI de
+ * /configuracoes usavam definições diferentes de "assinante ativo", travando
+ * contas com status `unpaid`/`incomplete_expired`/`paused` sem conseguir nem
+ * assinar de novo nem gerenciar — nenhum botão "gerenciar" aparecia porque a
+ * UI só o mostra quando `ACTIVE_STATUSES` bate, e `startCheckout` recusava
+ * qualquer status != 'canceled'). `incomplete_expired` (janela de confirmação
+ * de pagamento/3DS expirada) é tão terminal quanto `canceled` — a assinatura
+ * nunca chegou a ativar.
+ */
+export const BILLING_TERMINAL_STATUSES = new Set(["canceled", "incomplete_expired"]);
+
+/** Status onde a assinatura está viva mas precisa de atenção via Customer Portal (não é "ativa" pro propósito de mostrar uso, mas também não é segura pra checkout novo). */
+export const ACTIVE_STATUSES = new Set(["active", "trialing", "past_due"]);
+
+/** Existe uma assinatura Stripe não-terminal — checkout novo criaria uma segunda cobrando em paralelo; o caminho correto é o Customer Portal. */
+export function hasNonTerminalSubscription(status: string | null | undefined): boolean {
+  return status !== null && status !== undefined && !BILLING_TERMINAL_STATUSES.has(status);
+}

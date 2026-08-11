@@ -46,6 +46,17 @@ test("logError captures error name and message without leaking context PII", () 
   assert.equal(parsed.source_id, "xyz");
 });
 
+test("logError redacts Stripe-shaped secret/restricted keys embedded in error.message (achado D-V2-107)", () => {
+  for (const key of ["sk_test_51ABCdefGhijKLM", "sk_live_51ABCdefGhijKLM", "rk_test_51ABCdefGhijKLM", "rk_live_51ABCdefGhijKLM"]) {
+    const line = captureConsole("error", () => {
+      telemetry.logError("stripe_call_failed", new Error(`Stripe call failed with key ${key}`));
+    });
+    const parsed = JSON.parse(line);
+    assert.ok(!parsed.error_message.includes(key), `esperava ${key} redigida, mensagem foi: ${parsed.error_message}`);
+    assert.match(parsed.error_message, /\[redacted-secret\]/);
+  }
+});
+
 test("logError handles non-Error thrown values", () => {
   const line = captureConsole("error", () => {
     telemetry.logError("weird_throw", "just a string");

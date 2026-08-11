@@ -4,6 +4,7 @@ import { createUuidV7 } from "@axtro/domain";
 import { createOpenRouterTextGenerationPort, TextGenerationError } from "@axtro/provider-openrouter";
 
 import { BrainChatValidationError, runBrainChatCompletion } from "@/lib/brain/chat-completion-core";
+import { maybeAlertCostCap } from "@/lib/cost-alerts";
 import { embedQuery, fakeProvidersEnabled, type KnowledgeMatch } from "@/lib/knowledge";
 import { fetchAgents, fetchTenantOverview } from "@/lib/portal-data";
 import { createClient } from "@/lib/supabase/server";
@@ -92,17 +93,27 @@ export async function sendAgentPreviewMessage(
 
   // Modo demonstração (T3): resposta determinística no formato da Reunião
   // Silva, sem provider e sem tocar o ledger — todos os fluxos de UI ficam
-  // testáveis sem chave.
+  // testáveis sem chave. O histórico de conversa (D-V2-106) AINDA é
+  // registrado aqui (achado D-V2-107, pego só ao RODAR o e2e novo, não por
+  // leitura estática de código): sem isso, a tela /conversas nunca tinha
+  // nada pra mostrar em modo demonstração — nem pro visitante testando o
+  // produto, nem pro e2e do CI, que roda com PORTAL_FAKE_PROVIDERS=1 e
+  // nunca passa pelo caminho real abaixo. Best-effort, mesma disciplina de
+  // recordChatTranscript: nunca atrasa nem derruba a resposta.
   if (fakeProvidersEnabled()) {
     const topic = message.slice(0, 80).replace(/\s+/g, " ").trim();
-    return {
-      reply: [
-        `Entendo o que você trouxe sobre "${topic}" — faz sentido olharmos isso com calma.`,
-        "Pra eu te ajudar do jeito certo: hoje, como vocês lidam com isso — e o que te fez buscar uma solução agora?",
-        "(resposta simulada — modo demonstração sem provider)",
-      ].join(" "),
-      error: null,
-    };
+    const reply = [
+      `Entendo o que você trouxe sobre "${topic}" — faz sentido olharmos isso com calma.`,
+      "Pra eu te ajudar do jeito certo: hoje, como vocês lidam com isso — e o que te fez buscar uma solução agora?",
+      "(resposta simulada — modo demonstração sem provider)",
+    ].join(" ");
+    const fakeSupabase = await createClient();
+    await recordChatTranscript(fakeSupabase, agentId, transcriptId, [
+      ...history,
+      { role: "user", content: message },
+      { role: "assistant", content: reply },
+    ]);
+    return { reply, error: null };
   }
 
   const supabase = await createClient();
@@ -112,6 +123,8 @@ export async function sendAgentPreviewMessage(
   if (usageError) {
     return { reply: null, error: "Não foi possível verificar o uso de IA da conta. Tente novamente." };
   }
+  // Alerta proativo (D-V2-107): fire-and-forget, mesmo ponto que já lê o uso do dia.
+  void maybeAlertCostCap({ tenantId: overview.tenant.id, capKind: "daily_tokens", current: Number(tokensToday), cap: DAILY_TOKEN_CAP });
   if (Number(tokensToday) >= DAILY_TOKEN_CAP) {
     return { reply: null, error: "Limite diário de tokens de teste da conta atingido. Volte amanhã ou fale com o suporte." };
   }
