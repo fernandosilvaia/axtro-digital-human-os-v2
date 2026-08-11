@@ -67,3 +67,14 @@ não é um add-on cobrado à parte).
   `portal_claim_cost_alert_service`, nunca duplica sob chamadas concorrentes.
 - Transcrição de reunião externa (Recall, US$0,15/hora) não entra no ledger
   ainda — ver seção acima.
+- **Novo (D-V2-108, 2026-08-11)**: o RAG do caminho de vídeo (`/api/brain`,
+  migration 0032 ainda não aplicada) gera uma chamada de embedding por turno
+  pra buscar conhecimento autorizado — esse custo NÃO entra no ledger
+  (`cost_events`), diferente do caminho de chat de teste (que loga via
+  `portal.knowledge_retrieval`). Decisão deliberada: `portal_log_ai_usage_service`
+  (0019) tem preço fixo de chat, não de embedding, e adicionar um parâmetro
+  de serviço exigiria alterar a assinatura de uma função já em produção
+  (risco real — lição de D-V2-103) por um valor irrelevante: uma query de
+  busca é ~30-100 tokens a US$0,02/1M, fração de centavo por conversa, já
+  dominado pelo piso Tavus (US$0,175/conversa). Mesmo espírito de "custo por
+  conversa é piso, não exato" já aceito no resto do produto.

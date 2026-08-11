@@ -1,4 +1,4 @@
-# Prontidão de release — 2026-08-11 (pós D-V2-107: auditoria + lote de correções e alertas proativos de custo)
+# Prontidão de release — 2026-08-11 (pós D-V2-108: RAG no cérebro custom)
 
 ## Notas (0–100, com evidência — não é opinião)
 
@@ -17,7 +17,7 @@
 | Performance | 80 | Build ok, rotas dinâmicas enxutas; sem medição formal de p95 web |
 | Confiabilidade | 87 | Degradação declarada em todo caminho; watchdogs; telemetria de fallback; **corrigido**: healthcheck do Railway apontava pra `/login` (página 100% estática, nunca detectaria um deploy com env var de Supabase quebrada) — agora aponta pra `/api/health` (D-V2-107) |
 | Custos | 91 | Todo caminho pago com teto + ledger; catálogo de teste (1 Meter + 3 Products + 6 Prices) provisionado de verdade na Stripe e validado contra a API real; **novo**: alertas proativos por e-mail em 80%/100% dos 4 tetos diários (D-V2-107, migration 0031 escrita — falta aplicar) |
-| IA | 86 | Eval golden pelo adapter real; injeção de percepção fechada; RAG do brain pendente |
+| IA | 88 | Eval golden pelo adapter real; injeção de percepção fechada; **RAG do brain fechado** (D-V2-108) — `portal_search_knowledge_service` (migration 0032, não aplicada) espelha exatamente a busca já usada no chat de teste, agora também no caminho de vídeo (Tavus) |
 | Integrações | 87 | Tavus/OpenRouter/Recall com timeout/erros tipados/testes; Stripe com idempotência de checkout — chave de teste validada contra a API real (GET /v1/balance, 2026-08-10), catálogo real criado; checkout ponta a ponta ainda não rodado (falta env var no Railway) |
 | Testes | 91 | 611 Node + 26 Py + 15 e2e em CI contra build de produção; **novo**: e2e do caminho de LEITURA do histórico de conversa (/conversas, /conversas/[id]) — não existia nenhum, achado da auditoria e fechado na mesma rodada (D-V2-107), que por sua vez expôs e corrigiu um bug real: modo demonstração nunca registrava transcript |
 | Observabilidade | 87 | Logs estruturados com redaction (agora cobrindo também formato de chave Stripe); telemetria de degradação; **alerta proativo de custo implementado** (D-V2-107) — era o principal gap desta dimensão |
@@ -27,5 +27,5 @@
 
 ## O que bloqueia cada nível seguinte
 
-- **Primeiros clientes pagantes**: ~~(1) criar conta Stripe e rodar `scripts/stripe_setup.mjs` em modo teste~~ — feito 2026-08-10 (Meter + 3 Products + 6 Prices reais, `livemode: false` confirmado). (2) configurar `STRIPE_SECRET_KEY`/`STRIPE_WEBHOOK_SECRET`/6 price ids no Railway (bloqueado — ação em infraestrutura compartilhada, aguardando o Fernando colar no dashboard); (3) fazer uma assinatura de teste ponta a ponta (checkout → webhook → painel mostrando o plano) antes de cobrar de cliente de verdade; (4) 1 reunião externa agendada validada com humano; (5) aplicar a migration 0031 (alertas de custo) — escrita, aguardando autorização. As migrations 0025-0030 já estão aplicadas no Supabase hospedado.
-- **Escala inicial**: migrar Stripe de modo teste pra produção (gate humano — chave `sk_live_`); ~~alertas proativos de custo~~ — implementado (D-V2-107, migration 0031 pendente de aplicação); DPIA percepção; bake-off formal de providers (D-V2-048); RAG no cérebro custom. ~~Persistência de transcript/histórico de conversa~~ — implementada e em produção (D-V2-106).
+- **Primeiros clientes pagantes**: ~~(1) criar conta Stripe e rodar `scripts/stripe_setup.mjs` em modo teste~~ — feito 2026-08-10 (Meter + 3 Products + 6 Prices reais, `livemode: false` confirmado). (2) configurar `STRIPE_SECRET_KEY`/`STRIPE_WEBHOOK_SECRET`/6 price ids no Railway (bloqueado — ação em infraestrutura compartilhada, aguardando o Fernando colar no dashboard); (3) fazer uma assinatura de teste ponta a ponta (checkout → webhook → painel mostrando o plano) antes de cobrar de cliente de verdade; (4) 1 reunião externa agendada validada com humano; (5) aplicar as migrations 0031 (alertas de custo) e 0032 (RAG do brain) — escritas, aguardando autorização. As migrations 0025-0030 já estão aplicadas no Supabase hospedado.
+- **Escala inicial**: migrar Stripe de modo teste pra produção (gate humano — chave `sk_live_`); ~~alertas proativos de custo~~ — implementado (D-V2-107, migration 0031 pendente de aplicação); DPIA percepção; bake-off formal de providers (D-V2-048). ~~RAG no cérebro custom~~ — implementado (D-V2-108, migration 0032 pendente de aplicação). ~~Persistência de transcript/histórico de conversa~~ — implementada e em produção (D-V2-106).

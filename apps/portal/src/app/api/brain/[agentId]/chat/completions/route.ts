@@ -3,9 +3,11 @@ import { NextRequest, NextResponse } from "next/server";
 import { createUuidV7 } from "@axtro/domain";
 import { createOpenRouterTextGenerationPort } from "@axtro/provider-openrouter";
 
+import type { BrainKnowledgeMatch } from "@/lib/brain/chat-completion-core";
 import type { BrainLanguage } from "@/lib/brain/metodo-silva";
 import { BrainHttpError, handleBrainChatRequest, type BudgetVerdict, type ResolvedBrainAgent } from "@/lib/brain/handle-chat-request";
 import { maybeAlertCostCap } from "@/lib/cost-alerts";
+import { embedQuery } from "@/lib/knowledge";
 import { createServiceRoleClient, ServiceRoleUnavailableError } from "@/lib/supabase/service";
 import { logError as trackError, logEvent } from "@/lib/telemetry";
 
@@ -15,10 +17,6 @@ import { logError as trackError, logEvent } from "@/lib/telemetry";
  * (puro e testado): resolve o segredo via service role (sem sessão de
  * usuário — chamada servidor-a-servidor), aplica teto diário de tokens e
  * rate limit, e formata a resposta em SSE `chat.completion.chunk`.
- *
- * GAP CONHECIDO E DECLARADO (Art. 16): RAG real ainda não está ligado neste
- * caminho — `portal_search_knowledge` exige `auth.uid()`, que não existe
- * aqui. Sem fontes, o agente não inventa (Art. 14) — segue sem.
  */
 export const dynamic = "force-dynamic";
 
@@ -113,10 +111,55 @@ async function checkBudget(tenantId: string): Promise<BudgetVerdict> {
   return total >= DAILY_TOKEN_CAP ? "exhausted" : "allowed";
 }
 
-// GAP CONHECIDO — ver docstring do módulo. Retorna sempre vazio até uma RPC
-// service-role de busca vetorial existir (candidato a M4-05).
-async function retrieveKnowledge(): Promise<readonly []> {
-  return [];
+/**
+ * RAG pro caminho de vídeo (fecha o gap declarado desde D-V2-083/M4-04):
+ * embeda a pergunta e busca via `portal_search_knowledge_service` (0032,
+ * variante service-role de `portal_search_knowledge`, 0010 — mesmo corpo de
+ * busca, só resolve o tenant por `p_tenant_id` explícito em vez de
+ * `auth.uid()`, que não existe nesta chamada servidor-a-servidor). Mesmo
+ * piso de similaridade do caminho de chat (agent-preview.ts, 0.25 em cosine
+ * do text-embedding-3-small) — sem ele, ~1k tokens de chunks irrelevantes
+ * entrariam como "mais relevantes" pra qualquer pergunta.
+ *
+ * Falha (embedding indisponível, RPC fora do ar) SEMPRE degrada pra `[]`,
+ * nunca lança — RAG indisponível não pode derrubar a call de vídeo, e sem
+ * fontes o agente não inventa (Art. 14).
+ *
+ * GAP DECLARADO E ACEITO (Art. 16): o custo da chamada de embedding desta
+ * busca NÃO entra no ledger (`cost_events`) — ao contrário do caminho de
+ * chat, que loga via `portal.knowledge_retrieval`. `portal_log_ai_usage_service`
+ * (0019) tem preço fixo de chat (Haiku), não de embedding; adicionar um
+ * parâmetro de serviço exigiria DROP+CREATE numa função já em produção
+ * (risco real, lição de D-V2-103) por um ganho de precisão irrelevante — uma
+ * query de busca é ~30-100 tokens a US$0,02/1M, fração de centavo por
+ * conversa, já dominado pelo piso Tavus (US$0,175/conversa). Mesmo espírito
+ * de "custo por conversa é piso, não exato" já aceito no projeto inteiro.
+ */
+async function retrieveKnowledge(tenantId: string, queryText: string): Promise<readonly BrainKnowledgeMatch[]> {
+  const trimmed = queryText.trim();
+  const apiKey = process.env.OPENROUTER_API_KEY ?? "";
+  if (trimmed.length === 0 || apiKey.trim().length === 0) return [];
+
+  try {
+    const { embedding } = await embedQuery(apiKey, trimmed);
+    const supabase = createServiceRoleClient();
+    const { data, error } = await supabase.rpc("portal_search_knowledge_service", {
+      p_tenant_id: tenantId,
+      p_embedding: embedding,
+      p_limit: 5,
+    });
+    if (error) {
+      trackError("brain_knowledge_search_failed", error, { tenant_id: tenantId });
+      return [];
+    }
+    if (!Array.isArray(data)) return [];
+    return (data as (BrainKnowledgeMatch & { similarity?: number })[])
+      .filter((match) => typeof match.similarity !== "number" || match.similarity >= 0.25)
+      .map((match) => ({ source_name: match.source_name, chunk_text: match.chunk_text }));
+  } catch (error) {
+    trackError("brain_knowledge_retrieval_failed", error, { tenant_id: tenantId });
+    return [];
+  }
 }
 
 async function logGenerationUsage(tenantId: string, agentId: string, inputTokens: number, outputTokens: number): Promise<void> {
