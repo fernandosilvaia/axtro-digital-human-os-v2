@@ -8,6 +8,7 @@ import { FloridaTimeError, wallClockToUtcIso } from "@/lib/time/florida";
 import { agentFaceStageUrl } from "@/lib/meetings/stage";
 import { handleJoinMeeting, JoinMeetingError, type AgentPersonaForMeeting } from "@/lib/meetings/join-meeting";
 import { fetchAgents } from "@/lib/portal-data";
+import { isRateLimited } from "@/lib/rate-limit";
 import { createClient } from "@/lib/supabase/server";
 import { logError as trackError } from "@/lib/telemetry";
 import { registerTranscriptPlaceholder } from "@/lib/transcripts/register";
@@ -28,6 +29,33 @@ export interface JoinExternalMeetingResult {
 
 function requiredEnv(name: string): string {
   return (process.env[name] ?? "").trim();
+}
+
+/**
+ * Dedup de curta janela contra duplo-clique/duas abas (achado P1 confirmado,
+ * auditoria 2026-08-12): sem isso, cada submissão chamava Recall.createBot
+ * + Tavus.createConversation — duas APIs PAGAS reais — direto, sem nenhuma
+ * reserva no banco antes da chamada; o único registro em meeting_bot_sessions
+ * acontece DEPOIS que as duas chamadas já tiveram sucesso, e seu único
+ * unique constraint (recall_bot_id, gerado pelo provider) não pode impedir
+ * duas criações independentes. 30s é folga suficiente pra pegar o caso real
+ * (duas abas, ou reenvio pós-timeout) sem bloquear um retry legítimo minutos
+ * depois. Defesa em profundidade — uma reserva atômica no banco seria mais
+ * robusta, mas exige migration nova; isto fecha o risco prático sem uma.
+ *
+ * Checado logo ANTES da chamada aos providers pagos (não no topo da função —
+ * achado da auto-revisão): checagens gratuitas que falham por razão
+ * não-relacionada (config ausente, teto excedido, horário inválido, agente
+ * não encontrado) não devem consumir o slot de dedup, senão uma retentativa
+ * legítima segundos depois de um erro genuíno recebia a mensagem enganosa
+ * de "tentativa já em andamento". A chave inclui joinAtIso (ou "now") pra
+ * não confundir um pedido de entrada imediata com um agendamento pro mesmo
+ * agente+link — são intenções distintas, não duplicatas.
+ */
+const MEETING_JOIN_DEDUP_WINDOW_MS = 30_000;
+
+function meetingJoinDedupKey(agentId: string, meetingUrl: string, joinAtIso: string | undefined): string {
+  return `meeting-join:${agentId}:${meetingUrl.trim().toLowerCase()}:${joinAtIso ?? "now"}`;
 }
 
 export async function joinExternalMeeting(
@@ -93,6 +121,14 @@ export async function joinExternalMeeting(
     return { conversationUrl: null, scheduled: false, error: configResult.error };
   }
   const config = configResult.config;
+
+  if (isRateLimited(meetingJoinDedupKey(agentId, meetingUrl, joinAtIso), MEETING_JOIN_DEDUP_WINDOW_MS, 1)) {
+    return {
+      conversationUrl: null,
+      scheduled: false,
+      error: "Uma tentativa de entrar nesta reunião já está em andamento — aguarde alguns segundos antes de tentar de novo.",
+    };
+  }
 
   const tavusPort = createTavusVideoConversationPort({ apiKey: tavusApiKey });
   const recallPort = createRecallMeetingBotPort({ apiKey: recallApiKey, region: recallRegion });

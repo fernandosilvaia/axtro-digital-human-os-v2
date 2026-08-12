@@ -64,3 +64,104 @@ test("logError handles non-Error thrown values", () => {
   const parsed = JSON.parse(line);
   assert.equal(parsed.error_name, "unknown");
 });
+
+function withFakeFetch(fakeFetch, fn) {
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = fakeFetch;
+  try {
+    return fn();
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+}
+
+function withResendEnabled(fn) {
+  const originalKey = process.env.RESEND_API_KEY;
+  const originalFake = process.env.PORTAL_FAKE_PROVIDERS;
+  process.env.RESEND_API_KEY = "test-resend-key";
+  delete process.env.PORTAL_FAKE_PROVIDERS;
+  try {
+    return fn();
+  } finally {
+    if (originalKey !== undefined) process.env.RESEND_API_KEY = originalKey; else delete process.env.RESEND_API_KEY;
+    if (originalFake !== undefined) process.env.PORTAL_FAKE_PROVIDERS = originalFake; else delete process.env.PORTAL_FAKE_PROVIDERS;
+  }
+}
+
+test("logError dispara alerta operacional por e-mail ao cruzar o teto de falhas na janela (achado D-V2-114)", async () => {
+  const calls = [];
+  await withResendEnabled(async () => {
+    await withFakeFetch(async (url, init) => {
+      calls.push({ url, init });
+      return { ok: true, json: async () => ({}) };
+    }, async () => {
+      const event = `test_alert_threshold_${Math.random()}`;
+      for (let i = 0; i < 9; i++) {
+        captureConsole("error", () => telemetry.logError(event, new Error("boom")));
+      }
+      assert.equal(calls.length, 0, "não deveria alertar antes do teto de 10 falhas");
+      captureConsole("error", () => telemetry.logError(event, new Error("boom")));
+      await Promise.resolve();
+      assert.equal(calls.length, 1, "deveria alertar exatamente ao cruzar o teto (10ª falha)");
+      const body = JSON.parse(calls[0].init.body);
+      assert.equal(body.to[0], "fernando@axtroai.com");
+      assert.match(body.subject, /10 falhas/);
+      assert.match(body.subject, new RegExp(event));
+    });
+  });
+});
+
+test("logError não alerta de novo pro mesmo evento dentro do cooldown (evita spam durante outage prolongado)", async () => {
+  const calls = [];
+  await withResendEnabled(async () => {
+    await withFakeFetch(async (url, init) => {
+      calls.push({ url, init });
+      return { ok: true, json: async () => ({}) };
+    }, async () => {
+      const event = `test_alert_cooldown_${Math.random()}`;
+      for (let i = 0; i < 15; i++) {
+        captureConsole("error", () => telemetry.logError(event, new Error("boom")));
+      }
+      await Promise.resolve();
+      assert.equal(calls.length, 1, "15 falhas seguidas do mesmo evento deveriam gerar só 1 alerta (cooldown)");
+    });
+  });
+});
+
+test("logError nunca chama fetch de alerta quando RESEND_API_KEY não está configurada (modo mock)", async () => {
+  const calls = [];
+  const originalKey = process.env.RESEND_API_KEY;
+  delete process.env.RESEND_API_KEY;
+  try {
+    await withFakeFetch(async (url, init) => {
+      calls.push({ url, init });
+      return { ok: true, json: async () => ({}) };
+    }, async () => {
+      const event = `test_alert_no_key_${Math.random()}`;
+      for (let i = 0; i < 15; i++) {
+        captureConsole("error", () => telemetry.logError(event, new Error("boom")));
+      }
+      await Promise.resolve();
+      assert.equal(calls.length, 0);
+    });
+  } finally {
+    if (originalKey !== undefined) process.env.RESEND_API_KEY = originalKey;
+  }
+});
+
+test("logError abaixo do teto nunca chama fetch de alerta", async () => {
+  const calls = [];
+  await withResendEnabled(async () => {
+    await withFakeFetch(async (url, init) => {
+      calls.push({ url, init });
+      return { ok: true, json: async () => ({}) };
+    }, async () => {
+      const event = `test_alert_under_threshold_${Math.random()}`;
+      for (let i = 0; i < 5; i++) {
+        captureConsole("error", () => telemetry.logError(event, new Error("boom")));
+      }
+      await Promise.resolve();
+      assert.equal(calls.length, 0);
+    });
+  });
+});

@@ -18,6 +18,7 @@ export interface ResourceActionState {
 
 const CREATE_ERROR_MESSAGES: Readonly<Record<string, string>> = {
   "an agent with this name already exists": "Já existe um agente com esse nome.",
+  "a knowledge source with this name already exists": "Já existe uma fonte de conhecimento com esse nome.",
   "only a tenant_admin can create agents": "Somente administradores podem criar agentes.",
   "only a tenant_admin can register knowledge sources": "Somente administradores podem cadastrar fontes.",
   "agent limit reached for this account": "Limite de agentes da conta atingido.",
@@ -189,7 +190,7 @@ export async function setAgentStatus(
     return { error: "Ative um provider de linguagem antes de ativar agentes neste ambiente.", done: false };
   }
   const supabase = await createClient();
-  const { error } = await supabase.rpc("portal_set_agent_status", {
+  const { data, error } = await supabase.rpc("portal_set_agent_status", {
     p_agent_id: agentId,
     p_status: status,
   });
@@ -207,8 +208,13 @@ export async function setAgentStatus(
   // já aplicada: (1) auto-provisão da persona de vídeo se o agente ainda não
   // tem (P1 — é o que dá videochamada/apresentação/reunião externa a agentes
   // de clientes novos, não só aos demo configurados à mão); (2) e-mail aos
-  // admins do tenant (T9).
-  if (status === "active") {
+  // admins do tenant (T9). `changed` (0014) distingue uma transição real de
+  // um no-op idempotente — achado P2 confirmado (auditoria 2026-08-12): sem
+  // checar isso, chamar a action duas vezes com status='active' (duas abas,
+  // ou clique duplo que escapa do disabled={pending}) reprovisionava vídeo
+  // e reenviava o e-mail "Agente ativado" mesmo sem nenhuma mudança real.
+  const changed = (data as { changed?: boolean } | null)?.changed !== false;
+  if (status === "active" && changed) {
     try {
       const [overview, agents, adminEmailsResult] = await Promise.all([
         fetchTenantOverview(),

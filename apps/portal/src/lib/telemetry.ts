@@ -42,4 +42,88 @@ export function logError(event: string, error: unknown, context?: Readonly<Recor
       { error_name: error.name, error_message: error.message.replace(EMAIL_PATTERN, "[redacted-email]").replace(SECRET_PATTERN, "[redacted-secret]") }
     : { error_name: "unknown" };
   console.error(JSON.stringify({ level: "error", event, ...errorInfo, ...redact(context) }));
+  maybeAlertErrorRate(event);
+}
+
+// --- Alerta de taxa de erro operacional (achado P1, auditoria 2026-08-12) ---
+// Até aqui, TODA falha (75+ call sites — webhooks, brain, billing, vídeo)
+// convergia só pra console.error, sem contador, threshold ou notificação:
+// se um provider (Tavus/OpenRouter/Stripe/Recall) começasse a falhar 100%
+// das chamadas, nada além de um humano lendo log do Railway saberia. Mesmo
+// padrão de janela deslizante + threshold + e-mail fire-and-forget que
+// cost-alerts.ts já usa pro teto de custo — mas implementado AQUI (não em
+// email.ts) porque email.ts importa este módulo (trackError/logEvent);
+// importar email.ts de volta criaria um ciclo. Fetch direto e mínimo ao
+// Resend, deliberadamente sem toda a superfície de sendHtmlEmail (só 1
+// destinatário fixo, sem template reutilizável).
+const ERROR_ALERT_WINDOW_MS = 5 * 60_000;
+const ERROR_ALERT_THRESHOLD = 10;
+/** Depois de alertar, espera antes de alertar de novo pelo MESMO evento — evita 1 e-mail por falha enquanto o provider segue fora do ar. */
+const ERROR_ALERT_COOLDOWN_MS = 30 * 60_000;
+const errorTimestampsByEvent = new Map<string, number[]>();
+const lastAlertSentByEvent = new Map<string, number>();
+
+function operationalAlertRecipient(): string {
+  return (process.env.OPERATIONAL_ALERT_EMAIL ?? "fernando@axtroai.com").trim();
+}
+
+async function sendOperationalErrorAlert(event: string, count: number): Promise<void> {
+  const apiKey = process.env.RESEND_API_KEY ?? "";
+  if (apiKey.trim().length === 0 || process.env.PORTAL_FAKE_PROVIDERS === "1") return;
+
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), 10_000);
+  try {
+    const response = await fetch("https://api.resend.com/emails", {
+      method: "POST",
+      signal: controller.signal,
+      headers: { Authorization: `Bearer ${apiKey}`, "Content-Type": "application/json" },
+      body: JSON.stringify({
+        from: "Axtro Digital Human OS <no-reply@axtroai.com>",
+        to: [operationalAlertRecipient()],
+        subject: `Alerta operacional: ${count} falhas de "${event}" em 5min`,
+        html: `<p>O evento <strong>${escapeHtmlForAlert(event)}</strong> falhou ${count} vezes nos últimos 5 minutos — pode indicar um provider fora do ar (Tavus/OpenRouter/Stripe/Recall) ou um bug ativo em produção.</p><p>Verifique os logs estruturados do Railway pra esse evento.</p>`,
+      }),
+    });
+    if (!response.ok) console.error(JSON.stringify({ level: "error", event: "operational_alert_send_failed", status: response.status }));
+  } catch {
+    // Best-effort — nunca lança. Se o próprio alerta falhar, o console.error
+    // já emitido por logError continua sendo a fonte de verdade nos logs.
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+function escapeHtmlForAlert(value: string): string {
+  return value.replaceAll("&", "&amp;").replaceAll("<", "&lt;").replaceAll(">", "&gt;");
+}
+
+/**
+ * Teto de segurança contra crescimento sem limite (achado da auto-revisão
+ * D-V2-114): nada aqui impede em COMPILAÇÃO que um call site futuro
+ * interpole um valor de alta cardinalidade (ex.: tenant_id) direto no nome
+ * do evento em vez de colocá-lo no `context` — hoje os ~76 call sites
+ * existentes usam só strings estáticas, mas é um contrato de convenção, não
+ * imposto pelo tipo. Se o número de eventos DISTINTOS já rastreados passar
+ * do teto, zera os dois Maps: perde continuidade de contagem por alguns
+ * minutos (aceitável, é só telemetria) em vez de crescer sem limite.
+ */
+const ERROR_ALERT_MAX_TRACKED_EVENTS = 1000;
+
+function maybeAlertErrorRate(event: string): void {
+  const now = Date.now();
+  if (!errorTimestampsByEvent.has(event) && errorTimestampsByEvent.size >= ERROR_ALERT_MAX_TRACKED_EVENTS) {
+    errorTimestampsByEvent.clear();
+    lastAlertSentByEvent.clear();
+  }
+  const cutoff = now - ERROR_ALERT_WINDOW_MS;
+  const timestamps = (errorTimestampsByEvent.get(event) ?? []).filter((t) => t > cutoff);
+  timestamps.push(now);
+  errorTimestampsByEvent.set(event, timestamps);
+  if (timestamps.length < ERROR_ALERT_THRESHOLD) return;
+
+  const lastAlert = lastAlertSentByEvent.get(event) ?? 0;
+  if (now - lastAlert < ERROR_ALERT_COOLDOWN_MS) return;
+  lastAlertSentByEvent.set(event, now);
+  void sendOperationalErrorAlert(event, timestamps.length);
 }

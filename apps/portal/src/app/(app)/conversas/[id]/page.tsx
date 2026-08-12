@@ -1,7 +1,9 @@
 import type { Metadata } from "next";
 import Link from "next/link";
 
-import { fetchConversationTranscript } from "@/lib/portal-data";
+import { fetchConversationTranscript, fetchTenantOverview } from "@/lib/portal-data";
+
+import { TranscriptDeleteButton } from "./transcript-delete-button";
 
 export const metadata: Metadata = { title: "Conversa — Axtro Digital Human OS" };
 
@@ -30,17 +32,23 @@ export default async function ConversationDetailPage({ params }: { params: Promi
     );
   }
 
+  const overview = await fetchTenantOverview().catch(() => null);
+  const isAdmin = overview?.role === "tenant_admin";
+
   return (
     <>
-      <header style={{ marginBottom: 22 }}>
-        <Link href="/conversas" style={{ color: "var(--accent)", fontSize: "0.84rem" }}>← Conversas</Link>
-        <h1 style={{ fontSize: "1.4rem", marginTop: 8 }}>
-          {transcript.agentName} · {SURFACE_LABELS[transcript.surface] ?? transcript.surface}
-        </h1>
-        <p style={{ color: "var(--text-muted)", margin: "4px 0 0", fontSize: "0.86rem" }}>
-          Início em {formatDateTime(transcript.startedAt)}
-          {transcript.endedAt ? ` · encerrada em ${formatDateTime(transcript.endedAt)}` : " · em andamento"}
-        </p>
+      <header style={{ marginBottom: 22, display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 16, flexWrap: "wrap" }}>
+        <div>
+          <Link href="/conversas" style={{ color: "var(--accent)", fontSize: "0.84rem" }}>← Conversas</Link>
+          <h1 style={{ fontSize: "1.4rem", marginTop: 8 }}>
+            {transcript.agentName} · {SURFACE_LABELS[transcript.surface] ?? transcript.surface}
+          </h1>
+          <p style={{ color: "var(--text-muted)", margin: "4px 0 0", fontSize: "0.86rem" }}>
+            Início em {formatDateTime(transcript.startedAt)}
+            {transcript.endedAt ? ` · encerrada em ${formatDateTime(transcript.endedAt)}` : " · em andamento"}
+          </p>
+        </div>
+        {isAdmin && <TranscriptDeleteButton id={transcript.id} />}
       </header>
 
       {transcript.turns.length === 0 ? (

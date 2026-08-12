@@ -45,3 +45,6 @@ Desabilitar deployment e assets, revogar consent evidence link, preservar proven
 
 ### Provider media mix-up
 Parar provider globalmente, validar session IDs, solicitar deletion e não reativar sem root cause.
+
+### Perda ou corrupção de dados de produção
+Playbook completo (achado da onda 5, 2026-08-12): `docs/operations/DISASTER_RECOVERY.md`. Resumo: conter a causa antes de restaurar, preservar logs pra escolher o ponto de restore certo, escopar o dano por `tenant_id`, decidir estratégia (PITR vs. backup diário) com o Fernando antes de agir, restaurar pra um projeto/branch separado com cópia seletiva de volta — nunca sobrescrever a produção inteira.

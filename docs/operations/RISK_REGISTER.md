@@ -19,3 +19,4 @@
 | R15 | insufficient engineering focus | H | H | task graph, small PRs, two-track gates | tasks exceed size |
 | R16 | legal advice assumed from architecture | M | H | counsel gate and disclaimers | regulated pilot |
 | R17 | provenance de evidence ID ainda não é verificável no reducer em memória | M | H | bloquear `derived_hypothesis` como fato confirmado e vincular lineage de evidência antes da primeira persistência de timeline | tentativa de promover hipótese como fato |
+| R18 | perda/corrupção de dados de produção sem plano de restore validado | L | Critical | plano Supabase Pro (backup diário automático, confirmado via MCP 2026-08-12) + runbook `docs/operations/DISASTER_RECOVERY.md` (D-V2-114); status de PITR e teste de restore real ainda pendentes de confirmação do Fernando | incidente de dados, ou decisão de habilitar PITR antes de escala |
