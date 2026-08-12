@@ -230,3 +230,33 @@ test("propagates provider errors and still never logs usage for a failed call", 
   await assert.rejects(() => core.runBrainChatCompletion(BASE_REQUEST, deps), /provider_unavailable/);
   assert.equal(calls.logGenerationUsage.length, 0);
 });
+
+test("achado D-V2-115: detectGuardrailRisk sinaliza palavras/padrões de risco sem bloquear nada", () => {
+  assert.deepEqual(core.detectGuardrailRisk("Claro, vamos conversar sobre o produto."), []);
+  assert.deepEqual(core.detectGuardrailRisk("Isso é garantido, pode confiar."), ["guaranteed_claim"]);
+  assert.deepEqual(core.detectGuardrailRisk("I guarantee this will work."), ["guaranteed_claim"]);
+  assert.deepEqual(core.detectGuardrailRisk("Eu prometo que vai funcionar."), ["explicit_promise"]);
+  assert.deepEqual(core.detectGuardrailRisk("Posso te dar 20% de desconto hoje."), ["unauthorized_discount"]);
+  assert.deepEqual(
+    core.detectGuardrailRisk("Eu garanto 15% de desconto, eu prometo!"),
+    ["guaranteed_claim", "explicit_promise", "unauthorized_discount"],
+  );
+});
+
+test("achado D-V2-115: runBrainChatCompletion inclui guardrailFlags no resultado (vazio quando a resposta é limpa)", async () => {
+  const { deps } = fakeDeps();
+  const result = await core.runBrainChatCompletion(BASE_REQUEST, deps);
+  assert.deepEqual(result.guardrailFlags, []);
+});
+
+test("achado D-V2-115: runBrainChatCompletion propaga o padrão detectado na resposta gerada", async () => {
+  const { deps } = fakeDeps({
+    generateResult: {
+      text: "Isso é garantido — 30% de desconto só hoje!",
+      model: "fake/model",
+      usage: { inputTokens: 100, outputTokens: 20 },
+    },
+  });
+  const result = await core.runBrainChatCompletion(BASE_REQUEST, deps);
+  assert.deepEqual(result.guardrailFlags, ["guaranteed_claim", "unauthorized_discount"]);
+});

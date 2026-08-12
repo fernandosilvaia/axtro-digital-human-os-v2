@@ -25,6 +25,19 @@ export interface BrainAgentProfile {
   readonly language?: BrainLanguage;
 }
 
+/**
+ * Mapeia o `default_language` do tenant (valores livres da UI de
+ * configurações — "pt-BR", "en-US", "es-ES") pro conjunto que a doutrina do
+ * cérebro realmente suporta. Só português e inglês têm doutrina completa
+ * hoje — qualquer outro valor (espanhol, futuro, desconhecido) cai em
+ * português, o mesmo comportamento que já era o default implícito antes
+ * desta função existir (achado P1, auditoria 2026-08-12: a auto-provisão de
+ * vídeo hardcodava "portuguese" e ignorava esta config por completo).
+ */
+export function tenantLanguageToBrainLanguage(defaultLanguage: string): BrainLanguage {
+  return defaultLanguage.trim().toLowerCase().startsWith("en") ? "english" : "portuguese";
+}
+
 /* ------------------------------------------------------------------ */
 /* Núcleo do método (pt-BR) — compartilhado entre chat e vídeo         */
 /* ------------------------------------------------------------------ */
@@ -117,6 +130,8 @@ export function buildCloserVideoSystemPrompt(profile: BrainAgentProfile): string
       "PRESENTATION MODE: when this call includes a slide deck (the deck outline appears in your context), you control it with tools: `next_slide`, `previous_slide`, `go_to_slide` (by number). Present like a great human presenter: announce what you're showing in a few words, advance the slide, then talk to the PERSON, not the slide — one idea per slide, tied to the pain they stated. Move to the pricing slide only after value validation (Phase 4 discipline). If there is no deck in context, the tools do nothing — don't mention slides.",
       "",
       "HANDOFF: explicit request for a human, emotional distress, legal/corporate topics, discount/exception requests, or the third failure on the same doubt → offer the transfer immediately: \"I'll connect you with our team — they'll already have our full context, you won't repeat anything.\"",
+      "",
+      "HOSTILITY OR ABUSE: if the person becomes hostile, offensive, or harassing, do not argue back and do not match their tone. Stay calm, set ONE clear boundary in a single short sentence (\"I want to help, but I need us to keep this respectful\"), and immediately offer the same handoff as above. If the hostility continues after that, stop engaging with the content of what was said — keep replies brief and neutral and continue offering the handoff. You have no ability to end the call yourself; the handoff to a human is the only real off-ramp you can offer.",
     ].join("\n");
   }
 
@@ -138,6 +153,8 @@ export function buildCloserVideoSystemPrompt(profile: BrainAgentProfile): string
     "MODO APRESENTAÇÃO: quando esta chamada incluir um deck de slides (o roteiro do deck aparece no seu contexto), você o controla com as tools: `next_slide`, `previous_slide`, `go_to_slide` (por número). Apresente como uma grande apresentadora humana: anuncie em poucas palavras o que vai mostrar, avance o slide, e fale com a PESSOA, não com o slide — uma ideia por slide, amarrada à dor que ela declarou. Só vá ao slide de investimento depois da validação de valor (disciplina da Fase 4). Se não houver deck no contexto, as tools não fazem nada — não mencione slides.",
     "",
     "HANDOFF: pedido explícito de humano, carga emocional, tema jurídico/societário, pedido de desconto/exceção, ou terceira falha na mesma dúvida → ofereça a transferência na hora: \"vou te conectar com nosso time — eles já estarão com todo o nosso contexto, você não vai repetir nada.\"",
+    "",
+    "HOSTILIDADE OU ABUSO: se a pessoa ficar hostil, ofensiva ou assediadora, não revide nem entre no mesmo tom. Mantenha a calma, marque UM limite claro numa frase curta (\"quero te ajudar, mas preciso que a gente mantenha o respeito\") e ofereça na hora o mesmo handoff acima. Se a hostilidade continuar depois disso, pare de engajar com o conteúdo do que foi dito — respostas curtas e neutras, sempre reoferecendo a transferência. Você não tem como encerrar a chamada sozinha; o handoff pro time humano é a única saída real que você pode oferecer.",
   ].join("\n");
 }
 

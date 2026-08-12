@@ -1,7 +1,8 @@
 import type { Metadata } from "next";
 import Link from "next/link";
 
-import { fetchConversationTranscripts } from "@/lib/portal-data";
+import { formatDateTime } from "@/lib/format-date";
+import { fetchConversationTranscripts, fetchTenantOverview } from "@/lib/portal-data";
 
 export const metadata: Metadata = { title: "Conversas — Axtro Digital Human OS" };
 
@@ -10,10 +11,6 @@ const SURFACE_LABELS: Record<string, string> = {
   video: "Vídeo",
   meeting: "Reunião externa",
 };
-
-function formatDateTime(iso: string): string {
-  return new Intl.DateTimeFormat("pt-BR", { dateStyle: "short", timeStyle: "short" }).format(new Date(iso));
-}
 
 export default async function ConversationsPage() {
   let transcripts;
@@ -26,6 +23,8 @@ export default async function ConversationsPage() {
       </div>
     );
   }
+  const overview = await fetchTenantOverview().catch(() => null);
+  const timeZone = overview?.tenant?.default_timezone || "America/Sao_Paulo";
 
   return (
     <>
@@ -65,8 +64,8 @@ export default async function ConversationsPage() {
                     <td>{transcript.agentName}</td>
                     <td>{SURFACE_LABELS[transcript.surface] ?? transcript.surface}</td>
                     <td className="mono">{transcript.turnCount}</td>
-                    <td>{formatDateTime(transcript.startedAt)}</td>
-                    <td>{transcript.endedAt ? formatDateTime(transcript.endedAt) : "—"}</td>
+                    <td>{formatDateTime(transcript.startedAt, timeZone)}</td>
+                    <td>{transcript.endedAt ? formatDateTime(transcript.endedAt, timeZone) : "—"}</td>
                     <td>
                       <Link href={`/conversas/${transcript.id}`} className="btn btn-ghost" style={{ padding: "6px 12px", fontSize: "0.82rem" }}>
                         Ver

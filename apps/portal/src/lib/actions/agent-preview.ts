@@ -8,7 +8,7 @@ import { maybeAlertCostCap } from "@/lib/cost-alerts";
 import { embedQuery, fakeProvidersEnabled, type KnowledgeMatch } from "@/lib/knowledge";
 import { fetchAgents, fetchTenantOverview } from "@/lib/portal-data";
 import { createClient } from "@/lib/supabase/server";
-import { logError as trackError } from "@/lib/telemetry";
+import { logError as trackError, logEvent } from "@/lib/telemetry";
 
 export interface PreviewTurn {
   readonly role: "user" | "assistant";
@@ -202,6 +202,12 @@ export async function sendAgentPreviewMessage(
         },
       },
     );
+
+    if (result.guardrailFlags.length > 0) {
+      // Detecção não-bloqueante (achado P1, auditoria 2026-08-12) — mesmo
+      // sinal do caminho de vídeo, sem logar o conteúdo da fala em si.
+      logEvent("brain_guardrail_risk_detected", { agent_id: agentId, flags: result.guardrailFlags.join(","), surface: "chat" });
+    }
 
     await recordChatTranscript(supabase, agentId, transcriptId, [
       ...history,

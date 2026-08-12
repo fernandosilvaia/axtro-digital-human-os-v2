@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import Link from "next/link";
 
+import { formatDateTime } from "@/lib/format-date";
 import { fetchConversationTranscript, fetchTenantOverview } from "@/lib/portal-data";
 
 import { TranscriptDeleteButton } from "./transcript-delete-button";
@@ -12,10 +13,6 @@ const SURFACE_LABELS: Record<string, string> = {
   video: "Vídeo",
   meeting: "Reunião externa",
 };
-
-function formatDateTime(iso: string): string {
-  return new Intl.DateTimeFormat("pt-BR", { dateStyle: "short", timeStyle: "short" }).format(new Date(iso));
-}
 
 export default async function ConversationDetailPage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
@@ -34,6 +31,7 @@ export default async function ConversationDetailPage({ params }: { params: Promi
 
   const overview = await fetchTenantOverview().catch(() => null);
   const isAdmin = overview?.role === "tenant_admin";
+  const timeZone = overview?.tenant?.default_timezone || "America/Sao_Paulo";
 
   return (
     <>
@@ -44,8 +42,8 @@ export default async function ConversationDetailPage({ params }: { params: Promi
             {transcript.agentName} · {SURFACE_LABELS[transcript.surface] ?? transcript.surface}
           </h1>
           <p style={{ color: "var(--text-muted)", margin: "4px 0 0", fontSize: "0.86rem" }}>
-            Início em {formatDateTime(transcript.startedAt)}
-            {transcript.endedAt ? ` · encerrada em ${formatDateTime(transcript.endedAt)}` : " · em andamento"}
+            Início em {formatDateTime(transcript.startedAt, timeZone)}
+            {transcript.endedAt ? ` · encerrada em ${formatDateTime(transcript.endedAt, timeZone)}` : " · em andamento"}
           </p>
         </div>
         {isAdmin && <TranscriptDeleteButton id={transcript.id} />}

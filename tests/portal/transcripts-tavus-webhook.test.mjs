@@ -23,6 +23,7 @@ test("parseTavusTranscriptEvent extrai conversationId e normaliza turns pro shap
       { role: "assistant", content: "Oi, tudo bem?" },
       { role: "user", content: "Tudo! Testando." },
     ],
+    truncated: false,
   });
 });
 
@@ -40,15 +41,35 @@ test("rejeita payload malformado (sem conversation_id, sem properties.transcript
   assert.equal(webhook.parseTavusTranscriptEvent({ ...VALID_EVENT, properties: { transcript: [] } }), null);
 });
 
-test("rejeita item de transcript com role inválido, mas pula turno de content vazio sem falhar o evento inteiro", () => {
-  const badRole = { ...VALID_EVENT, properties: { transcript: [{ role: "system", content: "x" }] } };
-  assert.equal(webhook.parseTavusTranscriptEvent(badRole), null);
+test("achado da auto-revisão D-V2-115: item com role inválido é PULADO, não descarta o evento inteiro (mesma disciplina do turno de content vazio)", () => {
+  const mixedBadRole = {
+    ...VALID_EVENT,
+    properties: { transcript: [{ role: "system", content: "x" }, { role: "assistant", content: "oi" }] },
+  };
+  const parsed = webhook.parseTavusTranscriptEvent(mixedBadRole);
+  assert.notEqual(parsed, null, "um item com role inválido no meio não deveria descartar o evento inteiro");
+  assert.deepEqual(parsed.turns, [{ role: "assistant", content: "oi" }]);
+
+  // Se TODOS os itens forem malformados, ainda cai em null (turns vazio) —
+  // a proteção contra payload 100% lixo continua de pé.
+  const allBadRole = { ...VALID_EVENT, properties: { transcript: [{ role: "system", content: "x" }] } };
+  assert.equal(webhook.parseTavusTranscriptEvent(allBadRole), null);
 
   const emptyContent = {
     ...VALID_EVENT,
     properties: { transcript: [{ role: "user", content: "" }, { role: "assistant", content: "oi" }] },
   };
-  const parsed = webhook.parseTavusTranscriptEvent(emptyContent);
+  const parsedEmpty = webhook.parseTavusTranscriptEvent(emptyContent);
+  assert.deepEqual(parsedEmpty.turns, [{ role: "assistant", content: "oi" }]);
+});
+
+test("achado da auto-revisão D-V2-115: item não-objeto (null, string, número) no meio do array é pulado, não descarta o evento", () => {
+  const mixedNonObjects = {
+    ...VALID_EVENT,
+    properties: { transcript: [null, "lixo", 42, { role: "assistant", content: "oi" }] },
+  };
+  const parsed = webhook.parseTavusTranscriptEvent(mixedNonObjects);
+  assert.notEqual(parsed, null);
   assert.deepEqual(parsed.turns, [{ role: "assistant", content: "oi" }]);
 });
 
@@ -56,4 +77,26 @@ test("trunca content além do teto sem lançar", () => {
   const huge = { ...VALID_EVENT, properties: { transcript: [{ role: "user", content: "x".repeat(5000) }] } };
   const parsed = webhook.parseTavusTranscriptEvent(huge);
   assert.equal(parsed.turns[0].content.length, 4000);
+});
+
+test("achado D-V2-115: transcript com mais de 500 turnos é TRUNCADO, não descartado por inteiro", () => {
+  const manyTurns = Array.from({ length: 600 }, (_, i) => ({
+    role: i % 2 === 0 ? "assistant" : "user",
+    content: `turno ${i}`,
+  }));
+  const huge = { ...VALID_EVENT, properties: { transcript: manyTurns } };
+  const parsed = webhook.parseTavusTranscriptEvent(huge);
+  assert.notEqual(parsed, null, "não deveria descartar o evento inteiro");
+  assert.equal(parsed.turns.length, 500, "deveria manter só os primeiros 500 turnos");
+  assert.equal(parsed.truncated, true);
+});
+
+test("transcript com exatamente 500 turnos não é marcado como truncado", () => {
+  const exactTurns = Array.from({ length: 500 }, (_, i) => ({
+    role: i % 2 === 0 ? "assistant" : "user",
+    content: `turno ${i}`,
+  }));
+  const parsed = webhook.parseTavusTranscriptEvent({ ...VALID_EVENT, properties: { transcript: exactTurns } });
+  assert.equal(parsed.turns.length, 500);
+  assert.equal(parsed.truncated, false);
 });

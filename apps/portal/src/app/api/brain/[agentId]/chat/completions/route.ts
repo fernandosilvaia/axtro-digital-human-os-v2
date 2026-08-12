@@ -97,15 +97,15 @@ async function resolveConfig(secretHash: string): Promise<ResolvedBrainAgent | n
  */
 async function checkBudget(tenantId: string): Promise<BudgetVerdict> {
   const supabase = createServiceRoleClient();
-  const startOfDayIso = new Date(new Date().toISOString().slice(0, 10) + "T00:00:00.000Z").toISOString();
-  const { data, error } = await supabase
-    .from("cost_events")
-    .select("quantity")
-    .eq("tenant_id", tenantId)
-    .eq("unit_type", "token")
-    .gte("occurred_at", startOfDayIso);
-  if (error || !Array.isArray(data)) return "unavailable";
-  const total = data.reduce((sum, row) => sum + Number((row as { quantity: unknown }).quantity ?? 0), 0);
+  // Agregação no banco (achado D-V2-115: rodava um `select quantity` de
+  // TODAS as linhas do dia + soma em JS, em TODO turno de vídeo — mesmo
+  // padrão que portal_ai_tokens_today() já resolve pro caminho de chat
+  // autenticado; esta é a variante service-role, migration 0038).
+  const { data: rawTotal, error } = await supabase.rpc("portal_ai_tokens_today_service", { p_tenant_id: tenantId });
+  // Postgres bigint pode chegar como string via PostgREST (preserva precisão)
+  // — mesma defesa já usada por agent-preview.ts pro RPC autenticado irmão.
+  const total = Number(rawTotal);
+  if (error || !Number.isFinite(total)) return "unavailable";
   // Alerta proativo (D-V2-107): fire-and-forget, mesmo ponto que já lê o uso do dia.
   void maybeAlertCostCap({ tenantId, capKind: "daily_tokens", current: total, cap: DAILY_TOKEN_CAP });
   return total >= DAILY_TOKEN_CAP ? "exhausted" : "allowed";
@@ -264,6 +264,14 @@ export async function POST(
       } else {
         logEvent(`brain_degraded_${result.degradedReason ?? "unknown"}`, { agent_id: agentId });
       }
+    }
+    if (result.guardrailFlags.length > 0) {
+      // Detecção não-bloqueante (achado P1, auditoria 2026-08-12): os
+      // guardrails anti-promessa só existem como texto de prompt, sem
+      // checagem de código — isto não impede a fala, só dá visibilidade
+      // real de quando o padrão de risco aparece na resposta gerada.
+      // Nunca loga o conteúdo da fala em si (redação de PII/conversa).
+      logEvent("brain_guardrail_risk_detected", { agent_id: agentId, flags: result.guardrailFlags.join(",") });
     }
     return new Response(buildCompletionStream(result.reply, model), {
       status: 200,

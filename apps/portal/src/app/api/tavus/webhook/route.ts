@@ -41,6 +41,11 @@ export async function POST(request: NextRequest): Promise<Response> {
   if (parsed === null) {
     return NextResponse.json({ ok: true, handled: false });
   }
+  if (parsed.truncated) {
+    // Parcial é sempre melhor que perder a call inteira — mesma disciplina
+    // do webhook do Recall (D-V2-111), só telemetrado, nunca bloqueia.
+    logEvent("tavus_webhook_transcript_truncated", { conversation_id: parsed.conversationId, kept_turns: parsed.turns.length });
+  }
 
   try {
     const supabase = createServiceRoleClient();

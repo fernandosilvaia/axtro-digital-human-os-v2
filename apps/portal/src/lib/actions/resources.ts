@@ -223,7 +223,7 @@ export async function setAgentStatus(
       ]);
       const agent = agents.find((candidate) => candidate.id === agentId);
       if (agent && overview.tenant) {
-        await provisionAgentVideoIfMissing(supabase, agent, overview.tenant.legal_name);
+        await provisionAgentVideoIfMissing(supabase, agent, overview.tenant.legal_name, overview.tenant.default_language);
       }
       const admins = (adminEmailsResult.data ?? []) as string[];
       if (agent && overview.tenant && admins.length > 0) {

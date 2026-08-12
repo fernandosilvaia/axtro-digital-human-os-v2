@@ -72,6 +72,8 @@ export interface BrainChatHttpResult {
   readonly degradedReason?: BrainDegradedReason;
   /** O erro original quando degradedReason = generation_failed — a rota telemetra. */
   readonly cause?: unknown;
+  /** Padrões de risco de guardrail detectados na resposta gerada (D-V2-115) — vazio em fallback degradado. A rota telemetra quando não-vazio. */
+  readonly guardrailFlags: readonly string[];
 }
 
 const FALLBACK_REPLY_PT = "Peço desculpa, deixa eu reorganizar isso rapidinho — pode repetir a última parte pra mim?";
@@ -138,6 +140,7 @@ export async function handleBrainChatRequest(
       reply: budget === "exhausted" ? budgetReply(agent.language) : fallbackReply(agent.language),
       degraded: true,
       degradedReason: budget === "exhausted" ? "budget_exhausted" : "budget_unavailable",
+      guardrailFlags: [],
     };
   }
 
@@ -147,7 +150,7 @@ export async function handleBrainChatRequest(
   } catch (error) {
     if (error instanceof TavusRequestParseError) {
       // Requisição chegou autenticada mas malformada: degrada, não derruba a call.
-      return { reply: fallbackReply(agent.language), degraded: true, degradedReason: "malformed_request", cause: error };
+      return { reply: fallbackReply(agent.language), degraded: true, degradedReason: "malformed_request", cause: error, guardrailFlags: [] };
     }
     throw error;
   }
@@ -179,8 +182,8 @@ export async function handleBrainChatRequest(
           deps.logGenerationUsage(agent.tenantId, agent.agentId, inputTokens, outputTokens),
       },
     );
-    return { reply: result.reply, degraded: false };
+    return { reply: result.reply, degraded: false, guardrailFlags: result.guardrailFlags };
   } catch (error) {
-    return { reply: fallbackReply(agent.language), degraded: true, degradedReason: "generation_failed", cause: error };
+    return { reply: fallbackReply(agent.language), degraded: true, degradedReason: "generation_failed", cause: error, guardrailFlags: [] };
   }
 }

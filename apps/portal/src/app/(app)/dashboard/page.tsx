@@ -1,5 +1,6 @@
 import type { Metadata } from "next";
 
+import { formatLongDate } from "@/lib/format-date";
 import { fetchTenantOverview, fetchUsageSummary, type UsageSummary } from "@/lib/portal-data";
 import { StatusBadge } from "@/components/status-badge";
 
@@ -191,10 +192,7 @@ export default async function DashboardPage() {
               <InfoRow label="Região" value={tenant.home_region} />
               <InfoRow label="Idioma padrão" value={tenant.default_language} />
               <InfoRow label="Fuso horário" value={tenant.default_timezone} />
-              <InfoRow
-                label="Criada em"
-                value={new Date(tenant.created_at).toLocaleDateString("pt-BR", { day: "2-digit", month: "long", year: "numeric" })}
-              />
+              <InfoRow label="Criada em" value={formatLongDate(tenant.created_at, tenant.default_timezone)} />
             </dl>
           ) : (
             <p style={{ color: "var(--text-muted)", fontSize: "0.88rem" }}>Conta ainda não provisionada.</p>

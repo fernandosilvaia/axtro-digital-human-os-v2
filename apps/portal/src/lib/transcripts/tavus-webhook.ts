@@ -19,9 +19,18 @@ const MAX_TURNS = 500;
 export interface ParsedTavusTranscript {
   readonly conversationId: string;
   readonly turns: readonly { readonly role: "user" | "assistant"; readonly content: string }[];
+  /** true quando o transcript bruto passou de MAX_TURNS e foi truncado (achado D-V2-115) — caller decide se telemetra. */
+  readonly truncated: boolean;
 }
 
-/** Devolve null pra evento fora do escopo (outros event_type) ou payload malformado — nunca lança. */
+/**
+ * Devolve null pra evento fora do escopo (outros event_type) ou payload
+ * malformado — nunca lança. Um transcript acima de MAX_TURNS é TRUNCADO,
+ * nunca descartado por inteiro (achado P1, auditoria 2026-08-12 — o Tavus
+ * é a superfície de vendas PRINCIPAL do produto; até hoje uma call longa e
+ * bem engajada > 500 blocos perdia a transcrição inteira em silêncio, o
+ * mesmo bug que D-V2-111 já tinha corrigido no webhook irmão do Recall).
+ */
 export function parseTavusTranscriptEvent(body: unknown): ParsedTavusTranscript | null {
   if (body === null || typeof body !== "object") return null;
   const event = body as Record<string, unknown>;
@@ -32,19 +41,29 @@ export function parseTavusTranscriptEvent(body: unknown): ParsedTavusTranscript 
 
   const properties = event.properties as Record<string, unknown> | undefined;
   const rawTranscript = properties?.transcript;
-  if (!Array.isArray(rawTranscript) || rawTranscript.length === 0 || rawTranscript.length > MAX_TURNS) return null;
+  if (!Array.isArray(rawTranscript) || rawTranscript.length === 0) return null;
+  const truncated = rawTranscript.length > MAX_TURNS;
+  const cappedTranscript = truncated ? rawTranscript.slice(0, MAX_TURNS) : rawTranscript;
 
   const turns: { role: "user" | "assistant"; content: string }[] = [];
-  for (const item of rawTranscript) {
-    if (item === null || typeof item !== "object") return null;
+  for (const item of cappedTranscript) {
+    // Item malformado (não-objeto ou role fora do esperado) PULA, não
+    // descarta o evento inteiro — achado da auto-revisão desta mesma onda
+    // (D-V2-115): antes, UM turno estranho no meio de uma call longa
+    // apagava a transcrição inteira em silêncio, exatamente o bug-classe
+    // que esta onda já corrigiu pro caso de contagem (>500 turnos). Se
+    // TODOS os itens forem malformados, `turns` fica vazio e a checagem
+    // abaixo ainda devolve null — não perde a proteção contra payload
+    // 100% lixo, só para de punir a conversa inteira por UM item ruim.
+    if (item === null || typeof item !== "object") continue;
     const record = item as Record<string, unknown>;
     const role = record.role;
     const content = record.content;
-    if (role !== "user" && role !== "assistant") return null;
+    if (role !== "user" && role !== "assistant") continue;
     if (typeof content !== "string" || content.length === 0) continue; // turno vazio (silêncio) — pula, não é malformado.
     turns.push({ role, content: content.slice(0, MAX_TURN_CHARS) });
   }
   if (turns.length === 0) return null;
 
-  return { conversationId, turns };
+  return { conversationId, turns, truncated };
 }

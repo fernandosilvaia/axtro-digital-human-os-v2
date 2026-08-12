@@ -106,3 +106,12 @@ test("platform deck presents the product with honest facts only", () => {
   assert.ok(!/R\$|\$\d/.test(text));
   assert.match(text, /Disclosure de IA sempre/);
 });
+
+test("achado D-V2-115: tenantLanguageToBrainLanguage mapeia default_language do tenant pro BrainLanguage suportado", () => {
+  assert.equal(brain.tenantLanguageToBrainLanguage("en-US"), "english");
+  assert.equal(brain.tenantLanguageToBrainLanguage("en"), "english");
+  assert.equal(brain.tenantLanguageToBrainLanguage("EN-us"), "english", "case-insensitive");
+  assert.equal(brain.tenantLanguageToBrainLanguage("pt-BR"), "portuguese");
+  assert.equal(brain.tenantLanguageToBrainLanguage("es-ES"), "portuguese", "espanhol cai em português — doutrina completa não existe pra es ainda");
+  assert.equal(brain.tenantLanguageToBrainLanguage(""), "portuguese", "valor vazio/desconhecido cai em português, o default de sempre");
+});

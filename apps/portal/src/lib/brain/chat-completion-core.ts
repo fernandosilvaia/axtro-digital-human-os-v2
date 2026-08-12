@@ -50,6 +50,39 @@ export interface BrainChatRequest {
 export interface BrainChatResult {
   readonly reply: string;
   readonly usage: { readonly inputTokens: number; readonly outputTokens: number };
+  /** Padrões de risco detectados na resposta (achado P1, auditoria 2026-08-12) — ver detectGuardrailRisk. Vazio quando nenhum padrão bate. */
+  readonly guardrailFlags: readonly string[];
+}
+
+/**
+ * Detecção (NÃO bloqueio) de possível violação dos guardrails anti-promessa
+ * do prompt (alçada de desconto ZERO, "garantido" proibido fora de
+ * contrato, urgência só real — metodo-silva.ts). Achado P1 confirmado
+ * (auditoria 2026-08-12): os guardrails hoje existem só como texto de
+ * prompt, sem NENHUMA checagem pós-geração — nada intercepta uma promessa
+ * indevida antes de chegar ao lead. Construir um filtro completo e seguro
+ * (sem falso-positivo que quebre a conversa bloqueando fala legítima) é
+ * fora de escopo de uma correção rápida; isto é a mitigação parcial segura
+ * de implementar agora: sinaliza o padrão pro caller telemetrar (dá
+ * visibilidade real, não finge ter resolvido o problema de conteúdo).
+ * Heurística deliberadamente simples e barata (regex, sem 2ª chamada de
+ * LLM) — falsos positivos são aceitáveis aqui porque NADA é bloqueado.
+ */
+const GUARDRAIL_RISK_PATTERNS: readonly { readonly id: string; readonly pattern: RegExp }[] = [
+  // Radical cobre toda conjugação PT ("garanto", "garante", "garantido") e o
+  // termo EN ("guarantee(d)/guarantees") — checado antes de fixar em uma
+  // forma específica evitou o falso-negativo de "eu garanto" (presente).
+  { id: "guaranteed_claim", pattern: /\b(garant|guarant)\w*/i },
+  { id: "explicit_promise", pattern: /\beu prometo\b|\bi promise\b/i },
+  { id: "unauthorized_discount", pattern: /\d{1,3}\s?%\s*(de\s+)?(desconto|off|discount)/i },
+];
+
+export function detectGuardrailRisk(reply: string): readonly string[] {
+  const flags: string[] = [];
+  for (const { id, pattern } of GUARDRAIL_RISK_PATTERNS) {
+    if (pattern.test(reply)) flags.push(id);
+  }
+  return flags;
 }
 
 export class BrainChatValidationError extends Error {
@@ -223,5 +256,5 @@ export async function runBrainChatCompletion(request: BrainChatRequest, deps: Br
 
   const result = await deps.generate(messages, request.maxOutputTokens ?? DEFAULT_MAX_OUTPUT_TOKENS);
   await deps.logGenerationUsage(result.usage.inputTokens, result.usage.outputTokens, result.usage.reportedCostUsd);
-  return { reply: result.text, usage: result.usage };
+  return { reply: result.text, usage: result.usage, guardrailFlags: detectGuardrailRisk(result.text) };
 }

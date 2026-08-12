@@ -7,7 +7,7 @@
 // via RPC (supabase-only 0022).
 import { createTavusVideoConversationPort } from "@axtro/provider-tavus";
 
-import { buildCloserVideoSystemPrompt, buildPerceptionQueries } from "@/lib/brain/metodo-silva";
+import { buildCloserVideoSystemPrompt, buildPerceptionQueries, tenantLanguageToBrainLanguage } from "@/lib/brain/metodo-silva";
 import type { createClient } from "@/lib/supabase/server";
 import { logError as trackError, logEvent } from "@/lib/telemetry";
 import { resolveAgentVideoConfig } from "@/lib/video-config";
@@ -37,6 +37,8 @@ export async function provisionAgentVideoIfMissing(
   supabase: Awaited<ReturnType<typeof createClient>>,
   agent: { readonly id: string; readonly name: string },
   tenantName: string,
+  /** default_language do tenant (ex.: "pt-BR", "en-US") — achado D-V2-115: antes hardcoded como português, ignorando esta config. */
+  tenantDefaultLanguage: string,
 ): Promise<ProvisionResult> {
   const tavusApiKey = (process.env.TAVUS_API_KEY ?? "").trim();
   const replicaId = (process.env.TAVUS_REPLICA_ID ?? "").trim();
@@ -54,14 +56,15 @@ export async function provisionAgentVideoIfMissing(
   const firstName = agent.name.split(/[\s—-]+/)[0] ?? agent.name;
   const elevenKey = (process.env.ELEVENLABS_API_KEY ?? "").trim();
   const voiceId = (process.env.ELEVENLABS_VOICE_ID ?? DEFAULT_VOICE_ID).trim();
+  const language = tenantLanguageToBrainLanguage(tenantDefaultLanguage);
 
   try {
     const port = createTavusVideoConversationPort({ apiKey: tavusApiKey });
     const persona = await port.createPersona({
       personaName: `${firstName} — ${tenantName} (auto)`.slice(0, 120),
-      systemPrompt: buildCloserVideoSystemPrompt({ agentName: firstName, tenantName }),
+      systemPrompt: buildCloserVideoSystemPrompt({ agentName: firstName, tenantName, language }),
       defaultReplicaId: replicaId,
-      ambientAwarenessQueries: buildPerceptionQueries("portuguese"),
+      ambientAwarenessQueries: buildPerceptionQueries(language),
       ...(elevenKey.length > 0 ? { elevenLabs: { apiKey: elevenKey, voiceId } } : {}),
     });
 
@@ -76,7 +79,7 @@ export async function provisionAgentVideoIfMissing(
     const { error: rpcError } = await supabase.rpc("portal_set_agent_video_config", {
       p_agent_id: agent.id,
       p_persona_id: persona.personaId,
-      p_language: "portuguese",
+      p_language: language,
       p_presentation_kind: "sales",
     });
     if (rpcError) {
