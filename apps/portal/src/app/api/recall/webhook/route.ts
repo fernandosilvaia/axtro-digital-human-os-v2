@@ -28,6 +28,17 @@ export const dynamic = "force-dynamic";
 
 const IN_CALL_EVENTS = new Set(["bot.in_call_not_recording", "bot.in_call_recording", "bot.recording_permission_allowed"]);
 
+// Mesmo teto do caminho Tavus (lib/transcripts/tavus-webhook.ts) — achado P1
+// da auto-revisão 2026-08-11: sem isso, um bloco de fala contínua >8000
+// chars OU uma reunião com >1000 blocos de diarização (uma call de até 40min,
+// automatic_leave.in_call_not_recording_timeout=2400s) faz o validador SQL
+// (app.validate_transcript_turns, 0029) rejeitar o array INTEIRO — a
+// transcrição inteira era perdida em silêncio, sem nem um salvamento
+// parcial. Trunca por turno E corta o array ANTES do teto do banco, com
+// folga — parcial é sempre melhor que nada.
+const MAX_TURN_CHARS = 4000;
+const MAX_TURNS = 500;
+
 interface SentinelSessionRow {
   readonly tenant_id: string;
   readonly agent_id: string;
@@ -187,10 +198,10 @@ async function notifyMeetingEnded(botId: string, status: "ended" | "failed"): Pr
  * Impacto aceito: pior caso é um rótulo trocado numa tela de leitura
  * (não vaza dado entre tenants, não abre acesso indevido).
  */
-async function processMeetingTranscript(botId: string, transcriptId: string): Promise<void> {
+async function processMeetingTranscript(botId: string, transcriptId: string): Promise<boolean> {
   const recallApiKey = (process.env.RECALL_API_KEY ?? "").trim();
   const recallRegion = (process.env.RECALL_API_REGION ?? "").trim() as RecallRegion;
-  if (recallApiKey.length === 0 || recallRegion.length === 0) return;
+  if (recallApiKey.length === 0 || recallRegion.length === 0) return false;
 
   const supabase = createServiceRoleClient();
   const { data: agentContext, error: agentError } = await supabase.rpc("portal_get_meeting_bot_agent_service", {
@@ -198,27 +209,33 @@ async function processMeetingTranscript(botId: string, transcriptId: string): Pr
   });
   if (agentError || agentContext === null) {
     if (agentError) trackError("recall_webhook_transcript_agent_lookup_failed", agentError, { bot_id: botId });
-    return;
+    return false;
   }
   const agentName = (agentContext as { agentName?: unknown }).agentName;
-  if (typeof agentName !== "string") return;
+  if (typeof agentName !== "string") return false;
 
   const recallPort = createRecallMeetingBotPort({ apiKey: recallApiKey, region: recallRegion });
   const metadata = await recallPort.fetchTranscriptMetadata(transcriptId);
   if (metadata.downloadUrl === null) {
     // Transcrição ainda processando — a Recall reenvia transcript.done quando estiver pronta de verdade.
     logEvent("recall_webhook_transcript_not_ready", { bot_id: botId, transcript_id: transcriptId });
-    return;
+    return false;
   }
 
   const blocks = await recallPort.downloadTranscript(metadata.downloadUrl);
-  const turns = blocks
+  const rawTurns = blocks
     .filter((block) => block.text.trim().length > 0)
     .map((block) => ({
       role: block.participantName === agentName ? ("assistant" as const) : ("user" as const),
-      content: block.text,
+      content: block.text.slice(0, MAX_TURN_CHARS),
     }));
-  if (turns.length === 0) return;
+  if (rawTurns.length === 0) return false;
+  const turns = rawTurns.slice(0, MAX_TURNS);
+  if (rawTurns.length > MAX_TURNS) {
+    // Parcial é sempre melhor que a rejeição total do validador SQL —
+    // telemetrado pra visibilidade, nunca bloqueia o salvamento do que coube.
+    logEvent("recall_webhook_transcript_truncated", { bot_id: botId, raw_turns: rawTurns.length, kept_turns: turns.length });
+  }
 
   const { data, error } = await supabase.rpc("portal_append_transcript_turns_service", {
     p_surface: "meeting",
@@ -228,10 +245,11 @@ async function processMeetingTranscript(botId: string, transcriptId: string): Pr
   });
   if (error) {
     trackError("recall_webhook_transcript_append_failed", error, { bot_id: botId });
-    return;
+    return false;
   }
   const found = (data as { found?: boolean } | null)?.found === true;
   if (!found) logEvent("recall_webhook_transcript_no_matching_transcript", { bot_id: botId });
+  return found;
 }
 
 export async function POST(request: NextRequest): Promise<Response> {
@@ -273,13 +291,19 @@ export async function POST(request: NextRequest): Promise<Response> {
 
   const transcriptDone = parseRecallTranscriptDonePayload(body);
   if (transcriptDone !== null) {
+    let persisted = false;
     try {
-      await processMeetingTranscript(transcriptDone.botId, transcriptDone.transcriptId);
+      persisted = await processMeetingTranscript(transcriptDone.botId, transcriptDone.transcriptId);
     } catch (transcriptError) {
       // Nunca derruba o webhook — o Recall pode reentregar transcript.done em retry.
       trackError("recall_webhook_transcript_processing_failed", transcriptError, { bot_id: transcriptDone.botId });
     }
-    return NextResponse.json({ ok: true, handled: true });
+    // `handled` reflete o resultado real (achado P2 da auto-revisão
+    // 2026-08-11): antes sempre respondia true mesmo quando o append falhava
+    // internamente — a Recall não usa o corpo pra decidir retry, mas
+    // qualquer observabilidade futura (telemetria, tooling) que confie na
+    // própria resposta do webhook merece o dado certo, não um falso positivo.
+    return NextResponse.json({ ok: true, handled: persisted });
   }
 
   const parsed = parseRecallWebhookPayload(body);

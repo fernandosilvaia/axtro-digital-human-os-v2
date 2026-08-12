@@ -10,6 +10,7 @@ import {
 } from "@/lib/leads/video-session";
 import { createServiceRoleClient, ServiceRoleUnavailableError } from "@/lib/supabase/service";
 import { logError as trackError, logEvent } from "@/lib/telemetry";
+import { DAILY_VIDEO_CONVERSATION_CAP } from "@/lib/video-cap";
 
 /**
  * Chamado pelo control-tower (ligação de voz da Raissa) quando o lead topa
@@ -30,8 +31,6 @@ import { logError as trackError, logEvent } from "@/lib/telemetry";
  *   sem a RPC aplicada, o log falha telemetrado — nunca o fluxo.
  */
 export const dynamic = "force-dynamic";
-
-const DAILY_VIDEO_CONVERSATION_CAP = 20;
 
 interface ResolvedPlatformAgent extends PlatformAgentPersona {
   readonly tenantId: string;

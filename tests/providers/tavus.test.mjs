@@ -117,3 +117,36 @@ test("endConversation valida id e chama o endpoint de encerramento", async () =>
   assert.equal(calls[0].url, "https://tavusapi.com/v2/conversations/c123abc/end");
   await assert.rejects(() => port.endConversation("../evil"), (e) => e.code === "invalid_request");
 });
+
+// Achado P3 da auto-revisão 2026-08-11: este adapter (e provider-recall,
+// provider-stripe antes do fix) já teve o padrão certo de timeout desde a
+// auditoria 2026-08-02, mas nunca tinha NENHUM teste de timeout — nada
+// pegaria se um refactor futuro reintroduzisse o bug (clearTimeout logo
+// após o fetch(), antes de ler o corpo) que já foi achado e corrigido nos
+// outros dois adapters.
+test("timeout aborta antes dos headers e nunca vaza a chave no erro", async () => {
+  const timeoutFetch = async (_url, init) => new Promise((_resolve, reject) => {
+    init.signal.addEventListener("abort", () => reject(Object.assign(new Error("aborted"), { name: "AbortError" })));
+  });
+  const port = provider.createTavusVideoConversationPort({ apiKey: API_KEY, timeoutMs: 5, fetchImplementation: timeoutFetch });
+  await assert.rejects(
+    () => port.createConversation(request()),
+    (e) => {
+      assert.equal(e.code, "provider_timeout");
+      assert.equal(e.message.includes(API_KEY), false);
+      return true;
+    },
+  );
+});
+
+test("corpo travado depois dos headers ainda respeita o timeout", async () => {
+  const stallingFetch = async (_url, init) => ({
+    ok: true,
+    status: 200,
+    text: () => new Promise((_resolve, reject) => {
+      init.signal.addEventListener("abort", () => reject(Object.assign(new Error("aborted"), { name: "AbortError" })));
+    }),
+  });
+  const port = provider.createTavusVideoConversationPort({ apiKey: API_KEY, timeoutMs: 5, fetchImplementation: stallingFetch });
+  await assert.rejects(() => port.createConversation(request()), (e) => e.code === "provider_timeout");
+});
