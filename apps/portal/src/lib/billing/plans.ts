@@ -81,16 +81,21 @@ export function conversationOverageEventName(): string {
 }
 
 /**
- * Teto mensal de conversas pra contas SEM assinatura (trial). Só é
- * APLICADO quando BILLING_TRIAL_LIMIT_ENABLED=true — desligado por padrão
- * pra não mudar o comportamento de contas já em uso (piloto controlado)
- * sem uma decisão explícita do Fernando (D-V2-101). Com a flag desligada,
- * contas sem assinatura seguem só o teto diário de segurança de sempre.
+ * Teto mensal de conversas pra contas SEM assinatura (trial). ATIVO por
+ * padrão desde D-V2-112 (2026-08-12) — a auditoria adversarial da onda 4
+ * confirmou (3/3 verificadores) que, desligado, uma conta fake self-serve
+ * sem cartão nunca tinha teto mensal: só o teto diário (DAILY_VIDEO_
+ * CONVERSATION_CAP=20/dia) segurava o gasto, e cada conta nova multiplicava
+ * esse teto por N. Nasceu desligado em D-V2-101 (2026-08-03) por cautela —
+ * "não mudar comportamento sem decisão explícita" — mas o próprio achado é
+ * essa decisão: fechar o buraco de custo é mais seguro que preservar
+ * ilimitado por padrão. Reversível a qualquer momento com
+ * BILLING_TRIAL_LIMIT_ENABLED=false no Railway, se o Fernando preferir.
  */
 export const TRIAL_INCLUDED_CONVERSATIONS_PER_MONTH = 5;
 
 export function isTrialLimitEnabled(): boolean {
-  return (process.env.BILLING_TRIAL_LIMIT_ENABLED ?? "").trim().toLowerCase() === "true";
+  return (process.env.BILLING_TRIAL_LIMIT_ENABLED ?? "true").trim().toLowerCase() !== "false";
 }
 
 /**

@@ -54,32 +54,55 @@ test("status past_due ainda conta como plano ativo (graça antes de cancelar)", 
 });
 
 test("status canceled/unpaid/incomplete NÃO conta como plano ativo — cai pro comportamento sem assinatura", async () => {
-  for (const status of ["canceled", "unpaid", "incomplete", "incomplete_expired", "paused"]) {
-    const supabase = fakeSupabase({
-      plan_id: "escala", status, stripe_customer_id: "cus_1",
-      conversations_today: 1, conversations_this_period: 200,
-    });
-    assert.equal(await videoCap.checkVideoCap(supabase), "allowed", `status ${status} deveria cair pro trial`);
+  // Teto de trial explicitamente desligado aqui: o que este teste isola é a
+  // ROTA (status não-ativo cai pro branch "sem assinatura", não no branch de
+  // plano ativo/overage) — o valor do teto de trial em si é coberto à parte
+  // (ver testes acima, D-V2-112).
+  process.env.BILLING_TRIAL_LIMIT_ENABLED = "false";
+  try {
+    for (const status of ["canceled", "unpaid", "incomplete", "incomplete_expired", "paused"]) {
+      const supabase = fakeSupabase({
+        plan_id: "escala", status, stripe_customer_id: "cus_1",
+        conversations_today: 1, conversations_this_period: 200,
+      });
+      assert.equal(await videoCap.checkVideoCap(supabase), "allowed", `status ${status} deveria cair pro trial`);
+    }
+  } finally {
+    delete process.env.BILLING_TRIAL_LIMIT_ENABLED;
   }
 });
 
-test("sem assinatura (plan_id null): allowed mesmo com uso alto no período, teto de trial DESLIGADO por padrão", async () => {
+test("sem assinatura (plan_id null): teto de trial (5/mês) ATIVO por padrão (D-V2-112) — sem env var, já aplica", async () => {
   delete process.env.BILLING_TRIAL_LIMIT_ENABLED;
-  const supabase = fakeSupabase({
-    plan_id: null, status: null, stripe_customer_id: null,
-    conversations_today: 3, conversations_this_period: 500,
-  });
-  assert.equal(await videoCap.checkVideoCap(supabase), "allowed");
-});
-
-test("sem assinatura: teto de trial (5/mês) aplica só quando BILLING_TRIAL_LIMIT_ENABLED=true", async () => {
-  process.env.BILLING_TRIAL_LIMIT_ENABLED = "true";
   try {
     const underLimit = fakeSupabase({ plan_id: null, status: null, conversations_today: 1, conversations_this_period: 4 });
     assert.equal(await videoCap.checkVideoCap(underLimit), "allowed");
 
     const overLimit = fakeSupabase({ plan_id: null, status: null, conversations_today: 1, conversations_this_period: 5 });
     assert.equal(await videoCap.checkVideoCap(overLimit), "capped");
+  } finally {
+    delete process.env.BILLING_TRIAL_LIMIT_ENABLED;
+  }
+});
+
+test("sem assinatura: BILLING_TRIAL_LIMIT_ENABLED=true é equivalente ao default (redundante, mas mantém compat)", async () => {
+  process.env.BILLING_TRIAL_LIMIT_ENABLED = "true";
+  try {
+    const overLimit = fakeSupabase({ plan_id: null, status: null, conversations_today: 1, conversations_this_period: 5 });
+    assert.equal(await videoCap.checkVideoCap(overLimit), "capped");
+  } finally {
+    delete process.env.BILLING_TRIAL_LIMIT_ENABLED;
+  }
+});
+
+test("sem assinatura: BILLING_TRIAL_LIMIT_ENABLED=false desliga o teto mensal explicitamente (opt-out reversível)", async () => {
+  process.env.BILLING_TRIAL_LIMIT_ENABLED = "false";
+  try {
+    const supabase = fakeSupabase({
+      plan_id: null, status: null, stripe_customer_id: null,
+      conversations_today: 3, conversations_this_period: 500,
+    });
+    assert.equal(await videoCap.checkVideoCap(supabase), "allowed");
   } finally {
     delete process.env.BILLING_TRIAL_LIMIT_ENABLED;
   }

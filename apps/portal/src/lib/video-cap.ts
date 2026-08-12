@@ -69,9 +69,10 @@ export async function checkVideoCap(
     return conversationsThisPeriod >= included ? "allowed_overage" : "allowed";
   }
 
-  // Sem assinatura ativa: comportamento de sempre (só o teto diário), a
-  // menos que o teto de avaliação esteja ligado (desligado por padrão —
-  // ver BILLING_TRIAL_LIMIT_ENABLED em lib/billing/plans.ts).
+  // Sem assinatura ativa: teto mensal de trial ATIVO por padrão desde
+  // D-V2-112 (ver BILLING_TRIAL_LIMIT_ENABLED em lib/billing/plans.ts) —
+  // só cai pro comportamento antigo (sem teto mensal) com a env var
+  // explicitamente setada como "false".
   if (isTrialLimitEnabled() && conversationsThisPeriod >= TRIAL_INCLUDED_CONVERSATIONS_PER_MONTH) {
     return "capped";
   }

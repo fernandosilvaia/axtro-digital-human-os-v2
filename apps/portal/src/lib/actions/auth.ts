@@ -3,10 +3,40 @@
 import { headers } from "next/headers";
 import { redirect } from "next/navigation";
 
+import { isRateLimited } from "@/lib/rate-limit";
 import { createClient } from "@/lib/supabase/server";
 
 export interface AuthActionState {
   readonly error: string | null;
+}
+
+const RATE_LIMIT_MESSAGE = "Muitas tentativas em sequência. Aguarde um pouco e tente de novo.";
+
+/**
+ * Teto de app pra criação de contas por IP (achado P1 confirmado, auditoria
+ * 2026-08-12): sem isto, um script com um domínio catch-all cria contas fake
+ * ilimitadas, cada uma ativando um agente que provisiona uma persona de
+ * vídeo REAL na Tavus automaticamente e gera custo real sem exigir cartão.
+ * 5/hora é folga generosa pra qualquer usuário legítimo (mesmo reentrando
+ * com typo) e ainda corta um loop de script na mesma origem. Não impede um
+ * atacante trocando de IP — é defesa em profundidade, não a barreira única;
+ * o teto duro de gasto é BILLING_TRIAL_LIMIT_ENABLED (billing/plans.ts).
+ */
+const SIGNUP_RATE_LIMIT_WINDOW_MS = 60 * 60_000;
+const SIGNUP_RATE_LIMIT_MAX = 5;
+
+/** Credential stuffing em /login: 10 tentativas/min por IP é folga generosa pra erro de digitação humano. */
+const SIGNIN_RATE_LIMIT_WINDOW_MS = 60_000;
+const SIGNIN_RATE_LIMIT_MAX = 10;
+
+async function clientIp(): Promise<string> {
+  const requestHeaders = await headers();
+  const forwardedFor = requestHeaders.get("x-forwarded-for");
+  if (forwardedFor) {
+    const first = forwardedFor.split(",")[0]?.trim();
+    if (first) return first;
+  }
+  return requestHeaders.get("x-real-ip") ?? "unknown";
 }
 
 // O Supabase Auth responde em inglês ("Invalid login credentials") — as telas
@@ -40,6 +70,10 @@ function authErrorMessage(error: { code?: string | undefined; message: string },
 }
 
 export async function signIn(_prevState: AuthActionState, formData: FormData): Promise<AuthActionState> {
+  if (isRateLimited(`signin:${await clientIp()}`, SIGNIN_RATE_LIMIT_WINDOW_MS, SIGNIN_RATE_LIMIT_MAX)) {
+    return { error: RATE_LIMIT_MESSAGE };
+  }
+
   const email = String(formData.get("email") ?? "");
   const password = String(formData.get("password") ?? "");
 
@@ -51,6 +85,10 @@ export async function signIn(_prevState: AuthActionState, formData: FormData): P
 }
 
 export async function signUp(_prevState: AuthActionState, formData: FormData): Promise<AuthActionState> {
+  if (isRateLimited(`signup:${await clientIp()}`, SIGNUP_RATE_LIMIT_WINDOW_MS, SIGNUP_RATE_LIMIT_MAX)) {
+    return { error: RATE_LIMIT_MESSAGE };
+  }
+
   const email = String(formData.get("email") ?? "");
   const password = String(formData.get("password") ?? "");
 
