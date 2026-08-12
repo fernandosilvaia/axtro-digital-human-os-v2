@@ -195,6 +195,7 @@ export async function sendCostCapAlertEmail(options: {
   const headline = isFull
     ? `Teto diário de ${options.capLabel} atingido — bloqueado a partir de agora`
     : `${options.workspaceName} está perto do teto diário de ${options.capLabel}`;
+  const dashboardUrl = `${process.env.PORTAL_PUBLIC_URL ?? "https://portal-production-b43e.up.railway.app"}/dashboard`;
   const html = [
     `<div style="font-family:system-ui,-apple-system,sans-serif;max-width:520px;margin:0 auto;padding:24px">`,
     `<h2 style="font-size:18px;margin:0 0 12px">${escapeHtml(headline)}</h2>`,
@@ -202,6 +203,7 @@ export async function sendCostCapAlertEmail(options: {
     isFull
       ? `<p style="color:#444;line-height:1.5;margin:0 0 18px">Novas solicitações desse tipo ficam bloqueadas até a virada do dia (00:00 UTC). O teto existe pra proteger a conta contra gasto inesperado.</p>`
       : `<p style="color:#444;line-height:1.5;margin:0 0 18px">Sem ação necessária agora — é só um aviso antes de chegar no limite.</p>`,
+    `<p style="margin:0 0 18px"><a href="${dashboardUrl}" style="background:#5b4dff;color:#fff;text-decoration:none;padding:11px 20px;border-radius:8px;display:inline-block">Ver uso no painel</a></p>`,
     `</div>`,
   ].join("");
 

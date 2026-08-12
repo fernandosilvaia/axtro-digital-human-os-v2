@@ -8,6 +8,7 @@ import {
   VideoSessionError,
   type PlatformAgentPersona,
 } from "@/lib/leads/video-session";
+import { isRateLimited } from "@/lib/rate-limit";
 import { createServiceRoleClient, ServiceRoleUnavailableError } from "@/lib/supabase/service";
 import { logError as trackError, logEvent } from "@/lib/telemetry";
 import { DAILY_VIDEO_CONVERSATION_CAP } from "@/lib/video-cap";
@@ -31,6 +32,26 @@ import { DAILY_VIDEO_CONVERSATION_CAP } from "@/lib/video-cap";
  *   sem a RPC aplicada, o log falha telemetrado — nunca o fluxo.
  */
 export const dynamic = "force-dynamic";
+
+/**
+ * Rate limit em memória por IP (achado P3, auditoria 2026-08-12): esta rota
+ * só tinha o segredo estático como controle — se RAISSA_TOOLS_SECRET vazar
+ * (ex.: exposto em código client-side do control-tower), nada aqui contém o
+ * volume de requisições enquanto o segredo não é rotacionado. 30/min é folga
+ * generosa pro tráfego real (control-tower chamando por lead) e ainda corta
+ * um script tentando esgotar o teto diário de vídeo mais rápido.
+ */
+const VIDEO_SESSION_RATE_LIMIT_WINDOW_MS = 60_000;
+const VIDEO_SESSION_RATE_LIMIT_MAX = 30;
+
+function clientIp(request: NextRequest): string {
+  const forwardedFor = request.headers.get("x-forwarded-for");
+  if (forwardedFor) {
+    const first = forwardedFor.split(",")[0]?.trim();
+    if (first) return first;
+  }
+  return request.headers.get("x-real-ip") ?? "unknown";
+}
 
 interface ResolvedPlatformAgent extends PlatformAgentPersona {
   readonly tenantId: string;
@@ -97,6 +118,10 @@ async function logVideoUsage(tenantId: string): Promise<void> {
 }
 
 export async function POST(request: NextRequest): Promise<Response> {
+  if (isRateLimited(`video-session:${clientIp(request)}`, VIDEO_SESSION_RATE_LIMIT_WINDOW_MS, VIDEO_SESSION_RATE_LIMIT_MAX)) {
+    return NextResponse.json({ error: "rate_limited" }, { status: 429 });
+  }
+
   const apiKey = process.env.TAVUS_API_KEY ?? "";
   if (apiKey.trim().length === 0) {
     return NextResponse.json({ error: "video_provider_not_configured" }, { status: 503 });

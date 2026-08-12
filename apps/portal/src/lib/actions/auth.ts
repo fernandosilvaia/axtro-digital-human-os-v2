@@ -58,15 +58,23 @@ function authErrorMessage(error: { code?: string | undefined; message: string },
   if (code === "weak_password" || message.includes("password should be")) {
     return "A senha precisa ter pelo menos 8 caracteres.";
   }
-  if (code === "user_already_exists" || message.includes("already registered")) {
-    return "Já existe uma conta com esse e-mail — entre por /login ou recupere a senha.";
-  }
   if (code === "validation_failed" || message.includes("invalid format") || message.includes("is invalid")) {
     return "E-mail em formato inválido.";
   }
   return surface === "signin"
     ? "Não foi possível entrar agora. Confira os dados e tente novamente."
     : "Não foi possível criar a conta agora. Tente novamente em instantes.";
+}
+
+/**
+ * user_already_exists precisa de tratamento à parte de authErrorMessage()
+ * (nunca vira texto exibido): revelar "já existe conta com esse e-mail" pro
+ * visitante do /signup é um oracle de enumeração — o mesmo princípio que
+ * requestPasswordReset já aplica (resposta idêntica pra e-mail existente ou
+ * não). Achado P2, auditoria 2026-08-12.
+ */
+function isAccountExistsError(error: { code?: string | undefined; message: string }): boolean {
+  return error.code === "user_already_exists" || error.message.toLowerCase().includes("already registered");
 }
 
 export async function signIn(_prevState: AuthActionState, formData: FormData): Promise<AuthActionState> {
@@ -94,7 +102,12 @@ export async function signUp(_prevState: AuthActionState, formData: FormData): P
 
   const supabase = await createClient();
   const { error } = await supabase.auth.signUp({ email, password });
-  if (error) return { error: authErrorMessage(error, "signup") };
+  if (error) {
+    // Nunca revelar que o e-mail já tem conta: mesma resposta de sucesso,
+    // sem reenviar nada — fecha o oracle de enumeração via /signup.
+    if (isAccountExistsError(error)) redirect("/login?confirm=1");
+    return { error: authErrorMessage(error, "signup") };
+  }
 
   redirect("/login?confirm=1");
 }

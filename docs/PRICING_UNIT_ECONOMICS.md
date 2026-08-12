@@ -111,9 +111,14 @@ por lead qualificado (~US$1/lead) em vez de por assento.
 
 ## 7. Próximos passos sugeridos
 
-1. Definir os 3 planos acima (ou ajustar os números) e implementar o
-   mecanismo de cobrança — hoje o produto não tem billing (gap já
-   registrado em `docs/RELEASE_READINESS.md`).
+1. ~~Definir os 3 planos acima (ou ajustar os números) e implementar o
+   mecanismo de cobrança~~ — **feito** (D-V2-101, 2026-08-03): os 3 planos
+   desta seção (Piloto/Crescimento/Escala) estão implementados em código
+   com esses mesmos números, catálogo real provisionado na Stripe em modo
+   teste (2026-08-10) e o funil completo (checkout → webhook → tetos →
+   overage → alertas de custo) está em produção — falta só configurar as
+   env vars da Stripe no Railway (gate humano, ver `docs/NEEDS_CONNECTION.md`)
+   pra ativar cobrança de verdade.
 2. Manter Tavus no plano Starter até o uso agregado passar de ~150min/mês;
    migrar pra Growth quando compensar.
 3. Considerar logar o custo do ElevenLabs em `cost_events` pra o painel de
