@@ -141,23 +141,39 @@ export function createRecallMeetingBotPort(options: RecallAdapterOptions): Meeti
         ...(body !== undefined ? { body: JSON.stringify(body) } : {}),
       });
     } catch (error) {
+      clearTimeout(timer);
       if (error instanceof Error && error.name === "AbortError") {
         throw new MeetingBotError("provider_timeout", `Recall.ai timed out after ${timeoutMs}ms`);
       }
       throw new MeetingBotError("provider_unavailable", "Recall.ai request failed before a response");
+    }
+    // O timer segue vivo até o corpo ser consumido — headers rápidos com
+    // body pendurado não escapam do timeout (achado P1 da auditoria
+    // 2026-08-11, mesmo padrão já corrigido em provider-openrouter e
+    // provider-tavus na auditoria 2026-08-02; este adapter tinha ficado de
+    // fora daquela rodada).
+    try {
+      if (!response.ok) {
+        const code: MeetingBotErrorCode = response.status >= 500 ? "provider_unavailable" : "provider_rejected";
+        throw new MeetingBotError(code, `Recall.ai respondeu HTTP ${response.status}`);
+      }
+      if (response.status === 204) return null;
+      let text: string;
+      try {
+        text = await response.text();
+      } catch (error) {
+        if (error instanceof Error && error.name === "AbortError") {
+          throw new MeetingBotError("provider_timeout", `Recall.ai timed out after ${timeoutMs}ms`);
+        }
+        throw new MeetingBotError("malformed_provider_response", "Recall.ai returned non-JSON output");
+      }
+      try {
+        return text.length > 0 ? JSON.parse(text) : null;
+      } catch {
+        throw new MeetingBotError("malformed_provider_response", "Recall.ai returned non-JSON output");
+      }
     } finally {
       clearTimeout(timer);
-    }
-    if (!response.ok) {
-      const code: MeetingBotErrorCode = response.status >= 500 ? "provider_unavailable" : "provider_rejected";
-      throw new MeetingBotError(code, `Recall.ai respondeu HTTP ${response.status}`);
-    }
-    if (response.status === 204) return null;
-    try {
-      const text = await response.text();
-      return text.length > 0 ? JSON.parse(text) : null;
-    } catch {
-      throw new MeetingBotError("malformed_provider_response", "Recall.ai returned non-JSON output");
     }
   }
 
@@ -278,40 +294,49 @@ export function createRecallMeetingBotPort(options: RecallAdapterOptions): Meeti
       try {
         response = await fetchImplementation(downloadUrl, { signal: controller.signal });
       } catch (error) {
+        clearTimeout(timer);
         if (error instanceof Error && error.name === "AbortError") {
           throw new MeetingBotError("provider_timeout", `Recall.ai transcript download timed out after ${timeoutMs}ms`);
         }
         throw new MeetingBotError("provider_unavailable", "Recall.ai transcript download failed before a response");
-      } finally {
-        clearTimeout(timer);
-      }
-      if (!response.ok) {
-        const code: MeetingBotErrorCode = response.status >= 500 ? "provider_unavailable" : "provider_rejected";
-        throw new MeetingBotError(code, `Recall.ai transcript download respondeu HTTP ${response.status}`);
-      }
-      // Checa Content-Length ANTES de bufferizar (achado P2 da revisão
-      // adversarial 2026-08-10): não evita 100% (um servidor podia mentir
-      // no header), mas corta o caso comum sem segurar o corpo inteiro em
-      // memória primeiro. O teto pós-buffer abaixo continua como rede de
-      // segurança pro caso do header ausente ou mentiroso.
-      const declaredLength = Number(response.headers.get("content-length") ?? "");
-      if (Number.isFinite(declaredLength) && declaredLength > MAX_TRANSCRIPT_BYTES) {
-        throw new MeetingBotError("malformed_provider_response", "Recall.ai transcript exceeds the sanity size cap");
-      }
-      let text: string;
-      try {
-        text = await response.text();
-      } catch {
-        throw new MeetingBotError("provider_unavailable", "Recall.ai transcript download body failed to read");
-      }
-      if (text.length > MAX_TRANSCRIPT_BYTES) {
-        throw new MeetingBotError("malformed_provider_response", "Recall.ai transcript exceeds the sanity size cap");
       }
       let parsed: unknown;
+      // O timer segue vivo até o corpo ser consumido — headers rápidos com
+      // body pendurado (até 5MB de transcrição) não escapam do timeout
+      // (achado P1 da auditoria 2026-08-11, mesma correção do call() acima).
       try {
-        parsed = JSON.parse(text);
-      } catch {
-        throw new MeetingBotError("malformed_provider_response", "Recall.ai transcript download is not valid JSON");
+        if (!response.ok) {
+          const code: MeetingBotErrorCode = response.status >= 500 ? "provider_unavailable" : "provider_rejected";
+          throw new MeetingBotError(code, `Recall.ai transcript download respondeu HTTP ${response.status}`);
+        }
+        // Checa Content-Length ANTES de bufferizar (achado P2 da revisão
+        // adversarial 2026-08-10): não evita 100% (um servidor podia mentir
+        // no header), mas corta o caso comum sem segurar o corpo inteiro em
+        // memória primeiro. O teto pós-buffer abaixo continua como rede de
+        // segurança pro caso do header ausente ou mentiroso.
+        const declaredLength = Number(response.headers.get("content-length") ?? "");
+        if (Number.isFinite(declaredLength) && declaredLength > MAX_TRANSCRIPT_BYTES) {
+          throw new MeetingBotError("malformed_provider_response", "Recall.ai transcript exceeds the sanity size cap");
+        }
+        let text: string;
+        try {
+          text = await response.text();
+        } catch (error) {
+          if (error instanceof Error && error.name === "AbortError") {
+            throw new MeetingBotError("provider_timeout", `Recall.ai transcript download timed out after ${timeoutMs}ms`);
+          }
+          throw new MeetingBotError("provider_unavailable", "Recall.ai transcript download body failed to read");
+        }
+        if (text.length > MAX_TRANSCRIPT_BYTES) {
+          throw new MeetingBotError("malformed_provider_response", "Recall.ai transcript exceeds the sanity size cap");
+        }
+        try {
+          parsed = JSON.parse(text);
+        } catch {
+          throw new MeetingBotError("malformed_provider_response", "Recall.ai transcript download is not valid JSON");
+        }
+      } finally {
+        clearTimeout(timer);
       }
       if (!Array.isArray(parsed)) {
         throw new MeetingBotError("malformed_provider_response", "Recall.ai transcript download must be a JSON array");

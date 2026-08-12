@@ -160,22 +160,38 @@ export function createStripeBillingPort(options: StripeAdapterOptions): StripeBi
         body: toFormBody(body),
       });
     } catch (error) {
+      clearTimeout(timer);
       if (error instanceof Error && error.name === "AbortError") {
         throw new StripeBillingError("provider_timeout", `Stripe timed out after ${timeoutMs}ms`);
       }
       throw new StripeBillingError("provider_unavailable", "Stripe request failed before a response");
+    }
+    // O timer segue vivo até o corpo ser consumido — headers rápidos com
+    // body pendurado não escapam do timeout (achado P1 da auditoria
+    // 2026-08-11, mesmo padrão já corrigido em provider-openrouter e
+    // provider-tavus na auditoria 2026-08-02; este header do arquivo já
+    // afirmava essa paridade, mas o código não a implementava de verdade).
+    try {
+      if (!response.ok) {
+        const code: StripeErrorCode = response.status >= 500 ? "provider_unavailable" : "provider_rejected";
+        throw new StripeBillingError(code, `Stripe respondeu HTTP ${response.status}`);
+      }
+      let text: string;
+      try {
+        text = await response.text();
+      } catch (error) {
+        if (error instanceof Error && error.name === "AbortError") {
+          throw new StripeBillingError("provider_timeout", `Stripe timed out after ${timeoutMs}ms`);
+        }
+        throw new StripeBillingError("malformed_provider_response", "Stripe returned non-JSON output");
+      }
+      try {
+        return text.length > 0 ? JSON.parse(text) : null;
+      } catch {
+        throw new StripeBillingError("malformed_provider_response", "Stripe returned non-JSON output");
+      }
     } finally {
       clearTimeout(timer);
-    }
-    if (!response.ok) {
-      const code: StripeErrorCode = response.status >= 500 ? "provider_unavailable" : "provider_rejected";
-      throw new StripeBillingError(code, `Stripe respondeu HTTP ${response.status}`);
-    }
-    try {
-      const text = await response.text();
-      return text.length > 0 ? JSON.parse(text) : null;
-    } catch {
-      throw new StripeBillingError("malformed_provider_response", "Stripe returned non-JSON output");
     }
   }
 

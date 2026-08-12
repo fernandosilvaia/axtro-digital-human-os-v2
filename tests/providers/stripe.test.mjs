@@ -188,3 +188,21 @@ test("timeout aborta e nunca vaza a chave no erro", async () => {
     },
   );
 });
+
+// Achado P1 da auditoria 2026-08-11: clearTimeout rodava assim que os
+// headers chegavam, ANTES da leitura do corpo — um corpo travado depois de
+// um 200 (checkout/portal/overage) nunca era interrompido pelo timeout.
+test("corpo travado depois dos headers (200) ainda respeita o timeout", async () => {
+  const stallingFetch = async (_url, init) => ({
+    ok: true,
+    status: 200,
+    text: () => new Promise((_resolve, reject) => {
+      init.signal.addEventListener("abort", () => reject(Object.assign(new Error("aborted"), { name: "AbortError" })));
+    }),
+  });
+  const port = provider.createStripeBillingPort({ apiKey: API_KEY, timeoutMs: 5, fetchImplementation: stallingFetch });
+  await assert.rejects(
+    () => port.createPortalSession({ stripeCustomerId: CUSTOMER_ID, returnUrl: "https://a.com" }),
+    (e) => e.code === "provider_timeout",
+  );
+});

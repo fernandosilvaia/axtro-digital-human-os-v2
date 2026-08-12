@@ -159,6 +159,35 @@ test("timeout vira provider_timeout sem vazar a chave", async () => {
   await assert.rejects(() => port.createBot({ meetingUrl: "https://zoom.us/j/1" }), (e) => e.code === "provider_timeout");
 });
 
+// Achado P1 da auditoria 2026-08-11: clearTimeout rodava assim que os
+// headers chegavam, ANTES da leitura do corpo — um corpo travado depois de
+// um 201/200 nunca era interrompido pelo timeout. Estes dois testes provam
+// que o timer agora protege a fase de leitura do corpo também.
+function stallingBodyResponse(status) {
+  return async (_url, init) => ({
+    ok: status >= 200 && status < 300,
+    status,
+    headers: new Headers(),
+    text: () => new Promise((_resolve, reject) => {
+      init.signal.addEventListener("abort", () => reject(Object.assign(new Error("aborted"), { name: "AbortError" })));
+    }),
+  });
+}
+
+test("call(): corpo travado depois dos headers (201) ainda respeita o timeout", async () => {
+  const port = provider.createRecallMeetingBotPort({
+    apiKey: API_KEY, region: "us-east-1", timeoutMs: 5, fetchImplementation: stallingBodyResponse(201),
+  });
+  await assert.rejects(() => port.createBot({ meetingUrl: "https://zoom.us/j/1" }), (e) => e.code === "provider_timeout");
+});
+
+test("downloadTranscript(): corpo travado depois dos headers (200) ainda respeita o timeout", async () => {
+  const port = provider.createRecallMeetingBotPort({
+    apiKey: API_KEY, region: "us-east-1", timeoutMs: 5, fetchImplementation: stallingBodyResponse(200),
+  });
+  await assert.rejects(() => port.downloadTranscript("https://storage.example.com/t.json"), (e) => e.code === "provider_timeout");
+});
+
 test("createBot com enableTranscription envia recording_config no formato oficial", async () => {
   const { calls, implementation } = fakeFetch(async () => new Response(JSON.stringify({ id: "550e8400-e29b-41d4-a716-446655440000" }), { status: 201 }));
   const port = provider.createRecallMeetingBotPort({ apiKey: API_KEY, region: "us-west-2", fetchImplementation: implementation });
