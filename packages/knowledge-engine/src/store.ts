@@ -3,6 +3,8 @@
  * column-for-column (ADR-031). No PostgreSQL, provider, or network dependency
  * — the real schema is proven separately by scripts/database-integration.mjs.
  */
+import { UUID_V7_PATTERN as TENANT_ID_PATTERN } from "@axtro/domain";
+
 export type DataClassification = "public" | "internal" | "confidential" | "restricted";
 export type KnowledgeSourceStatus = "pending" | "active" | "stale" | "disabled" | "deleted";
 export type AuthorityLevel = "authoritative" | "reference" | "draft";
@@ -55,7 +57,6 @@ export class KnowledgeStoreError extends Error {
   }
 }
 
-const TENANT_ID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/;
 const ID_PATTERN = /^[a-z0-9][a-z0-9_-]{0,127}$/;
 const CONTENT_HASH_PATTERN = /^[0-9a-f]{64}$/;
 const DATA_CLASSIFICATIONS: readonly DataClassification[] = ["public", "internal", "confidential", "restricted"];

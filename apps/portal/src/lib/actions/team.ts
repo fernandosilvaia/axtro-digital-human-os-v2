@@ -58,15 +58,33 @@ export async function inviteMember(_prevState: TeamActionState, formData: FormDa
   return { error: null, done: true, emailSent };
 }
 
-export async function revokeInvite(formData: FormData): Promise<void> {
-  const inviteId = String(formData.get("invite_id") ?? "");
-  if (inviteId.length === 0) return;
+const REVOKE_INVITE_ERROR_MESSAGES: Readonly<Record<string, string>> = {
+  "only a tenant_admin can revoke invites": "Somente administradores podem revogar convites.",
+  "invite not found or not pending": "Esse convite já foi aceito ou revogado em outro lugar.",
+};
+
+export interface RevokeInviteState {
+  readonly error: string | null;
+}
+
+/**
+ * Achado D-V2-109 (auditoria 2026-08-11): o botão "Revogar" chamava esta
+ * action via `<form action>` sem feedback nenhum — sem estado de
+ * carregamento, e um erro real (RPC fora do ar, RLS) ficava mudo pro admin,
+ * inconsistente com removeMember/MemberRemoveButton no mesmo arquivo.
+ * Mesmo padrão dos dois agora: recebe o id direto, devolve {error}.
+ */
+export async function revokeInvite(inviteId: string): Promise<RevokeInviteState> {
+  if (inviteId.length === 0) return { error: "Convite inválido." };
 
   const supabase = await createClient();
-  // Erro aqui (convite já aceito/revogado em outra aba) não é fatal: o
-  // revalidate abaixo re-renderiza a lista com o estado real.
-  await supabase.rpc("portal_revoke_invite", { p_invite_id: inviteId });
+  const { error } = await supabase.rpc("portal_revoke_invite", { p_invite_id: inviteId });
+  if (error) {
+    return { error: REVOKE_INVITE_ERROR_MESSAGES[error.message] ?? `Não foi possível revogar: ${error.message}` };
+  }
+
   revalidatePath("/configuracoes");
+  return { error: null };
 }
 
 const REMOVE_MEMBER_ERROR_MESSAGES: Readonly<Record<string, string>> = {

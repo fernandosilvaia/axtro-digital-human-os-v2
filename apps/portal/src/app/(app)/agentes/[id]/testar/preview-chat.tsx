@@ -77,6 +77,7 @@ export function PreviewChat({ agentId, agentName }: { agentId: string; agentName
               maxWidth: "85%",
               fontSize: "0.9rem",
               whiteSpace: "pre-wrap",
+              overflowWrap: "anywhere",
             }}
           >
             {turn.content}

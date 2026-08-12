@@ -5,6 +5,8 @@
  * package has no send capability at all (structural, like the CRM-lite and
  * Specialist Fabric "no write/publish surface" pattern).
  */
+import { UUID_V7_PATTERN as TENANT_ID_PATTERN } from "@axtro/domain";
+
 export interface ApprovedTemplate {
   readonly templateId: string;
   readonly version: string;
@@ -88,8 +90,6 @@ export class ProposalAdapterError extends Error {
     this.name = "ProposalAdapterError";
   }
 }
-
-const TENANT_ID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/;
 
 export interface ProposalPort {
   generate(rawRequest: unknown): GenerateProposalResult;

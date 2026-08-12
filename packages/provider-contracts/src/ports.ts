@@ -1,4 +1,5 @@
 import type { CostEvent, ProviderCapability, ToolExecutionReceipt } from "@axtro/contracts-ts";
+import { UUID_V7_PATTERN as TENANT_ID_PATTERN } from "@axtro/domain";
 
 import type { ProviderOperationControl, ProviderHealth } from "./operation.js";
 import { ProviderContractError, type ProviderId, type ProviderPortKind } from "./normalization.js";
@@ -181,7 +182,6 @@ export interface ProviderStorageAuthority {
 
 const storageScopes = new WeakMap<object, string>();
 const storageReferenceOwners = new WeakMap<object, object>();
-const TENANT_ID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/;
 const PROVIDER_REFERENCE_PATTERN = /^ref_[a-z0-9]{12,64}$/;
 
 /** Create a private capability authority, retained only by a trusted application boundary. */

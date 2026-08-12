@@ -415,8 +415,12 @@ test("the bundle executes every non-governed fake port locally without credentia
 
 test("provider fakes add no provider SDK, network, random or implicit clock dependency", () => {
   const manifest = JSON.parse(readFileSync(join(root, "packages/provider-fakes/package.json"), "utf8"));
+  // @axtro/domain adicionado em D-V2-109 (dedup do UUID_V7_PATTERN, antes
+  // duplicado como literal local) — puramente interno, nunca um SDK de
+  // provider; a checagem abaixo continua garantindo isso.
   assert.deepEqual(manifest.dependencies, {
     "@axtro/contracts-ts": "workspace:*",
+    "@axtro/domain": "workspace:*",
     "@axtro/provider-contracts": "workspace:*",
   });
   const source = ["index.ts", "scenario.ts"]

@@ -5,6 +5,8 @@
  * M1-08 post-call workflow engine above it in this file, to avoid touching
  * that already-frozen checkpointed machinery.
  */
+import { UUID_V7_PATTERN as TENANT_ID_PATTERN } from "@axtro/domain";
+
 export interface FollowUpEvidence {
   readonly summary: string;
   readonly confirmedFactIds: readonly string[];
@@ -62,7 +64,6 @@ export interface SandboxFollowUpWorkflow {
   attemptsFor(tenantId: string, idempotencyKey: string): number;
 }
 
-const TENANT_ID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/;
 let draftSequence = 0;
 
 export function createSandboxFollowUpWorkflow(generator: FollowUpDraftGenerator, sendSink: FollowUpSendSink): SandboxFollowUpWorkflow {

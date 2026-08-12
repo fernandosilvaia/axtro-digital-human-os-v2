@@ -7,6 +7,8 @@
  * approval (per HANDOFF_TO_CODEX.md: "customer beta requires a separate
  * approval").
  */
+import { UUID_V7_PATTERN as TENANT_ID_PATTERN } from "@axtro/domain";
+
 import type { ScenarioEvaluationResult } from "./index.js";
 
 export const MINIMUM_REVIEWED_CALLS = 20;
@@ -57,7 +59,6 @@ export class PilotGateError extends Error {
 }
 
 const CHANNELS: readonly PilotChannel[] = ["voice", "video", "text"];
-const TENANT_ID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/;
 
 export function generatePilotGateReport(rawCalls: unknown): PilotGateReport {
   const calls = parseCalls(rawCalls);

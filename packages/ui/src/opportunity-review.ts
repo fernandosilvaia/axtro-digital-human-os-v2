@@ -1,3 +1,5 @@
+import { UUID_V7_PATTERN } from "@axtro/domain";
+
 import {
   escapeHtml,
   renderEvidenceLabel,
@@ -54,7 +56,6 @@ export class OpportunityReviewPermissionError extends Error {
   }
 }
 
-const UUID_V7_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/;
 const MAX_RENDERED_ITEMS = 100;
 const HANDOFF_STATUS_LABELS: Readonly<Record<OpportunityHandoffView["status"], string>> = Object.freeze({
   pending: "Aguardando aceite",

@@ -1,7 +1,7 @@
-import { revokeInvite } from "@/lib/actions/team";
 import type { TeamOverview } from "@/lib/portal-data";
 
 import { InviteForm } from "./invite-form";
+import { InviteRevokeButton } from "./invite-revoke-button";
 import { MemberRemoveButton } from "./member-remove-button";
 
 const ROLE_LABELS: Readonly<Record<string, string>> = {
@@ -81,12 +81,7 @@ export function TeamSection({ team, isAdmin }: { team: TeamOverview; isAdmin: bo
                       <td className="mono">{new Date(invite.created_at).toLocaleDateString("pt-BR")}</td>
                       {isAdmin && (
                         <td style={{ textAlign: "right" }}>
-                          <form action={revokeInvite} style={{ display: "inline" }}>
-                            <input type="hidden" name="invite_id" value={invite.id} />
-                            <button type="submit" className="btn btn-ghost" style={{ padding: "4px 10px", fontSize: "0.78rem" }}>
-                              Revogar
-                            </button>
-                          </form>
+                          <InviteRevokeButton inviteId={invite.id} inviteEmail={invite.email} />
                         </td>
                       )}
                     </tr>

@@ -7,6 +7,8 @@
  * once, so the floor changes exactly once per accepted transfer, never
  * speculatively and never twice.
  */
+import { UUID_V7_PATTERN as TENANT_ID_PATTERN } from "@axtro/domain";
+
 export interface HandoffObjection {
   readonly category: string;
   readonly summary: string;
@@ -80,7 +82,6 @@ export interface HandoffClock {
 }
 
 const systemClock: HandoffClock = Object.freeze({ now: () => Date.now() });
-const TENANT_ID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/;
 let handoffSequence = 0;
 
 export interface HandoffCoordinator {

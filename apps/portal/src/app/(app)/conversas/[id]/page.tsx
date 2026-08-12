@@ -67,6 +67,7 @@ export default async function ConversationDetailPage({ params }: { params: Promi
                 maxWidth: "85%",
                 fontSize: "0.9rem",
                 whiteSpace: "pre-wrap",
+                overflowWrap: "anywhere",
               }}
             >
               <span className="sr-only">{turn.role === "user" ? "Cliente: " : `${transcript.agentName}: `}</span>

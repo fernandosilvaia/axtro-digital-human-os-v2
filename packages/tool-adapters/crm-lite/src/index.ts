@@ -4,6 +4,8 @@
  * Every read is audited with requester, purpose, and which fields (PII or
  * not) were actually granted vs. denied.
  */
+import { UUID_V7_PATTERN as TENANT_ID_PATTERN } from "@axtro/domain";
+
 export type CrmRecordType = "lead" | "opportunity";
 export type CrmPurpose = "sales_qualification" | "proposal_preparation" | "handoff_context";
 
@@ -116,7 +118,6 @@ const realScheduler: CrmLiteScheduler = Object.freeze({
 });
 const systemClock: CrmLiteClock = Object.freeze({ now: () => Date.now() });
 
-const TENANT_ID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/;
 const RECORD_TYPES: readonly CrmRecordType[] = ["lead", "opportunity"];
 const PURPOSES: readonly CrmPurpose[] = ["sales_qualification", "proposal_preparation", "handoff_context"];
 let auditSequence = 0;

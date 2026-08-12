@@ -2,7 +2,7 @@
 
 import { revalidatePath } from "next/cache";
 
-import { createUuidV7 } from "@axtro/domain";
+import { createUuidV7, isUuidV7 } from "@axtro/domain";
 
 import { provisionAgentVideoIfMissing } from "@/lib/agent-video";
 import { sendAgentActivatedEmail } from "@/lib/email";
@@ -150,7 +150,7 @@ export async function updateKnowledgeSourceContent(
   const sourceId = String(formData.get("source_id") ?? "").trim();
   const content = String(formData.get("content") ?? "").trim();
 
-  if (!/^[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(sourceId)) {
+  if (!isUuidV7(sourceId)) {
     return { error: "Fonte inválida — recarregue a página.", done: false };
   }
   if (content.length === 0 || content.length > MAX_CONTENT_CHARS) {

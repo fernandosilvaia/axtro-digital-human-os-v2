@@ -256,7 +256,11 @@ importers:
         specifier: workspace:*
         version: link:../contracts-ts
 
-  packages/evaluation: {}
+  packages/evaluation:
+    dependencies:
+      '@axtro/domain':
+        specifier: workspace:*
+        version: link:../domain
 
   packages/events:
     dependencies:
@@ -273,9 +277,17 @@ importers:
         specifier: workspace:*
         version: link:../domain
 
-  packages/handoff: {}
+  packages/handoff:
+    dependencies:
+      '@axtro/domain':
+        specifier: workspace:*
+        version: link:../domain
 
-  packages/knowledge-engine: {}
+  packages/knowledge-engine:
+    dependencies:
+      '@axtro/domain':
+        specifier: workspace:*
+        version: link:../domain
 
   packages/meeting-gateway:
     dependencies:
@@ -314,12 +326,18 @@ importers:
       '@axtro/contracts-ts':
         specifier: workspace:*
         version: link:../contracts-ts
+      '@axtro/domain':
+        specifier: workspace:*
+        version: link:../domain
 
   packages/provider-fakes:
     dependencies:
       '@axtro/contracts-ts':
         specifier: workspace:*
         version: link:../contracts-ts
+      '@axtro/domain':
+        specifier: workspace:*
+        version: link:../domain
       '@axtro/provider-contracts':
         specifier: workspace:*
         version: link:../provider-contracts
@@ -339,6 +357,9 @@ importers:
       '@axtro/contracts-ts':
         specifier: workspace:*
         version: link:../../contracts-ts
+      '@axtro/domain':
+        specifier: workspace:*
+        version: link:../../domain
 
   packages/scene-director: {}
 
@@ -380,11 +401,23 @@ importers:
 
   packages/specialist-fabric: {}
 
-  packages/tool-adapters/calendar: {}
+  packages/tool-adapters/calendar:
+    dependencies:
+      '@axtro/domain':
+        specifier: workspace:*
+        version: link:../../domain
 
-  packages/tool-adapters/crm-lite: {}
+  packages/tool-adapters/crm-lite:
+    dependencies:
+      '@axtro/domain':
+        specifier: workspace:*
+        version: link:../../domain
 
-  packages/tool-adapters/proposal: {}
+  packages/tool-adapters/proposal:
+    dependencies:
+      '@axtro/domain':
+        specifier: workspace:*
+        version: link:../../domain
 
   packages/tool-runtime:
     dependencies:
@@ -424,7 +457,11 @@ importers:
         specifier: workspace:*
         version: link:../session-runtime
 
-  packages/ui: {}
+  packages/ui:
+    dependencies:
+      '@axtro/domain':
+        specifier: workspace:*
+        version: link:../domain
 
   packages/voice-gateway:
     dependencies:

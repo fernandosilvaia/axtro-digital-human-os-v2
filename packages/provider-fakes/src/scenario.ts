@@ -1,5 +1,6 @@
 import { createHash } from "node:crypto";
 
+import { UUID_V7_PATTERN as UUIDV7_PATTERN } from "@axtro/domain";
 import type {
   FakeProviderJournalEntry as ContractFakeProviderJournalEntry,
   FakeProviderReplayDescriptor as ContractFakeProviderReplayDescriptor,
@@ -117,7 +118,6 @@ const MAX_PARTIALS = 32;
 const MAX_INVOCATION = 10_000;
 const MAX_CLOCK_START_MS = 86_400_000;
 const SEED_PATTERN = /^[a-z][a-z0-9_-]{7,63}$/;
-const UUIDV7_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/;
 const FORBIDDEN_SEED_TOKEN = /(secret|token|bearer|credential|password|api_?key)/;
 const DEFAULT_PLAN: Omit<ParsedFakeProviderPlan, "operation" | "invocation"> = Object.freeze({
   delayMs: 0,

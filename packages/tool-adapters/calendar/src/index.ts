@@ -5,6 +5,8 @@
  * write sink is ever invoked. Timezone and conflict checks are explicit,
  * never inferred.
  */
+import { UUID_V7_PATTERN as TENANT_ID_PATTERN } from "@axtro/domain";
+
 export const SUPPORTED_TIMEZONES = ["UTC", "America/Sao_Paulo", "America/New_York", "America/Los_Angeles", "Europe/Lisbon"] as const;
 export type SupportedTimezone = (typeof SUPPORTED_TIMEZONES)[number];
 
@@ -86,7 +88,6 @@ export interface CreateCalendarProposalPortOptions {
 const systemClock: CalendarClock = Object.freeze({ now: () => Date.now() });
 const DEFAULT_PROPOSAL_TTL_MS = 60 * 60 * 1_000;
 const MAX_SLOTS_DEFAULT = 5;
-const TENANT_ID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/;
 let proposalSequence = 0;
 
 interface StoredProposal {

@@ -10,6 +10,7 @@
     }
   },
   "dependencies": {
-    "@axtro/contracts-ts": "workspace:*"
+    "@axtro/contracts-ts": "workspace:*",
+    "@axtro/domain": "workspace:*"
   }
 }

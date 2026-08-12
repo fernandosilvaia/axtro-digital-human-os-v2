@@ -1,4 +1,5 @@
 import type { RolePackManifest } from "@axtro/contracts-ts";
+import { UUID_V7_PATTERN as TENANT_ID_PATTERN } from "@axtro/domain";
 
 import { parseRolePackManifest } from "./manifest.js";
 
@@ -18,7 +19,6 @@ export class RolePackRegistryError extends Error {
   }
 }
 
-const TENANT_ID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/;
 
 export interface TenantRolePackRegistry {
   installPack(manifest: unknown): RolePackManifest;

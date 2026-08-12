@@ -1,3 +1,5 @@
+import { UUID_V7_PATTERN } from "@axtro/domain";
+
 import { OPERATIONS_CONSOLE_STYLES } from "./operations-console-styles.js";
 
 export type OperationsSessionStatus = "preparing" | "ready" | "active" | "handoff_pending" | "completed" | "failed";
@@ -89,7 +91,6 @@ export class OperationsConsoleRenderError extends Error {
   }
 }
 
-const UUID_V7_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/;
 const SHA256_PATTERN = /^[0-9a-f]{64}$/;
 const DECIMAL_PATTERN = /^(?:0|[1-9][0-9]{0,11})\.[0-9]{8}$/;
 const BIDI_CONTROL_PATTERN = /[\u202a-\u202e\u2066-\u2069]/u;
