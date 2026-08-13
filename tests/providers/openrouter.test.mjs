@@ -142,6 +142,46 @@ test("timeout aborta a chamada e vira provider_timeout", async () => {
   await assert.rejects(() => port.generate(request()), (error) => error.code === "provider_timeout");
 });
 
+test("achado onda 7 (D-V2-116): HTTP 429 é retentado UMA vez (respeitando retry-after: 0) e sucede na segunda tentativa", async () => {
+  let attempt = 0;
+  const { calls, implementation } = fakeFetch(async () => {
+    attempt += 1;
+    if (attempt === 1) {
+      return new Response("rate limited", { status: 429, headers: { "retry-after": "0" } });
+    }
+    return new Response(JSON.stringify(completionPayload()), { status: 200 });
+  });
+  const port = provider.createOpenRouterTextGenerationPort({ apiKey: API_KEY, fetchImplementation: implementation });
+
+  const result = await port.generate(request());
+
+  assert.equal(result.text, "Olá! Posso ajudar com a proposta.");
+  assert.equal(calls.length, 2, "deveria ter tentado de novo depois do 429");
+});
+
+test("achado onda 7 (D-V2-116): 429 na SEGUNDA tentativa também vira provider_rejected — só uma retentativa, não um loop", async () => {
+  const { calls, implementation } = fakeFetch(async () => new Response("rate limited", { status: 429, headers: { "retry-after": "0" } }));
+  const port = provider.createOpenRouterTextGenerationPort({ apiKey: API_KEY, fetchImplementation: implementation });
+
+  await assert.rejects(() => port.generate(request()), (error) => error.code === "provider_rejected");
+  assert.equal(calls.length, 2, "deveria ter tentado exatamente 2 vezes (1 original + 1 retry), nunca mais");
+});
+
+test("achado onda 7 (D-V2-116): embed também retenta uma vez em 429 antes de devolver o vetor", async () => {
+  let attempt = 0;
+  const { calls, implementation } = fakeFetch(async () => {
+    attempt += 1;
+    if (attempt === 1) return new Response("rate limited", { status: 429, headers: { "retry-after": "0" } });
+    return new Response(JSON.stringify(embeddingsPayload([[0.1, 0.2]])), { status: 200 });
+  });
+  const port = provider.createOpenRouterEmbeddingPort({ apiKey: API_KEY, fetchImplementation: implementation });
+
+  const result = await port.embed({ model: "openai/text-embedding-3-small", inputs: ["chunk a"] });
+
+  assert.deepEqual(result.embeddings, [[0.1, 0.2]]);
+  assert.equal(calls.length, 2);
+});
+
 test("sem chave configurada o port nem é construído", () => {
   assert.throws(
     () => provider.createOpenRouterTextGenerationPort({ apiKey: "" }),

@@ -82,6 +82,66 @@ const MAX_MESSAGE_CHARS = 4000;
 const MAX_OUTPUT_TOKENS_CAP = 1024;
 const MODEL_PATTERN = /^[a-z0-9][a-z0-9._\/:-]{2,127}$/i;
 const DEFAULT_TIMEOUT_MS = 30_000;
+const RATE_LIMIT_RETRY_DELAY_MS = 400;
+const MAX_RATE_LIMIT_RETRY_DELAY_MS = 2000;
+
+interface RateLimitRetryAttempt {
+  readonly response: Response;
+  readonly clearTimer: () => void;
+}
+
+/**
+ * Uma única retentativa em HTTP 429 antes de desistir (achado onda 7,
+ * D-V2-116): sem isto, uma contenção momentânea de capacidade compartilhada
+ * no OpenRouter (rate limit é por definição transitório, ao contrário de um
+ * 400/422 permanente) derrubava a chamada inteira na primeira resposta —
+ * abortando um lote de embedding de conhecimento sem salvar nada, ou
+ * devolvendo a fala de fallback genérica no meio de uma geração de texto.
+ * O timer de timeout é recriado por tentativa e segue vivo até o corpo da
+ * resposta MANTIDA ser consumido pelo chamador (disciplina de D-V2-109).
+ */
+async function fetchWithRateLimitRetry(
+  fetchImplementation: typeof fetch,
+  url: string,
+  init: { readonly method: string; readonly headers: Record<string, string>; readonly body: string },
+  timeoutMs: number,
+  providerLabel: string,
+): Promise<RateLimitRetryAttempt> {
+  for (let attempt = 1; attempt <= 2; attempt++) {
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), timeoutMs);
+    let response: Response;
+    try {
+      response = await fetchImplementation(url, { ...init, signal: controller.signal });
+    } catch (error) {
+      clearTimeout(timer);
+      if (error instanceof Error && error.name === "AbortError") {
+        throw new TextGenerationError("provider_timeout", `${providerLabel} timed out after ${timeoutMs}ms`);
+      }
+      throw new TextGenerationError("provider_unavailable", `${providerLabel} request failed before a response`);
+    }
+    if (response.status === 429 && attempt === 1) {
+      clearTimeout(timer);
+      await sleep(rateLimitRetryDelayMs(response.headers.get("retry-after")));
+      continue;
+    }
+    return { response, clearTimer: () => clearTimeout(timer) };
+  }
+  // Inatingível — o loop de 2 tentativas sempre retorna ou lança acima.
+  throw new TextGenerationError("provider_unavailable", `${providerLabel} request failed`);
+}
+
+function rateLimitRetryDelayMs(retryAfterHeader: string | null): number {
+  const parsed = retryAfterHeader !== null ? Number(retryAfterHeader) : NaN;
+  if (Number.isFinite(parsed) && parsed >= 0) {
+    return Math.min(parsed * 1000, MAX_RATE_LIMIT_RETRY_DELAY_MS);
+  }
+  return RATE_LIMIT_RETRY_DELAY_MS;
+}
+
+function sleep(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
 
 export function createOpenRouterTextGenerationPort(options: OpenRouterAdapterOptions): TextGenerationPort {
   const apiKey = typeof options.apiKey === "string" ? options.apiKey.trim() : "";
@@ -96,13 +156,11 @@ export function createOpenRouterTextGenerationPort(options: OpenRouterAdapterOpt
     async generate(request: TextGenerationRequest): Promise<TextGenerationResult> {
       validateRequest(request);
 
-      const controller = new AbortController();
-      const timer = setTimeout(() => controller.abort(), timeoutMs);
-      let response: Response;
-      try {
-        response = await fetchImplementation(ENDPOINT, {
+      const { response, clearTimer } = await fetchWithRateLimitRetry(
+        fetchImplementation,
+        ENDPOINT,
+        {
           method: "POST",
-          signal: controller.signal,
           headers: {
             Authorization: `Bearer ${apiKey}`,
             "Content-Type": "application/json",
@@ -118,14 +176,10 @@ export function createOpenRouterTextGenerationPort(options: OpenRouterAdapterOpt
             // e cobre qualquer OPENROUTER_MODEL configurado (0027).
             usage: { include: true },
           }),
-        });
-      } catch (error) {
-        clearTimeout(timer);
-        if (error instanceof Error && error.name === "AbortError") {
-          throw new TextGenerationError("provider_timeout", `OpenRouter timed out after ${timeoutMs}ms`);
-        }
-        throw new TextGenerationError("provider_unavailable", "OpenRouter request failed before a response");
-      }
+        },
+        timeoutMs,
+        "OpenRouter",
+      );
 
       // O timer segue vivo até o corpo ser consumido — headers rápidos com
       // body pendurado não escapam do timeout (auditoria 2026-08-02).
@@ -146,7 +200,7 @@ export function createOpenRouterTextGenerationPort(options: OpenRouterAdapterOpt
         }
         return parseCompletion(payload);
       } finally {
-        clearTimeout(timer);
+        clearTimer();
       }
     },
   });
@@ -191,13 +245,11 @@ export function createOpenRouterEmbeddingPort(options: OpenRouterAdapterOptions)
     async embed(request: EmbeddingRequest): Promise<EmbeddingResult> {
       validateEmbeddingRequest(request);
 
-      const controller = new AbortController();
-      const timer = setTimeout(() => controller.abort(), timeoutMs);
-      let response: Response;
-      try {
-        response = await fetchImplementation(EMBEDDINGS_ENDPOINT, {
+      const { response, clearTimer } = await fetchWithRateLimitRetry(
+        fetchImplementation,
+        EMBEDDINGS_ENDPOINT,
+        {
           method: "POST",
-          signal: controller.signal,
           headers: {
             Authorization: `Bearer ${apiKey}`,
             "Content-Type": "application/json",
@@ -205,14 +257,10 @@ export function createOpenRouterEmbeddingPort(options: OpenRouterAdapterOptions)
             ...(options.appTitle ? { "X-Title": options.appTitle } : {}),
           },
           body: JSON.stringify({ model: request.model, input: request.inputs }),
-        });
-      } catch (error) {
-        clearTimeout(timer);
-        if (error instanceof Error && error.name === "AbortError") {
-          throw new TextGenerationError("provider_timeout", `OpenRouter timed out after ${timeoutMs}ms`);
-        }
-        throw new TextGenerationError("provider_unavailable", "OpenRouter request failed before a response");
-      }
+        },
+        timeoutMs,
+        "OpenRouter",
+      );
 
       try {
         if (!response.ok) {
@@ -231,7 +279,7 @@ export function createOpenRouterEmbeddingPort(options: OpenRouterAdapterOptions)
         }
         return parseEmbeddings(payload, request.inputs.length);
       } finally {
-        clearTimeout(timer);
+        clearTimer();
       }
     },
   });

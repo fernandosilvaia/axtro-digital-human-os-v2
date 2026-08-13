@@ -1,4 +1,12 @@
 {
   "schema_version": "1.0.0",
-  "advisories": []
+  "advisories": [
+    {
+      "id": "GHSA-2V37-7H3G-55P8",
+      "ecosystem": "npm",
+      "package": "nanoid",
+      "affected_versions": ["3.3.16"],
+      "severity": "high"
+    }
+  ]
 }

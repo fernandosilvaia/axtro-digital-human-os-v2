@@ -6,7 +6,7 @@
 // — a conversa acontece normalmente e a unidade extra é cobrada como
 // overage (Stripe Billing Meter), que é o modelo de negócio inteiro
 // (docs/PRICING_UNIT_ECONOMICS.md): margem sã mesmo no pior caso de uso.
-import { createStripeBillingPort } from "@axtro/provider-stripe";
+import { createStripeBillingPort, StripeBillingError } from "@axtro/provider-stripe";
 
 import { conversationOverageEventName, isPlanId, isTrialLimitEnabled, PLAN_CATALOG, TRIAL_INCLUDED_CONVERSATIONS_PER_MONTH } from "./billing/plans.ts";
 import { maybeAlertCostCap } from "./cost-alerts.ts";
@@ -110,13 +110,41 @@ export async function reportConversationOverageIfNeeded(
     if (!isPlanId(status.plan_id) || typeof status.stripe_customer_id !== "string") return;
 
     const port = createStripeBillingPort({ apiKey });
-    await port.reportOverageUsage({
+    const overageRequest = {
       stripeCustomerId: status.stripe_customer_id,
       eventName: conversationOverageEventName(),
       quantity: 1,
       idempotencyKey: `overage:${status.stripe_customer_id}:${costEventId}`,
-    });
+    };
+    try {
+      await port.reportOverageUsage(overageRequest);
+    } catch (firstError) {
+      // Uma retentativa antes de desistir (achado onda 7, D-V2-116): a
+      // idempotencyKey acima foi desenhada exatamente pra tornar isto
+      // seguro (mesmo costEventId nunca cobra duas vezes), mas nada
+      // reaproveitava essa segurança — um 429/5xx transitório da Stripe
+      // descartava a unidade de overage em silêncio, para sempre.
+      //
+      // SÓ retenta em erro TRANSITÓRIO (achado da própria auto-revisão: um
+      // retry incondicional dobrava o pior caso de latência bloqueante do
+      // usuário pra ~40s mesmo em erro PERMANENTE — ex.: customer_id
+      // malformado — que nunca teria sucesso na 2ª tentativa de qualquer
+      // forma). provider_rejected/malformed_provider_response/missing_api_key
+      // não são retentados: falham rápido, como antes desta onda.
+      const isTransient = firstError instanceof StripeBillingError
+        && (firstError.code === "provider_timeout" || firstError.code === "provider_unavailable");
+      if (isTransient) {
+        await sleep(500);
+        await port.reportOverageUsage(overageRequest);
+      } else {
+        throw firstError;
+      }
+    }
   } catch (error) {
     trackError("billing_overage_report_failed", error, { cost_event_id: costEventId });
   }
+}
+
+function sleep(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
 }

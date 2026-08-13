@@ -150,14 +150,61 @@ test("reportConversationOverageIfNeeded reporta 1 unidade à Stripe com idempote
   }
 });
 
-test("reportConversationOverageIfNeeded nunca lança quando a Stripe falha — é best-effort", async () => {
+test("reportConversationOverageIfNeeded nunca lança em erro TRANSITÓRIO (5xx) — é best-effort, mas tenta 2 vezes antes de desistir (achado onda 7, D-V2-116)", async () => {
   const original = process.env.STRIPE_SECRET_KEY;
   process.env.STRIPE_SECRET_KEY = "sk_test_0000000000000000000000000000";
   const originalFetch = globalThis.fetch;
-  globalThis.fetch = async () => new Response("boom", { status: 503 });
+  const calls = [];
+  globalThis.fetch = async (url, init) => {
+    calls.push({ url, init });
+    return new Response("boom", { status: 503 });
+  };
   try {
     const supabase = fakeSupabase({ plan_id: "crescimento", status: "active", stripe_customer_id: "cus_abc123" });
     await assert.doesNotReject(() => videoCap.reportConversationOverageIfNeeded(supabase, "allowed_overage", "cost-event-xyz"));
+    assert.equal(calls.length, 2, "deveria ter tentado a chamada paga 2 vezes antes de desistir");
+    assert.equal(calls[0].init.headers["Idempotency-Key"], calls[1].init.headers["Idempotency-Key"], "a retentativa reusa a MESMA idempotencyKey — nunca cobra duas vezes a mesma conversa");
+  } finally {
+    globalThis.fetch = originalFetch;
+    if (original !== undefined) process.env.STRIPE_SECRET_KEY = original; else delete process.env.STRIPE_SECRET_KEY;
+  }
+});
+
+test("reportConversationOverageIfNeeded NÃO retenta em erro PERMANENTE (4xx que não seja timeout/unavailable) — achado da própria auto-revisão: retry incondicional dobrava a latência bloqueante mesmo quando a 2ª tentativa não tinha chance nenhuma de suceder", async () => {
+  const original = process.env.STRIPE_SECRET_KEY;
+  process.env.STRIPE_SECRET_KEY = "sk_test_0000000000000000000000000000";
+  const originalFetch = globalThis.fetch;
+  const calls = [];
+  globalThis.fetch = async (url, init) => {
+    calls.push({ url, init });
+    return new Response("customer not found", { status: 404 });
+  };
+  try {
+    const supabase = fakeSupabase({ plan_id: "crescimento", status: "active", stripe_customer_id: "cus_abc123" });
+    await assert.doesNotReject(() => videoCap.reportConversationOverageIfNeeded(supabase, "allowed_overage", "cost-event-permanent"));
+    assert.equal(calls.length, 1, "erro permanente (404 -> provider_rejected) não deveria disparar retentativa — falha rápido");
+  } finally {
+    globalThis.fetch = originalFetch;
+    if (original !== undefined) process.env.STRIPE_SECRET_KEY = original; else delete process.env.STRIPE_SECRET_KEY;
+  }
+});
+
+test("reportConversationOverageIfNeeded: uma falha transitória seguida de sucesso na retentativa AINDA reporta a unidade — o achado original era perdê-la em silêncio", async () => {
+  const original = process.env.STRIPE_SECRET_KEY;
+  process.env.STRIPE_SECRET_KEY = "sk_test_0000000000000000000000000000";
+  const originalFetch = globalThis.fetch;
+  let attempt = 0;
+  const calls = [];
+  globalThis.fetch = async (url, init) => {
+    attempt += 1;
+    calls.push({ url, init });
+    if (attempt === 1) return new Response("boom", { status: 503 });
+    return new Response(JSON.stringify({ id: "me_2" }), { status: 200 });
+  };
+  try {
+    const supabase = fakeSupabase({ plan_id: "crescimento", status: "active", stripe_customer_id: "cus_abc123" });
+    await videoCap.reportConversationOverageIfNeeded(supabase, "allowed_overage", "cost-event-retry");
+    assert.equal(calls.length, 2);
   } finally {
     globalThis.fetch = originalFetch;
     if (original !== undefined) process.env.STRIPE_SECRET_KEY = original; else delete process.env.STRIPE_SECRET_KEY;

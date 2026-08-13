@@ -40,13 +40,26 @@ export function PreviewChat({ agentId, agentName }: { agentId: string; agentName
     const nextTurns = [...turns, { role: "user" as const, content: message }];
     setTurns(nextTurns);
     startTransition(async () => {
-      const result = await sendAgentPreviewMessage(agentId, turns, message, transcriptIdRef.current);
-      if (result.error || result.reply === null) {
-        setError(result.error ?? "Erro inesperado.");
+      try {
+        const result = await sendAgentPreviewMessage(agentId, turns, message, transcriptIdRef.current);
+        if (result.error || result.reply === null) {
+          setError(result.error ?? "Erro inesperado.");
+          setTurns(turns);
+          setDraft(message);
+        } else {
+          setTurns([...nextTurns, { role: "assistant", content: result.reply }]);
+        }
+      } catch {
+        // Achado onda 7 (D-V2-116): sessão morta no meio do envio faz a
+        // Server Action nem chegar a rodar (o middleware intercepta antes),
+        // o que rejeita a promise em vez de devolver {error}. Sem este
+        // catch, a mensagem digitada se perdia e o erro cru do framework
+        // subia pro error boundary do workspace. Mesmo restore do branch de
+        // erro normal + mensagem específica, já que "erro inesperado" some
+        // sozinho no próximo envio bem-sucedido.
         setTurns(turns);
         setDraft(message);
-      } else {
-        setTurns([...nextTurns, { role: "assistant", content: result.reply }]);
+        setError("Não foi possível enviar. Sua sessão pode ter expirado — recarregue a página e faça login de novo.");
       }
       queueMicrotask(() => scrollRef.current?.scrollTo({ top: scrollRef.current.scrollHeight, behavior: "smooth" }));
     });

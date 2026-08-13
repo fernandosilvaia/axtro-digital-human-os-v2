@@ -4,6 +4,7 @@ import { createUuidV7 } from "@axtro/domain";
 import { createTavusVideoConversationPort, VideoProviderError } from "@axtro/provider-tavus";
 
 import { fakeProvidersEnabled } from "@/lib/knowledge";
+import { isRateLimited } from "@/lib/rate-limit";
 import { checkVideoCap, reportConversationOverageIfNeeded, VIDEO_CAP_CHECK_FAILED_MESSAGE, VIDEO_CAP_MESSAGE } from "@/lib/video-cap";
 import { fetchAgents, fetchTenantOverview } from "@/lib/portal-data";
 import { buildDeckContext, buildPlatformDeck, buildSalesDeck, type Deck } from "@/lib/presentation/deck";
@@ -24,6 +25,34 @@ export interface PresentationConversationResult {
   readonly error: string | null;
   /** Modo demonstração sem provider de vídeo: deck navegável manualmente. */
   readonly simulated?: boolean;
+}
+
+/**
+ * Dedup de curta janela contra duplo-clique/duas abas/retry de rede (achado
+ * onda 7, D-V2-116) — mesmo padrão já aplicado a joinExternalMeeting em
+ * D-V2-114 (meeting-bot.ts), que ficou de fora dessa correção por engano.
+ * Sem isto, duas chamadas a port.createConversation (Tavus, recurso pago
+ * real, ~US$0,175/conversa de piso) criavam duas salas pra uma intenção só.
+ *
+ * `tenant_id` é OBRIGATÓRIO na chave (achado da própria auto-revisão desta
+ * onda): `agents.id` NÃO é globalmente único — a PRIMARY KEY é composta
+ * `(tenant_id, id)` (database/migrations/0002_control_plane.sql) e
+ * `portal_create_agent` aceita um `p_id` escolhido pelo chamador sem checar
+ * outros tenants. Uma chave só por agentId permitiria um tenant atacante
+ * criar um agente-isca com o `id` de um agente de OUTRO tenant e envenenar
+ * o slot de dedup da vítima antes de qualquer chamada real à Tavus — nega
+ * o recurso pago principal de um cliente pagante de graça. `timestampsByKey`
+ * (rate-limit.ts) é um Map único por processo, sem escopo de tenant algum,
+ * então o isolamento tem que vir da própria chave.
+ *
+ * Checado logo ANTES da chamada paga — depois de todas as validações
+ * gratuitas (cap, config, digest) — pra não consumir o slot de dedup numa
+ * falha genuína não-relacionada.
+ */
+const VIDEO_CONVERSATION_DEDUP_WINDOW_MS = 30_000;
+
+function videoConversationDedupKey(tenantId: string, agentId: string, mode: "video" | "presentation"): string {
+  return `video-conversation:${tenantId}:${agentId}:${mode}`;
 }
 
 export async function startVideoConversation(agentId: string): Promise<VideoConversationResult> {
@@ -67,8 +96,18 @@ export async function startVideoConversation(agentId: string): Promise<VideoConv
   }
   const language = config.language ?? "portuguese";
 
+  // createTavusVideoConversationPort é validação local síncrona (chave
+  // presente mas curta demais lança aqui) — roda ANTES do guard de dedup,
+  // não depois, senão uma falha de config pura já teria consumido o slot
+  // de dedup do agente por engano (achado da própria auto-revisão desta
+  // onda: mesma preocupação que motivou o posicionamento do guard em si).
   const port = createTavusVideoConversationPort({ apiKey });
   const callbackUrl = tavusWebhookCallbackUrl();
+
+  if (isRateLimited(videoConversationDedupKey(overview.tenant.id, agentId, "video"), VIDEO_CONVERSATION_DEDUP_WINDOW_MS, 1)) {
+    return { url: null, error: "Uma chamada já está sendo aberta para este agente — aguarde alguns segundos antes de tentar de novo." };
+  }
+
   try {
     const conversation = await port.createConversation(
       personaId
@@ -186,8 +225,15 @@ export async function startPresentationConversation(agentId: string): Promise<Pr
   if (knowledgeDigest) contextParts.push("", buildKnowledgeContext(knowledgeDigest));
   const conversationalContext = contextParts.join("\n").slice(0, 5900);
 
+  // Validação local síncrona ANTES do guard de dedup — mesma razão da
+  // startVideoConversation acima (achado da auto-revisão desta onda).
   const port = createTavusVideoConversationPort({ apiKey });
   const callbackUrl = tavusWebhookCallbackUrl();
+
+  if (isRateLimited(videoConversationDedupKey(overview.tenant.id, agentId, "presentation"), VIDEO_CONVERSATION_DEDUP_WINDOW_MS, 1)) {
+    return { url: null, conversationId: null, deck: null, error: "Uma apresentação já está sendo aberta para este agente — aguarde alguns segundos antes de tentar de novo." };
+  }
+
   try {
     const conversation = await port.createConversation({
       personaId,
