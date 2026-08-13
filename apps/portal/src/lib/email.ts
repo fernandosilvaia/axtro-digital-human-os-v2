@@ -36,7 +36,15 @@ interface SendHtmlEmailOptions {
   readonly logEvent: string;
 }
 
-/** Núcleo de envio compartilhado — mock sem chave, timeout, log sem PII. */
+const TRANSIENT_RETRY_DELAY_MS = 400;
+const MAX_TRANSIENT_RETRY_DELAY_MS = 2000;
+
+/** 429 (rate limit) e 5xx são retryable por definição; 401/402/403/422/etc são permanentes — retentar não ajudaria e só atrasaria um e-mail que vai falhar de qualquer jeito (achado onda 8, D-V2-117, mesma disciplina condicional de D-V2-116). */
+function isTransientResendStatus(status: number): boolean {
+  return status === 429 || status >= 500;
+}
+
+/** Núcleo de envio compartilhado — mock sem chave, timeout, retry condicional, log sem PII. */
 async function sendHtmlEmail(options: SendHtmlEmailOptions): Promise<EmailSendResult> {
   const apiKey = process.env.RESEND_API_KEY ?? "";
   if (apiKey.trim().length === 0 || process.env.PORTAL_FAKE_PROVIDERS === "1") {
@@ -44,26 +52,50 @@ async function sendHtmlEmail(options: SendHtmlEmailOptions): Promise<EmailSendRe
     return { sent: false, reason: "mocked_no_key" };
   }
 
-  const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), TIMEOUT_MS);
-  try {
-    const response = await fetch(RESEND_ENDPOINT, {
-      method: "POST",
-      signal: controller.signal,
-      headers: { Authorization: `Bearer ${apiKey}`, "Content-Type": "application/json" },
-      body: JSON.stringify({ from: FROM, to: options.to, subject: options.subject, html: options.html }),
-    });
-    if (!response.ok) {
-      trackError(`${options.logEvent}_failed`, new Error(`resend http ${response.status}`));
+  // Uma chave estável por CHAMADA (não por tentativa) — a Resend suporta
+  // Idempotency-Key (docs.resend.com/api-reference/emails/send-email) e
+  // aceitar isso torna a retentativa abaixo segura mesmo no caso ambíguo
+  // de a 1ª tentativa ter estourado o timeout DEPOIS da Resend já ter
+  // aceitado o envio (achado da própria auto-revisão, onda 8, D-V2-117):
+  // sem isto, retentar em QUALQUER exceção arriscava duplicar um e-mail
+  // transacional real (convite, alerta de bloqueio) — mesma disciplina de
+  // idempotencyKey já usada pra Stripe em video-cap.ts.
+  const idempotencyKey = crypto.randomUUID();
+
+  for (let attempt = 1; attempt <= 2; attempt += 1) {
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), TIMEOUT_MS);
+    try {
+      const response = await fetch(RESEND_ENDPOINT, {
+        method: "POST",
+        signal: controller.signal,
+        headers: { Authorization: `Bearer ${apiKey}`, "Content-Type": "application/json", "Idempotency-Key": idempotencyKey },
+        body: JSON.stringify({ from: FROM, to: options.to, subject: options.subject, html: options.html }),
+      });
+      if (!response.ok) {
+        if (attempt === 1 && isTransientResendStatus(response.status)) {
+          const retryAfterHeader = response.headers.get("retry-after");
+          const retryAfterSeconds = retryAfterHeader !== null ? Number(retryAfterHeader) : NaN;
+          const delayMs = Number.isFinite(retryAfterSeconds) && retryAfterSeconds >= 0
+            ? Math.min(retryAfterSeconds * 1000, MAX_TRANSIENT_RETRY_DELAY_MS)
+            : TRANSIENT_RETRY_DELAY_MS;
+          await new Promise((resolve) => setTimeout(resolve, delayMs));
+          continue;
+        }
+        trackError(`${options.logEvent}_failed`, new Error(`resend http ${response.status}`));
+        return { sent: false, reason: "provider_error" };
+      }
+      return { sent: true, reason: "sent" };
+    } catch (error) {
+      if (attempt === 1) continue;
+      trackError(`${options.logEvent}_failed`, error);
       return { sent: false, reason: "provider_error" };
+    } finally {
+      clearTimeout(timer);
     }
-    return { sent: true, reason: "sent" };
-  } catch (error) {
-    trackError(`${options.logEvent}_failed`, error);
-    return { sent: false, reason: "provider_error" };
-  } finally {
-    clearTimeout(timer);
   }
+  // Inatingível — o loop de 2 tentativas sempre retorna ou lança acima.
+  return { sent: false, reason: "provider_error" };
 }
 
 /**

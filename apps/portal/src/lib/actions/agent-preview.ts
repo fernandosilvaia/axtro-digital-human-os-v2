@@ -78,6 +78,10 @@ export async function sendAgentPreviewMessage(
 
   const apiKey = process.env.OPENROUTER_API_KEY ?? "";
   if (apiKey.trim().length === 0 && !fakeProvidersEnabled()) {
+    // Achado onda 8 (D-V2-117): OPENROUTER_API_KEY é a chave do caminho
+    // MAIS usado do produto (chat de teste) — se sumir/typo'd, sem isto
+    // toda mensagem falhava em silêncio, sem log nenhum.
+    trackError("agent_preview_openrouter_key_missing", new Error("OPENROUTER_API_KEY not configured"), { agent_id: agentId });
     return { reply: null, error: "O provider de linguagem ainda não está configurado neste ambiente." };
   }
 

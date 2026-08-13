@@ -111,18 +111,60 @@ const MAX_TOTAL_MESSAGES = 24;
 const MAX_HISTORY_ENTRIES_HARD_CAP = 500;
 
 // O adapter OpenRouter limita cada mensagem a 4000 chars — o bloco de fontes
-// vive numa mensagem system própria e respeita esse teto com folga.
+// vive numa mensagem system própria e respeita esse teto com folga
+// (MAX_KNOWLEDGE_BLOCK_CHARS=3800, 200 chars de slack). Esse teto é real e
+// não dá pra simplesmente "aumentar" — a correção (achado onda 8, D-V2-117)
+// é distribuir esse orçamento fixo de um jeito justo entre os matches
+// pedidos, em vez do padrão anterior (primeiro-que-chega-leva-tudo, os de
+// ranking mais baixo eram DESCARTADOS inteiros quando o orçamento acabava)
+// e cortar no limite de palavra + sinalizar corte com "…", em vez de cortar
+// em offset de caractere arbitrário sem nenhum sinal pro modelo de que o
+// trecho está incompleto — uma fonte "autorizada" cortada no meio de uma
+// condição/exceção era apresentada como se estivesse completa (Art. 14).
 export function buildKnowledgeBlock(matches: readonly BrainKnowledgeMatch[]): string | null {
   if (matches.length === 0) return null;
-  const lines = ["FONTES AUTORIZADAS DA CONTA (trechos mais relevantes para a mensagem atual):"];
-  let blockChars = lines[0]?.length ?? 0;
+  const header = "FONTES AUTORIZADAS DA CONTA (trechos mais relevantes para a mensagem atual):";
+  const lines = [header];
+  let blockChars = header.length;
+  const remainingBudget = Math.max(0, MAX_KNOWLEDGE_BLOCK_CHARS - blockChars);
+  // Orçamento por chunk baseado em QUANTOS matches existem — cada um recebe
+  // uma fatia proporcional (nunca mais que MAX_KNOWLEDGE_CHUNK_CHARS), em
+  // vez de os primeiros esgotarem o espaço e os últimos serem descartados.
+  const perChunkBudget = Math.min(MAX_KNOWLEDGE_CHUNK_CHARS, Math.floor(remainingBudget / matches.length));
   for (const match of matches) {
-    const piece = `[${match.source_name}] ${match.chunk_text.slice(0, MAX_KNOWLEDGE_CHUNK_CHARS)}`;
-    if (blockChars + piece.length > MAX_KNOWLEDGE_BLOCK_CHARS) break;
-    blockChars += piece.length;
+    const prefix = `[${match.source_name}] `;
+    const availableForText = perChunkBudget - prefix.length;
+    // Achado da própria auto-revisão: se o PREFIXO sozinho já estoura o
+    // orçamento do chunk (nome de fonte muito longo + poucos matches),
+    // pular o match inteiro em vez de emitir uma linha "[Fonte] " sem
+    // NENHUM conteúdo — uma citação vazia é pior que a ausência: convida
+    // o modelo a referenciar uma fonte sem nenhum trecho real por trás.
+    if (availableForText <= 0) continue;
+    const piece = prefix + truncateAtWordBoundary(match.chunk_text, availableForText);
+    if (blockChars + piece.length + 1 > MAX_KNOWLEDGE_BLOCK_CHARS) break;
+    blockChars += piece.length + 1;
     lines.push(piece);
   }
   return lines.length > 1 ? lines.join("\n") : null;
+}
+
+const TRUNCATION_MARKER = "…";
+
+/**
+ * Corta no último espaço antes do limite (nunca no meio de uma palavra) e
+ * sinaliza o corte — nunca finge que o trecho está completo quando não
+ * está. O orçamento reserva o tamanho do próprio marcador de corte (achado
+ * da auto-revisão: a versão anterior podia devolver maxChars+1 chars,
+ * porque acrescentava "…" DEPOIS de já ter usado o orçamento inteiro).
+ */
+function truncateAtWordBoundary(text: string, maxChars: number): string {
+  if (maxChars <= 0) return "";
+  if (text.length <= maxChars) return text;
+  const budget = Math.max(0, maxChars - TRUNCATION_MARKER.length);
+  const slice = text.slice(0, budget);
+  const lastSpace = slice.lastIndexOf(" ");
+  const cut = lastSpace > budget * 0.6 ? slice.slice(0, lastSpace) : slice;
+  return cut.trimEnd() + TRUNCATION_MARKER;
 }
 
 export function buildPerceptionBlock(perceptionContext: string | null | undefined): string | null {

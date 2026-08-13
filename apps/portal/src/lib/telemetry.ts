@@ -86,13 +86,30 @@ async function sendOperationalErrorAlert(event: string, count: number): Promise<
       }),
     });
     if (!response.ok) console.error(JSON.stringify({ level: "error", event: "operational_alert_send_failed", status: response.status }));
-  } catch {
+  } catch (error) {
     // Best-effort — nunca lança. Se o próprio alerta falhar, o console.error
     // já emitido por logError continua sendo a fonte de verdade nos logs.
+    // Achado onda 8 (D-V2-117): este catch estava mudo — nem esse
+    // console.error existia — então uma falha de REDE (timeout, DNS) no
+    // envio do próprio alerta desaparecia sem rastro nenhum, pior que uma
+    // resposta HTTP de erro (que ao menos cai no branch acima).
+    console.error(JSON.stringify({ level: "error", event: "operational_alert_send_failed", reason: error instanceof Error ? error.name : "unknown" }));
   } finally {
     clearTimeout(timer);
   }
 }
+
+// RISCO RESIDUAL CONHECIDO, deliberadamente NÃO corrigido nesta onda
+// (D-V2-117): este alerta usa a MESMA conta/endpoint da Resend que
+// email.ts — se a Resend estiver com rate-limit/quota estourada/chave
+// revogada, tanto o e-mail transacional do produto quanto ESTE alerta (que
+// existe especificamente pra avisar sobre falhas) falham pelo mesmo
+// motivo, e o único resgate vira log bruto do Railway. Corrigir de verdade
+// exige um canal de alerta genuinamente independente (Slack/PagerDuty/SMS)
+// — infra nova que este repo não tem hoje, não um ajuste de código.
+// Retry condicional em email.ts (mesma onda) reduz a chance prática de um
+// 429/5xx transitório derrubar os dois ao mesmo tempo, mas não elimina o
+// ponto único de falha estrutural.
 
 function escapeHtmlForAlert(value: string): string {
   return value.replaceAll("&", "&amp;").replaceAll("<", "&lt;").replaceAll(">", "&gt;");

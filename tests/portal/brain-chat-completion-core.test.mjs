@@ -128,6 +128,36 @@ test("knowledge matches produce a labeled, bounded system message", async () => 
   assert.match(knowledgeMessage.content, /Rate Card/);
 });
 
+test("achado onda 8 (D-V2-117): buildKnowledgeBlock inclui os 5 matches pedidos com orçamento justo, em vez de descartar o de ranking mais baixo", async () => {
+  const { deps, calls } = fakeDeps();
+  const knowledgeMatches = Array.from({ length: 5 }, (_, index) => ({
+    source_name: `Fonte ${index + 1}`,
+    // ~1200 chars, tamanho real de um chunk de ingestão (TARGET_CHUNK_CHARS).
+    chunk_text: `Trecho ${index + 1}: ${"conteúdo relevante da fonte autorizada ".repeat(30)}`.slice(0, 1200),
+  }));
+  await core.runBrainChatCompletion({ ...BASE_REQUEST, knowledgeMatches }, deps);
+  const systemMessages = calls.generate[0].messages.filter((m) => m.role === "system");
+  const knowledgeMessage = systemMessages.find((m) => m.content.startsWith("FONTES AUTORIZADAS"));
+  assert.ok(knowledgeMessage, "knowledge block missing");
+  for (let index = 1; index <= 5; index += 1) {
+    assert.match(knowledgeMessage.content, new RegExp(`Fonte ${index}\\]`), `match ${index} foi descartado em vez de incluído com orçamento reduzido`);
+  }
+  // Nunca ultrapassa o teto real do adapter OpenRouter (4000 chars por mensagem).
+  assert.ok(knowledgeMessage.content.length < 4000, `bloco de conhecimento excedeu o teto do adapter: ${knowledgeMessage.content.length} chars`);
+});
+
+test("achado onda 8 (D-V2-117): chunk truncado corta no limite de palavra e sinaliza com reticências, nunca no meio de uma palavra sem aviso", async () => {
+  const { deps, calls } = fakeDeps();
+  const longChunk = "isento de multa se cancelado com antecedência mínima de quinze dias corridos a partir da data de assinatura do contrato original ".repeat(10);
+  const knowledgeMatches = [{ source_name: "Contrato", chunk_text: longChunk }];
+  await core.runBrainChatCompletion({ ...BASE_REQUEST, knowledgeMatches }, deps);
+  const systemMessages = calls.generate[0].messages.filter((m) => m.role === "system");
+  const knowledgeMessage = systemMessages.find((m) => m.content.startsWith("FONTES AUTORIZADAS"));
+  assert.ok(knowledgeMessage, "knowledge block missing");
+  assert.ok(knowledgeMessage.content.includes("…"), "corte deveria sinalizar truncamento com reticências");
+  assert.ok(!knowledgeMessage.content.endsWith(longChunk.trim()), "chunk não deveria caber inteiro (teste espera truncamento)");
+});
+
 test("perception context is folded as labeled, untrusted data — never as identity or instruction", async () => {
   const { deps, calls } = fakeDeps();
   const perceptionContext = "<user_emotions>a pessoa parece cética, braços cruzados</user_emotions>";

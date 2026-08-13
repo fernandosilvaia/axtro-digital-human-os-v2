@@ -5,6 +5,7 @@ import { createRecallMeetingBotPort, MeetingBotError } from "@axtro/provider-rec
 import { createTavusVideoConversationPort, VideoProviderError } from "@axtro/provider-tavus";
 
 import { FloridaTimeError, wallClockToUtcIso } from "@/lib/time/florida";
+import { fakeProvidersEnabled } from "@/lib/knowledge";
 import { agentFaceStageUrl } from "@/lib/meetings/stage";
 import { handleJoinMeeting, JoinMeetingError, type AgentPersonaForMeeting } from "@/lib/meetings/join-meeting";
 import { fetchAgents } from "@/lib/portal-data";
@@ -70,6 +71,16 @@ export async function joinExternalMeeting(
   const recallApiKey = requiredEnv("RECALL_API_KEY");
   const recallRegion = requiredEnv("RECALL_API_REGION");
   if (tavusApiKey.length === 0 || recallApiKey.length === 0) {
+    // Achado onda 8 (D-V2-117): a checagem de região logo abaixo já chama
+    // trackError — chave ausente aqui não chamava, mesma função com
+    // comportamento inconsistente pra duas configs igualmente quebradas.
+    // Guard de fake mode (achado da própria auto-revisão): mesmo esta
+    // função não tendo um caminho simulado de verdade pra reunião externa,
+    // um tenant demo (PORTAL_FAKE_PROVIDERS=1) não deveria gerar um alerta
+    // de config quebrada só por não ter chaves reais de propósito.
+    if (!fakeProvidersEnabled()) {
+      trackError("meeting_bot_provider_key_missing", new Error("TAVUS_API_KEY or RECALL_API_KEY not configured"), { agent_id: agentId });
+    }
     return { conversationUrl: null, scheduled: false, error: "O provider de vídeo ou de reuniões externas ainda não está configurado neste ambiente." };
   }
   if (recallRegion !== "us-east-1" && recallRegion !== "us-west-2" && recallRegion !== "eu-central-1" && recallRegion !== "ap-northeast-1") {

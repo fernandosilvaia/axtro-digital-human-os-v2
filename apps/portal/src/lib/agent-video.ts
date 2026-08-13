@@ -42,7 +42,12 @@ export async function provisionAgentVideoIfMissing(
 ): Promise<ProvisionResult> {
   const tavusApiKey = (process.env.TAVUS_API_KEY ?? "").trim();
   const replicaId = (process.env.TAVUS_REPLICA_ID ?? "").trim();
-  if (tavusApiKey.length === 0 || replicaId.length === 0 || process.env.PORTAL_FAKE_PROVIDERS === "1") {
+  if (process.env.PORTAL_FAKE_PROVIDERS === "1") return { provisioned: false };
+  if (tavusApiKey.length === 0 || replicaId.length === 0) {
+    // Achado onda 8 (D-V2-117): diferente do modo fake (intencional, acima),
+    // chave/replica ausentes aqui é config quebrada de verdade — sem log,
+    // toda ativação de agente falhava a auto-provisão de vídeo em silêncio.
+    trackError("agent_video_autoprovision_config_missing", new Error("TAVUS_API_KEY or TAVUS_REPLICA_ID not configured"), { agent_id: agent.id });
     return { provisioned: false };
   }
 

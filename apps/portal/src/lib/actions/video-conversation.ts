@@ -59,6 +59,16 @@ export async function startVideoConversation(agentId: string): Promise<VideoConv
   const apiKey = process.env.TAVUS_API_KEY ?? "";
   const defaultReplicaId = process.env.TAVUS_REPLICA_ID ?? "";
   if (apiKey.trim().length === 0) {
+    // Achado onda 8 (D-V2-117): sem isto, TAVUS_API_KEY ausente/typo'd
+    // falhava toda tentativa de vídeo com uma mensagem genérica pro
+    // usuário e zero sinal pro operador. Guard de fake mode (achado da
+    // própria auto-revisão): sem ele, o modo demo LEGÍTIMO do produto
+    // (PORTAL_FAKE_PROVIDERS=1, sem chave real de propósito) disparava
+    // esse mesmo log de erro toda vez — falso positivo tratando ambiente
+    // corretamente configurado como quebrado.
+    if (!fakeProvidersEnabled()) {
+      trackError("video_conversation_tavus_key_missing", new Error("TAVUS_API_KEY not configured"), { agent_id: agentId, mode: "video" });
+    }
     return { url: null, error: "O provider de vídeo ainda não está configurado neste ambiente." };
   }
 
@@ -172,6 +182,7 @@ export async function startPresentationConversation(agentId: string): Promise<Pr
   const apiKey = process.env.TAVUS_API_KEY ?? "";
   const fakeMode = fakeProvidersEnabled();
   if (apiKey.trim().length === 0 && !fakeMode) {
+    trackError("video_conversation_tavus_key_missing", new Error("TAVUS_API_KEY not configured"), { agent_id: agentId, mode: "presentation" });
     return { url: null, conversationId: null, deck: null, error: "O provider de vídeo ainda não está configurado neste ambiente." };
   }
 

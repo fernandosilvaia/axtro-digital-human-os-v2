@@ -10,6 +10,7 @@ import { createStripeBillingPort, StripeBillingError } from "@axtro/provider-str
 
 import { conversationOverageEventName, isPlanId, isTrialLimitEnabled, PLAN_CATALOG, TRIAL_INCLUDED_CONVERSATIONS_PER_MONTH } from "./billing/plans.ts";
 import { maybeAlertCostCap } from "./cost-alerts.ts";
+import { fakeProvidersEnabled } from "./knowledge.ts";
 import type { createClient } from "./supabase/server.ts";
 import { logError as trackError } from "./telemetry.ts";
 
@@ -94,7 +95,19 @@ export async function reportConversationOverageIfNeeded(
 ): Promise<void> {
   if (verdict !== "allowed_overage") return;
   const apiKey = (process.env.STRIPE_SECRET_KEY ?? "").trim();
-  if (apiKey.length === 0) return;
+  if (apiKey.length === 0) {
+    // Achado onda 8 (D-V2-117): retorno mudo aqui significa que overage
+    // real nunca é cobrado E ninguém nunca fica sabendo — nem um log. O
+    // alerta de taxa de erro (D-V2-114) só existe pra quem chama
+    // trackError; sem isso, esta lacuna é literalmente invisível. Guard de
+    // fake mode (achado da própria auto-revisão) por consistência com os
+    // demais call sites desta onda — baixa chance de disparar aqui (exige
+    // overage real ativo), mas o mesmo princípio se aplica.
+    if (!fakeProvidersEnabled()) {
+      trackError("billing_overage_report_stripe_key_missing", new Error("STRIPE_SECRET_KEY not configured"), { cost_event_id: costEventId });
+    }
+    return;
+  }
 
   try {
     const { data, error: statusError } = await supabase.rpc("portal_billing_status");

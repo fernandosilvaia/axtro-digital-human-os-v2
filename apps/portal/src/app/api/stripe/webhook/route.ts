@@ -40,6 +40,11 @@ function resolvePlanId(licensedPriceId: string | null, metadataPlanId: string): 
 export async function POST(request: NextRequest): Promise<Response> {
   const webhookSecret = (process.env.STRIPE_WEBHOOK_SECRET ?? "").trim();
   if (webhookSecret.length === 0) {
+    // Achado onda 8 (D-V2-117): sem isto, TODO webhook de assinatura da
+    // Stripe falhava em silêncio — só apareceria no dashboard da Stripe
+    // (ninguém monitora ativamente), nunca no alerta de taxa de erro do
+    // próprio produto (D-V2-114).
+    trackError("stripe_webhook_secret_missing", new Error("STRIPE_WEBHOOK_SECRET not configured"));
     return NextResponse.json({ error: "not_configured" }, { status: 503 });
   }
 

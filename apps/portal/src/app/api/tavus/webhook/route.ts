@@ -23,6 +23,10 @@ export const dynamic = "force-dynamic";
 export async function POST(request: NextRequest): Promise<Response> {
   const expectedToken = (process.env.TAVUS_WEBHOOK_TOKEN ?? "").trim();
   if (expectedToken.length < 16) {
+    // Achado onda 8 (D-V2-117): sem isto, TODO callback de transcrição da
+    // Tavus (webhook PRINCIPAL de vídeo) falhava em silêncio — sem log,
+    // sem alerta, e sem NENHUMA transcrição de call real salva.
+    trackError("tavus_webhook_token_missing_or_short", new Error("TAVUS_WEBHOOK_TOKEN not configured or too short"));
     return NextResponse.json({ error: "not_configured" }, { status: 503 });
   }
   const providedToken = request.nextUrl.searchParams.get("token") ?? "";
