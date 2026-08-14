@@ -6,6 +6,7 @@ import { createUuidV7, isUuidV7 } from "@axtro/domain";
 
 import { provisionAgentVideoIfMissing } from "@/lib/agent-video";
 import {
+  AI_USAGE_LIMITS,
   executeReservedAiUsage,
   stableAiUsageIdempotencyKey,
 } from "@/lib/ai-budget/reservations";
@@ -145,7 +146,11 @@ async function ingestContentForSource(
           operation: "knowledge_ingestion_embedding",
           idempotencyKey: stableAiUsageIdempotencyKey("knowledge_ingestion_embedding", `${sourceId}:${contentHash}`),
           sourceId,
-          execute: () => embedChunks(process.env.OPENROUTER_API_KEY ?? "", texts),
+          execute: () => embedChunks(
+            process.env.OPENROUTER_API_KEY ?? "",
+            texts,
+            AI_USAGE_LIMITS.knowledge_ingestion_embedding.maxInputTokens,
+          ),
           usage: ({ inputTokens, reportedCostUsd }) => ({
             inputTokens,
             outputTokens: 0,

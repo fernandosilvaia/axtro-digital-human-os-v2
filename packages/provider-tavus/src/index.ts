@@ -89,6 +89,13 @@ export interface TavusAdapterOptions {
 
 const BASE = "https://tavusapi.com/v2";
 const ID_PATTERN = /^[a-z0-9][a-z0-9_-]{2,64}$/i;
+/**
+ * Shape of every Tavus id (persona, replica, conversation, tool) as accepted
+ * by this adapter. Exported so callers outside the adapter (e.g. the
+ * transcript webhook) validate a conversationId with the exact same pattern
+ * instead of hand-duplicating a copy that can silently drift out of sync.
+ */
+export const TAVUS_CONVERSATION_ID_PATTERN = ID_PATTERN;
 const MAX_CONTEXT_CHARS = 6000;
 const MAX_GREETING_CHARS = 400;
 const DEFAULT_TIMEOUT_MS = 20_000;

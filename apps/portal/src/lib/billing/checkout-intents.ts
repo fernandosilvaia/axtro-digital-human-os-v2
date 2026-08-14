@@ -8,6 +8,7 @@ import {
 } from "@axtro/provider-stripe";
 
 import { verifyCheckoutCatalogPreflight } from "./checkout-preflight.ts";
+import { logError } from "../telemetry.ts";
 
 export type CheckoutIntentOutcome = "reserved" | "replayed" | "conflict" | "blocked_unknown";
 export type CheckoutIntentState = "reserved" | "dispatched" | "bound" | "completed" | "expired" | "released" | "unknown" | "conflict";
@@ -269,6 +270,11 @@ export async function createDurableCheckout(
       await releasePreDispatch(dependencies.client, intent.checkoutIntentId!);
       throw error;
     }
+    logError("billing_checkout_preflight_failed", error, {
+      tenant_id: input.tenantId,
+      checkout_intent_id: intent.checkoutIntentId,
+      intent_state: intent.state,
+    });
     return Object.freeze({ status: "pending" });
   }
 
@@ -305,10 +311,18 @@ export async function createDurableCheckout(
   let session: CheckoutSession;
   try {
     session = await createWithOneRetry(dependencies.port, checkoutRequest);
-  } catch {
+  } catch (error) {
+    logError("billing_checkout_create_failed", error, {
+      tenant_id: input.tenantId,
+      checkout_intent_id: intent.checkoutIntentId,
+    });
     return Object.freeze({ status: "pending" });
   }
   if (session.expiresAtIso !== intent.expiresAt || !SESSION_ID_PATTERN.test(session.sessionId) || !validCheckoutUrl(session.checkoutUrl, intent.successUrl!)) {
+    logError("billing_checkout_session_mismatch", new Error("Stripe checkout session did not match the reserved intent"), {
+      tenant_id: input.tenantId,
+      checkout_intent_id: intent.checkoutIntentId,
+    });
     return Object.freeze({ status: "pending" });
   }
 
@@ -318,9 +332,20 @@ export async function createDurableCheckout(
     p_checkout_url: session.checkoutUrl,
     p_expires_at: session.expiresAtIso,
   });
-  if (bound.error) return Object.freeze({ status: "pending" });
+  if (bound.error) {
+    logError("billing_checkout_bind_failed", new Error(bound.error.message), {
+      tenant_id: input.tenantId,
+      checkout_intent_id: intent.checkoutIntentId,
+    });
+    return Object.freeze({ status: "pending" });
+  }
   const bindReceipt = exactRecord(bound.data, ["bound", "state"], "checkout bind");
   if (bindReceipt.bound !== true || (bindReceipt.state !== "bound" && bindReceipt.state !== "completed")) {
+    logError("billing_checkout_bind_failed", new Error("checkout bind receipt was not accepted"), {
+      tenant_id: input.tenantId,
+      checkout_intent_id: intent.checkoutIntentId,
+      state: bindReceipt.state,
+    });
     return Object.freeze({ status: "pending" });
   }
   return Object.freeze({ status: "ready", checkoutUrl: session.checkoutUrl, checkoutIntentId: intent.checkoutIntentId! });

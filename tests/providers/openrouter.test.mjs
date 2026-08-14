@@ -212,6 +212,7 @@ test("embed envia inputs ao endpoint fixo de embeddings e devolve vetores na ord
   assert.deepEqual(JSON.parse(calls[0].init.body), {
     model: "openai/text-embedding-3-small",
     input: ["chunk a", "chunk b"],
+    usage: { include: true },
   });
   assert.deepEqual(result.embeddings, [[0.1, 0.2], [0.3, 0.4]]);
   assert.deepEqual(result.usage, { inputTokens: 12, outputTokens: 0 });

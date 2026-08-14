@@ -122,6 +122,10 @@ async function fetchWithRateLimitRetry(
     }
     if (response.status === 429 && attempt === 1) {
       clearTimeout(timer);
+      // O corpo do 429 nunca é lido — sem drenar/cancelar o stream, o socket
+      // subjacente fica preso aguardando o corpo até o keep-alive expirar,
+      // vazando conexões do pool sob rate-limit sustentado.
+      await response.body?.cancel().catch(() => {});
       await sleep(rateLimitRetryDelayMs(response.headers.get("retry-after")));
       continue;
     }
@@ -256,7 +260,15 @@ export function createOpenRouterEmbeddingPort(options: OpenRouterAdapterOptions)
             ...(options.appUrl ? { "HTTP-Referer": options.appUrl } : {}),
             ...(options.appTitle ? { "X-Title": options.appTitle } : {}),
           },
-          body: JSON.stringify({ model: request.model, input: request.inputs }),
+          body: JSON.stringify({
+            model: request.model,
+            input: request.inputs,
+            // Pede o custo faturado real na resposta (usage.cost) — sem isto
+            // normalizeReportedCost sempre recebe undefined e todo commit de
+            // ingestão cai no fallback max_cost_usd em vez do gasto real
+            // (mesmo padrão do port de chat acima).
+            usage: { include: true },
+          }),
         },
         timeoutMs,
         "OpenRouter",

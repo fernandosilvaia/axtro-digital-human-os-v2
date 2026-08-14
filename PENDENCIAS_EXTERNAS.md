@@ -16,7 +16,7 @@ Estas pendências não bloqueiam M0-M2 quando adapters fake são usados. Bloquei
 ## Gates humanos pendentes do cérebro customizado (M4)
 - ✅ ~~Aplicar 0018/0019 no Supabase real~~ — **RESOLVIDO 2026-07-27**: autorizado explicitamente pelo Fernando e aplicado via MCP `apply_migration`; tabela + 5 funções + RLS forçada confirmadas, advisor de segurança revisado (sem problema novo).
 - Apontar `layers.llm.base_url` de uma persona Tavus REAL para o endpoint — nenhuma persona em produção (Aurora, Amanda, Rafaela) usa o cérebro customizado ainda; troca de LLM de uma persona ao vivo é ação que afeta clientes/prospects reais e fica reservada para decisão explícita do Fernando.
-- RAG real no caminho Tavus (`portal_search_knowledge` exige `auth.uid()`, que não existe numa chamada servidor-a-servidor) — hoje o endpoint responde só com identidade + Método Silva + percepção, sem fontes de conhecimento da conta; candidato a uma RPC `_service` equivalente numa sessão futura.
+- ✅ ~~RAG real no caminho Tavus~~ — **RESOLVIDO 2026-08-11** (D-V2-108): RPC `_service` equivalente implementada, o cérebro de vídeo custom agora cita fontes de conhecimento da conta.
 
 ## Decisões comerciais
 - Limites de custo por minuto e por tenant.

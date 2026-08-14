@@ -83,7 +83,9 @@ test("rejeita payload malformado (sem conversation_id, sem properties.transcript
   assert.equal(webhook.parseTavusTranscriptEvent({ ...VALID_EVENT, properties: { transcript: [] } }), null);
   assert.equal(webhook.parseTavusTranscriptEvent({ ...VALID_EVENT, message_type: "system" }), null);
   assert.equal(webhook.parseTavusTranscriptEvent({ ...VALID_EVENT, message_type: undefined }), null);
-  for (const conversation_id of ["ab", " conv_abc123", "conv.abc", "conv/abc", "a".repeat(65)]) {
+  // 65 chars is the unified max shared with provider-tavus's ID_PATTERN
+  // (achado onda 6: era 64 aqui, 65 lá — drift silencioso corrigido).
+  for (const conversation_id of ["ab", " conv_abc123", "conv.abc", "conv/abc", "a".repeat(100)]) {
     assert.equal(webhook.parseTavusTranscriptEvent({ ...VALID_EVENT, conversation_id }), null);
   }
 });

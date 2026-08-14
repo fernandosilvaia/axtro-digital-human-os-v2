@@ -181,11 +181,14 @@ test("transient retry carries meter name and persisted meter timestamp with one 
   assert.notEqual(providerRequests[0].eventTimestamp, ROW.billingPeriodStart);
 });
 
-test("a malformed row is dead-lettered without blocking a valid row in the same bounded run", async () => {
+test("a malformed row on its first attempt is retried, not dead-lettered, without blocking a valid row in the same bounded run", async () => {
   const providerRequests = [];
   const failures = [];
   const leaseTokens = [];
   const acknowledgements = [];
+  // ROW.attempts is 1, well under MAX_DELIVERY_ATTEMPTS: a schema-validation
+  // failure could be a transient serialization glitch, so it gets the same
+  // attempt budget as any other dispatch failure before giving up.
   const poison = { ...ROW, id: "0198f5d0-45c0-7000-8000-000000000099", stripeCustomerId: null };
   const candidates = [poison, ROW];
   let candidateIndex = 0;
@@ -203,7 +206,7 @@ test("a malformed row is dead-lettered without blocking a valid row in the same 
       acknowledgements.push(parameters);
       return ok(true);
     }
-    if (name === "portal_billing_usage_backlog_service") return ok({ ...BACKLOG, deadLetter: 1 });
+    if (name === "portal_billing_usage_backlog_service") return ok({ ...BACKLOG, pending: 1 });
     throw new Error(`unexpected RPC ${name}`);
   };
 
@@ -212,19 +215,38 @@ test("a malformed row is dead-lettered without blocking a valid row in the same 
     dependencies(rpc, async (request) => providerRequests.push(request), { multipleLeases: true }),
   );
   assert.equal(result.leased, 2);
-  assert.equal(result.deadLettered, 1);
+  assert.equal(result.deadLettered, 0);
+  assert.equal(result.failed, 1);
   assert.equal(result.delivered, 1);
   assert.equal(providerRequests.length, 1);
   assert.equal(failures.length, 1);
   assert.equal(failures[0].p_id, poison.id);
   assert.equal(failures[0].p_error_code, "invalid_outbox_row");
-  assert.equal(failures[0].p_permanent, true);
+  assert.equal(failures[0].p_permanent, false);
   assert.equal(failures[0].p_lease_token, leaseTokens[0]);
   assert.equal(acknowledgements[0].p_lease_token, leaseTokens[1]);
   assert.notEqual(leaseTokens[0], leaseTokens[1]);
 });
 
-test("meter event instants outside the frozen billing period are isolated as poison rows", async () => {
+test("a malformed row moves to the dead letter once its attempt budget is exhausted", async () => {
+  const poison = { ...ROW, id: "0198f5d0-45c0-7000-8000-000000000099", stripeCustomerId: null, attempts: 8 };
+  let poisonFailure;
+  const rpc = async (name, parameters) => {
+    if (name === "portal_lease_billing_usage_service") return ok([poison]);
+    if (name === "portal_fail_billing_usage_service") {
+      poisonFailure = parameters;
+      return ok(true);
+    }
+    if (name === "portal_billing_usage_backlog_service") return ok({ ...BACKLOG, deadLetter: 1 });
+    throw new Error(`unexpected RPC ${name}`);
+  };
+  const result = await dispatchBillingUsageOutbox(20, dependencies(rpc, async () => {}));
+  assert.equal(result.deadLettered, 1);
+  assert.equal(result.failed, 0);
+  assert.equal(poisonFailure.p_permanent, true);
+});
+
+test("meter event instants outside the frozen billing period are isolated as poison rows and retried within budget", async () => {
   for (const row of [
     { ...ROW, meterEventAt: "2026-07-31T23:59:59.999Z" },
     { ...ROW, meterEventAt: ROW.billingPeriodEnd },
@@ -237,12 +259,13 @@ test("meter event instants outside the frozen billing period are isolated as poi
         poisonFailure = parameters;
         return ok(true);
       }
-      if (name === "portal_billing_usage_backlog_service") return ok({ ...BACKLOG, deadLetter: 1 });
+      if (name === "portal_billing_usage_backlog_service") return ok({ ...BACKLOG, pending: 1 });
       throw new Error(`unexpected RPC ${name}`);
     };
     const result = await dispatchBillingUsageOutbox(20, dependencies(rpc, async () => {}));
-    assert.equal(result.deadLettered, 1);
-    assert.equal(poisonFailure.p_permanent, true);
+    assert.equal(result.deadLettered, 0);
+    assert.equal(result.failed, 1);
+    assert.equal(poisonFailure.p_permanent, false);
   }
 });
 

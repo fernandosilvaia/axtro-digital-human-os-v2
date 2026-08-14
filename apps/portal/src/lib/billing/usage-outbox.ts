@@ -293,17 +293,28 @@ export async function dispatchBillingUsageOutbox(
         continue;
       }
       try {
+        // A row failing schema validation isn't necessarily corrupt forever —
+        // it could be a transient serialization glitch — so it gets the same
+        // attempt budget as any other dispatch failure before giving up
+        // (achado onda 6, auditoria M5-01): dead-lettering on the very first
+        // lease denied it the retries every other failure path gets.
+        const permanent = identity.attempts >= MAX_DELIVERY_ATTEMPTS;
         const failure = await supabase.rpc("portal_fail_billing_usage_service", {
           p_id: identity.id,
           p_lease_token: leaseToken,
           p_error_code: "invalid_outbox_row",
           p_retry_seconds: retryDelay(identity.attempts),
-          p_permanent: true,
+          p_permanent: permanent,
         });
         if (failure.error) throw new Error(`billing usage poison-row persistence failed: ${failure.error.message}`);
         if (failure.data !== true) throw new Error("billing usage poison-row failure was not applied");
-        deadLettered += 1;
-        emitError("billing_usage_poison_row_dead_lettered", validationError, {});
+        if (permanent) {
+          deadLettered += 1;
+          emitError("billing_usage_poison_row_dead_lettered", validationError, {});
+        } else {
+          failed += 1;
+          emitError("billing_usage_poison_row_retry_scheduled", validationError, {});
+        }
       } catch (persistenceError) {
         isolatedErrors.push(persistenceError);
         emitError("billing_usage_poison_row_persistence_failed", persistenceError, {});

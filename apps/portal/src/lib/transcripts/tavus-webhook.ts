@@ -13,10 +13,12 @@
  * lib/security.ts, não repetida aqui.
  */
 
+import { TAVUS_CONVERSATION_ID_PATTERN } from "@axtro/provider-tavus";
+
 const MAX_TURN_CHARS = 4000;
 const MAX_TURNS = 500;
 const ISO_UTC_TIMESTAMP = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d{1,9})?Z$/;
-const TAVUS_CONVERSATION_ID = /^[A-Za-z0-9][A-Za-z0-9_-]{2,63}$/;
+const TAVUS_CONVERSATION_ID = TAVUS_CONVERSATION_ID_PATTERN;
 
 function parseObservedAt(event: Record<string, unknown>): string | null {
   const value = event.timestamp;

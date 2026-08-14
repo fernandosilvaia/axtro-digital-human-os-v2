@@ -115,6 +115,7 @@ const MAX_BOT_NAME_CHARS = 100;
 const MAX_WEBPAGE_URL_CHARS = 2000;
 const MAX_DOWNLOAD_URL_CHARS = 4000;
 const MAX_TRANSCRIPT_BYTES = 5_000_000;
+const MAX_API_RESPONSE_BYTES = 256 * 1024;
 const DEFAULT_TIMEOUT_MS = 20_000;
 const MAX_TRANSCRIPT_REDIRECTS = 3;
 const RECALL_REGIONS = new Set<RecallRegion>(["us-east-1", "us-west-2", "eu-central-1", "ap-northeast-1"]);
@@ -219,8 +220,14 @@ export function createRecallMeetingBotPort(options: RecallAdapterOptions): Meeti
       if (response.status === 204) return null;
       let text: string;
       try {
-        text = await response.text();
+        text = await readBoundedBody(
+          response,
+          controller.signal,
+          MAX_API_RESPONSE_BYTES,
+          "Recall.ai response exceeded the body limit",
+        );
       } catch (error) {
+        if (error instanceof MeetingBotError) throw error;
         if (error instanceof Error && error.name === "AbortError") {
           throw new MeetingBotError("provider_timeout", `Recall.ai timed out after ${timeoutMs}ms`);
         }
@@ -255,15 +262,20 @@ export function createRecallMeetingBotPort(options: RecallAdapterOptions): Meeti
     }
   }
 
-  async function readBoundedTranscriptBody(response: Response, signal: AbortSignal): Promise<string> {
+  async function readBoundedBody(
+    response: Response,
+    signal: AbortSignal,
+    maxBytes: number,
+    overflowMessage: string,
+  ): Promise<string> {
     const declaredLength = Number(response.headers.get("content-length") ?? "");
-    if (Number.isFinite(declaredLength) && declaredLength > MAX_TRANSCRIPT_BYTES) {
-      throw new MeetingBotError("malformed_provider_response", "Recall.ai transcript exceeds the sanity size cap");
+    if (Number.isFinite(declaredLength) && declaredLength > maxBytes) {
+      throw new MeetingBotError("malformed_provider_response", overflowMessage);
     }
     if (response.body === null || response.body === undefined || typeof response.body.getReader !== "function") {
       const text = await response.text();
-      if (Buffer.byteLength(text, "utf8") > MAX_TRANSCRIPT_BYTES) {
-        throw new MeetingBotError("malformed_provider_response", "Recall.ai transcript exceeds the sanity size cap");
+      if (Buffer.byteLength(text, "utf8") > maxBytes) {
+        throw new MeetingBotError("malformed_provider_response", overflowMessage);
       }
       return text;
     }
@@ -277,9 +289,9 @@ export function createRecallMeetingBotPort(options: RecallAdapterOptions): Meeti
         if (done) break;
         if (value !== undefined) {
           bytes += value.byteLength;
-          if (bytes > MAX_TRANSCRIPT_BYTES) {
+          if (bytes > maxBytes) {
             await reader.cancel();
-            throw new MeetingBotError("malformed_provider_response", "Recall.ai transcript exceeds the sanity size cap");
+            throw new MeetingBotError("malformed_provider_response", overflowMessage);
           }
           chunks.push(value);
         }
@@ -435,7 +447,12 @@ export function createRecallMeetingBotPort(options: RecallAdapterOptions): Meeti
           const code: MeetingBotErrorCode = response.status >= 500 ? "provider_unavailable" : "provider_rejected";
           throw new MeetingBotError(code, `Recall.ai transcript download respondeu HTTP ${response.status}`, response.status);
         }
-        const text = await readBoundedTranscriptBody(response, controller.signal);
+        const text = await readBoundedBody(
+          response,
+          controller.signal,
+          MAX_TRANSCRIPT_BYTES,
+          "Recall.ai transcript exceeds the sanity size cap",
+        );
         try {
           const parsed: unknown = JSON.parse(text);
           if (!Array.isArray(parsed)) {

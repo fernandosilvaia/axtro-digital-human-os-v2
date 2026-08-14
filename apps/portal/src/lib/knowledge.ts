@@ -108,8 +108,20 @@ export interface EmbeddingRunResult {
   readonly reportedCostUsd?: number;
 }
 
-/** Gera embeddings em lotes e devolve o payload pronto para `portal_ingest_knowledge`. */
-export async function embedChunks(apiKey: string, texts: readonly string[]): Promise<EmbeddingRunResult> {
+/**
+ * Gera embeddings em lotes e devolve o payload pronto para `portal_ingest_knowledge`.
+ *
+ * `maxInputTokens`, quando informado, é checado entre lotes (não antes do
+ * primeiro): um documento perto do teto de `MAX_CONTENT_CHARS` pode levar
+ * vários lotes reais ao provider antes que o total estoure a reserva, e sem
+ * este corte intermediário o gasto real só seria percebido no commit da
+ * reserva — depois de já ter sido feito por inteiro.
+ */
+export async function embedChunks(
+  apiKey: string,
+  texts: readonly string[],
+  maxInputTokens?: number,
+): Promise<EmbeddingRunResult> {
   if (fakeProvidersEnabled()) {
     return {
       chunks: texts.map((text, index) => ({
@@ -138,6 +150,9 @@ export async function embedChunks(apiKey: string, texts: readonly string[]): Pro
     inputTokens += result.usage.inputTokens;
     if (result.usage.reportedCostUsd === undefined) hasReportedCost = false;
     else reportedCostUsd += result.usage.reportedCostUsd;
+    if (maxInputTokens !== undefined && inputTokens > maxInputTokens) {
+      throw new Error(`embedding input exceeded the reserved token budget (${inputTokens} > ${maxInputTokens})`);
+    }
     for (const [offset, vector] of result.embeddings.entries()) {
       const text = batch[offset];
       if (text === undefined) {
