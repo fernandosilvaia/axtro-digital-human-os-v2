@@ -14,7 +14,7 @@ const equivalentLocalUrl = "postgres://postgres@localhost:54329/axtro_m0_test";
 
 test("migration manifest is contiguous and local URLs cannot carry credentials or implicit identities", () => {
   const manifest = database.discoverMigrations();
-  assert.deepEqual(manifest.map((migration) => migration.version), [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11]);
+  assert.deepEqual(manifest.map((migration) => migration.version), [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12]);
   assert.equal(manifest.every((migration) => /^[0-9a-f]{64}$/.test(migration.checksumSha256)), true);
   assert.equal(database.parseLocalDatabaseUrl(localUrl), localUrl);
   assert.equal(database.parseLocalDatabaseUrl(equivalentLocalUrl), equivalentLocalUrl);
@@ -72,6 +72,10 @@ test("migration manifest is contiguous and local URLs cannot carry credentials o
   ]) {
     assert.match(workflowMigration, new RegExp(`${table}_append_only`));
   }
+  const costConversationMigration = readFileSync(manifest.find((migration) => migration.version === 12).path, "utf8");
+  assert.match(costConversationMigration, /DROP CONSTRAINT cost_events_unit_type_check/);
+  assert.match(costConversationMigration, /'conversation'/);
+  assert.match(costConversationMigration, /VALIDATE CONSTRAINT cost_events_unit_type_check/);
 
   for (const value of [
     "postgresql://postgres@database.example.test/axtro_m0_test",

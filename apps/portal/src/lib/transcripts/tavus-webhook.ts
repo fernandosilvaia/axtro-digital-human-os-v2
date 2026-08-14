@@ -15,12 +15,45 @@
 
 const MAX_TURN_CHARS = 4000;
 const MAX_TURNS = 500;
+const ISO_UTC_TIMESTAMP = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d{1,9})?Z$/;
+const TAVUS_CONVERSATION_ID = /^[A-Za-z0-9][A-Za-z0-9_-]{2,63}$/;
+
+function parseObservedAt(event: Record<string, unknown>): string | null {
+  const value = event.timestamp;
+  return typeof value === "string" && ISO_UTC_TIMESTAMP.test(value) && Number.isFinite(Date.parse(value)) ? value : null;
+}
 
 export interface ParsedTavusTranscript {
   readonly conversationId: string;
+  readonly observedAt: string;
   readonly turns: readonly { readonly role: "user" | "assistant"; readonly content: string }[];
+  /**
+   * Tavus documents `system.replica_joined` as the replica becoming ready,
+   * not as a human joining. A non-empty user turn in the final transcript is
+   * therefore the only documented server callback evidence we accept as a
+   * customer-delivery receipt.
+   */
+  readonly hasHumanTurn: boolean;
   /** true quando o transcript bruto passou de MAX_TURNS e foi truncado (achado D-V2-115) — caller decide se telemetra. */
   readonly truncated: boolean;
+}
+
+export interface ParsedTavusNoDelivery {
+  readonly conversationId: string;
+  readonly observedAt: string;
+  readonly reason: "participant_absent_timeout reached";
+}
+
+/**
+ * A provider callback is acknowledged only after the canonical placeholder
+ * was updated. `found:false` is normally a creation/callback race, so the
+ * route must answer with a retryable status instead of discarding the only
+ * transcript delivery.
+ */
+export function transcriptAppendWasPersisted(data: unknown): boolean {
+  return data !== null
+    && typeof data === "object"
+    && (data as { readonly found?: unknown }).found === true;
 }
 
 /**
@@ -34,10 +67,12 @@ export interface ParsedTavusTranscript {
 export function parseTavusTranscriptEvent(body: unknown): ParsedTavusTranscript | null {
   if (body === null || typeof body !== "object") return null;
   const event = body as Record<string, unknown>;
-  if (event.event_type !== "application.transcription_ready") return null;
+  if (event.event_type !== "application.transcription_ready" || event.message_type !== "application") return null;
 
   const conversationId = event.conversation_id;
-  if (typeof conversationId !== "string" || conversationId.length === 0 || conversationId.length > 128) return null;
+  if (typeof conversationId !== "string" || !TAVUS_CONVERSATION_ID.test(conversationId)) return null;
+  const observedAt = parseObservedAt(event);
+  if (observedAt === null) return null;
 
   const properties = event.properties as Record<string, unknown> | undefined;
   const rawTranscript = properties?.transcript;
@@ -65,5 +100,30 @@ export function parseTavusTranscriptEvent(body: unknown): ParsedTavusTranscript 
   }
   if (turns.length === 0) return null;
 
-  return { conversationId, turns, truncated };
+  return {
+    conversationId,
+    observedAt,
+    turns,
+    hasHumanTurn: turns.some((turn) => turn.role === "user" && turn.content.trim().length > 0),
+    truncated,
+  };
+}
+
+/**
+ * Tavus emits this exact shutdown reason when no participant joined before
+ * the configured timeout. Other shutdown reasons are deliberately ignored:
+ * they do not prove either delivery or non-delivery.
+ */
+export function parseTavusNoDeliveryEvent(body: unknown): ParsedTavusNoDelivery | null {
+  if (body === null || typeof body !== "object") return null;
+  const event = body as Record<string, unknown>;
+  if (event.event_type !== "system.shutdown" || event.message_type !== "system") return null;
+  const conversationId = event.conversation_id;
+  if (typeof conversationId !== "string" || !TAVUS_CONVERSATION_ID.test(conversationId)) return null;
+  const observedAt = parseObservedAt(event);
+  if (observedAt === null) return null;
+  const properties = event.properties;
+  if (properties === null || typeof properties !== "object") return null;
+  if ((properties as Record<string, unknown>).shutdown_reason !== "participant_absent_timeout reached") return null;
+  return { conversationId, observedAt, reason: "participant_absent_timeout reached" };
 }

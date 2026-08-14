@@ -5,9 +5,14 @@ import { revalidatePath } from "next/cache";
 import { createUuidV7, isUuidV7 } from "@axtro/domain";
 
 import { provisionAgentVideoIfMissing } from "@/lib/agent-video";
+import {
+  executeReservedAiUsage,
+  stableAiUsageIdempotencyKey,
+} from "@/lib/ai-budget/reservations";
 import { sendAgentActivatedEmail } from "@/lib/email";
 import { chunkContent, contentSha256, embedChunks, fakeProvidersEnabled, MAX_CONTENT_CHARS } from "@/lib/knowledge";
 import { fetchAgents, fetchTenantOverview } from "@/lib/portal-data";
+import { createServiceRoleClient } from "@/lib/supabase/service";
 import { createClient } from "@/lib/supabase/server";
 import { logError as trackError } from "@/lib/telemetry";
 
@@ -77,6 +82,10 @@ export async function createKnowledgeSource(
     return { error: "O provider de embeddings ainda não está configurado neste ambiente.", done: false };
   }
 
+  const overview = await fetchTenantOverview();
+  if (!overview.provisioned || !overview.tenant) {
+    return { error: "Conta ainda não provisionada.", done: false };
+  }
   const supabase = await createClient();
   const sourceId = createUuidV7();
   const { error } = await supabase.rpc("portal_create_knowledge_source", {
@@ -92,7 +101,7 @@ export async function createKnowledgeSource(
   // Ingestão real: chunking + embeddings via OpenRouter + RPC de ingestão.
   // Sem conteúdo a fonte fica pendente, como antes.
   if (content.length > 0) {
-    const ingestError = await ingestContentForSource(supabase, sourceId, content);
+    const ingestError = await ingestContentForSource(supabase, overview.tenant.id, sourceId, content);
     if (ingestError) {
       // NUNCA sugerir reenviar este form: a fonte JÁ foi criada — reenvio
       // criaria uma duplicata pendente e queimaria mais uma vaga do limite.
@@ -108,17 +117,61 @@ export async function createKnowledgeSource(
 /** Chunking + embeddings + RPC de ingestão. Retorna mensagem de erro ou null. */
 async function ingestContentForSource(
   supabase: Awaited<ReturnType<typeof createClient>>,
+  tenantId: string,
   sourceId: string,
   content: string,
 ): Promise<string | null> {
+  const fakeMode = fakeProvidersEnabled();
+  const contentHash = contentSha256(content);
   try {
     const texts = chunkContent(content);
-    const { chunks, inputTokens } = await embedChunks(process.env.OPENROUTER_API_KEY ?? "", texts);
+    const embedded = fakeMode
+      ? { outcome: "committed" as const, value: await embedChunks(process.env.OPENROUTER_API_KEY ?? "", texts) }
+      : await (async () => {
+        // Antes de usar service role, confirme ownership com a RPC RLS do
+        // caller. A reserva revalida o mesmo par tenant/source no banco.
+        const { data: sources, error: sourceError } = await supabase.rpc("portal_list_knowledge_sources");
+        if (sourceError || !Array.isArray(sources) || !sources.some((source) => (
+          source !== null && typeof source === "object" && (source as { id?: unknown }).id === sourceId
+        ))) {
+          throw new Error("knowledge source is not owned by the authenticated tenant");
+        }
+        return executeReservedAiUsage({
+          // Service role so the browser-authenticated caller never controls a
+          // token/cost envelope or ledger transition. tenantId came from the
+          // authenticated overview; the service RPC revalidates source+tenant.
+          client: createServiceRoleClient(),
+          tenantId,
+          operation: "knowledge_ingestion_embedding",
+          idempotencyKey: stableAiUsageIdempotencyKey("knowledge_ingestion_embedding", `${sourceId}:${contentHash}`),
+          sourceId,
+          execute: () => embedChunks(process.env.OPENROUTER_API_KEY ?? "", texts),
+          usage: ({ inputTokens, reportedCostUsd }) => ({
+            inputTokens,
+            outputTokens: 0,
+            ...(reportedCostUsd === undefined ? {} : { reportedCostUsd }),
+          }),
+        });
+      })();
+    if (embedded.outcome === "denied") {
+      if (embedded.reason === "capped") {
+        return "o limite diário de ingestões da conta foi atingido — tente novamente amanhã.";
+      }
+      return "o orçamento da ingestão está indisponível ou aguarda reconciliação — tente novamente mais tarde.";
+    }
+    if (embedded.outcome === "not_acquired") {
+      return "esta ingestão já está em processamento — aguarde antes de tentar novamente.";
+    }
+    if (embedded.outcome === "commit_pending") {
+      trackError("ai_usage_commit_failed", new Error("knowledge ingestion reservation did not commit"), { source_id: sourceId, operation: "knowledge_ingestion_embedding" });
+      return "o custo do provider ficou pendente de reconciliação; nenhum novo envio será feito agora.";
+    }
+    const { chunks } = embedded.value;
     const { error: ingestError } = await supabase.rpc("portal_ingest_knowledge", {
       p_source_id: sourceId,
       p_version_id: createUuidV7(),
       p_version: `v${Math.floor(Date.now() / 1000)}`,
-      p_content_hash: contentSha256(content),
+      p_content_hash: contentHash,
       p_chunks: chunks,
     });
     if (ingestError) {
@@ -127,19 +180,10 @@ async function ingestContentForSource(
       }
       return `a ingestão falhou (${ingestError.message}).`;
     }
-    const { error: logError } = await supabase.rpc("portal_log_ai_usage", {
-      p_id: createUuidV7(),
-      p_service: "portal.knowledge_embedding",
-      p_input_tokens: inputTokens,
-      p_output_tokens: 0,
-    });
-    if (logError) {
-      trackError("portal_log_ai_usage_failed", logError, { source_id: sourceId, service: "portal.knowledge_embedding" });
-    }
     return null;
   } catch (embedError) {
     trackError("knowledge_ingestion_failed", embedError, { source_id: sourceId });
-    return "o provider de embeddings falhou.";
+    return "o provider de embeddings falhou e a tentativa aguarda reconciliação.";
   }
 }
 
@@ -161,8 +205,12 @@ export async function updateKnowledgeSourceContent(
     return { error: "O provider de embeddings ainda não está configurado neste ambiente.", done: false };
   }
 
+  const overview = await fetchTenantOverview();
+  if (!overview.provisioned || !overview.tenant) {
+    return { error: "Conta ainda não provisionada.", done: false };
+  }
   const supabase = await createClient();
-  const ingestError = await ingestContentForSource(supabase, sourceId, content);
+  const ingestError = await ingestContentForSource(supabase, overview.tenant.id, sourceId, content);
   if (ingestError) {
     return { error: `Não foi possível atualizar: ${ingestError}`, done: false };
   }

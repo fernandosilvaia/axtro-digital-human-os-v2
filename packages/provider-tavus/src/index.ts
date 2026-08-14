@@ -42,10 +42,13 @@ export type VideoProviderErrorCode =
 
 export class VideoProviderError extends Error {
   readonly code: VideoProviderErrorCode;
-  constructor(code: VideoProviderErrorCode, message: string) {
+  /** Provider HTTP status when a response was received; absent for local/network failures. */
+  readonly httpStatus: number | null;
+  constructor(code: VideoProviderErrorCode, message: string, httpStatus: number | null = null) {
     super(message);
     this.name = "VideoProviderError";
     this.code = code;
+    this.httpStatus = httpStatus;
   }
 }
 
@@ -90,6 +93,46 @@ const MAX_CONTEXT_CHARS = 6000;
 const MAX_GREETING_CHARS = 400;
 const DEFAULT_TIMEOUT_MS = 20_000;
 const MAX_CALL_SECONDS_CAP = 1800;
+const TAVUS_CONVERSATION_ORIGIN = "https://tavus.daily.co";
+const MAX_CONVERSATION_URL_CHARS = 2048;
+
+/**
+ * Tavus currently returns Daily rooms on its dedicated, provider-owned
+ * origin. Keep this allowlist deliberately exact: accepting arbitrary
+ * `*.daily.co` hosts would allow an untrusted tenant/customer Daily domain,
+ * while a generic HTTPS check would turn the returned iframe URL into an
+ * origin-injection boundary.
+ *
+ * The raw authority is checked before URL normalization so explicit ports
+ * (including `:443`) and userinfo cannot be hidden by WHATWG URL parsing.
+ * This pure helper is also used by browser consumers before iframe/Daily join.
+ */
+export function isTrustedTavusConversationUrl(value: unknown): value is string {
+  if (typeof value !== "string" || value.length === 0 || value.length > MAX_CONVERSATION_URL_CHARS || value.trim() !== value) {
+    return false;
+  }
+  if (/[\\\u0000-\u001f\u007f]/.test(value) || value.includes("#")) return false;
+
+  const schemePrefix = "https://";
+  if (!value.toLowerCase().startsWith(schemePrefix)) return false;
+  const remainder = value.slice(schemePrefix.length);
+  const authorityEnd = remainder.search(/[/?#]/u);
+  const authority = remainder.slice(0, authorityEnd === -1 ? undefined : authorityEnd);
+  if (authority.toLowerCase() !== "tavus.daily.co") return false;
+
+  try {
+    const parsed = new URL(value);
+    return parsed.protocol === "https:"
+      && parsed.origin === TAVUS_CONVERSATION_ORIGIN
+      && parsed.hostname === "tavus.daily.co"
+      && parsed.username === ""
+      && parsed.password === ""
+      && parsed.port === ""
+      && parsed.pathname.length > 1;
+  } catch {
+    return false;
+  }
+}
 
 export function createTavusVideoConversationPort(options: TavusAdapterOptions): VideoConversationPort {
   const apiKey = typeof options.apiKey === "string" ? options.apiKey.trim() : "";
@@ -97,7 +140,11 @@ export function createTavusVideoConversationPort(options: TavusAdapterOptions): 
   const timeoutMs = options.timeoutMs ?? DEFAULT_TIMEOUT_MS;
   const fetchImplementation = options.fetchImplementation ?? fetch;
 
-  async function call(path: string, body: Record<string, unknown>): Promise<unknown> {
+  async function call(
+    path: string,
+    body: Record<string, unknown>,
+    options: Readonly<{ notFoundIsSuccess?: boolean }> = {},
+  ): Promise<unknown> {
     const controller = new AbortController();
     const timer = setTimeout(() => controller.abort(), timeoutMs);
     let response: Response;
@@ -119,8 +166,12 @@ export function createTavusVideoConversationPort(options: TavusAdapterOptions): 
     // pendurado não podem escapar do timeout (auditoria 2026-08-02).
     try {
       if (!response.ok) {
+        // Encerramento é idempotente: uma conversa que o provider já não
+        // encontra não pode permanecer para sempre em cleanup_pending. Esta
+        // exceção é opt-in e nunca se aplica à criação ou mutação comum.
+        if (response.status === 404 && options.notFoundIsSuccess === true) return null;
         const code: VideoProviderErrorCode = response.status >= 500 ? "provider_unavailable" : "provider_rejected";
-        throw new VideoProviderError(code, `Tavus respondeu HTTP ${response.status}`);
+        throw new VideoProviderError(code, `Tavus respondeu HTTP ${response.status}`, response.status);
       }
       // 204/corpo vazio é sucesso (caso real do POST /conversations/{id}/end) —
       // exigir JSON aqui transformava operação bem-sucedida em erro.
@@ -191,8 +242,8 @@ export function createTavusVideoConversationPort(options: TavusAdapterOptions): 
       const record = (payload ?? {}) as Record<string, unknown>;
       const conversationId = record.conversation_id;
       const conversationUrl = record.conversation_url;
-      if (typeof conversationId !== "string" || typeof conversationUrl !== "string"
-        || !conversationUrl.startsWith("https://")) {
+      if (typeof conversationId !== "string" || !ID_PATTERN.test(conversationId) || typeof conversationUrl !== "string"
+        || !isTrustedTavusConversationUrl(conversationUrl)) {
         throw new VideoProviderError("malformed_provider_response", "Tavus conversation payload is incomplete");
       }
       return Object.freeze({ conversationId, conversationUrl });
@@ -201,7 +252,7 @@ export function createTavusVideoConversationPort(options: TavusAdapterOptions): 
       if (!ID_PATTERN.test(conversationId)) {
         throw new VideoProviderError("invalid_request", "conversationId must be a plain Tavus conversation id");
       }
-      await call(`/conversations/${conversationId}/end`, {});
+      await call(`/conversations/${conversationId}/end`, {}, { notFoundIsSuccess: true });
     },
     async createPersona(request: CreatePersonaRequest): Promise<CreatedPersona> {
       if (typeof request.personaName !== "string" || request.personaName.length === 0 || request.personaName.length > 120) {

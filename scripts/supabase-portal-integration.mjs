@@ -1,0 +1,2361 @@
+import assert from "node:assert/strict";
+import { spawn, spawnSync } from "node:child_process";
+import { existsSync, mkdtempSync, readdirSync, rmSync } from "node:fs";
+import { createServer } from "node:net";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import process from "node:process";
+import { fileURLToPath } from "node:url";
+
+const database = await import(new URL("../packages/database/dist/index.js", import.meta.url));
+const repositoryRoot = fileURLToPath(new URL("../", import.meta.url));
+const supabaseMigrationDirectory = join(repositoryRoot, "database", "supabase-only");
+const externalDatabaseUrl = process.env.AXTRO_LOCAL_DATABASE_URL;
+const postgresBin = resolvePostgresBin();
+const psqlPath = process.env.AXTRO_PSQL_PATH ?? (postgresBin === null ? "psql" : join(postgresBin, "psql"));
+
+const fixture = Object.freeze({
+  tenantAlpha: "019f0000-0000-7000-8000-000000000001",
+  tenantBeta: "019f0000-0000-7000-8000-000000000002",
+  tenantGamma: "019f0000-0000-7000-8000-000000000003",
+  tenantDelta: "019f0000-0000-7000-8000-000000000004",
+  tenantEpsilon: "019f0000-0000-7000-8000-000000000005",
+  tenantZeta: "019f0000-0000-7000-8000-000000000006",
+  agentAlpha: "019f0000-0000-7000-8000-000000000101",
+  agentBeta: "019f0000-0000-7000-8000-000000000102",
+  agentGamma: "019f0000-0000-7000-8000-000000000103",
+  agentDelta: "019f0000-0000-7000-8000-000000000104",
+  agentEpsilon: "019f0000-0000-7000-8000-000000000105",
+  agentZeta: "019f0000-0000-7000-8000-000000000106",
+  actorAlpha: "019f0000-0000-7000-8000-000000000201",
+  actorBeta: "019f0000-0000-7000-8000-000000000202",
+  actorGamma: "019f0000-0000-7000-8000-000000000203",
+  actorDelta: "019f0000-0000-7000-8000-000000000204",
+  userAlpha: "10000000-0000-4000-8000-000000000001",
+  userBeta: "10000000-0000-4000-8000-000000000002",
+  userGamma: "10000000-0000-4000-8000-000000000003",
+  userDelta: "10000000-0000-4000-8000-000000000004",
+  transcriptBase: "019f0000-0000-7000-8000-000000001000",
+  providerTranscript: "019f0000-0000-7000-8000-000000001100",
+});
+
+let cluster;
+let temporaryDirectory;
+let baseDatabaseUrl;
+let testDatabaseName;
+let primaryError;
+let cleanupStarted = false;
+
+for (const signal of ["SIGINT", "SIGTERM"]) {
+  process.once(signal, () => {
+    const cleanupErrors = cleanupResources();
+    if (cleanupErrors.length > 0) console.error(`SUPABASE PORTAL CLEANUP FAILED: ${cleanupErrors.join("; ")}`);
+    process.exit(1);
+  });
+}
+
+try {
+  baseDatabaseUrl = await resolveBaseDatabaseUrl();
+  testDatabaseName = `axtro_portal_${process.pid}_${Date.now()}`;
+  createDatabase(baseDatabaseUrl, psqlPath, testDatabaseName);
+  const databaseUrl = databaseUrlFor(baseDatabaseUrl, testDatabaseName);
+
+  // The portal layer was built on the stable portable 0001-0011 contract.
+  // Newer portable migrations have their own gate and are intentionally not
+  // pulled into this Supabase-only upgrade harness implicitly.
+  const portable = database.applyLocalMigrations({ databaseUrl, psqlPath, targetVersion: 11 });
+  assert.equal(portable.history.length, 11, "portable migrations 0001-0011 must apply first");
+  assertSucceeded(runSql(databaseUrl, authPreludeSql()), "Supabase auth and role prelude");
+  assertSucceeded(runSql(databaseUrl, postPortablePreludeSql()), "post-portable grants and deterministic fixtures");
+
+  const preExpandApplied = applySupabaseMigrations(databaseUrl, 1, 39);
+  assert.deepEqual(preExpandApplied, Array.from({ length: 39 }, (_, index) => String(index + 1).padStart(4, "0")));
+  assertProductionIntegrityMigrationRollback(databaseUrl);
+  const expandApplied = [...preExpandApplied, ...applySupabaseMigrations(databaseUrl, 40, 40)];
+  assert.deepEqual(expandApplied, Array.from({ length: 40 }, (_, index) => String(index + 1).padStart(4, "0")));
+  assertExpandPhase(databaseUrl);
+  const contractApplied = applySupabaseMigrations(databaseUrl, 41, 41);
+  assert.deepEqual(contractApplied, ["0041"]);
+  assertContractPhase(databaseUrl);
+  assertFailed(runFile(databaseUrl, join(supabaseMigrationDirectory, "0040_production_integrity_hardening.sql")), "non-idempotent 0040 cannot be replayed without a migration receipt gate");
+  assert.equal(queryScalar(databaseUrl, "SELECT count(*) FROM public.axtro_supabase_test_migrations;"), "41");
+
+  assertMigrationCapabilities(databaseUrl);
+  assertLeastPrivilege(databaseUrl);
+  assertWorkerHeartbeatLifecycle(databaseUrl);
+  assertTranscriptValidation(databaseUrl);
+  assertTranscriptTenantBoundaryAndLimit(databaseUrl);
+  await assertProviderTranscriptConcurrency(databaseUrl);
+  await assertBillingCheckoutContract(databaseUrl);
+  await assertBillingCheckoutP1Hardening(databaseUrl);
+  assertUsageSummaryLedgerTotals(databaseUrl);
+  assertKnowledgeSourceDeletionRetention(databaseUrl);
+  await assertReservationContract(databaseUrl);
+  await assertAiUsageConcurrencyCap(databaseUrl);
+  await assertTavusWebhookCapabilityFencing(databaseUrl);
+  assertTavusDeliveryAndStageCapabilities(databaseUrl);
+  await assertTavusNoDeliveryBudget(databaseUrl);
+  assertProviderReconciliationLease(databaseUrl);
+  assertRecallWebhookLeaseFencing(databaseUrl);
+  assertProviderCommitPeriodBoundary(databaseUrl);
+  assertAiCommitPeriodBoundary(databaseUrl);
+  await assertStaleReservedSweepFencing(databaseUrl);
+  assertRecallDailyPaidAttemptBudget(databaseUrl);
+
+  console.log("SUPABASE PORTAL INTEGRATION PASSED: migrations 0001-0041, grants, RLS, transcripts, reservations and readiness capability");
+} catch (error) {
+  primaryError = error;
+  throw error;
+} finally {
+  const cleanupErrors = cleanupResources();
+  if (cleanupErrors.length > 0) {
+    console.error(`SUPABASE PORTAL CLEANUP FAILED: ${cleanupErrors.join("; ")}`);
+    if (primaryError === undefined) throw new Error("Supabase portal integration cleanup failed");
+  }
+}
+
+function applySupabaseMigrations(databaseUrl, firstVersion, lastVersion) {
+  const migrations = readdirSync(supabaseMigrationDirectory)
+    .filter((name) => /^\d{4}_.+\.sql$/.test(name))
+    .sort();
+  assert.equal(migrations.length, 41, "the harness must cover every Supabase-only migration through the 0041 contract phase");
+  const applied = [];
+  for (const migration of migrations) {
+    const numericVersion = Number(migration.slice(0, 4));
+    if (numericVersion < firstVersion || numericVersion > lastVersion) continue;
+    const result = runFile(databaseUrl, join(supabaseMigrationDirectory, migration));
+    assertSucceeded(result, `Supabase-only migration ${migration}`);
+    const version = migration.slice(0, 4);
+    assertSucceeded(runSql(databaseUrl, `INSERT INTO public.axtro_supabase_test_migrations (version, filename) VALUES (${Number(version)}, '${sqlLiteral(migration)}');`), `migration test receipt ${migration}`);
+    applied.push(version);
+  }
+  return applied;
+}
+
+function assertProductionIntegrityMigrationRollback(databaseUrl) {
+  assertSucceeded(runSql(databaseUrl, "CREATE TABLE public.billing_usage_outbox (rollback_sentinel boolean NOT NULL);"),
+    "0040 mid-migration failure sentinel");
+  assertFailed(runFile(databaseUrl, join(supabaseMigrationDirectory, "0040_production_integrity_hardening.sql")),
+    "0040 injected mid-migration conflict");
+  assert.equal(queryScalar(databaseUrl, "SELECT to_regclass('public.provider_effect_reservations') IS NULL;"), "t",
+    "0040 transaction rolls back objects created before the injected failure");
+  assert.equal(queryScalar(databaseUrl, "SELECT to_regclass('public.ai_usage_reservations') IS NULL;"), "t",
+    "0040 transaction does not leak objects created after the injected failure");
+  assert.equal(queryScalar(databaseUrl, "SELECT to_regclass('public.billing_checkout_intents') IS NULL;"), "t",
+    "0040 transaction does not leak checkout financial evidence");
+  assert.equal(queryScalar(databaseUrl, "SELECT count(*) FROM public.axtro_supabase_test_migrations;"), "39",
+    "failed 0040 never receives a migration receipt");
+  assertSucceeded(runSql(databaseUrl, "DROP TABLE public.billing_usage_outbox;"), "remove 0040 failure sentinel");
+}
+
+function assertExpandPhase(databaseUrl) {
+  const capabilities = queryJson(databaseUrl, asRoleSql("service_role", null, "SELECT public.portal_schema_capabilities_service();"));
+  assert.equal(capabilities.version, 40, "0040 is an explicit additive expand capability");
+  assert.equal(capabilities.authenticatedProviderTranscriptPreclaimBlocked, undefined);
+  assert.equal(capabilities.authenticatedMeetingBotPreclaimBlocked, undefined);
+  assert.equal(capabilities.billingCheckoutIntents, true);
+  assert.equal(capabilities.strictSubscriptionIdentity, true);
+  assert.equal(capabilities.legacySubscriptionWriterRevoked, false);
+  assertSucceeded(runSql(databaseUrl, `
+    INSERT INTO public.user_tenant_memberships (user_id, tenant_id, actor_id, role)
+    VALUES ('${fixture.userAlpha}', '${fixture.tenantAlpha}', '${fixture.actorAlpha}', 'tenant_admin');
+  `), "expand-phase authenticated membership fixture");
+  assertSucceeded(runSql(databaseUrl, asRoleSql("authenticated", fixture.userAlpha, `
+    SELECT public.portal_upsert_conversation_transcript(
+      '019f0000-0000-7000-8000-000000001090', '${fixture.agentAlpha}', 'video', 'expand-provider-preclaim', '[]'::jsonb, null
+    );
+  `)), "0040 preserves the legacy authenticated provider transcript writer");
+  assertSucceeded(runSql(databaseUrl, `SELECT app.validate_transcript_turns('[{"role":"user","content":"hello","legacy_timestamp":"2026-08-13T00:00:00Z"}]'::jsonb);`),
+    "0040 preserves the historical transcript extra-key compatibility");
+}
+
+function assertContractPhase(databaseUrl) {
+  const capabilities = queryJson(databaseUrl, asRoleSql("service_role", null, "SELECT public.portal_schema_capabilities_service();"));
+  assert.equal(capabilities.version, 41, "0041 closes the provider transcript contract");
+  assert.equal(capabilities.authenticatedProviderTranscriptPreclaimBlocked, true);
+  assert.equal(capabilities.authenticatedMeetingBotPreclaimBlocked, true);
+  assert.equal(capabilities.billingCheckoutIntents, true);
+  assert.equal(capabilities.strictSubscriptionIdentity, true);
+  assert.equal(capabilities.legacySubscriptionWriterRevoked, true);
+  assert.equal(queryScalar(databaseUrl, `SELECT has_function_privilege('service_role',
+    'public.portal_upsert_tenant_subscription_service(app.uuid_v7,app.uuid_v7,text,text,text,text,timestamp with time zone,timestamp with time zone,timestamp with time zone)','EXECUTE');`), "f");
+  assertFailed(runSql(databaseUrl, `SELECT app.validate_transcript_turns('[{"role":"user","content":"hello","legacy_timestamp":"2026-08-13T00:00:00Z"}]'::jsonb);`),
+    "0041 activates the strict exact transcript contract");
+  assertFailed(runSql(databaseUrl, asRoleSql("authenticated", fixture.userAlpha, `
+    SELECT public.portal_upsert_conversation_transcript(
+      '019f0000-0000-7000-8000-000000001091', '${fixture.agentAlpha}', 'video', 'contract-provider-preclaim', '[]'::jsonb, null
+    );
+  `)), "0041 rejects authenticated provider transcript preclaim");
+  assertFailed(runSql(databaseUrl, asRoleSql("authenticated", fixture.userAlpha, `
+    SELECT public.portal_record_meeting_bot_session(
+      '019f0000-0000-7000-8000-000000001092', '${fixture.agentAlpha}',
+      '11111111-1111-4111-8111-111111111111', 'https://meet.example.test/private', null
+    );
+  `)), "0041 rejects authenticated meeting-bot provider-ref preclaim");
+  assert.equal(queryScalar(databaseUrl, `SELECT coalesce(bool_and(not has_function_privilege('authenticated',p.oid,'EXECUTE')),false)
+    FROM pg_proc p JOIN pg_namespace n ON n.oid=p.pronamespace
+    WHERE n.nspname='public' AND p.proname='portal_record_meeting_bot_session';`), "t");
+}
+
+function assertMigrationCapabilities(databaseUrl) {
+  assert.equal(queryScalar(databaseUrl, "SELECT to_regprocedure('public.portal_schema_capabilities_service()') IS NOT NULL;"), "t");
+  const capabilities = queryJson(databaseUrl, asRoleSql("service_role", null, "SELECT public.portal_schema_capabilities_service();"));
+  assert.equal(capabilities.version, 41);
+  assert.equal(capabilities.providerEffectReservations, true);
+  assert.equal(capabilities.billingUsageOutbox, true);
+  assert.equal(capabilities.recallWebhookDedupe, true);
+  assert.equal(capabilities.tavusWebhookCapabilities, true);
+  assert.equal(capabilities.tavusWebhookCapabilityLifecycle, true);
+  assert.equal(capabilities.providerEffectReconciliation, true);
+  assert.equal(capabilities.aiUsageReservations, true);
+  assert.equal(capabilities.aiUsageReconciliation, true);
+  assert.equal(capabilities.tavusCustomerDeliveryReceipts, true);
+  assert.equal(capabilities.tavusStageCapabilities, true);
+  assert.equal(capabilities.recallTenantBinding, true);
+  assert.equal(capabilities.workerHeartbeats, true);
+  assert.equal(capabilities.providerTranscriptService, true);
+  assert.equal(capabilities.billingCheckoutIntents, true);
+  assert.equal(capabilities.strictSubscriptionIdentity, true);
+  assert.equal(capabilities.legacySubscriptionWriterRevoked, true);
+  assert.equal(capabilities.authenticatedProviderTranscriptPreclaimBlocked, true);
+  assert.equal(capabilities.authenticatedMeetingBotPreclaimBlocked, true);
+  assert.equal(queryScalar(databaseUrl, "SELECT to_regclass('public.provider_effect_reservations') IS NOT NULL;"), "t");
+  assert.equal(queryScalar(databaseUrl, "SELECT to_regclass('public.billing_usage_outbox') IS NOT NULL;"), "t");
+  for (const signature of [
+    "public.portal_begin_billing_checkout_intent_service(app.uuid_v7,app.uuid_v7,uuid,text,text,text,boolean,integer,integer,text,text,text,text,timestamp with time zone)",
+    "public.portal_mark_billing_checkout_dispatched_service(app.uuid_v7)",
+    "public.portal_bind_billing_checkout_session_service(app.uuid_v7,text,text,timestamp with time zone)",
+    "public.portal_release_billing_checkout_intent_service(app.uuid_v7,text)",
+    "public.portal_apply_billing_checkout_event_service(text,text,timestamp with time zone,app.uuid_v7,text,app.uuid_v7,text,text,text,text)",
+    "public.portal_apply_tenant_subscription_event_service(text,text,timestamp with time zone,app.uuid_v7,text,text,text,text,timestamp with time zone,timestamp with time zone,app.uuid_v7)",
+  ]) assert.equal(queryScalar(databaseUrl, `SELECT to_regprocedure('${signature}') IS NOT NULL;`), "t", `${signature} capability procedure`);
+  assertSucceeded(runSql(databaseUrl, "DROP INDEX public.billing_checkout_intents_subscription_uidx;"),
+    "strict subscription capability live-computation fixture");
+  assert.equal(queryJson(databaseUrl, asRoleSql("service_role", null,
+    "SELECT public.portal_schema_capabilities_service();")).strictSubscriptionIdentity, false,
+  "strict subscription capability reflects a missing ownership index instead of a migration constant");
+  assertSucceeded(runSql(databaseUrl, `CREATE UNIQUE INDEX billing_checkout_intents_subscription_uidx
+    ON public.billing_checkout_intents(stripe_subscription_id) WHERE stripe_subscription_id IS NOT NULL;`),
+  "restore strict subscription ownership index");
+  assert.equal(queryJson(databaseUrl, asRoleSql("service_role", null,
+    "SELECT public.portal_schema_capabilities_service();")).strictSubscriptionIdentity, true);
+}
+
+function assertLeastPrivilege(databaseUrl) {
+  const serviceFunctions = queryRows(databaseUrl, `
+    SELECT p.oid::regprocedure::text
+    FROM pg_proc p
+    JOIN pg_namespace n ON n.oid = p.pronamespace
+    WHERE n.nspname = 'public'
+      AND p.prosecdef
+      AND p.proname LIKE 'portal\\_%\\_service' ESCAPE '\\'
+    ORDER BY 1;
+  `);
+  assert.ok(serviceFunctions.length >= 40, "every SECURITY DEFINER service boundary is discovered from the catalog");
+  for (const signature of serviceFunctions) {
+    if (signature.startsWith("portal_upsert_tenant_subscription_service(")) {
+      assert.equal(queryScalar(databaseUrl, `SELECT has_function_privilege('service_role', '${sqlLiteral(signature)}', 'EXECUTE');`), "f", `${signature} legacy service revoke`);
+      continue;
+    }
+    assert.equal(queryScalar(databaseUrl, `SELECT has_function_privilege('service_role', '${sqlLiteral(signature)}', 'EXECUTE');`), "t", `${signature} service grant`);
+    assert.equal(queryScalar(databaseUrl, `SELECT has_function_privilege('authenticated', '${sqlLiteral(signature)}', 'EXECUTE');`), "f", `${signature} authenticated revoke`);
+    assert.equal(queryScalar(databaseUrl, `SELECT has_function_privilege('anon', '${sqlLiteral(signature)}', 'EXECUTE');`), "f", `${signature} anon revoke`);
+  }
+
+  const m5Tables = [
+    "provider_effect_reservations",
+    "provider_effect_reconciliation_receipts",
+    "billing_usage_outbox",
+    "recall_webhook_deliveries",
+    "tavus_webhook_deliveries",
+    "tavus_customer_delivery_receipts",
+    "tavus_stage_capabilities",
+    "worker_heartbeats",
+    "ai_usage_reservations",
+    "ai_usage_reconciliation_receipts",
+    "billing_checkout_intents",
+    "billing_stripe_event_receipts",
+    "tenant_subscriptions",
+  ];
+  for (const table of [...m5Tables, "conversation_transcripts", "meeting_bot_sessions"]) {
+    assert.equal(queryScalar(databaseUrl, `SELECT relrowsecurity AND relforcerowsecurity FROM pg_class WHERE oid = 'public.${table}'::regclass;`), "t");
+    assert.equal(queryScalar(databaseUrl, `SELECT has_table_privilege('authenticated', 'public.${table}', 'SELECT');`), "f");
+    assert.equal(queryScalar(databaseUrl, `SELECT has_table_privilege('anon', 'public.${table}', 'SELECT');`), "f");
+  }
+
+  for (const table of m5Tables) {
+    for (const privilege of ["SELECT", "INSERT", "UPDATE", "DELETE"]) {
+      assert.equal(queryScalar(databaseUrl, `SELECT has_table_privilege('service_role', 'public.${table}', '${privilege}');`), "f",
+        `${table} must be reachable by service_role only through SECURITY DEFINER RPCs (${privilege})`);
+    }
+  }
+  assertFailed(runSql(databaseUrl, asRoleSql("service_role", null,
+    "UPDATE public.provider_effect_reservations SET updated_at=updated_at;")),
+  "service_role cannot bypass provider state transitions with direct DML");
+
+  assert.equal(queryScalar(databaseUrl, "SELECT has_function_privilege('authenticated', 'public.portal_schema_capabilities_service()', 'EXECUTE');"), "f");
+  assert.equal(queryScalar(databaseUrl, "SELECT has_function_privilege('service_role', 'public.portal_schema_capabilities_service()', 'EXECUTE');"), "t");
+
+  assertSucceeded(runSql(databaseUrl, `CREATE ROLE portal_runtime_probe LOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE NOINHERIT NOBYPASSRLS;
+    GRANT CONNECT ON DATABASE ${quoteIdentifier(testDatabaseName)} TO portal_runtime_probe;
+    GRANT USAGE ON SCHEMA public TO portal_runtime_probe;
+    GRANT SELECT ON TABLE ${m5Tables.map((table) => `public.${table}`).join(", ")} TO portal_runtime_probe;`), "least-privilege direct table probe role");
+  const probeUrl = databaseUrlWithUser(databaseUrl, "portal_runtime_probe");
+  for (const table of m5Tables) {
+    assert.equal(queryScalar(probeUrl, `SELECT count(*) FROM public.${table};`), "0", `forced RLS hides ${table} from a direct non-bypass role`);
+  }
+}
+
+function assertWorkerHeartbeatLifecycle(databaseUrl) {
+  const firstBillingRun = "019f0000-0000-7000-8000-000000006500";
+  const secondBillingRun = "019f0000-0000-7000-8000-000000006501";
+  const reconcilerRun = "019f0000-0000-7000-8000-000000006600";
+  const version = "m5-01-v1";
+  const deploymentId = "deploy-harness-20260813";
+  const billingFingerprint = `sha256:${"a".repeat(64)}`;
+  const reconcilerFingerprint = `sha256:${"b".repeat(64)}`;
+  const readiness = () => queryJson(databaseUrl, asRoleSql("service_role", null,
+    "SELECT public.portal_worker_readiness_service();"));
+
+  assert.deepEqual(readiness(), { billingUsage: null, providerEffectReconciler: null },
+    "workers are not ready before a successful semantic run");
+  const record = (kind, runId, phase, counters = {}) => queryScalar(databaseUrl, asRoleSql("service_role", null,
+    `SELECT public.portal_record_worker_heartbeat_service('${kind}','${runId}','${phase}','${version}','${deploymentId}',
+      '${kind === "billing_usage" ? billingFingerprint : reconcilerFingerprint}','${sqlLiteral(JSON.stringify(counters))}'::jsonb);`));
+
+  assert.equal(record("billing_usage", firstBillingRun, "started"), "t");
+  assert.deepEqual(readiness().billingUsage, { lastSucceededAt: null, ageSeconds: null, version: null, deploymentId: null, configFingerprint: null },
+    "started is never delivery evidence");
+  assert.equal(record("billing_usage", firstBillingRun, "succeeded", { delivered: 0, catalogVerified: true }), "t");
+  assert.equal(record("billing_usage", firstBillingRun, "succeeded", { delivered: 0, catalogVerified: true }), "t",
+    "lost success receipt replays exactly");
+  const firstReady = readiness().billingUsage;
+  assert.equal(firstReady.version, version);
+  assert.equal(firstReady.deploymentId, deploymentId);
+  assert.equal(firstReady.configFingerprint, billingFingerprint);
+  assert.ok(firstReady.ageSeconds >= 0 && firstReady.ageSeconds <= 10);
+
+  assert.equal(record("billing_usage", secondBillingRun, "started"), "t");
+  assert.equal(readiness().billingUsage.version, version, "a current run preserves the last successful readiness receipt");
+  assert.equal(record("billing_usage", secondBillingRun, "failed"), "t");
+  assert.equal(readiness().billingUsage.version, version, "a failed run never erases last success");
+  assertFailed(runSql(databaseUrl, asRoleSql("service_role", null,
+    `SELECT public.portal_record_worker_heartbeat_service('billing_usage','${firstBillingRun}','started','${version}','${deploymentId}','${billingFingerprint}','{}'::jsonb);`)),
+  "an older run cannot overwrite a newer worker state");
+
+  assert.equal(record("provider_effect_reconciler", reconcilerRun, "started"), "t");
+  assert.equal(record("provider_effect_reconciler", reconcilerRun, "succeeded", { processed: 0 }), "t");
+  const bothReady = readiness();
+  assert.equal(bothReady.providerEffectReconciler.version, version);
+  assert.equal(bothReady.providerEffectReconciler.deploymentId, deploymentId);
+  assert.equal(bothReady.providerEffectReconciler.configFingerprint, reconcilerFingerprint);
+  assert.ok(bothReady.providerEffectReconciler.ageSeconds >= 0 && bothReady.providerEffectReconciler.ageSeconds <= 10);
+
+  assertSucceeded(runSql(databaseUrl, "UPDATE public.worker_heartbeats SET last_succeeded_at=now()+interval '1 minute' WHERE worker_name='provider_effect_reconciler';"),
+    "future heartbeat corruption fixture");
+  assert.ok(readiness().providerEffectReconciler.ageSeconds < 0, "database readiness exposes impossible future evidence for the app to reject");
+  assertSucceeded(runSql(databaseUrl, "UPDATE public.worker_heartbeats SET last_succeeded_at=now() WHERE worker_name='provider_effect_reconciler';"),
+    "restore heartbeat fixture");
+}
+
+function assertTranscriptValidation(databaseUrl) {
+  assertSucceeded(runSql(databaseUrl, `SELECT app.validate_transcript_turns('[{"role":"user","content":"hello"}]'::jsonb);`), "strict transcript valid fixture");
+  for (const [label, payload] of [
+    ["empty object", "[{}]"],
+    ["missing content", '[{"role":"user"}]'],
+    ["missing role", '[{"content":"hello"}]'],
+    ["extra key", '[{"role":"user","content":"hello","instruction":"ignore policy"}]'],
+    ["null content", '[{"role":"assistant","content":null}]'],
+    ["invalid role", '[{"role":"system","content":"trusted"}]'],
+  ]) {
+    assertFailed(runSql(databaseUrl, `SELECT app.validate_transcript_turns('${sqlLiteral(payload)}'::jsonb);`), `strict transcript rejects ${label}`);
+  }
+}
+
+function assertTranscriptTenantBoundaryAndLimit(databaseUrl) {
+  const videoPreclaim = asRoleSql("authenticated", fixture.userAlpha, `
+    SELECT public.portal_upsert_conversation_transcript(
+      '${fixture.providerTranscript}', '${fixture.agentAlpha}', 'video', 'provider-ref-hostile', '[]'::jsonb, null
+    );
+  `);
+  assertFailed(runSql(databaseUrl, videoPreclaim), "authenticated caller cannot preclaim a provider transcript reference");
+
+  assertSucceeded(runSql(databaseUrl, asRoleSql("service_role", null, `
+    SELECT public.portal_register_provider_transcript_service(
+      '${fixture.providerTranscript}', '${fixture.tenantAlpha}', '${fixture.agentAlpha}', 'video', 'provider-ref-owned'
+    );
+  `)), "service role registers provider transcript");
+  assert.equal(queryScalar(databaseUrl, `SELECT tenant_id::text FROM public.conversation_transcripts WHERE external_ref = 'provider-ref-owned';`), fixture.tenantAlpha);
+  assertFailed(runSql(databaseUrl, asRoleSql("service_role", null, `
+    SELECT public.portal_register_provider_transcript_service(
+      '019f0000-0000-7000-8000-000000001101', '${fixture.tenantBeta}', '${fixture.agentAlpha}', 'video', 'provider-ref-cross-tenant'
+    );
+  `)), "service registration rejects a cross-tenant agent relationship");
+
+  assertSucceeded(runSql(databaseUrl, `
+    INSERT INTO public.user_tenant_memberships (user_id, tenant_id, actor_id, role) VALUES
+      ('${fixture.userBeta}', '${fixture.tenantBeta}', '${fixture.actorBeta}', 'tenant_admin');
+  `), "deterministic authenticated membership fixtures");
+
+  const inserts = Array.from({ length: 5 }, (_, index) => {
+    const id = `019f0000-0000-7000-8000-${String(1200 + index).padStart(12, "0")}`;
+    return `INSERT INTO public.conversation_transcripts (id, tenant_id, agent_id, surface, external_ref, turns, started_at)
+      VALUES ('${id}', '${fixture.tenantAlpha}', '${fixture.agentAlpha}', 'chat', 'chat-${index}', '[]'::jsonb, now() - interval '${index} minutes');`;
+  }).join("\n");
+  assertSucceeded(runSql(databaseUrl, inserts), "transcript list fixtures");
+  assert.equal(queryScalar(databaseUrl, `SELECT count(*) FROM public.user_tenant_memberships WHERE user_id='${fixture.userAlpha}';`), "1");
+  const limited = queryJson(databaseUrl, asRoleSql("authenticated", fixture.userAlpha, "SELECT public.portal_list_conversation_transcripts(null, 2);"));
+  assert.equal(limited.length, 2, "p_limit must be applied before json aggregation");
+  const otherTenant = queryJson(databaseUrl, asRoleSql("authenticated", fixture.userBeta, "SELECT public.portal_list_conversation_transcripts(null, 200);"));
+  assert.equal(otherTenant.length, 0, "tenant beta cannot list tenant alpha transcripts");
+}
+
+async function assertProviderTranscriptConcurrency(databaseUrl) {
+  const externalRef = "provider-ref-concurrent";
+  const [first, second] = await Promise.all([
+    runSqlAsync(databaseUrl, asRoleSql("service_role", null, `
+      SELECT public.portal_register_provider_transcript_service(
+        '019f0000-0000-7000-8000-000000001110', '${fixture.tenantAlpha}', '${fixture.agentAlpha}', 'video', '${externalRef}'
+      );
+    `)),
+    runSqlAsync(databaseUrl, asRoleSql("service_role", null, `
+      SELECT public.portal_register_provider_transcript_service(
+        '019f0000-0000-7000-8000-000000001111', '${fixture.tenantAlpha}', '${fixture.agentAlpha}', 'video', '${externalRef}'
+      );
+    `)),
+  ]);
+  assertSucceeded(first, "first concurrent provider transcript registration");
+  assertSucceeded(second, "second concurrent provider transcript registration");
+  const outcomes = [parseLastJson(first.stdout), parseLastJson(second.stdout)];
+  assert.deepEqual(outcomes.map((value) => value.replayed).sort(), [false, true],
+    "concurrent provider transcript registration produces one insert and one replay");
+  assert.equal(queryScalar(databaseUrl,
+    `SELECT count(*) FROM public.conversation_transcripts WHERE surface='video' AND external_ref='${externalRef}';`), "1");
+}
+
+function checkoutBeginSql({ intentId, tenantId, userId, plan = "piloto", expiresAt, basePrice = "price_BasePiloto", overagePrice = "price_OveragePiloto" }) {
+  return `SELECT public.portal_begin_billing_checkout_intent_service(
+    '${intentId}','${tenantId}','${userId}','${plan}','${basePrice}','${overagePrice}',false,
+    49900,2500,'axtro_conversation_overage',null,
+    'https://closer.axtroai.com/configuracoes?billing_success=1',
+    'https://closer.axtroai.com/configuracoes?billing_error=cancelado','${expiresAt}'::timestamptz
+  );`;
+}
+
+async function assertBillingCheckoutContract(databaseUrl) {
+  const expiry = new Date(Date.now() + 60 * 60 * 1000);
+  expiry.setMilliseconds(0);
+  const expiresAt = expiry.toISOString();
+  const alphaA = "019f0000-0000-7000-8000-000000001300";
+  const alphaB = "019f0000-0000-7000-8000-000000001301";
+  const begin = (input) => asRoleSql("service_role", null, checkoutBeginSql({ expiresAt, ...input }));
+  assertSucceeded(runSql(databaseUrl, `INSERT INTO public.user_tenant_memberships(user_id,tenant_id,actor_id,role)
+    VALUES('${fixture.userGamma}','${fixture.tenantGamma}','${fixture.actorGamma}','tenant_admin');`),
+  "checkout tenant gamma membership fixture");
+
+  assertFailed(runSql(databaseUrl, asRoleSql("authenticated", fixture.userAlpha,
+    checkoutBeginSql({ intentId: alphaA, tenantId: fixture.tenantAlpha, userId: fixture.userAlpha, expiresAt }))),
+  "authenticated caller cannot invoke service-only checkout begin");
+  assertFailed(runSql(databaseUrl, begin({ intentId: alphaA, tenantId: fixture.tenantAlpha, userId: fixture.userBeta })),
+    "cross-tenant user cannot authorize checkout");
+  assertSucceeded(runSql(databaseUrl, `UPDATE public.user_tenant_memberships SET role='tenant_operator' WHERE user_id='${fixture.userAlpha}';`),
+    "operator-role authorization fixture");
+  assertFailed(runSql(databaseUrl, begin({ intentId: alphaA, tenantId: fixture.tenantAlpha, userId: fixture.userAlpha })),
+    "tenant operator cannot authorize a billing checkout");
+  assertSucceeded(runSql(databaseUrl, `UPDATE public.user_tenant_memberships SET role='tenant_admin' WHERE user_id='${fixture.userAlpha}';`),
+    "restore tenant administrator fixture");
+  assertFailed(runSql(databaseUrl, asRoleSql("service_role", null, checkoutBeginSql({
+    intentId: alphaA, tenantId: fixture.tenantAlpha, userId: fixture.userAlpha, expiresAt,
+  }).replace("https://closer.axtroai.com/configuracoes?billing_success=1", "https://evil.example.test/configuracoes?billing_success=1"))),
+  "checkout redirects are restricted to reviewed exact origins and paths");
+
+  const [firstBegin, secondBegin] = await Promise.all([
+    runSqlAsync(databaseUrl, begin({ intentId: alphaA, tenantId: fixture.tenantAlpha, userId: fixture.userAlpha })),
+    runSqlAsync(databaseUrl, begin({ intentId: alphaB, tenantId: fixture.tenantAlpha, userId: fixture.userAlpha })),
+  ]);
+  assertSucceeded(firstBegin, "first concurrent checkout begin");
+  assertSucceeded(secondBegin, "second concurrent checkout begin");
+  const beginReceipts = [parseLastJson(firstBegin.stdout), parseLastJson(secondBegin.stdout)];
+  assert.deepEqual(beginReceipts.map((row) => row.outcome).sort(), ["replayed", "reserved"]);
+  assert.equal(new Set(beginReceipts.map((row) => row.checkoutIntentId)).size, 1, "same snapshot converges on one durable intent");
+  const alphaIntent = beginReceipts[0].checkoutIntentId;
+  assert.equal(beginReceipts[0].stripeIdempotencyKey, `billing:checkout:${alphaIntent.replaceAll("-", "")}`);
+  assert.deepEqual(Object.keys(beginReceipts[0]).sort(), [
+    "basePriceId", "baseUnitAmountCents", "cancelUrl", "checkoutIntentId", "checkoutUrl", "existingStripeCustomerId",
+    "expiresAt", "meterEventName", "outcome", "overagePriceId", "overageUnitAmountCents", "planId", "state",
+    "stripeIdempotencyKey", "stripeLivemode", "stripeSessionId", "successUrl",
+  ].sort(), "begin returns the exact immutable application receipt");
+  assert.equal(queryScalar(databaseUrl, `SELECT count(*) FROM public.billing_checkout_intents WHERE tenant_id='${fixture.tenantAlpha}';`), "1");
+  const replayExpiry = new Date(expiry.getTime() + 60 * 60 * 1000).toISOString();
+  const sameIdExpiryConflict = queryJson(databaseUrl, asRoleSql("service_role", null, checkoutBeginSql({
+    intentId: alphaIntent, tenantId: fixture.tenantAlpha, userId: fixture.userAlpha, expiresAt: replayExpiry,
+  })));
+  assert.equal(sameIdExpiryConflict.outcome, "conflict", "same intent id requires the exact original request fingerprint");
+  const expiryReplay = queryJson(databaseUrl, asRoleSql("service_role", null, checkoutBeginSql({
+    intentId: "019f0000-0000-7000-8000-000000001305", tenantId: fixture.tenantAlpha,
+    userId: fixture.userAlpha, expiresAt: replayExpiry,
+  })));
+  assert.equal(expiryReplay.outcome, "replayed", "a fresh retry id can recover the same active immutable checkout");
+  assert.equal(expiryReplay.expiresAt, expiresAt, "fresh-id recovery returns the stored expiry");
+  assert.equal(queryScalar(databaseUrl, `SELECT catalog_fingerprint ~ '^[0-9a-f]{64}$' AND request_fingerprint ~ '^[0-9a-f]{64}$'
+    FROM public.billing_checkout_intents WHERE id='${alphaIntent}';`), "t", "SQL mints both canonical SHA-256 fingerprints");
+  assertFailed(runSql(databaseUrl, `UPDATE public.billing_checkout_intents SET plan_id='escala' WHERE id='${alphaIntent}';`),
+    "checkout catalog/request snapshots are immutable even to migration-owner DML");
+  assert.equal(queryJson(databaseUrl, begin({
+    intentId: "019f0000-0000-7000-8000-000000001302", tenantId: fixture.tenantAlpha, userId: fixture.userAlpha,
+    plan: "crescimento", basePrice: "price_BaseCrescimento", overagePrice: "price_OverageCrescimento",
+  })).outcome, "conflict", "a different immutable plan snapshot cannot share an open tenant intent");
+
+  const [dispatchA, dispatchB] = await Promise.all([
+    runSqlAsync(databaseUrl, asRoleSql("service_role", null, `SELECT public.portal_mark_billing_checkout_dispatched_service('${alphaIntent}');`)),
+    runSqlAsync(databaseUrl, asRoleSql("service_role", null, `SELECT public.portal_mark_billing_checkout_dispatched_service('${alphaIntent}');`)),
+  ]);
+  assertSucceeded(dispatchA, "first checkout dispatch contender");
+  assertSucceeded(dispatchB, "second checkout dispatch contender");
+  const dispatchReceipts = [parseLastJson(dispatchA.stdout), parseLastJson(dispatchB.stdout)];
+  assert.deepEqual(dispatchReceipts.sort((a,b) => Number(b.acquired)-Number(a.acquired)), [
+    { acquired: true, state: "dispatched" }, { acquired: false, state: "unknown" },
+  ], "only the dispatch winner receives provider-dispatch disposition");
+  assert.equal(queryScalar(databaseUrl, `SELECT catalog_verified_at IS NOT NULL FROM public.billing_checkout_intents WHERE id='${alphaIntent}';`), "t");
+  assertSucceeded(runSql(databaseUrl, `UPDATE public.billing_checkout_intents SET state='unknown',updated_at=now() WHERE id='${alphaIntent}';`),
+    "simulate an ambiguous process loss after the checkout dispatch fence");
+  const unknownReplay = queryJson(databaseUrl, begin({
+    intentId: "019f0000-0000-7000-8000-000000001303", tenantId: fixture.tenantAlpha, userId: fixture.userAlpha,
+  }));
+  assert.equal(unknownReplay.outcome, "replayed");
+  assert.equal(unknownReplay.state, "unknown");
+  assert.equal(unknownReplay.checkoutIntentId, alphaIntent);
+  assert.equal(unknownReplay.stripeIdempotencyKey, `billing:checkout:${alphaIntent.replaceAll("-", "")}`,
+    "an exact unknown recovery preserves the original Stripe idempotency key");
+  assertFailed(runSql(databaseUrl, asRoleSql("service_role", null,
+    `SELECT public.portal_release_billing_checkout_intent_service('${alphaIntent}','not_dispatched');`)),
+  "post-dispatch checkout cannot be released");
+
+  const alphaSession = "cs_test_checkout_alpha";
+  const bindAlpha = `SELECT public.portal_bind_billing_checkout_session_service('${alphaIntent}','${alphaSession}',
+    'https://checkout.stripe.com/c/pay/${alphaSession}','${expiresAt}'::timestamptz);`;
+  assert.deepEqual(queryJson(databaseUrl, asRoleSql("service_role", null, bindAlpha)), { bound: true, state: "bound" });
+  assert.deepEqual(queryJson(databaseUrl, asRoleSql("service_role", null, bindAlpha)), { bound: true, state: "bound" });
+  assertFailed(runSql(databaseUrl, asRoleSql("service_role", null, bindAlpha.replace(alphaSession, "cs_test_checkout_other"))),
+    "a bound intent rejects a different Stripe session");
+
+  const checkoutAt = new Date().toISOString();
+  const checkoutAlphaSql = `SELECT public.portal_apply_billing_checkout_event_service(
+    'evt_checkout_alpha','checkout.session.completed','${checkoutAt}'::timestamptz,'${alphaIntent}','${alphaSession}',
+    '${fixture.tenantAlpha}','piloto','cus_CheckoutAlpha','sub_CheckoutAlpha','paid');`;
+  assert.deepEqual(queryJson(databaseUrl, asRoleSql("service_role", null, checkoutAlphaSql)), { applied: true, replayed: false, state: "completed" });
+  assert.deepEqual(queryJson(databaseUrl, asRoleSql("service_role", null, checkoutAlphaSql)), { applied: false, replayed: true, state: "completed" });
+  const subAt = new Date(Date.now() + 1000).toISOString();
+  const subAlphaSql = `SELECT public.portal_apply_tenant_subscription_event_service(
+    'evt_sub_alpha','customer.subscription.created','${subAt}'::timestamptz,'${fixture.tenantAlpha}','piloto','active',
+    'cus_CheckoutAlpha','sub_CheckoutAlpha','${checkoutAt}'::timestamptz,'${expiresAt}'::timestamptz,'${alphaIntent}');`;
+  assert.deepEqual(queryJson(databaseUrl, asRoleSql("service_role", null, subAlphaSql)), { outcome: "applied", applied: true, replayed: false });
+  assert.deepEqual(queryJson(databaseUrl, asRoleSql("service_role", null, subAlphaSql)), { outcome: "replayed", applied: false, replayed: true });
+  const activeSubscriptionBlock = queryJson(databaseUrl, begin({
+    intentId: "019f0000-0000-7000-8000-000000001304", tenantId: fixture.tenantAlpha, userId: fixture.userAlpha,
+  }));
+  assert.equal(activeSubscriptionBlock.outcome, "blocked_unknown", "any nonterminal tenant subscription blocks a new checkout");
+  assert.equal(activeSubscriptionBlock.checkoutIntentId, null, "blocked checkout does not disclose another immutable intent snapshot");
+  assert.equal(queryJson(databaseUrl, asRoleSql("service_role", null, `SELECT public.portal_apply_tenant_subscription_event_service(
+    'evt_sub_alpha_stale','customer.subscription.updated','${checkoutAt}'::timestamptz,'${fixture.tenantAlpha}','piloto','past_due',
+    'cus_CheckoutAlpha','sub_CheckoutAlpha',null,null,null);`)).outcome, "ignored_stale");
+  assert.equal(queryJson(databaseUrl, asRoleSql("service_role", null, `SELECT public.portal_apply_tenant_subscription_event_service(
+    'evt_sub_alpha_conflict','customer.subscription.created','${new Date(Date.now() + 2000).toISOString()}'::timestamptz,'${fixture.tenantAlpha}','crescimento','active',
+    'cus_CheckoutAlpha2','sub_CheckoutAlpha2',null,null,null);`)).outcome, "duplicate_subscription_conflict");
+
+  const betaReleased = "019f0000-0000-7000-8000-000000001310";
+  assert.equal(queryJson(databaseUrl, begin({ intentId: betaReleased, tenantId: fixture.tenantBeta, userId: fixture.userBeta })).outcome, "reserved");
+  assert.deepEqual(queryJson(databaseUrl, asRoleSql("service_role", null,
+    `SELECT public.portal_release_billing_checkout_intent_service('${betaReleased}','catalog_preflight_failed');`)), { released: true, state: "released" });
+  const betaIntent = "019f0000-0000-7000-8000-000000001311";
+  assert.equal(queryJson(databaseUrl, begin({ intentId: betaIntent, tenantId: fixture.tenantBeta, userId: fixture.userBeta })).outcome, "reserved");
+  assert.equal(queryJson(databaseUrl, asRoleSql("service_role", null,
+    `SELECT public.portal_mark_billing_checkout_dispatched_service('${betaIntent}');`)).acquired, true);
+  const betaSession = "cs_test_checkout_beta";
+  assertFailed(runSql(databaseUrl, asRoleSql("service_role", null, `SELECT public.portal_bind_billing_checkout_session_service(
+    '${betaIntent}','${alphaSession}','https://checkout.stripe.com/c/pay/${alphaSession}','${expiresAt}'::timestamptz);`)),
+  "a Stripe checkout session id is globally owned by exactly one tenant intent");
+  assert.equal(queryJson(databaseUrl, asRoleSql("service_role", null, `SELECT public.portal_bind_billing_checkout_session_service(
+    '${betaIntent}','${betaSession}','https://checkout.stripe.com/c/pay/${betaSession}','${expiresAt}'::timestamptz);`)).bound, true);
+  const betaSubAt = new Date(Date.now() + 2000).toISOString();
+  assert.equal(queryJson(databaseUrl, asRoleSql("service_role", null, `SELECT public.portal_apply_tenant_subscription_event_service(
+    'evt_sub_beta_first','customer.subscription.created','${betaSubAt}'::timestamptz,'${fixture.tenantBeta}','piloto','active',
+    'cus_CheckoutBeta','sub_CheckoutBeta','${checkoutAt}'::timestamptz,'${expiresAt}'::timestamptz,'${betaIntent}');`)).outcome, "applied",
+  "subscription-before-checkout binds and completes the durable intent");
+  assert.deepEqual(queryJson(databaseUrl, asRoleSql("service_role", null, `SELECT public.portal_apply_billing_checkout_event_service(
+    'evt_checkout_beta_late','checkout.session.completed',now(),'${betaIntent}','${betaSession}','${fixture.tenantBeta}',
+    'piloto','cus_CheckoutBeta','sub_CheckoutBeta','paid');`)), { applied: false, replayed: false, state: "completed" },
+  "checkout confirmation after subscription never duplicates the subscription");
+
+  const betaCanceledAt = new Date(Date.now() + 3000).toISOString();
+  assert.equal(queryJson(databaseUrl, asRoleSql("service_role", null, `SELECT public.portal_apply_tenant_subscription_event_service(
+    'evt_sub_beta_cancel','customer.subscription.deleted','${betaCanceledAt}'::timestamptz,'${fixture.tenantBeta}','piloto','canceled',
+    'cus_CheckoutBeta','sub_CheckoutBeta',null,null,null);`)).outcome, "applied", "legacy same-sub updates remain monotonic without a checkout id");
+
+  const conflictingIntent = "019f0000-0000-7000-8000-000000001312";
+  assert.equal(queryJson(databaseUrl, begin({ intentId: conflictingIntent, tenantId: fixture.tenantBeta, userId: fixture.userBeta })).outcome, "reserved");
+  assert.equal(queryJson(databaseUrl, asRoleSql("service_role", null,
+    `SELECT public.portal_mark_billing_checkout_dispatched_service('${conflictingIntent}');`)).acquired, true);
+  const conflictingSession = "cs_test_checkout_beta_conflict";
+  assert.equal(queryJson(databaseUrl, asRoleSql("service_role", null, `SELECT public.portal_bind_billing_checkout_session_service(
+    '${conflictingIntent}','${conflictingSession}','https://checkout.stripe.com/c/pay/${conflictingSession}','${expiresAt}'::timestamptz);`)).bound, true);
+  assert.equal(queryJson(databaseUrl, asRoleSql("service_role", null, `SELECT public.portal_apply_billing_checkout_event_service(
+    'evt_checkout_beta_conflict','checkout.session.completed','${new Date(Date.now() + 4000).toISOString()}'::timestamptz,
+    '${conflictingIntent}','${conflictingSession}','${fixture.tenantBeta}','piloto','cus_CheckoutBeta2','sub_CheckoutBeta2','paid');`)).state, "completed");
+  assert.equal(queryJson(databaseUrl, asRoleSql("service_role", null, `SELECT public.portal_apply_tenant_subscription_event_service(
+    'evt_sub_beta_reactivated','customer.subscription.updated','${new Date(Date.now() + 5000).toISOString()}'::timestamptz,
+    '${fixture.tenantBeta}','piloto','active','cus_CheckoutBeta','sub_CheckoutBeta',null,null,null);`)).outcome, "applied");
+  assert.equal(queryJson(databaseUrl, asRoleSql("service_role", null, `SELECT public.portal_apply_tenant_subscription_event_service(
+    'evt_sub_beta_duplicate','customer.subscription.created','${new Date(Date.now() + 6000).toISOString()}'::timestamptz,
+    '${fixture.tenantBeta}','piloto','active','cus_CheckoutBeta2','sub_CheckoutBeta2',null,null,'${conflictingIntent}');`)).outcome,
+  "duplicate_subscription_conflict", "a live different subscription yields an explicit safe receipt");
+  assert.equal(queryScalar(databaseUrl, `SELECT state FROM public.billing_checkout_intents WHERE id='${conflictingIntent}';`), "conflict",
+    "the incoming checkout intent is durably fenced after duplicate-subscription conflict");
+
+  const terminalAgainAt = new Date(Date.now() + 7000).toISOString();
+  assert.equal(queryJson(databaseUrl, asRoleSql("service_role", null, `SELECT public.portal_apply_tenant_subscription_event_service(
+    'evt_sub_beta_cancel_again','customer.subscription.deleted','${terminalAgainAt}'::timestamptz,
+    '${fixture.tenantBeta}','piloto','canceled','cus_CheckoutBeta','sub_CheckoutBeta',null,null,null);`)).outcome, "applied");
+  const replacementIntent = "019f0000-0000-7000-8000-000000001313";
+  assert.equal(queryJson(databaseUrl, begin({ intentId: replacementIntent, tenantId: fixture.tenantBeta, userId: fixture.userBeta })).outcome, "reserved");
+  assert.equal(queryJson(databaseUrl, asRoleSql("service_role", null,
+    `SELECT public.portal_mark_billing_checkout_dispatched_service('${replacementIntent}');`)).acquired, true);
+  const replacementSession = "cs_test_checkout_beta_replacement";
+  assert.equal(queryJson(databaseUrl, asRoleSql("service_role", null, `SELECT public.portal_bind_billing_checkout_session_service(
+    '${replacementIntent}','${replacementSession}','https://checkout.stripe.com/c/pay/${replacementSession}','${expiresAt}'::timestamptz);`)).bound, true);
+  assert.equal(queryJson(databaseUrl, asRoleSql("service_role", null, `SELECT public.portal_apply_billing_checkout_event_service(
+    'evt_checkout_beta_replacement','checkout.session.completed','${new Date(Date.now() + 8000).toISOString()}'::timestamptz,
+    '${replacementIntent}','${replacementSession}','${fixture.tenantBeta}','piloto','cus_CheckoutBeta3','sub_CheckoutBeta3','paid');`)).state, "completed");
+  const replacementAt = new Date(Date.now() + 9000).toISOString();
+  assert.equal(queryJson(databaseUrl, asRoleSql("service_role", null, `SELECT public.portal_apply_tenant_subscription_event_service(
+    'evt_sub_beta_replacement','customer.subscription.created','${replacementAt}'::timestamptz,
+    '${fixture.tenantBeta}','piloto','active','cus_CheckoutBeta3','sub_CheckoutBeta3',null,null,'${replacementIntent}');`)).outcome,
+  "applied", "a terminal subscription can be replaced only by its exact completed checkout intent");
+  assert.equal(queryJson(databaseUrl, asRoleSql("service_role", null, `SELECT public.portal_apply_tenant_subscription_event_service(
+    'evt_sub_beta_late_old','customer.subscription.deleted','${new Date(Date.now() + 8500).toISOString()}'::timestamptz,
+    '${fixture.tenantBeta}','piloto','canceled','cus_CheckoutBeta','sub_CheckoutBeta',null,null,null);`)).outcome,
+  "ignored_superseded_subscription", "a late superseded subscription event cannot overwrite the replacement");
+  assert.equal(queryScalar(databaseUrl, `SELECT stripe_subscription_id FROM public.tenant_subscriptions WHERE tenant_id='${fixture.tenantBeta}';`), "sub_CheckoutBeta3");
+
+  assertFailed(runSql(databaseUrl, asRoleSql("service_role", null, checkoutAlphaSql.replace("evt_checkout_alpha", "evt_global_reuse").replace(fixture.tenantAlpha, fixture.tenantBeta))),
+    "cross-tenant checkout tuple is rejected");
+  assertFailed(runSql(databaseUrl, asRoleSql("service_role", null, `SELECT public.portal_apply_tenant_subscription_event_service(
+    'evt_checkout_alpha','customer.subscription.updated',now(),'${fixture.tenantBeta}','piloto','active',
+    'cus_CheckoutBeta','sub_CheckoutBeta',null,null,null);`)), "a global event id cannot be reused across event kinds or tenants");
+  assertFailed(runSql(databaseUrl, "UPDATE public.billing_stripe_event_receipts SET event_type=event_type WHERE event_id='evt_checkout_alpha';"),
+    "Stripe event receipts are append-only");
+  assertSucceeded(runSql(databaseUrl, `DELETE FROM public.tenant_subscriptions
+    WHERE tenant_id IN ('${fixture.tenantAlpha}','${fixture.tenantBeta}');`),
+  "isolate checkout subscription fixtures from later provider-budget scenarios");
+}
+
+async function assertBillingCheckoutP1Hardening(databaseUrl) {
+  const expiry = new Date(Date.now() + 60 * 60 * 1000);
+  expiry.setMilliseconds(0);
+  const expiresAt = expiry.toISOString();
+  const begin = (intentId) => queryJson(databaseUrl, asRoleSql("service_role", null, checkoutBeginSql({
+    intentId, tenantId: fixture.tenantGamma, userId: fixture.userGamma, expiresAt,
+  })));
+  const service = (sql) => asRoleSql("service_role", null, sql);
+  const eventBase = Date.now();
+  const eventAt = (offsetSeconds) => new Date(eventBase + offsetSeconds * 1000).toISOString();
+  const ageReservedIntent = (intentId) => assertSucceeded(runSql(databaseUrl, `BEGIN;
+    ALTER TABLE public.billing_checkout_intents DISABLE TRIGGER billing_checkout_intents_immutable_snapshot;
+    UPDATE public.billing_checkout_intents
+      SET expires_at=date_trunc('second',statement_timestamp()+interval '29 minutes')
+      WHERE id='${intentId}';
+    ALTER TABLE public.billing_checkout_intents ENABLE TRIGGER billing_checkout_intents_immutable_snapshot;
+    COMMIT;`), `age reserved checkout ${intentId} below the dispatch safety floor`);
+
+  const dispatchExpiredIntent = "019f0000-0000-7000-8000-000000001320";
+  assert.equal(begin(dispatchExpiredIntent).outcome, "reserved");
+  ageReservedIntent(dispatchExpiredIntent);
+  assert.deepEqual(queryJson(databaseUrl, service(
+    `SELECT public.portal_mark_billing_checkout_dispatched_service('${dispatchExpiredIntent}');`)),
+  { acquired: false, state: "released" }, "dispatch revalidates the 30-minute provider safety floor");
+  assert.equal(queryScalar(databaseUrl, `SELECT state||':'||release_evidence FROM public.billing_checkout_intents
+    WHERE id='${dispatchExpiredIntent}';`), "released:not_dispatched");
+
+  const staleIntent = "019f0000-0000-7000-8000-000000001321";
+  const recoveredIntent = "019f0000-0000-7000-8000-000000001322";
+  assert.equal(begin(staleIntent).outcome, "reserved");
+  ageReservedIntent(staleIntent);
+  assert.equal(begin(staleIntent).outcome, "replayed",
+    "same-id replay uses the exact immutable request fingerprint even after the reserved row ages");
+  const recovered = begin(recoveredIntent);
+  assert.equal(recovered.outcome, "reserved",
+    "fresh-id recovery releases an aged pre-dispatch reservation and creates the replacement atomically");
+  assert.equal(recovered.checkoutIntentId, recoveredIntent);
+  assert.equal(queryScalar(databaseUrl, `SELECT state||':'||release_evidence FROM public.billing_checkout_intents
+    WHERE id='${staleIntent}';`), "released:not_dispatched");
+  assert.equal(queryScalar(databaseUrl, `SELECT count(*) FROM public.billing_checkout_intents
+    WHERE tenant_id='${fixture.tenantGamma}' AND state IN ('reserved','dispatched','bound','unknown');`), "1");
+  assert.deepEqual(queryJson(databaseUrl, service(
+    `SELECT public.portal_mark_billing_checkout_dispatched_service('${recoveredIntent}');`)),
+  { acquired: true, state: "dispatched" });
+
+  const webhookSession = "cs_test_checkout_gamma_webhook_first";
+  const webhookUrl = `https://checkout.stripe.com/c/pay/${webhookSession}`;
+  const webhookEventAt = eventAt(1);
+  const webhookSql = `SELECT public.portal_apply_billing_checkout_event_service(
+    'evt_gamma_checkout_concurrent','checkout.session.completed','${webhookEventAt}'::timestamptz,
+    '${recoveredIntent}','${webhookSession}','${fixture.tenantGamma}','piloto',
+    'cus_GammaWebhook','sub_GammaWebhook','paid');`;
+  const [webhookFirst, webhookSecond] = await Promise.all([
+    runSqlAsync(databaseUrl, service(webhookSql)),
+    runSqlAsync(databaseUrl, service(webhookSql)),
+  ]);
+  assertSucceeded(webhookFirst, "first identical signed checkout event contender");
+  assertSucceeded(webhookSecond, "second identical signed checkout event contender");
+  const webhookReceipts = [parseLastJson(webhookFirst.stdout), parseLastJson(webhookSecond.stdout)];
+  assert.equal(webhookReceipts.filter((receipt) => receipt.applied && !receipt.replayed && receipt.state === "completed").length, 1);
+  assert.equal(webhookReceipts.filter((receipt) => !receipt.applied && receipt.replayed && receipt.state === "completed").length, 1,
+    "identical event concurrency commits once and replays the durable receipt once");
+  assert.equal(queryScalar(databaseUrl, "SELECT count(*) FROM public.billing_stripe_event_receipts WHERE event_id='evt_gamma_checkout_concurrent';"), "1");
+  assert.deepEqual(queryJson(databaseUrl, service(`SELECT public.portal_bind_billing_checkout_session_service(
+    '${recoveredIntent}','${webhookSession}','${webhookUrl}','${expiresAt}'::timestamptz);`)),
+  { bound: true, state: "completed" }, "provider bind after webhook completion persists redirect evidence without state regression");
+  assert.equal(queryScalar(databaseUrl, `SELECT state='completed' AND checkout_url='${webhookUrl}' AND bound_at IS NOT NULL
+    FROM public.billing_checkout_intents WHERE id='${recoveredIntent}';`), "t");
+
+  assert.equal(queryJson(databaseUrl, service(`SELECT public.portal_apply_tenant_subscription_event_service(
+    'evt_gamma_subscription_initial','customer.subscription.created','${eventAt(2)}'::timestamptz,
+    '${fixture.tenantGamma}','piloto','active','cus_GammaWebhook','sub_GammaWebhook',null,null,'${recoveredIntent}');`)).outcome, "applied");
+  assert.equal(queryJson(databaseUrl, service(`SELECT public.portal_apply_tenant_subscription_event_service(
+    'evt_gamma_subscription_cancel','customer.subscription.deleted','${eventAt(3)}'::timestamptz,
+    '${fixture.tenantGamma}','piloto','canceled','cus_GammaWebhook','sub_GammaWebhook',null,null,null);`)).outcome, "applied");
+
+  const reverseIntent = "019f0000-0000-7000-8000-000000001323";
+  const reverseSession = "cs_test_checkout_gamma_reverse";
+  assert.equal(begin(reverseIntent).outcome, "reserved");
+  assert.deepEqual(queryJson(databaseUrl, service(
+    `SELECT public.portal_mark_billing_checkout_dispatched_service('${reverseIntent}');`)), { acquired: true, state: "dispatched" });
+  assert.deepEqual(queryJson(databaseUrl, service(`SELECT public.portal_bind_billing_checkout_session_service(
+    '${reverseIntent}','${reverseSession}','https://checkout.stripe.com/c/pay/${reverseSession}','${expiresAt}'::timestamptz);`)),
+  { bound: true, state: "bound" });
+  assert.deepEqual(queryJson(databaseUrl, service(`SELECT public.portal_apply_tenant_subscription_event_service(
+    'evt_gamma_reverse_subscription','customer.subscription.created','${eventAt(4)}'::timestamptz,
+    '${fixture.tenantGamma}','piloto','active','cus_GammaReverse','sub_GammaReverse',null,null,'${reverseIntent}');`)),
+  { outcome: "applied", applied: true, replayed: false },
+  "a signed subscription event can replace a terminal subscription from an exactly bound checkout intent");
+  assert.equal(queryScalar(databaseUrl, `SELECT state='completed' AND stripe_customer_id='cus_GammaReverse'
+    AND stripe_subscription_id='sub_GammaReverse' FROM public.billing_checkout_intents WHERE id='${reverseIntent}';`), "t",
+  "reverse-order resubscribe completes the bound intent in the same transaction");
+
+  const tieAt = eventAt(5);
+  assert.equal(queryJson(databaseUrl, service(`SELECT public.portal_apply_tenant_subscription_event_service(
+    'evt_gamma_tie_z','customer.subscription.deleted','${tieAt}'::timestamptz,
+    '${fixture.tenantGamma}','piloto','canceled','cus_GammaReverse','sub_GammaReverse',null,null,null);`)).outcome, "applied");
+  assert.equal(queryJson(databaseUrl, service(`SELECT public.portal_apply_tenant_subscription_event_service(
+    'evt_gamma_tie_a','customer.subscription.updated','${tieAt}'::timestamptz,
+    '${fixture.tenantGamma}','piloto','active','cus_GammaReverse','sub_GammaReverse',null,null,null);`)).outcome, "ignored_stale",
+  "equal Stripe timestamps use event id as a deterministic monotonic tie-break");
+  assert.equal(queryScalar(databaseUrl, `SELECT status||':'||last_event_id FROM public.tenant_subscriptions
+    WHERE tenant_id='${fixture.tenantGamma}';`), "canceled:evt_gamma_tie_z");
+
+  assertFailed(runSql(databaseUrl, service(`SELECT public.portal_apply_tenant_subscription_event_service(
+    'evt_gamma_foreign_subscription','customer.subscription.updated','${eventAt(6)}'::timestamptz,
+    '${fixture.tenantGamma}','piloto','active','cus_CheckoutAlpha','sub_CheckoutAlpha',null,null,null);`)),
+  "a globally owned Stripe subscription cannot be claimed by another tenant's subscription writer");
+
+  const unpaidIntent = "019f0000-0000-7000-8000-000000001324";
+  const unpaidSession = "cs_test_checkout_gamma_unpaid";
+  assert.equal(begin(unpaidIntent).outcome, "reserved");
+  assert.equal(queryJson(databaseUrl, service(
+    `SELECT public.portal_mark_billing_checkout_dispatched_service('${unpaidIntent}');`)).acquired, true);
+  assertFailed(runSql(databaseUrl, service(`SELECT public.portal_apply_billing_checkout_event_service(
+    'evt_gamma_checkout_foreign_sub','checkout.session.completed','${eventAt(7)}'::timestamptz,
+    '${unpaidIntent}','${unpaidSession}','${fixture.tenantGamma}','piloto','cus_CheckoutAlpha','sub_CheckoutAlpha','paid');`)),
+  "checkout ingestion enforces the same global Stripe subscription ownership fence");
+  const completedUnpaidSql = `SELECT public.portal_apply_billing_checkout_event_service(
+    'evt_gamma_completed_unpaid','checkout.session.completed','${eventAt(8)}'::timestamptz,
+    '${unpaidIntent}','${unpaidSession}','${fixture.tenantGamma}','piloto','cus_GammaUnpaid','sub_GammaUnpaid','unpaid');`;
+  assert.deepEqual(queryJson(databaseUrl, service(completedUnpaidSql)), { applied: true, replayed: false, state: "unknown" },
+    "checkout.session.completed with unpaid disposition remains recoverable unknown");
+  assert.deepEqual(queryJson(databaseUrl, service(completedUnpaidSql)), { applied: false, replayed: true, state: "unknown" });
+  assertFailed(runSql(databaseUrl, service(completedUnpaidSql.replace("'unpaid'", "'paid'"))),
+    "same Stripe event id rejects any payload fingerprint mismatch");
+  assert.deepEqual(queryJson(databaseUrl, service(`SELECT public.portal_apply_billing_checkout_event_service(
+    'evt_gamma_async_unpaid','checkout.session.async_payment_succeeded','${eventAt(9)}'::timestamptz,
+    '${unpaidIntent}','${unpaidSession}','${fixture.tenantGamma}','piloto','cus_GammaUnpaid','sub_GammaUnpaid','unpaid');`)),
+  { applied: true, replayed: false, state: "unknown" }, "async success requires paid or no_payment_required evidence");
+  assert.deepEqual(queryJson(databaseUrl, service(`SELECT public.portal_apply_billing_checkout_event_service(
+    'evt_gamma_async_paid','checkout.session.async_payment_succeeded','${eventAt(10)}'::timestamptz,
+    '${unpaidIntent}','${unpaidSession}','${fixture.tenantGamma}','piloto','cus_GammaUnpaid','sub_GammaUnpaid','paid');`)),
+  { applied: true, replayed: false, state: "completed" });
+  assert.deepEqual(queryJson(databaseUrl, service(`SELECT public.portal_apply_billing_checkout_event_service(
+    'evt_gamma_late_failure','checkout.session.async_payment_failed','${eventAt(11)}'::timestamptz,
+    '${unpaidIntent}','${unpaidSession}','${fixture.tenantGamma}','piloto','cus_GammaUnpaid','sub_GammaUnpaid',null);`)),
+  { applied: false, replayed: false, state: "expired" },
+  "a late signed failure reports its event disposition without regressing a completed checkout");
+  assert.equal(queryScalar(databaseUrl, `SELECT state FROM public.billing_checkout_intents WHERE id='${unpaidIntent}';`), "completed");
+
+  const failedIntent = "019f0000-0000-7000-8000-000000001325";
+  const failedSession = "cs_test_checkout_gamma_failed";
+  assert.equal(begin(failedIntent).outcome, "reserved");
+  assert.equal(queryJson(databaseUrl, service(
+    `SELECT public.portal_mark_billing_checkout_dispatched_service('${failedIntent}');`)).acquired, true);
+  assert.equal(queryJson(databaseUrl, service(`SELECT public.portal_apply_billing_checkout_event_service(
+    'evt_gamma_failed_pending','checkout.session.completed','${eventAt(12)}'::timestamptz,
+    '${failedIntent}','${failedSession}','${fixture.tenantGamma}','piloto','cus_GammaFailed','sub_GammaFailed','unpaid');`)).state, "unknown");
+  assert.deepEqual(queryJson(databaseUrl, service(`SELECT public.portal_apply_billing_checkout_event_service(
+    'evt_gamma_failed_terminal','checkout.session.async_payment_failed','${eventAt(13)}'::timestamptz,
+    '${failedIntent}','${failedSession}','${fixture.tenantGamma}','piloto','cus_GammaFailed','sub_GammaFailed',null);`)),
+  { applied: true, replayed: false, state: "expired" });
+  assert.equal(queryScalar(databaseUrl, `SELECT state FROM public.billing_checkout_intents WHERE id='${failedIntent}';`), "expired");
+  const afterFailureIntent = "019f0000-0000-7000-8000-000000001326";
+  assert.equal(begin(afterFailureIntent).outcome, "reserved", "a signed terminal failure permits a new checkout intent");
+  assert.deepEqual(queryJson(databaseUrl, service(`SELECT public.portal_release_billing_checkout_intent_service(
+    '${afterFailureIntent}','not_dispatched');`)), { released: true, state: "released" });
+
+  assertFailed(runSql(databaseUrl, `INSERT INTO public.billing_stripe_event_receipts(
+    event_id,event_type,event_created_at,tenant_id,payload_fingerprint,receipt_kind,receipt_state,receipt_applied)
+    VALUES('evt_gamma_invalid_shape','checkout.session.expired',now(),'${fixture.tenantGamma}',repeat('a',64),'checkout','expired',false);`),
+  "relational receipt checks reject checkout receipts without their required intent and session tuple");
+  assertSucceeded(runSql(databaseUrl, `DELETE FROM public.tenant_subscriptions WHERE tenant_id='${fixture.tenantGamma}';`),
+    "isolate checkout hardening subscription fixture from later reservation scenarios");
+}
+
+function assertUsageSummaryLedgerTotals(databaseUrl) {
+  const fixtureIds = [
+    "019f0000-0000-7000-8000-000000001130",
+    "019f0000-0000-7000-8000-000000001131",
+    "019f0000-0000-7000-8000-000000001132",
+  ];
+  assertSucceeded(runSql(databaseUrl, `
+    INSERT INTO public.user_tenant_memberships(user_id,tenant_id,actor_id,role)
+    VALUES ('${fixture.userDelta}','${fixture.tenantDelta}','${fixture.actorDelta}','tenant_admin');
+    INSERT INTO public.cost_events
+    (tenant_id,id,provider_id,service,unit_type,quantity,unit_cost_usd,amount_usd,source,occurred_at,rate_card_ref,rate_card_as_of) VALUES
+    ('${fixture.tenantDelta}','${fixtureIds[0]}','tavus','harness.summary.tavus','conversation',1,3.7,3.7,'estimated',now(),'harness.tavus','2026-08-13T00:00:00Z'),
+    ('${fixture.tenantDelta}','${fixtureIds[1]}','recall','harness.summary.recall','flat',1.5,0.5,0.75,'estimated',now(),'harness.recall','2026-08-13T00:00:00Z'),
+    ('${fixture.tenantGamma}','${fixtureIds[2]}','recall','harness.summary.other_tenant','flat',1,9.9,9.9,'estimated',now(),'harness.other','2026-08-13T00:00:00Z');`),
+  "usage summary mixed-provider fixtures");
+  const summary = queryJson(databaseUrl, asRoleSql("authenticated", fixture.userDelta, "SELECT public.portal_usage_summary();"));
+  assert.equal(summary.total_cost_usd_today, 4.45, "today total sums Tavus and Recall ledger amounts");
+  assert.equal(summary.total_cost_usd_7d, 4.45, "7d total sums every in-tenant ledger unit");
+  assert.equal(summary.cost_precision, "mixed_estimated_provider_reported");
+  assert.equal(summary.conversations_today, 1, "legacy conversation count remains compatible");
+  assert.equal(summary.video_cost_floor_usd_today, 0.175, "legacy video floor remains available during UI cutover");
+  assert.equal(summary.services_7d.find((row) => row.service === "harness.summary.recall")?.quantity, 1.5,
+    "services_7d preserves numeric quantities without bigint coercion");
+  assert.equal(summary.services_7d.some((row) => row.service === "harness.summary.other_tenant"), false,
+    "usage summary never aggregates another tenant's costs");
+}
+
+function assertKnowledgeSourceDeletionRetention(databaseUrl) {
+  const sourceId = "019f0000-0000-7000-8000-000000001120";
+  const reservationId = "019f0000-0000-7000-8000-000000001121";
+  const costEventId = "019f0000-0000-7000-8000-000000001122";
+  assertSucceeded(runSql(databaseUrl, `
+    INSERT INTO public.knowledge_sources(tenant_id,id,source_type,display_name,data_classification,status)
+    VALUES ('${fixture.tenantAlpha}','${sourceId}','document','Deletion retention fixture','internal','disabled');
+  `), "knowledge source deletion fixture");
+  const reserved = queryJson(databaseUrl, asRoleSql("service_role", null, `
+    SELECT public.portal_begin_ai_usage_reservation_service(
+      '${reservationId}','${costEventId}','${fixture.tenantAlpha}',null,'${sourceId}',
+      'ai:knowledge_ingestion_embedding:deletion-retention','knowledge_ingestion_embedding',20000,0,0.01
+    );
+  `));
+  assert.equal(reserved.outcome, "reserved");
+  const deleted = queryJson(databaseUrl, asRoleSql("authenticated", fixture.userAlpha,
+    `SELECT public.portal_delete_knowledge_source('${sourceId}');`));
+  assert.equal(deleted.ok, true, "source deletion remains available after an attributable AI reservation");
+  assert.equal(queryScalar(databaseUrl, `SELECT count(*) FROM public.knowledge_sources WHERE tenant_id='${fixture.tenantAlpha}' AND id='${sourceId}';`), "0");
+  assert.equal(queryScalar(databaseUrl, `SELECT source_id IS NULL FROM public.ai_usage_reservations WHERE id='${reservationId}';`), "t",
+    "financial reservation retains minimized evidence without retaining the deleted source identity");
+}
+
+async function assertReservationContract(databaseUrl) {
+  const reservationTable = queryRows(databaseUrl, `
+    SELECT column_name FROM information_schema.columns
+    WHERE table_schema = 'public' AND table_name = 'provider_effect_reservations'
+    ORDER BY ordinal_position;
+  `);
+  assert.ok(reservationTable.includes("tenant_id"));
+  assert.ok(reservationTable.includes("idempotency_key"));
+  assert.ok(reservationTable.includes("state"));
+  assert.ok(reservationTable.includes("provider_ref"));
+
+  assertSucceeded(runSql(databaseUrl, `
+    INSERT INTO public.tenant_subscriptions
+      (id,tenant_id,stripe_customer_id,stripe_subscription_id,plan_id,status,current_period_start,current_period_end)
+    VALUES ('019f0000-0000-7000-8000-000000004099','${fixture.tenantGamma}','cus_HarnessGammaRate','sub_HarnessGammaRate','piloto','active',date_trunc('month',now()),date_trunc('month',now())+interval '1 month');
+  `), "rate-card reservation subscription fixture");
+
+  const rateCard = queryJson(databaseUrl, asRoleSql("service_role", null,
+    reservationInvocationSql(fixture.tenantGamma, fixture.agentGamma, "tavus-rate-card", "019f0000-0000-7000-8000-000000002099", "019f0000-0000-7000-8000-000000003099")));
+  assert.equal(Number(rateCard.estimatedCostUsd), 3.7, "600s Tavus reservation uses the conservative USD .37/min published overage");
+  assert.equal(queryScalar(databaseUrl, "SELECT cost_rate_card_ref FROM public.provider_effect_reservations WHERE id='019f0000-0000-7000-8000-000000002099';"),
+    "tavus.cvi_overage.max_published_0_37_per_minute_2026_08_13");
+
+  const reserveFunction = queryScalar(databaseUrl, `
+    SELECT p.oid::regprocedure::text
+    FROM pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace
+    WHERE n.nspname = 'public' AND p.proname = 'portal_begin_provider_effect_service'
+    LIMIT 1;
+  `);
+  assert.notEqual(reserveFunction, "", "0040 must expose a reservation RPC");
+
+  // The exact application call is asserted once against the ADR-036 RPC
+  // signature. Two independent psql connections start together so the
+  // database, not an in-process mutex, chooses the single cap winner.
+  assertTrialCapFailsClosed(databaseUrl);
+  assertSucceeded(runSql(databaseUrl, dailyCostFixturesSql(19)), "daily cap concurrency fixtures");
+  assertSucceeded(runSql(databaseUrl, `
+    INSERT INTO public.tenant_subscriptions
+      (id,tenant_id,stripe_customer_id,stripe_subscription_id,plan_id,status,current_period_start,current_period_end)
+    VALUES ('019f0000-0000-7000-8000-000000004100','${fixture.tenantAlpha}','cus_HarnessAlpha','sub_HarnessAlpha','escala','active',date_trunc('month',now()),date_trunc('month',now())+interval '1 month');
+  `), "active Scale fixture makes the daily bucket the limiting cap");
+  const reserveSql = reservationInvocationSql(
+    fixture.tenantAlpha, fixture.agentAlpha, "parallel-a",
+    "019f0000-0000-7000-8000-000000002001", "019f0000-0000-7000-8000-000000003001",
+  );
+  const reserveSqlTwo = reservationInvocationSql(
+    fixture.tenantAlpha, fixture.agentAlpha, "parallel-b",
+    "019f0000-0000-7000-8000-000000002002", "019f0000-0000-7000-8000-000000003002",
+  );
+  const [first, second] = await Promise.all([
+    runSqlAsync(databaseUrl, asRoleSql("service_role", null, reserveSql)),
+    runSqlAsync(databaseUrl, asRoleSql("service_role", null, reserveSqlTwo)),
+  ]);
+  assertSucceeded(first, "first concurrent provider reservation");
+  assertSucceeded(second, "second concurrent provider reservation");
+  const outcomes = [parseLastJson(first.stdout), parseLastJson(second.stdout)].map((value) => value.outcome ?? value.status).sort();
+  assert.deepEqual(outcomes, ["capped", "reserved"], "daily cap one must produce exactly one durable winner");
+
+  const winningReservationId = firstOutcome(first.stdout) === "reserved" ? "019f0000-0000-7000-8000-000000002001" : "019f0000-0000-7000-8000-000000002002";
+  const winningKey = firstOutcome(first.stdout) === "reserved" ? "parallel-a" : "parallel-b";
+  const replay = queryJson(databaseUrl, asRoleSql("service_role", null, reservationInvocationSql(
+    fixture.tenantAlpha, fixture.agentAlpha, winningKey,
+    "019f0000-0000-7000-8000-000000002009", "019f0000-0000-7000-8000-000000003009",
+  )));
+  assert.ok(["replayed", "reserved"].includes(replay.outcome ?? replay.status), "same idempotency key replays its reservation");
+  assert.equal(replay.reservationId, winningReservationId, "fresh proposed UUIDs never replace the stable replay identities");
+  assertFailed(runSql(databaseUrl, asRoleSql("service_role", null, `SELECT public.portal_begin_provider_effect_service(
+    '019f0000-0000-7000-8000-000000002008','019f0000-0000-7000-8000-000000003008','${fixture.tenantAlpha}','${fixture.agentAlpha}','${winningKey}',
+    'tavus','tavus_conversation','tavus_video_daily',null,'conflicting_meter_event',600
+  );`)), "same idempotency key rejects a conflicting meter contract");
+  assertFailed(runSql(databaseUrl, asRoleSql("service_role", null, `SELECT public.portal_begin_provider_effect_service(
+    '019f0000-0000-7000-8000-000000002007','019f0000-0000-7000-8000-000000003007','${fixture.tenantAlpha}','${fixture.agentAlpha}','unsafe-related-ref',
+    'recall','recall_bot','recall_bot_active','https://meet.example.test/credential','axtro_conversation_overage',null
+  );`)), "durable provider reservations reject raw credential-bearing URLs");
+  assert.equal(queryScalar(databaseUrl, `SELECT count(*) FROM public.provider_effect_reservations WHERE tenant_id = '${fixture.tenantAlpha}' AND idempotency_key IN ('parallel-a','parallel-b');`), "1");
+
+  const unknownRpc = queryScalar(databaseUrl, `
+    SELECT p.oid::regprocedure::text FROM pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace
+    WHERE n.nspname = 'public' AND p.proname LIKE 'portal%provider%unknown%service' ORDER BY 1 LIMIT 1;
+  `);
+  assert.notEqual(unknownRpc, "", "0040 must expose an unknown-outcome transition");
+  assertUnknownBarrier(databaseUrl);
+  assertGlobalProviderReferenceOwnership(databaseUrl);
+  assertFinalizeRollbackAndIdempotency(databaseUrl);
+  assertBillingUsageLifecycle(databaseUrl);
+  assertActivationBillingSnapshotRollover(databaseUrl);
+  await assertConcurrentActivationOrdinal(databaseUrl);
+  await assertTerminalActivationRace(databaseUrl);
+}
+
+function assertGlobalProviderReferenceOwnership(databaseUrl) {
+  const firstReservation = "019f0000-0000-7000-8000-000000002027";
+  const secondReservation = "019f0000-0000-7000-8000-000000002028";
+  const sharedProviderRef = "recall-provider-ref-global-owner";
+  assert.equal(queryJson(databaseUrl, asRoleSql("service_role", null, reservationInvocationSql(
+    fixture.tenantGamma, fixture.agentGamma, "provider-ref-owner-a", firstReservation,
+    "019f0000-0000-7000-8000-000000003027", "recall",
+  ))).outcome, "reserved");
+  assert.equal(queryJson(databaseUrl, asRoleSql("service_role", null, reservationInvocationSql(
+    fixture.tenantBeta, fixture.agentBeta, "provider-ref-owner-b", secondReservation,
+    "019f0000-0000-7000-8000-000000003028", "recall",
+  ))).outcome, "reserved");
+  for (const reservationId of [firstReservation, secondReservation]) {
+    assert.equal(queryJson(databaseUrl, asRoleSql("service_role", null,
+      `SELECT public.portal_mark_provider_effect_in_flight_service('${reservationId}');`)).acquired, true);
+  }
+  assert.equal(queryJson(databaseUrl, asRoleSql("service_role", null,
+    `SELECT public.portal_commit_provider_effect_service('${firstReservation}','${sharedProviderRef}',null,null);`)).committed, true);
+  assertFailed(runSql(databaseUrl, asRoleSql("service_role", null,
+    `SELECT public.portal_commit_provider_effect_service('${secondReservation}','${sharedProviderRef}',null,null);`)),
+  "one provider effect reference cannot be committed for a second tenant");
+  assert.equal(queryScalar(databaseUrl, `SELECT state||':'||coalesce(provider_ref,'') FROM public.provider_effect_reservations WHERE id='${secondReservation}';`), "provider_in_flight:",
+  "the ownership conflict rolls back without linking or committing the foreign effect");
+  assert.equal(queryScalar(databaseUrl, `SELECT count(*) FROM public.cost_events WHERE id='019f0000-0000-7000-8000-000000003028';`), "0");
+  assert.equal(queryScalar(databaseUrl, asRoleSql("service_role", null, `SELECT public.portal_reconcile_provider_effect_service(
+    '019f0000-0000-7000-8000-000000003029','${secondReservation}','reconciliation_absent','recall_lookup_absent_global_owner_b'
+  );`)), "t");
+  assert.equal(queryScalar(databaseUrl, asRoleSql("service_role", null,
+    `SELECT public.portal_complete_provider_effect_service('${firstReservation}');`)), "t");
+  assert.equal(queryScalar(databaseUrl, asRoleSql("service_role", null,
+    `SELECT public.portal_void_unleased_billing_usage_service('${firstReservation}','provider_ref_ownership_fixture');`)), "t",
+  "the ownership fixture closes its held delivery state without removing provider cost evidence");
+}
+
+function assertTrialCapFailsClosed(databaseUrl) {
+  assertSucceeded(runSql(databaseUrl, `
+    INSERT INTO public.tenant_subscriptions
+      (id,tenant_id,stripe_customer_id,stripe_subscription_id,plan_id,status,current_period_start,current_period_end)
+    VALUES ('019f0000-0000-7000-8000-000000004098','${fixture.tenantBeta}','cus_HarnessBetaTrial','sub_HarnessBetaTrial','piloto','trialing',date_trunc('month',now()),date_trunc('month',now())+interval '1 month');
+    ${Array.from({ length: 6 }, (_, index) => {
+    const id = `019f0000-0000-7000-8000-${String(4500 + index).padStart(12, "0")}`;
+    return `INSERT INTO public.cost_events (tenant_id,id,provider_id,service,unit_type,quantity,unit_cost_usd,amount_usd,source,occurred_at)
+      VALUES ('${fixture.tenantBeta}','${id}','tavus','trial.cap.fixture','conversation',1,0,0,'estimated',now());`;
+  }).join("\n")}`), "controlled trial cap fixtures");
+  const held = queryJson(databaseUrl, asRoleSql("service_role", null,
+    reservationInvocationSql(
+      fixture.tenantBeta, fixture.agentBeta, "trial-held-case",
+      "019f0000-0000-7000-8000-000000002030", "019f0000-0000-7000-8000-000000003030",
+    )));
+  assert.equal(held.outcome, "reserved", "the final included Pilot trial slot is held before provider dispatch");
+  const result = queryJson(databaseUrl, asRoleSql("service_role", null,
+    reservationInvocationSql(
+      fixture.tenantBeta, fixture.agentBeta, "trial-cap-case",
+      "019f0000-0000-7000-8000-000000002031", "019f0000-0000-7000-8000-000000003031",
+    )));
+  assert.equal(result.outcome, "capped");
+  assert.equal(result.bucket, "tavus_monthly_trial");
+  assert.equal(result.cap, 7);
+  assert.equal(queryScalar(databaseUrl, "SELECT count(*) FROM public.provider_effect_reservations WHERE id='019f0000-0000-7000-8000-000000002031';"), "0");
+}
+
+function assertProviderCommitPeriodBoundary(databaseUrl) {
+  const reservationId = "019f0000-0000-7000-8000-000000002450";
+  const costEventId = "019f0000-0000-7000-8000-000000003450";
+  assertSucceeded(runSql(databaseUrl, `
+    INSERT INTO public.tenant_subscriptions
+      (id,tenant_id,stripe_customer_id,stripe_subscription_id,plan_id,status,current_period_start,current_period_end)
+    VALUES ('019f0000-0000-7000-8000-000000004450','${fixture.tenantEpsilon}','cus_HarnessEpsilon','sub_HarnessEpsilon','piloto','trialing',now()-interval '1 hour',now()+interval '1 month');
+    ${Array.from({ length: 6 }, (_, index) => `INSERT INTO public.cost_events
+      (tenant_id,id,provider_id,service,unit_type,quantity,unit_cost_usd,amount_usd,source,occurred_at)
+      VALUES ('${fixture.tenantEpsilon}','019f0000-0000-7000-8000-${String(4640 + index).padStart(12, "0")}','tavus','period.boundary.fixture','conversation',1,0,0,'estimated',now());`).join("\n")}
+  `), "provider period-boundary fixtures");
+  assert.equal(queryJson(databaseUrl, asRoleSql("service_role", null, reservationInvocationSql(
+    fixture.tenantEpsilon, fixture.agentEpsilon, "period-boundary-commit", reservationId, costEventId,
+  ))).outcome, "reserved");
+  assert.equal(queryJson(databaseUrl, asRoleSql("service_role", null,
+    `SELECT public.portal_bind_tavus_webhook_capability_service('${reservationId}','${"8".repeat(64)}');`)).acquired, true);
+  assert.equal(queryJson(databaseUrl, asRoleSql("service_role", null,
+    `SELECT public.portal_commit_provider_effect_service('${reservationId}','period-boundary-provider',null,null);`)).committed, true);
+  assertSucceeded(runSql(databaseUrl, `UPDATE public.provider_effect_reservations
+    SET created_at=(SELECT current_period_start-interval '1 day' FROM public.tenant_subscriptions WHERE tenant_id='${fixture.tenantEpsilon}')
+    WHERE id='${reservationId}';`), "simulate reservation created before the billing period but committed inside it");
+  const capped = queryJson(databaseUrl, asRoleSql("service_role", null, reservationInvocationSql(
+    fixture.tenantEpsilon, fixture.agentEpsilon, "period-boundary-next",
+    "019f0000-0000-7000-8000-000000002451", "019f0000-0000-7000-8000-000000003451",
+  )));
+  assert.equal(capped.outcome, "capped", "linked committed cost is counted by occurred_at, never reservation created_at");
+  assert.equal(capped.bucket, "tavus_monthly_trial");
+  assert.equal(capped.usage, 7);
+}
+
+function assertAiCommitPeriodBoundary(databaseUrl) {
+  const tenantId = fixture.tenantZeta;
+  const agentId = fixture.agentZeta;
+  const reservationId = "019f0000-0000-7000-8000-000000002460";
+  const costEventId = "019f0000-0000-7000-8000-000000003460";
+  assertSucceeded(runSql(databaseUrl, `INSERT INTO public.cost_events
+    (tenant_id,id,provider_id,service,unit_type,quantity,unit_cost_usd,amount_usd,source,occurred_at)
+    VALUES ('${tenantId}','019f0000-0000-7000-8000-000000004460','openrouter','ai.period.boundary.fixture','token',479389,0,0,'estimated',now());`),
+  "AI period-boundary baseline");
+  assert.equal(queryJson(databaseUrl, asRoleSql("service_role", null, `SELECT public.portal_begin_ai_usage_reservation_service(
+    '${reservationId}','${costEventId}','${tenantId}','${agentId}',null,
+    'ai-period-boundary-commit','brain_generation',20000,512,0.05
+  );`)).outcome, "reserved");
+  assert.equal(queryJson(databaseUrl, asRoleSql("service_role", null,
+    `SELECT public.portal_mark_ai_usage_in_flight_service('${reservationId}');`)).acquired, true);
+  assert.equal(queryJson(databaseUrl, asRoleSql("service_role", null,
+    `SELECT public.portal_commit_ai_usage_service('${reservationId}',60,40,null);`)).committed, true);
+  assertSucceeded(runSql(databaseUrl, `UPDATE public.ai_usage_reservations SET created_at=date_trunc('day',now())-interval '1 day'
+    WHERE id='${reservationId}';`), "simulate AI reservation created before UTC day but committed inside it");
+  const capped = queryJson(databaseUrl, asRoleSql("service_role", null, `SET TIME ZONE 'Pacific/Honolulu';
+    SELECT public.portal_begin_ai_usage_reservation_service(
+    '019f0000-0000-7000-8000-000000002461','019f0000-0000-7000-8000-000000003461','${tenantId}','${agentId}',null,
+    'ai-period-boundary-next','brain_generation',20000,512,0.05
+  ); RESET TIME ZONE;`));
+  assert.equal(capped.outcome, "capped", "linked AI cost is counted by occurred_at, never reservation created_at");
+  assert.equal(capped.bucket, "ai_tokens_daily");
+  assert.equal(capped.usage, 479489);
+}
+
+async function assertTavusNoDeliveryBudget(databaseUrl) {
+  const tenantId = fixture.tenantZeta;
+  const agentId = fixture.agentZeta;
+  assertSucceeded(runSql(databaseUrl, `INSERT INTO public.tenant_subscriptions
+    (id,tenant_id,stripe_customer_id,stripe_subscription_id,plan_id,status,current_period_start,current_period_end)
+    VALUES ('019f0000-0000-7000-8000-000000004470','${tenantId}','cus_HarnessZeta','sub_HarnessZeta','escala','active',date_trunc('month',now()),date_trunc('month',now())+interval '1 month');`),
+  "no-delivery budget subscription");
+
+  const pending = Array.from({ length: 2 }, (_, index) => ({
+    reservationId: `019f0000-0000-7000-8000-00000000248${index}`,
+    costEventId: `019f0000-0000-7000-8000-00000000348${index}`,
+    key: `no-delivery-pending-${index}`,
+  }));
+  for (const row of pending) {
+    assert.equal(queryJson(databaseUrl, asRoleSql("service_role", null, reservationInvocationSql(
+      tenantId, agentId, row.key, row.reservationId, row.costEventId,
+    ))).outcome, "reserved");
+  }
+  const pendingContenders = [
+    { reservationId: "019f0000-0000-7000-8000-000000002482", costEventId: "019f0000-0000-7000-8000-000000003482", key: "no-delivery-pending-2" },
+    { reservationId: "019f0000-0000-7000-8000-000000002483", costEventId: "019f0000-0000-7000-8000-000000003483", key: "no-delivery-pending-3" },
+  ];
+  const contenderResults = await Promise.all(pendingContenders.map((row) => runSqlAsync(databaseUrl,
+    asRoleSql("service_role", null, reservationInvocationSql(tenantId, agentId, row.key, row.reservationId, row.costEventId)))));
+  contenderResults.forEach((result) => assertSucceeded(result, "concurrent pending-delivery cap contender"));
+  const contenderReceipts = contenderResults.map((result) => parseLastJson(result.stdout));
+  assert.deepEqual(contenderReceipts.map((receipt) => receipt.outcome).sort(), ["capped", "reserved"],
+    "tenant serialization admits exactly one room at the pending-delivery boundary");
+  const winner = pendingContenders[contenderReceipts.findIndex((receipt) => receipt.outcome === "reserved")];
+  const heldRows = [...pending, winner];
+
+  const activated = heldRows[0];
+  const deliveredProviderRef = "no-delivery-human-delivered";
+  assert.equal(queryJson(databaseUrl, asRoleSql("service_role", null,
+    `SELECT public.portal_bind_tavus_webhook_capability_service('${activated.reservationId}','${"f".repeat(64)}');`)).acquired, true);
+  assert.equal(queryJson(databaseUrl, asRoleSql("service_role", null,
+    `SELECT public.portal_commit_provider_effect_service('${activated.reservationId}','${deliveredProviderRef}',null,null);`)).committed, true);
+  registerVideoTranscriptReceipt(databaseUrl, tenantId, agentId, activated.reservationId, deliveredProviderRef, "f".repeat(64));
+  assert.equal(queryJson(databaseUrl, asRoleSql("service_role", null,
+    `SELECT public.portal_activate_provider_effect_billing_service('${activated.reservationId}');`)).activated, true);
+
+  const afterActivation = queryJson(databaseUrl, asRoleSql("service_role", null, reservationInvocationSql(
+    tenantId, agentId, "no-delivery-after-activation", "019f0000-0000-7000-8000-000000002484", "019f0000-0000-7000-8000-000000003484",
+  )));
+  assert.equal(afterActivation.outcome, "reserved", "a proven human delivery leaves the no-delivery budget immediately");
+  for (const row of [...heldRows.slice(1), { reservationId: afterActivation.reservationId }]) {
+    assert.equal(queryScalar(databaseUrl, asRoleSql("service_role", null,
+      `SELECT public.portal_release_provider_effect_service('${row.reservationId}','not_dispatched');`)), "t");
+  }
+
+  const reconciledReservationId = "019f0000-0000-7000-8000-000000002485";
+  assert.equal(queryJson(databaseUrl, asRoleSql("service_role", null, reservationInvocationSql(
+    tenantId, agentId, "no-delivery-reconciled", reconciledReservationId, "019f0000-0000-7000-8000-000000003485",
+  ))).outcome, "reserved");
+  assert.equal(queryJson(databaseUrl, asRoleSql("service_role", null,
+    `SELECT public.portal_bind_tavus_webhook_capability_service('${reconciledReservationId}','${"e".repeat(64)}');`)).acquired, true);
+  assert.equal(queryScalar(databaseUrl, asRoleSql("service_role", null, `SELECT public.portal_reconcile_provider_effect_service(
+    '019f0000-0000-7000-8000-000000006485','${reconciledReservationId}','reconciliation_absent','tavus_lookup_absent_no_delivery_1'
+  );`)), "t", "a dispatched effect released by evidence still consumes no-delivery budget");
+
+  const interleavedHeld = [
+    { reservationId: "019f0000-0000-7000-8000-000000002486", costEventId: "019f0000-0000-7000-8000-000000003486", key: "no-delivery-interleaved-held-a" },
+    { reservationId: "019f0000-0000-7000-8000-000000002487", costEventId: "019f0000-0000-7000-8000-000000003487", key: "no-delivery-interleaved-held-b" },
+  ];
+  for (const row of interleavedHeld) {
+    assert.equal(queryJson(databaseUrl, asRoleSql("service_role", null, reservationInvocationSql(
+      tenantId, agentId, row.key, row.reservationId, row.costEventId,
+    ))).outcome, "reserved", "two held envelopes remain available beside one historical no-delivery attempt");
+  }
+  const interleavedCap = queryJson(databaseUrl, asRoleSql("service_role", null, reservationInvocationSql(
+    tenantId, agentId, "no-delivery-interleaved-cap", "019f0000-0000-7000-8000-000000002488", "019f0000-0000-7000-8000-000000003488",
+  )));
+  assert.deepEqual(
+    { outcome: interleavedCap.outcome, bucket: interleavedCap.bucket, usage: interleavedCap.usage, cap: interleavedCap.cap, pending: interleavedCap.pending, noDelivery: interleavedCap.noDelivery },
+    { outcome: "capped", bucket: "tavus_no_delivery_period", usage: 3, cap: 3, pending: 2, noDelivery: 1 },
+    "held plus historical no-delivery attempts share one total budget of three",
+  );
+  for (const row of interleavedHeld) {
+    assert.equal(queryScalar(databaseUrl, asRoleSql("service_role", null,
+      `SELECT public.portal_release_provider_effect_service('${row.reservationId}','not_dispatched');`)), "t");
+  }
+
+  for (let index = 0; index < 2; index += 1) {
+    const reservationId = `019f0000-0000-7000-8000-00000000249${index}`;
+    const costEventId = `019f0000-0000-7000-8000-00000000349${index}`;
+    const providerRef = `no-delivery-provider-${index}`;
+    assert.equal(queryJson(databaseUrl, asRoleSql("service_role", null, reservationInvocationSql(
+      tenantId, agentId, `no-delivery-voided-${index}`, reservationId, costEventId,
+    ))).outcome, "reserved");
+    assert.equal(queryJson(databaseUrl, asRoleSql("service_role", null,
+      `SELECT public.portal_bind_tavus_webhook_capability_service('${reservationId}','${String(index + 1).repeat(64)}');`)).acquired, true);
+    assert.equal(queryJson(databaseUrl, asRoleSql("service_role", null,
+      `SELECT public.portal_commit_provider_effect_service('${reservationId}','${providerRef}',null,null);`)).committed, true);
+    const noDeliveryDigest = String.fromCharCode(97 + index).repeat(64);
+    const noDeliveryClaim = `019f0000-0000-7000-8000-00000000649${index}`;
+    const noDeliveryObservedAt = new Date().toISOString();
+    assertSucceeded(runSql(databaseUrl, asRoleSql("service_role", null, `SELECT public.portal_register_provider_transcript_service(
+      '${reservationId}','${tenantId}','${agentId}','video','${providerRef}');`)), "register no-delivery provider transcript placeholder");
+    assert.equal(queryJson(databaseUrl, asRoleSql("service_role", null, `SELECT public.portal_claim_tavus_webhook_service(
+      '${reservationId}','${providerRef}','${String(index + 1).repeat(64)}','${noDeliveryDigest}','${noDeliveryClaim}','${noDeliveryObservedAt}');`)).outcome, "claimed");
+    assert.equal(queryJson(databaseUrl, asRoleSql("service_role", null,
+      `SELECT public.portal_record_tavus_no_delivery_service('${reservationId}','${providerRef}','${noDeliveryDigest}','participant_absent_timeout reached','${noDeliveryObservedAt}');`)).voided, true);
+  }
+  const monthlyCap = queryJson(databaseUrl, asRoleSql("service_role", null, reservationInvocationSql(
+    tenantId, agentId, "no-delivery-monthly-cap", "019f0000-0000-7000-8000-000000002493", "019f0000-0000-7000-8000-000000003493",
+  )));
+  assert.deepEqual({ outcome: monthlyCap.outcome, bucket: monthlyCap.bucket, usage: monthlyCap.usage, cap: monthlyCap.cap },
+    { outcome: "capped", bucket: "tavus_no_delivery_period", usage: 3, cap: 3 },
+    "provider-paid rooms without delivery are bounded per billing period");
+}
+
+function assertRecallDailyPaidAttemptBudget(databaseUrl) {
+  const tenantId = fixture.tenantZeta;
+  const agentId = fixture.agentZeta;
+  for (let index = 0; index < 20; index += 1) {
+    const suffix = String(7000 + index).padStart(12, "0");
+    const reservationId = `019f0000-0000-7000-8000-${suffix}`;
+    const costEventId = `019f0000-0000-7000-8001-${suffix}`;
+    const providerRef = `recall-daily-paid-${index}`;
+    assert.equal(queryJson(databaseUrl, asRoleSql("service_role", null, reservationInvocationSql(
+      tenantId, agentId, `recall-daily-paid-${index}`, reservationId, costEventId, "recall",
+    ))).outcome, "reserved", `Recall paid attempt ${index + 1} is inside the daily budget`);
+    assert.equal(queryJson(databaseUrl, asRoleSql("service_role", null,
+      `SELECT public.portal_mark_provider_effect_in_flight_service('${reservationId}');`)).acquired, true);
+    assert.equal(queryJson(databaseUrl, asRoleSql("service_role", null,
+      `SELECT public.portal_commit_provider_effect_service('${reservationId}','${providerRef}',null,null);`)).committed, true);
+    if (index % 3 === 0) {
+      assert.equal(queryScalar(databaseUrl, asRoleSql("service_role", null,
+        `SELECT public.portal_complete_provider_effect_service('${reservationId}');`)), "t");
+    } else if (index % 3 === 1) {
+      assert.equal(queryScalar(databaseUrl, asRoleSql("service_role", null,
+        `SELECT public.portal_mark_provider_effect_cleanup_pending_service('${reservationId}','${providerRef}','test_compensation');`)), "t");
+      const receiptId = `019f0000-0000-7000-8002-${suffix}`;
+      assert.equal(queryScalar(databaseUrl, asRoleSql("service_role", null,
+        `SELECT public.portal_reconcile_provider_effect_service('${receiptId}','${reservationId}','compensation_confirmed','recall:end:daily:${index}');`)), "t");
+    }
+  }
+  const capped = queryJson(databaseUrl, asRoleSql("service_role", null, reservationInvocationSql(
+    tenantId, agentId, "recall-daily-paid-20", "019f0000-0000-7000-8000-000000007020", "019f0000-0000-7000-8001-000000007020", "recall",
+  )));
+  assert.deepEqual(
+    { outcome: capped.outcome, bucket: capped.bucket, usage: capped.usage, cap: capped.cap },
+    { outcome: "capped", bucket: "recall_bot_daily", usage: 20, cap: 20 },
+    "completed and compensated Recall effects remain in the daily financial budget",
+  );
+  assert.equal(queryScalar(databaseUrl, "SELECT count(*) FROM public.cost_events WHERE tenant_id='019f0000-0000-7000-8000-000000000006' AND provider_id='recall' AND service='portal.meeting_bot_session';"), "20");
+  assert.equal(queryScalar(databaseUrl, `SELECT count(*) FROM public.provider_effect_reservations
+    WHERE tenant_id='${tenantId}' AND provider_id='recall' AND state='committed';`), "6",
+  "the daily ledger budget includes paid effects that are still committed");
+}
+
+async function assertStaleReservedSweepFencing(databaseUrl) {
+  const providerReservation = "019f0000-0000-7000-8000-000000002470";
+  const aiReservation = "019f0000-0000-7000-8000-000000002471";
+  const aiInFlightReservation = "019f0000-0000-7000-8000-000000002473";
+  const recallReservation = "019f0000-0000-7000-8000-000000002475";
+  assert.equal(queryJson(databaseUrl, asRoleSql("service_role", null, reservationInvocationSql(
+    fixture.tenantDelta, fixture.agentDelta, "stale-reserved-provider", providerReservation,
+    "019f0000-0000-7000-8000-000000003470",
+  ))).outcome, "reserved");
+  assert.equal(queryJson(databaseUrl, asRoleSql("service_role", null, reservationInvocationSql(
+    fixture.tenantZeta, fixture.agentZeta, "stale-reserved-recall", recallReservation,
+    "019f0000-0000-7000-8000-000000003475", "recall",
+  ))).outcome, "reserved");
+  assert.equal(queryJson(databaseUrl, asRoleSql("service_role", null, `SELECT public.portal_begin_ai_usage_reservation_service(
+    '${aiReservation}','019f0000-0000-7000-8000-000000003471','${fixture.tenantDelta}','${fixture.agentDelta}',null,
+    'ai-stale-reserved-sweep','brain_generation',20000,512,0.05
+  );`)).outcome, "reserved");
+  assert.equal(queryJson(databaseUrl, asRoleSql("service_role", null, `SELECT public.portal_begin_ai_usage_reservation_service(
+    '${aiInFlightReservation}','019f0000-0000-7000-8000-000000003473','${fixture.tenantZeta}','${fixture.agentZeta}',null,
+    'ai-stale-inflight-sweep','knowledge_query_embedding',1000,0,0.001
+  );`)).outcome, "reserved");
+  assert.equal(queryJson(databaseUrl, asRoleSql("service_role", null,
+    `SELECT public.portal_mark_ai_usage_in_flight_service('${aiInFlightReservation}');`)).acquired, true);
+  assertSucceeded(runSql(databaseUrl, `UPDATE public.provider_effect_reservations SET created_at=now()-interval '11 minutes' WHERE id='${providerReservation}';
+    UPDATE public.provider_effect_reservations SET created_at=now()-interval '11 minutes' WHERE id='${recallReservation}';
+    UPDATE public.ai_usage_reservations SET created_at=now()-interval '11 minutes' WHERE id='${aiReservation}';
+    UPDATE public.ai_usage_reservations SET provider_dispatched_at=now()-interval '11 minutes' WHERE id='${aiInFlightReservation}';`), "stale reservation and dispatched-AI sweep fixtures");
+  assert.deepEqual(queryJson(databaseUrl, asRoleSql("service_role", null,
+    "SELECT public.portal_lease_provider_effect_reconciliation_service('019f0000-0000-7000-8000-000000006700',1,60);")), []);
+  assert.equal(queryScalar(databaseUrl, `SELECT state FROM public.provider_effect_reservations WHERE id='${providerReservation}';`), "released");
+  assert.equal(queryScalar(databaseUrl, `SELECT state FROM public.provider_effect_reservations WHERE id='${recallReservation}';`), "released");
+  assert.equal(queryScalar(databaseUrl, `SELECT state FROM public.ai_usage_reservations WHERE id='${aiReservation}';`), "released");
+  assert.equal(queryScalar(databaseUrl, `SELECT state FROM public.ai_usage_reservations WHERE id='${aiInFlightReservation}';`), "unknown",
+    "process loss after the AI dispatch fence becomes a durable unknown barrier");
+  assert.equal(queryJson(databaseUrl, asRoleSql("service_role", null,
+    `SELECT public.portal_bind_tavus_webhook_capability_service('${providerReservation}','${"7".repeat(64)}');`)).acquired, false,
+  "a swept provider reservation can never cross the dispatch fence");
+  assert.equal(queryJson(databaseUrl, asRoleSql("service_role", null,
+    `SELECT public.portal_mark_provider_effect_in_flight_service('${recallReservation}');`)).acquired, false,
+  "a swept Recall reservation can never cross the generic dispatch fence");
+  assert.equal(queryJson(databaseUrl, asRoleSql("service_role", null,
+    `SELECT public.portal_mark_ai_usage_in_flight_service('${aiReservation}');`)).acquired, false,
+  "a swept AI reservation can never cross the dispatch fence");
+  assert.equal(queryJson(databaseUrl, asRoleSql("service_role", null, `SELECT public.portal_begin_ai_usage_reservation_service(
+    '019f0000-0000-7000-8000-000000002474','019f0000-0000-7000-8000-000000003474','${fixture.tenantZeta}','${fixture.agentZeta}',null,
+    'ai-after-stale-inflight','knowledge_query_embedding',1000,0,0.001
+  );`)).outcome, "blocked_unknown", "an aged dispatched AI effect never reopens spend automatically");
+
+  const racedReservation = "019f0000-0000-7000-8000-000000002472";
+  assert.equal(queryJson(databaseUrl, asRoleSql("service_role", null, reservationInvocationSql(
+    fixture.tenantDelta, fixture.agentDelta, "stale-sweep-bind-race", racedReservation,
+    "019f0000-0000-7000-8000-000000003472",
+  ))).outcome, "reserved");
+  assertSucceeded(runSql(databaseUrl, `UPDATE public.provider_effect_reservations SET created_at=now()-interval '11 minutes' WHERE id='${racedReservation}';`), "sweep x bind race fixture");
+  const [sweep, bind] = await Promise.all([
+    runSqlAsync(databaseUrl, asRoleSql("service_role", null,
+      "SELECT public.portal_lease_provider_effect_reconciliation_service('019f0000-0000-7000-8000-000000006701',1,60);")),
+    runSqlAsync(databaseUrl, asRoleSql("service_role", null,
+      `SELECT public.portal_bind_tavus_webhook_capability_service('${racedReservation}','${"6".repeat(64)}');`)),
+  ]);
+  assertSucceeded(sweep, "stale reservation sweeper contender");
+  assertSucceeded(bind, "provider dispatch fence contender");
+  assert.equal(parseLastJson(bind.stdout).acquired, false,
+    "an 11-minute-old reservation can never win the provider dispatch fence");
+  assert.equal(queryScalar(databaseUrl, `SELECT state FROM public.provider_effect_reservations WHERE id='${racedReservation}';`), "released",
+    "the stale sweeper is the only legal winner after the dispatch deadline");
+}
+
+function reservationInvocationSql(tenantId, agentId, idempotencyKey, reservationId, costEventId, provider = "tavus") {
+  const tavus = provider === "tavus";
+  return `SELECT public.portal_begin_provider_effect_service(
+    '${reservationId}', '${costEventId}', '${tenantId}', '${agentId}', '${idempotencyKey}',
+    '${provider}', '${tavus ? "tavus_conversation" : "recall_bot"}', '${tavus ? "tavus_video_daily" : "recall_bot_active"}', null,
+    'axtro_conversation_overage', ${tavus ? "600" : "null"}
+  );`;
+}
+
+function assertUnknownBarrier(databaseUrl) {
+  const reservationId = "019f0000-0000-7000-8000-000000002020";
+  const reserveSql = reservationInvocationSql(
+    fixture.tenantBeta, fixture.agentBeta, "unknown-case", reservationId,
+    "019f0000-0000-7000-8000-000000003020", "recall",
+  );
+  assert.equal(queryJson(databaseUrl, asRoleSql("service_role", null, reserveSql)).outcome, "reserved");
+  const mark = runSql(databaseUrl, asRoleSql("service_role", null, `
+    SELECT public.portal_mark_provider_effect_in_flight_service('${reservationId}');
+    SELECT public.portal_mark_provider_effect_unknown_service('${reservationId}', 'ambiguous_timeout');
+  `));
+  assertSucceeded(mark, "provider reservation unknown transition");
+  const blocked = queryJson(databaseUrl, asRoleSql("service_role", null, reserveSql));
+  assert.equal(blocked.outcome, "blocked_unknown");
+  assert.equal(queryScalar(databaseUrl, `SELECT state FROM public.provider_effect_reservations WHERE id = '${reservationId}';`), "unknown");
+  assertFailed(runSql(databaseUrl, asRoleSql("service_role", null,
+    `SELECT public.portal_release_provider_effect_service('${reservationId}', 'provider_rejected');`)),
+  "request-path release rejects any post-dispatch evidence");
+  assert.equal(queryScalar(databaseUrl, asRoleSql("service_role", null,
+    `SELECT public.portal_release_provider_effect_service('${reservationId}', 'not_dispatched');`)), "f",
+  "pre-dispatch evidence cannot release an effect after the dispatch fence");
+  const bypass = queryJson(databaseUrl, asRoleSql("service_role", null, reservationInvocationSql(
+    fixture.tenantBeta, fixture.agentBeta, "unknown-case:retry:1", "019f0000-0000-7000-8000-000000002021", "019f0000-0000-7000-8000-000000003021", "recall",
+  )));
+  assert.equal(bypass.outcome, "blocked_unknown", "a new command id cannot bypass an unresolved logical effect");
+  const reconcileSql = `SELECT public.portal_reconcile_provider_effect_service(
+    '019f0000-0000-7000-8000-000000003022','${reservationId}','reconciliation_absent','recall_lookup_absent_0001'
+  );`;
+  assert.equal(queryScalar(databaseUrl, asRoleSql("service_role", null, reconcileSql)), "t", "persisted reconciliation releases unknown");
+  assert.equal(queryScalar(databaseUrl, asRoleSql("service_role", null, reconcileSql)), "t", "same reconciliation receipt replays successfully");
+  assertFailed(runSql(databaseUrl, asRoleSql("service_role", null, `SELECT public.portal_reconcile_provider_effect_service(
+    '019f0000-0000-7000-8000-000000003023','${reservationId}','reconciliation_absent','recall_lookup_absent_0001'
+  );`)), "conflicting reconciliation receipt is closed");
+  const releasedReplay = queryJson(databaseUrl, asRoleSql("service_role", null, reserveSql));
+  assert.equal(releasedReplay.state, "released");
+  assert.equal(releasedReplay.retryGeneration, 1, "released replay exposes the exact derived-key generation");
+  assert.equal(queryScalar(databaseUrl, `SELECT count(*) FROM public.provider_effect_reconciliation_receipts WHERE reservation_id='${reservationId}';`), "1");
+
+  const foreignReservationId = "019f0000-0000-7000-8000-000000002024";
+  assert.equal(queryJson(databaseUrl, asRoleSql("service_role", null, reservationInvocationSql(
+    fixture.tenantGamma, fixture.agentGamma, "receipt-ref-global-owner", foreignReservationId,
+    "019f0000-0000-7000-8000-000000003024", "recall",
+  ))).outcome, "reserved");
+  assert.equal(queryJson(databaseUrl, asRoleSql("service_role", null,
+    `SELECT public.portal_mark_provider_effect_in_flight_service('${foreignReservationId}');`)).acquired, true);
+  assert.equal(queryScalar(databaseUrl, asRoleSql("service_role", null,
+    `SELECT public.portal_mark_provider_effect_unknown_service('${foreignReservationId}','ambiguous_timeout');`)), "t");
+  assertFailed(runSql(databaseUrl, asRoleSql("service_role", null, `SELECT public.portal_reconcile_provider_effect_service(
+    '019f0000-0000-7000-8000-000000003025','${foreignReservationId}','reconciliation_absent','recall_lookup_absent_0001'
+  );`)), "one provider reconciliation receipt reference cannot release a second tenant reservation");
+  assert.equal(queryScalar(databaseUrl, `SELECT state FROM public.provider_effect_reservations WHERE id='${foreignReservationId}';`), "unknown",
+  "provider receipt reuse conflicts without mutating the foreign reservation");
+  assert.equal(queryScalar(databaseUrl, `SELECT count(*) FROM public.provider_effect_reconciliation_receipts
+    WHERE provider_receipt_ref='recall_lookup_absent_0001';`), "1");
+  assert.equal(queryScalar(databaseUrl, asRoleSql("service_role", null, `SELECT public.portal_reconcile_provider_effect_service(
+    '019f0000-0000-7000-8000-000000003026','${foreignReservationId}','reconciliation_absent','recall_lookup_absent_0002'
+  );`)), "t", "a distinct provider receipt resolves the foreign reservation without weakening the global uniqueness fence");
+
+  const retry = queryJson(databaseUrl, asRoleSql("service_role", null, reservationInvocationSql(
+    fixture.tenantBeta, fixture.agentBeta, "unknown-case:retry:1", "019f0000-0000-7000-8000-000000002021", "019f0000-0000-7000-8000-000000003021", "recall",
+  )));
+  assert.equal(retry.outcome, "reserved", "the exact released generation suffix acquires a new reservation after reconciliation");
+  assert.equal(queryScalar(databaseUrl, asRoleSql("service_role", null,
+    "SELECT public.portal_release_provider_effect_service('019f0000-0000-7000-8000-000000002021','not_dispatched');")), "t", "request-path pre-dispatch release CAS succeeds only while reserved");
+}
+
+function assertFinalizeRollbackAndIdempotency(databaseUrl) {
+  const reservationId = "019f0000-0000-7000-8000-000000002010";
+  const costEventId = "019f0000-0000-7000-8000-000000002011";
+  assertSucceeded(runSql(databaseUrl, `
+    UPDATE public.tenant_subscriptions SET stripe_customer_id='cus_HarnessBeta',stripe_subscription_id='sub_HarnessBeta',
+      plan_id='piloto',status='active',current_period_start=date_trunc('month',now()),current_period_end=date_trunc('month',now())+interval '1 month'
+      WHERE tenant_id='${fixture.tenantBeta}';
+    INSERT INTO public.cost_events (tenant_id,id,provider_id,service,unit_type,quantity,unit_cost_usd,amount_usd,source,occurred_at) VALUES
+      ('${fixture.tenantBeta}','019f0000-0000-7000-8000-000000004102','tavus','overage.fixture','conversation',1,0,0,'estimated',now()),
+      ('${fixture.tenantBeta}','019f0000-0000-7000-8000-000000004103','tavus','overage.fixture','conversation',1,0,0,'estimated',now()),
+      ('${fixture.tenantBeta}','019f0000-0000-7000-8000-000000004104','tavus','overage.fixture','conversation',1,0,0,'estimated',now());
+  `), "active Pilot fixture reaches the overage ordinal before finalize");
+  const reserve = queryJson(databaseUrl, asRoleSql("service_role", null,
+    reservationInvocationSql(fixture.tenantBeta, fixture.agentBeta, "finalize-case", reservationId, costEventId)));
+  assert.equal(reserve.outcome, "reserved");
+  assert.equal(reserve.billableOverage, false);
+  assert.equal(reserve.customerDeliveryState, "held");
+  assert.equal(queryJson(databaseUrl, asRoleSql("service_role", null,
+    `SELECT public.portal_bind_tavus_webhook_capability_service('${reservationId}','${"8".repeat(64)}');`)).acquired, true,
+  "Tavus finalize fixture crosses the provider fence with a callback capability");
+
+  assertSucceeded(runSql(databaseUrl, `ALTER TABLE public.cost_events
+    ADD CONSTRAINT harness_reject_finalize_cost CHECK (service <> 'portal.video_conversation') NOT VALID;`), "temporary finalize failure injection");
+  const invalidFinalize = runSql(databaseUrl, asRoleSql("service_role", null, `
+    SELECT public.portal_commit_provider_effect_service('${reservationId}', 'provider-ref-final', null, null);
+  `));
+  assertFailed(invalidFinalize, "cost ledger conflict rejects the entire commit transaction");
+  assert.equal(queryScalar(databaseUrl, `SELECT state || ':' || coalesce(provider_ref, '') FROM public.provider_effect_reservations WHERE id = '${reservationId}';`), "provider_in_flight:");
+  assert.equal(queryScalar(databaseUrl, `SELECT count(*) FROM public.cost_events WHERE tenant_id='${fixture.tenantBeta}' AND id='${costEventId}';`), "0");
+  assert.equal(queryScalar(databaseUrl, `SELECT count(*) FROM public.billing_usage_outbox WHERE reservation_id='${reservationId}';`), "0", "cost and billing outbox roll back atomically");
+  assertSucceeded(runSql(databaseUrl, "ALTER TABLE public.cost_events DROP CONSTRAINT harness_reject_finalize_cost;"), "remove finalize failure injection");
+
+  const finalized = queryJson(databaseUrl, asRoleSql("service_role", null, `
+    SELECT public.portal_commit_provider_effect_service('${reservationId}', 'provider-ref-final', null, null);
+  `));
+  assert.equal(finalized.committed, true);
+  assert.equal(finalized.replayed, false);
+  const replay = queryJson(databaseUrl, asRoleSql("service_role", null, `
+    SELECT public.portal_commit_provider_effect_service('${reservationId}', 'provider-ref-final', null, null);
+  `));
+  assert.equal(replay.committed, true);
+  assert.equal(replay.replayed, true);
+  const beginAfterCommit = queryJson(databaseUrl, asRoleSql("service_role", null,
+    reservationInvocationSql(fixture.tenantBeta, fixture.agentBeta, "finalize-case", "019f0000-0000-7000-8000-000000002012", "019f0000-0000-7000-8000-000000002013")));
+  assert.equal(beginAfterCommit.reservationId, reservationId);
+  assert.equal(beginAfterCommit.customerDeliveryState, "held", "crash recovery distinguishes provider commit from customer delivery");
+  assert.equal(queryScalar(databaseUrl, `SELECT count(*) FROM public.cost_events WHERE id = '${costEventId}';`), "1");
+  assert.equal(queryScalar(databaseUrl, `SELECT customer_delivery_state FROM public.provider_effect_reservations WHERE id='${reservationId}';`), "held");
+  assert.equal(queryScalar(databaseUrl, `SELECT count(*) FROM public.billing_usage_outbox WHERE reservation_id='${reservationId}';`), "0", "commit records provider cost without charging before customer delivery");
+  registerVideoTranscriptReceipt(databaseUrl, fixture.tenantBeta, fixture.agentBeta, reservationId, "provider-ref-final", "8".repeat(64));
+  assertSucceeded(runSql(databaseUrl, `ALTER TABLE public.billing_usage_outbox
+    ADD CONSTRAINT harness_reject_activation_outbox CHECK (meter_event_name <> 'axtro_conversation_overage') NOT VALID;`), "temporary activation outbox failure injection");
+  assertFailed(runSql(databaseUrl, asRoleSql("service_role", null,
+    `SELECT public.portal_activate_provider_effect_billing_service('${reservationId}');`)), "outbox conflict rejects the entire activation transaction");
+  assert.equal(queryScalar(databaseUrl, `SELECT customer_delivery_state || ':' || coalesce(stripe_customer_id,'') FROM public.provider_effect_reservations WHERE id='${reservationId}';`), "held:");
+  assert.equal(queryScalar(databaseUrl, `SELECT count(*) FROM public.billing_usage_outbox WHERE reservation_id='${reservationId}';`), "0");
+  assertSucceeded(runSql(databaseUrl, "ALTER TABLE public.billing_usage_outbox DROP CONSTRAINT harness_reject_activation_outbox;"), "remove activation outbox failure injection");
+  const activated = queryJson(databaseUrl, asRoleSql("service_role", null,
+    `SELECT public.portal_activate_provider_effect_billing_service('${reservationId}');`));
+  assert.deepEqual(activated, { activated: true, replayed: false, customerDeliveryState: "activated", billableOverage: true });
+  const activationReplay = queryJson(databaseUrl, asRoleSql("service_role", null,
+    `SELECT public.portal_activate_provider_effect_billing_service('${reservationId}');`));
+  assert.deepEqual(activationReplay, { activated: true, replayed: true, customerDeliveryState: "activated", billableOverage: true });
+  assert.equal(queryScalar(databaseUrl, `SELECT count(*) FROM public.billing_usage_outbox WHERE reservation_id='${reservationId}' AND billing_period_start IS NOT NULL AND meter_event_name='axtro_conversation_overage';`), "1");
+  assert.equal(queryScalar(databaseUrl, `SELECT id=cost_event_id AND id='${costEventId}'::app.uuid_v7 FROM public.billing_usage_outbox WHERE reservation_id='${reservationId}';`), "t",
+    "billing outbox reuses the application-generated one-to-one cost UUIDv7 identity");
+}
+
+function assertActivationBillingSnapshotRollover(databaseUrl) {
+  const reservationId = "019f0000-0000-7000-8000-000000002150";
+  createCommittedEffect(databaseUrl, fixture.tenantBeta, fixture.agentBeta, "billing-rollover", reservationId, "019f0000-0000-7000-8000-000000003150");
+  assert.equal(queryScalar(databaseUrl, `SELECT billing_period_start IS NULL AND stripe_customer_id IS NULL FROM public.provider_effect_reservations WHERE id='${reservationId}';`), "t",
+    "begin does not poison delivery with a pre-activation billing snapshot");
+  assertSucceeded(runSql(databaseUrl, `UPDATE public.tenant_subscriptions SET plan_id='crescimento',stripe_customer_id='cus_HarnessBetaNew',
+    current_period_start=date_trunc('day',now()),current_period_end=date_trunc('day',now())+interval '1 month' WHERE tenant_id='${fixture.tenantBeta}';`), "subscription rollover fixture");
+  const receipt = queryJson(databaseUrl, asRoleSql("service_role", null,
+    `SELECT public.portal_activate_provider_effect_billing_service('${reservationId}');`));
+  assert.equal(receipt.activated, true);
+  assert.equal(queryScalar(databaseUrl, `SELECT stripe_customer_id||':'||included_quantity::text FROM public.provider_effect_reservations WHERE id='${reservationId}';`), "cus_HarnessBetaNew:30");
+  assert.equal(queryScalar(databaseUrl, `SELECT customer_activated_at=customer_delivery_receipt_at AND meter_event_at=customer_activated_at FROM public.provider_effect_reservations WHERE id='${reservationId}';`), "t");
+  assertSucceeded(runSql(databaseUrl, `UPDATE public.tenant_subscriptions SET plan_id='piloto',stripe_customer_id='cus_HarnessBeta',
+    current_period_start=date_trunc('month',now()),current_period_end=date_trunc('month',now())+interval '1 month' WHERE tenant_id='${fixture.tenantBeta}';`), "restore Pilot subscription fixture");
+}
+
+function assertBillingUsageLifecycle(databaseUrl) {
+  const reservationId = "019f0000-0000-7000-8000-000000002010";
+  const firstToken = "019f0000-0000-7000-8000-000000005001";
+  const secondToken = "019f0000-0000-7000-8000-000000005002";
+  const thirdToken = "019f0000-0000-7000-8000-000000005003";
+  const leased = queryJson(databaseUrl, asRoleSql("service_role", null,
+    `SELECT public.portal_lease_billing_usage_service('${firstToken}',20,60);`));
+  assert.equal(leased.length, 1);
+  assert.equal(leased[0].reservationId, reservationId);
+  assert.equal(leased[0].eventName, "axtro_conversation_overage");
+  assert.equal(typeof leased[0].billingPeriodStart, "string");
+  assert.equal(typeof leased[0].billingPeriodEnd, "string");
+  assert.equal(typeof leased[0].meterEventAt, "string");
+
+  assertSucceeded(runSql(databaseUrl, `UPDATE public.billing_usage_outbox SET lease_until=now()-interval '1 second' WHERE reservation_id='${reservationId}';`), "expire first billing lease deterministically");
+  const reclaimed = queryJson(databaseUrl, asRoleSql("service_role", null,
+    `SELECT public.portal_lease_billing_usage_service('${secondToken}',20,60);`));
+  assert.equal(reclaimed.length, 1);
+  assert.equal(reclaimed[0].attempts, 2);
+  const outboxId = reclaimed[0].id;
+  assert.equal(queryScalar(databaseUrl, asRoleSql("service_role", null,
+    `SELECT public.portal_ack_billing_usage_service('${outboxId}','${firstToken}');`)), "f", "stale lease token cannot ack");
+  assert.equal(queryScalar(databaseUrl, asRoleSql("service_role", null,
+    `SELECT public.portal_fail_billing_usage_service('${outboxId}','${firstToken}','stale',5,false);`)), "f", "stale lease token cannot fail");
+  assert.equal(queryScalar(databaseUrl, asRoleSql("service_role", null,
+    `SELECT public.portal_fail_billing_usage_service('${outboxId}','${secondToken}','stripe_503',5,false);`)), "t");
+  assertSucceeded(runSql(databaseUrl, `UPDATE public.billing_usage_outbox SET available_at=now() WHERE id='${outboxId}';`), "advance retry availability deterministically");
+  const terminalLease = queryJson(databaseUrl, asRoleSql("service_role", null,
+    `SELECT public.portal_lease_billing_usage_service('${thirdToken}',20,60);`));
+  assert.equal(terminalLease.length, 1);
+  assert.equal(queryScalar(databaseUrl, asRoleSql("service_role", null,
+    `SELECT public.portal_fail_billing_usage_service('${outboxId}','${thirdToken}','invalid_meter',5,true);`)), "t");
+  assert.equal(queryScalar(databaseUrl, `SELECT status FROM public.billing_usage_outbox WHERE id='${outboxId}';`), "dead_letter");
+
+  const voidReservation = createCommittedOverageEffect(databaseUrl, "void-case", "019f0000-0000-7000-8000-000000002040", "019f0000-0000-7000-8000-000000003040");
+  assert.equal(queryScalar(databaseUrl, asRoleSql("service_role", null,
+    `SELECT public.portal_void_unleased_billing_usage_service('${voidReservation}','post_provider_delivery_failure');`)), "t");
+  assert.equal(queryScalar(databaseUrl, `SELECT customer_delivery_state FROM public.provider_effect_reservations WHERE id='${voidReservation}';`), "voided");
+  assert.equal(queryScalar(databaseUrl, `SELECT count(*) FROM public.billing_usage_outbox WHERE reservation_id='${voidReservation}';`), "0", "void before activation cannot create a charge");
+  const voidActivation = queryJson(databaseUrl, asRoleSql("service_role", null,
+    `SELECT public.portal_activate_provider_effect_billing_service('${voidReservation}');`));
+  assert.deepEqual(voidActivation, { activated: false, replayed: true, customerDeliveryState: "voided", billableOverage: false });
+  assert.equal(queryScalar(databaseUrl, asRoleSql("service_role", null,
+    `SELECT public.portal_void_unleased_billing_usage_service('${voidReservation}','post_provider_delivery_failure');`)), "t", "void receipt is idempotently resolved");
+
+  const ackReservation = createCommittedOverageEffect(databaseUrl, "ack-case", "019f0000-0000-7000-8000-000000002041", "019f0000-0000-7000-8000-000000003041");
+  assert.equal(queryJson(databaseUrl, asRoleSql("service_role", null,
+    `SELECT public.portal_activate_provider_effect_billing_service('${ackReservation}');`)).activated, true);
+  const ackToken = "019f0000-0000-7000-8000-000000005004";
+  const ackLease = queryJson(databaseUrl, asRoleSql("service_role", null,
+    `SELECT public.portal_lease_billing_usage_service('${ackToken}',20,60);`));
+  assert.equal(ackLease.length, 1);
+  assert.equal(ackLease[0].reservationId, ackReservation);
+  assert.equal(queryScalar(databaseUrl, asRoleSql("service_role", null,
+    `SELECT public.portal_void_unleased_billing_usage_service('${ackReservation}','too_late');`)), "f", "a leased usage unit cannot be voided");
+  assert.equal(queryScalar(databaseUrl, asRoleSql("service_role", null,
+    `SELECT public.portal_ack_billing_usage_service('${ackLease[0].id}','${ackToken}');`)), "t");
+  const backlog = queryJson(databaseUrl, asRoleSql("service_role", null, "SELECT public.portal_billing_usage_backlog_service();"));
+  assert.equal(backlog.pending, 0);
+  assert.equal(backlog.deadLetter, 1);
+  assert.equal(backlog.oldestAgeSeconds, 0);
+  assert.equal(backlog.held, 0);
+  assert.equal(backlog.oldestHeldAgeSeconds, 0);
+}
+
+function createCommittedOverageEffect(databaseUrl, idempotencyKey, reservationId, costEventId) {
+  const reserve = queryJson(databaseUrl, asRoleSql("service_role", null,
+    reservationInvocationSql(fixture.tenantBeta, fixture.agentBeta, idempotencyKey, reservationId, costEventId)));
+  assert.equal(reserve.outcome, "reserved");
+  assert.equal(reserve.billableOverage, false);
+  assert.equal(reserve.customerDeliveryState, "held");
+  assert.equal(queryJson(databaseUrl, asRoleSql("service_role", null,
+    `SELECT public.portal_bind_tavus_webhook_capability_service('${reservationId}','${"9".repeat(64)}');`)).acquired, true);
+  assert.equal(queryJson(databaseUrl, asRoleSql("service_role", null,
+    `SELECT public.portal_commit_provider_effect_service('${reservationId}','provider-${idempotencyKey}',null,null);`)).committed, true);
+  registerVideoTranscriptReceipt(databaseUrl, fixture.tenantBeta, fixture.agentBeta, reservationId, `provider-${idempotencyKey}`, "9".repeat(64));
+  return reservationId;
+}
+
+async function assertConcurrentActivationOrdinal(databaseUrl) {
+  assertSucceeded(runSql(databaseUrl, `
+    UPDATE public.tenant_subscriptions SET stripe_customer_id='cus_HarnessGamma',stripe_subscription_id='sub_HarnessGamma',
+      plan_id='piloto',status='active',current_period_start=date_trunc('month',now()),current_period_end=date_trunc('month',now())+interval '1 month'
+      WHERE tenant_id='${fixture.tenantGamma}';
+    ${Array.from({ length: 6 }, (_, index) => `INSERT INTO public.cost_events (tenant_id,id,provider_id,service,unit_type,quantity,unit_cost_usd,amount_usd,source,occurred_at)
+      VALUES ('${fixture.tenantGamma}','019f0000-0000-7000-8000-${String(4201 + index).padStart(12, "0")}','tavus','activation.ordinal.fixture','conversation',1,0,0,'estimated',now());`).join("\n")}
+  `), "activation ordinal fixtures");
+  const firstReservation = "019f0000-0000-7000-8000-000000002200";
+  const secondReservation = "019f0000-0000-7000-8000-000000002201";
+  createCommittedEffect(databaseUrl, fixture.tenantGamma, fixture.agentGamma, "activation-parallel-a", firstReservation, "019f0000-0000-7000-8000-000000003200");
+  createCommittedEffect(databaseUrl, fixture.tenantGamma, fixture.agentGamma, "activation-parallel-b", secondReservation, "019f0000-0000-7000-8000-000000003201");
+  const backlogBefore = queryJson(databaseUrl, asRoleSql("service_role", null, "SELECT public.portal_billing_usage_backlog_service();"));
+  assert.equal(backlogBefore.held, 2, "committed delivery gaps remain observable before activation");
+  const [first, second] = await Promise.all([
+    runSqlAsync(databaseUrl, asRoleSql("service_role", null, `SELECT public.portal_activate_provider_effect_billing_service('${firstReservation}');`)),
+    runSqlAsync(databaseUrl, asRoleSql("service_role", null, `SELECT public.portal_activate_provider_effect_billing_service('${secondReservation}');`)),
+  ]);
+  assertSucceeded(first, "first concurrent billing activation");
+  assertSucceeded(second, "second concurrent billing activation");
+  const receipts = [parseLastJson(first.stdout), parseLastJson(second.stdout)];
+  assert.deepEqual(receipts.map((row) => row.billableOverage).sort(), [false, true], "tenant serialization assigns the exact Pilot threshold ordinal");
+  assert.equal(queryScalar(databaseUrl, `SELECT count(*) FROM public.billing_usage_outbox WHERE tenant_id='${fixture.tenantGamma}';`), "1", "two threshold activations produce exactly one overage unit");
+}
+
+async function assertTerminalActivationRace(databaseUrl) {
+  const recallReservationId = "019f0000-0000-7000-8000-000000002250";
+  const tavusReservationId = "019f0000-0000-7000-8000-000000002251";
+  const botId = "10000000-0000-4000-8000-000000002250";
+  const conversationId = "conversation-terminal-race-2250";
+  const deliveryId = "webhook-terminal-before-session-2250";
+  const deliveryDigest = "d".repeat(64);
+  const deliveryToken = "019f0000-0000-7000-8000-000000006250";
+  assert.equal(queryJson(databaseUrl, asRoleSql("service_role", null,
+    reservationInvocationSql(fixture.tenantGamma, fixture.agentGamma, "terminal-recall-race", recallReservationId, "019f0000-0000-7000-8000-000000003250", "recall"))).outcome, "reserved");
+  assert.equal(queryJson(databaseUrl, asRoleSql("service_role", null,
+    reservationInvocationSql(fixture.tenantGamma, fixture.agentGamma, "terminal-tavus-race", tavusReservationId, "019f0000-0000-7000-8000-000000003251", "tavus"))).outcome, "reserved");
+  assert.equal(queryJson(databaseUrl, asRoleSql("service_role", null,
+    `SELECT public.portal_mark_provider_effect_in_flight_service('${recallReservationId}');`)).acquired, true);
+  assert.equal(queryJson(databaseUrl, asRoleSql("service_role", null,
+    `SELECT public.portal_bind_tavus_webhook_capability_service('${tavusReservationId}','${"c".repeat(64)}');`)).acquired, true);
+  assert.equal(queryJson(databaseUrl, asRoleSql("service_role", null,
+    `SELECT public.portal_commit_provider_effect_service('${recallReservationId}','${botId}',null,null);`)).committed, true);
+  assert.equal(queryJson(databaseUrl, asRoleSql("service_role", null,
+    `SELECT public.portal_commit_provider_effect_service('${tavusReservationId}','${conversationId}','https://tavus.daily.co/terminal-race',null);`)).committed, true);
+  const effectStateBeforeInvalidClaims = queryScalar(databaseUrl,
+    `SELECT string_agg(id::text||':'||state,',' order by id) FROM public.provider_effect_reservations WHERE id in ('${recallReservationId}','${tavusReservationId}');`);
+  assertFailed(runSql(databaseUrl, asRoleSql("service_role", null,
+    `SELECT public.portal_update_meeting_bot_session_status_service('${botId}','ended');`)),
+  "terminal transition rejects missing delivery evidence");
+  assertFailed(runSql(databaseUrl, asRoleSql("service_role", null,
+    `SELECT public.portal_update_meeting_bot_session_status_service('${botId}','ended','${deliveryId}',null);`)),
+  "terminal transition rejects partial delivery evidence");
+
+  const expiredDeliveryId = "webhook-terminal-expired-2250";
+  const expiredToken = "019f0000-0000-7000-8000-000000006251";
+  assert.equal(queryJson(databaseUrl, asRoleSql("service_role", null,
+    `SELECT public.portal_claim_recall_webhook_service('${expiredDeliveryId}','${deliveryDigest}','${expiredToken}');`)).outcome, "claimed");
+  assertSucceeded(runSql(databaseUrl,
+    `UPDATE public.recall_webhook_deliveries SET lease_until=now()-interval '1 second' WHERE delivery_id='${expiredDeliveryId}';`),
+  "expire terminal delivery claim");
+  assertFailed(runSql(databaseUrl, asRoleSql("service_role", null,
+    `SELECT public.portal_update_meeting_bot_session_status_service('${botId}','ended','${expiredDeliveryId}','${expiredToken}');`)),
+  "terminal transition rejects an expired claim");
+  assert.equal(queryScalar(databaseUrl,
+    `SELECT provider_bot_id is null FROM public.recall_webhook_deliveries WHERE delivery_id='${expiredDeliveryId}';`), "t");
+
+  const completedDeliveryId = "webhook-terminal-completed-2250";
+  const completedToken = "019f0000-0000-7000-8000-000000006252";
+  assert.equal(queryJson(databaseUrl, asRoleSql("service_role", null,
+    `SELECT public.portal_claim_recall_webhook_service('${completedDeliveryId}','${deliveryDigest}','${completedToken}');`)).outcome, "claimed");
+  assert.equal(queryScalar(databaseUrl, asRoleSql("service_role", null,
+    `SELECT public.portal_complete_recall_webhook_service('${completedDeliveryId}','${completedToken}');`)), "t");
+  assertFailed(runSql(databaseUrl, asRoleSql("service_role", null,
+    `SELECT public.portal_update_meeting_bot_session_status_service('${botId}','ended','${completedDeliveryId}','${completedToken}');`)),
+  "terminal transition rejects an already completed claim");
+  assert.equal(queryScalar(databaseUrl,
+    `SELECT provider_bot_id is null FROM public.recall_webhook_deliveries WHERE delivery_id='${completedDeliveryId}';`), "t");
+
+  assert.equal(queryJson(databaseUrl, asRoleSql("service_role", null,
+    `SELECT public.portal_claim_recall_webhook_service('${deliveryId}','${deliveryDigest}','${deliveryToken}');`)).outcome, "claimed");
+  assertFailed(runSql(databaseUrl, asRoleSql("service_role", null,
+    `SELECT public.portal_update_meeting_bot_session_status_service('${botId}','ended','${deliveryId}','019f0000-0000-7000-8000-000000006259');`)),
+  "terminal transition rejects a wrong claim token");
+  assert.equal(queryScalar(databaseUrl,
+    `SELECT provider_bot_id is null FROM public.recall_webhook_deliveries WHERE delivery_id='${deliveryId}';`), "t");
+  assert.equal(queryScalar(databaseUrl,
+    `SELECT string_agg(id::text||':'||state,',' order by id) FROM public.provider_effect_reservations WHERE id in ('${recallReservationId}','${tavusReservationId}');`),
+  effectStateBeforeInvalidClaims, "invalid terminal claims roll back every provider-effect mutation");
+
+  const [terminal, registration] = await Promise.all([
+    runSqlAsync(databaseUrl, asRoleSql("service_role", null,
+      `SELECT public.portal_update_meeting_bot_session_status_service('${botId}','ended','${deliveryId}','${deliveryToken}');`)),
+    runSqlAsync(databaseUrl, asRoleSql("service_role", null, `SELECT public.portal_record_meeting_bot_session_service(
+      '019f0000-0000-7000-8000-000000001250','${fixture.tenantGamma}','${fixture.agentGamma}','${botId}','meeting:${"a".repeat(64)}','${conversationId}','${recallReservationId}','${tavusReservationId}'
+    );`)),
+  ]);
+  assertSucceeded(terminal, "signed terminal receipt contender");
+  assertSucceeded(registration, "meeting session registration contender");
+  assert.equal(queryScalar(databaseUrl, `SELECT status||':'||sentinel_camera_state||':'||(sentinel_camera_started_at is null)::text FROM public.meeting_bot_sessions WHERE recall_bot_id='${botId}';`), "ended:conversation_created:true");
+  assert.equal(queryScalar(databaseUrl, `SELECT state||':'||customer_delivery_state FROM public.provider_effect_reservations WHERE id='${recallReservationId}';`), "completed:voided");
+  assert.equal(queryScalar(databaseUrl, `SELECT state||':'||customer_delivery_state FROM public.provider_effect_reservations WHERE id='${tavusReservationId}';`), "cleanup_pending:voided");
+  assert.equal(queryJson(databaseUrl, asRoleSql("service_role", null,
+    `SELECT public.portal_activate_provider_effect_billing_service('${recallReservationId}');`)).activated, false);
+  assert.equal(queryJson(databaseUrl, asRoleSql("service_role", null,
+    `SELECT public.portal_activate_provider_effect_billing_service('${tavusReservationId}');`)).activated, false);
+  assert.equal(queryScalar(databaseUrl, `SELECT count(*) FROM public.billing_usage_outbox WHERE reservation_id in ('${recallReservationId}','${tavusReservationId}');`), "0");
+  assert.equal(queryScalar(databaseUrl, `SELECT count(*) FROM public.cost_events WHERE id in ('019f0000-0000-7000-8000-000000003250','019f0000-0000-7000-8000-000000003251');`), "2", "terminal void preserves provider cost evidence");
+  assert.equal(queryScalar(databaseUrl, asRoleSql("service_role", null,
+    `SELECT public.portal_complete_recall_webhook_service('${deliveryId}','${deliveryToken}');`)), "t");
+
+  const foreignDeliveryId = "webhook-terminal-foreign-2250";
+  const foreignToken = "019f0000-0000-7000-8000-000000006253";
+  assert.equal(queryJson(databaseUrl, asRoleSql("service_role", null,
+    `SELECT public.portal_claim_recall_webhook_service('${foreignDeliveryId}','${deliveryDigest}','${foreignToken}');`)).outcome, "claimed");
+  assertSucceeded(runSql(databaseUrl,
+    `UPDATE public.recall_webhook_deliveries SET tenant_id='${fixture.tenantAlpha}' WHERE delivery_id='${foreignDeliveryId}';`),
+  "cross-tenant terminal claim fixture");
+  const sessionStateBeforeForeignClaim = queryScalar(databaseUrl,
+    `SELECT status||':'||sentinel_camera_state FROM public.meeting_bot_sessions WHERE recall_bot_id='${botId}';`);
+  assertFailed(runSql(databaseUrl, asRoleSql("service_role", null,
+    `SELECT public.portal_update_meeting_bot_session_status_service('${botId}','ended','${foreignDeliveryId}','${foreignToken}');`)),
+  "terminal transition rejects a delivery claimed by another tenant");
+  assert.equal(queryScalar(databaseUrl,
+    `SELECT status||':'||sentinel_camera_state FROM public.meeting_bot_sessions WHERE recall_bot_id='${botId}';`),
+  sessionStateBeforeForeignClaim, "cross-tenant terminal claim cannot mutate the meeting session");
+
+  const exactReplay = queryJson(databaseUrl, asRoleSql("service_role", null, `SELECT public.portal_record_meeting_bot_session_service(
+    '019f0000-0000-7000-8000-000000001250','${fixture.tenantGamma}','${fixture.agentGamma}','${botId}','meeting:${"a".repeat(64)}','${conversationId}','${recallReservationId}','${tavusReservationId}'
+  );`));
+  assert.equal(exactReplay.replayed, true, "exact meeting receipt replays after terminal lifecycle progression");
+  assert.equal(exactReplay.terminal, true);
+  const stateBeforeConflict = queryScalar(databaseUrl, `SELECT status||':'||sentinel_camera_state FROM public.meeting_bot_sessions WHERE recall_bot_id='${botId}';`);
+  assertFailed(runSql(databaseUrl, asRoleSql("service_role", null, `SELECT public.portal_record_meeting_bot_session_service(
+    '019f0000-0000-7000-8000-000000001251','${fixture.tenantGamma}','${fixture.agentGamma}','${botId}','meeting:${"a".repeat(64)}','${conversationId}','${recallReservationId}','${tavusReservationId}'
+  );`)), "post-terminal replay rejects an altered immutable session id");
+  assert.equal(queryScalar(databaseUrl, `SELECT status||':'||sentinel_camera_state FROM public.meeting_bot_sessions WHERE recall_bot_id='${botId}';`), stateBeforeConflict,
+    "post-terminal replay conflict cannot mutate the durable session");
+}
+
+function createCommittedEffect(databaseUrl, tenantId, agentId, idempotencyKey, reservationId, costEventId) {
+  const reserve = queryJson(databaseUrl, asRoleSql("service_role", null,
+    reservationInvocationSql(tenantId, agentId, idempotencyKey, reservationId, costEventId)));
+  assert.equal(reserve.outcome, "reserved");
+  assert.equal(queryJson(databaseUrl, asRoleSql("service_role", null,
+    `SELECT public.portal_bind_tavus_webhook_capability_service('${reservationId}','${"9".repeat(64)}');`)).acquired, true);
+  assert.equal(queryJson(databaseUrl, asRoleSql("service_role", null,
+    `SELECT public.portal_commit_provider_effect_service('${reservationId}','provider-${idempotencyKey}',null,null);`)).committed, true);
+  registerVideoTranscriptReceipt(databaseUrl, tenantId, agentId, reservationId, `provider-${idempotencyKey}`, "9".repeat(64));
+}
+
+function registerVideoTranscriptReceipt(databaseUrl, tenantId, agentId, transcriptId, providerRef, capabilityHash) {
+  const observedAt = new Date().toISOString();
+  assertSucceeded(runSql(databaseUrl, asRoleSql("service_role", null,
+    `SELECT public.portal_register_provider_transcript_service('${transcriptId}','${tenantId}','${agentId}','video','${providerRef}');`)),
+  "durable video transcript placeholder");
+  assert.equal(queryJson(databaseUrl, asRoleSql("service_role", null, `SELECT public.portal_claim_tavus_webhook_service(
+    '${transcriptId}','${providerRef}','${capabilityHash}',
+    '${"d".repeat(64)}','${transcriptId}','${observedAt}'::timestamptz
+  );`)).outcome, "claimed", "the customer-delivery fixture acquires the real callback lease");
+  assertSucceeded(runSql(databaseUrl, asRoleSql("service_role", null, `
+    SELECT public.portal_append_transcript_turns_service('video','${providerRef}','[{"role":"user","content":"human participant spoke"}]'::jsonb,now());
+    SELECT public.portal_record_tavus_customer_delivery_service('${transcriptId}','${providerRef}','${"d".repeat(64)}','application.transcription_ready','${observedAt}'::timestamptz);
+  `)), "durable video transcript customer-delivery receipt");
+  assert.equal(queryScalar(databaseUrl, asRoleSql("service_role", null,
+    `SELECT public.portal_complete_tavus_webhook_service('${transcriptId}','${"d".repeat(64)}','${transcriptId}');`)), "t",
+  "the customer-delivery callback completes and revokes its bearer");
+}
+
+function assertRecallWebhookLeaseFencing(databaseUrl) {
+  const deliveryId = "webhook-delivery-fence-0001";
+  const digest = "a".repeat(64);
+  const conflictingDigest = "b".repeat(64);
+  const firstToken = "019f0000-0000-7000-8000-000000006001";
+  const secondToken = "019f0000-0000-7000-8000-000000006002";
+  const claim = (token, selectedDigest = digest) => queryJson(databaseUrl, asRoleSql("service_role", null,
+    `SELECT public.portal_claim_recall_webhook_service('${deliveryId}','${selectedDigest}','${token}');`));
+  assert.equal(claim(firstToken).outcome, "claimed");
+  assert.equal(claim(secondToken).outcome, "busy");
+  assert.equal(claim(secondToken, conflictingDigest).outcome, "conflict", "digest conflict remains closed during processing");
+  assertSucceeded(runSql(databaseUrl, `UPDATE public.recall_webhook_deliveries SET lease_until=now()-interval '1 second' WHERE delivery_id='${deliveryId}';`), "expire webhook claim deterministically");
+  assert.equal(claim(secondToken).outcome, "claimed", "same digest reclaims an expired processing lease");
+  assert.equal(queryScalar(databaseUrl, asRoleSql("service_role", null,
+    `SELECT public.portal_complete_recall_webhook_service('${deliveryId}','${firstToken}');`)), "f", "stale webhook token cannot complete");
+  assert.equal(queryScalar(databaseUrl, asRoleSql("service_role", null,
+    `SELECT public.portal_release_recall_webhook_service('${deliveryId}','${digest}','${firstToken}');`)), "f", "stale webhook token cannot release");
+  assert.equal(queryScalar(databaseUrl, asRoleSql("service_role", null,
+    `SELECT public.portal_complete_recall_webhook_service('${deliveryId}','${secondToken}');`)), "t");
+  assert.equal(queryScalar(databaseUrl, asRoleSql("service_role", null,
+    `SELECT public.portal_complete_recall_webhook_service('${deliveryId}','${secondToken}');`)), "f", "completion receipt is a strict CAS boolean");
+  assert.equal(claim(firstToken).outcome, "replayed");
+  assert.equal(claim(firstToken, conflictingDigest).outcome, "conflict", "digest conflict remains closed after completion");
+
+  const releaseDelivery = "webhook-delivery-release-0002";
+  assert.equal(queryJson(databaseUrl, asRoleSql("service_role", null,
+    `SELECT public.portal_claim_recall_webhook_service('${releaseDelivery}','${digest}','${firstToken}');`)).outcome, "claimed");
+  assert.equal(queryScalar(databaseUrl, asRoleSql("service_role", null,
+    `SELECT public.portal_release_recall_webhook_service('${releaseDelivery}','${digest}','${firstToken}');`)), "t");
+  assert.equal(queryJson(databaseUrl, asRoleSql("service_role", null,
+    `SELECT public.portal_claim_recall_webhook_service('${releaseDelivery}','${digest}','${secondToken}');`)).outcome, "claimed", "released webhook work is recoverable without deleting replay evidence");
+}
+
+async function assertTavusWebhookCapabilityFencing(databaseUrl) {
+  assertSucceeded(runSql(databaseUrl, `
+    INSERT INTO public.tenant_subscriptions
+      (id,tenant_id,stripe_customer_id,stripe_subscription_id,plan_id,status,current_period_start,current_period_end)
+    VALUES ('019f0000-0000-7000-8000-000000004300','${fixture.tenantDelta}','cus_HarnessDelta','sub_HarnessDelta','escala','active',date_trunc('month',now()),date_trunc('month',now())+interval '1 month');
+  `), "Tavus webhook capability subscription fixture");
+  const reservationId = "019f0000-0000-7000-8000-000000002300";
+  const costEventId = "019f0000-0000-7000-8000-000000003300";
+  const reserve = queryJson(databaseUrl, asRoleSql("service_role", null,
+    reservationInvocationSql(fixture.tenantDelta, fixture.agentDelta, "tavus-bind-race", reservationId, costEventId)));
+  assert.equal(reserve.outcome, "reserved");
+  const hashA = "a".repeat(64);
+  const hashB = "b".repeat(64);
+  const [first, second] = await Promise.all([
+    runSqlAsync(databaseUrl, asRoleSql("service_role", null, `SELECT public.portal_bind_tavus_webhook_capability_service('${reservationId}','${hashA}');`)),
+    runSqlAsync(databaseUrl, asRoleSql("service_role", null, `SELECT public.portal_bind_tavus_webhook_capability_service('${reservationId}','${hashB}');`)),
+  ]);
+  assertSucceeded(first, "first Tavus webhook bind contender");
+  assertSucceeded(second, "second Tavus webhook bind contender");
+  assert.deepEqual([parseLastJson(first.stdout).acquired, parseLastJson(second.stdout).acquired].sort(), [false, true]);
+  const winningBind = [parseLastJson(first.stdout), parseLastJson(second.stdout)].find((receipt) => receipt.acquired === true);
+  assert.equal(typeof winningBind.capabilityExpiresAt, "string");
+  assert.equal(queryScalar(databaseUrl, `SELECT state FROM public.provider_effect_reservations WHERE id='${reservationId}';`), "provider_in_flight");
+  assert.equal(queryScalar(databaseUrl, `SELECT tavus_webhook_capability_expires_at=provider_dispatched_at+make_interval(secs=>max_duration_seconds+900)
+    FROM public.provider_effect_reservations WHERE id='${reservationId}';`), "t",
+  "the callback capability expires at the server-owned duration plus the fixed retry margin");
+  const winnerHash = queryScalar(databaseUrl, `SELECT tavus_webhook_capability_hash FROM public.provider_effect_reservations WHERE id='${reservationId}';`);
+  assert.ok(winnerHash === hashA || winnerHash === hashB);
+  assert.equal(queryJson(databaseUrl, asRoleSql("service_role", null,
+    `SELECT public.portal_bind_tavus_webhook_capability_service('${reservationId}','${"c".repeat(64)}');`)).acquired, false,
+  "a crash after bind remains fenced and cannot rebind");
+  assert.equal(queryJson(databaseUrl, asRoleSql("service_role", null,
+    `SELECT public.portal_mark_provider_effect_in_flight_service('${reservationId}');`)).acquired, false,
+  "generic acquire cannot bypass the Tavus capability fence");
+  assert.equal(queryJson(databaseUrl, asRoleSql("service_role", null,
+    `SELECT public.portal_preflight_tavus_webhook_service('${reservationId}','${"0".repeat(64)}');`)).outcome, "unauthorized");
+  assertSucceeded(runSql(databaseUrl, `UPDATE public.provider_effect_reservations
+    SET provider_dispatched_at=now()-interval '25 minutes',tavus_webhook_capability_expires_at=now(),updated_at=now()
+    WHERE id='${reservationId}';`), "expire the Tavus capability while preserving its duration invariant");
+  assert.equal(queryJson(databaseUrl, asRoleSql("service_role", null,
+    `SELECT public.portal_preflight_tavus_webhook_service('${reservationId}','${winnerHash}');`)).outcome, "unauthorized",
+  "an expired callback capability cannot authorize provider-controlled bytes");
+  assert.equal(queryScalar(databaseUrl, asRoleSql("service_role", null, `
+    SELECT public.portal_reconcile_provider_effect_service(
+      '019f0000-0000-7000-8000-000000006301','${reservationId}','reconciliation_absent','tavus_test_no_dispatch_2300'
+    );
+  `)), "t", "the capability-fence fixture is closed with explicit provider-absence evidence");
+  assert.equal(queryJson(databaseUrl, asRoleSql("service_role", null,
+    `SELECT public.portal_preflight_tavus_webhook_service('${reservationId}','${winnerHash}');`)).outcome, "unauthorized",
+  "provider absence reconciliation revokes the callback capability");
+}
+
+function assertTavusDeliveryAndStageCapabilities(databaseUrl) {
+  const reservationId = "019f0000-0000-7000-8000-000000002320";
+  const costEventId = "019f0000-0000-7000-8000-000000003320";
+  const providerRef = "provider-tavus-delivery-stage";
+  const reserve = queryJson(databaseUrl, asRoleSql("service_role", null,
+    reservationInvocationSql(fixture.tenantDelta, fixture.agentDelta, "tavus-delivery-stage", reservationId, costEventId)));
+  assert.equal(reserve.outcome, "reserved");
+  assert.equal(queryJson(databaseUrl, asRoleSql("service_role", null,
+    `SELECT public.portal_bind_tavus_webhook_capability_service('${reservationId}','${"e".repeat(64)}');`)).acquired, true);
+  assert.equal(queryJson(databaseUrl, asRoleSql("service_role", null,
+    `SELECT public.portal_commit_provider_effect_service('${reservationId}','${providerRef}','https://tavus.daily.co/private-stage-room',null);`)).committed, true);
+  assertSucceeded(runSql(databaseUrl, asRoleSql("service_role", null, `
+    SELECT public.portal_register_provider_transcript_service('${reservationId}','${fixture.tenantDelta}','${fixture.agentDelta}','video','${providerRef}');
+  `)), "Tavus held transcript placeholder");
+  assert.equal(queryJson(databaseUrl, asRoleSql("service_role", null,
+    `SELECT public.portal_preflight_tavus_webhook_service('${reservationId}','${"e".repeat(64)}');`)).outcome, "authorized");
+  const lowerBoundObservedAt = queryScalar(databaseUrl,
+    `SELECT (provider_dispatched_at-interval '5 minutes 1 second')::text FROM public.provider_effect_reservations WHERE id='${reservationId}';`);
+  const afterExpiryObservedAt = queryScalar(databaseUrl,
+    `SELECT (tavus_webhook_capability_expires_at+interval '1 second')::text FROM public.provider_effect_reservations WHERE id='${reservationId}';`);
+  for (const [suffix, observedAt] of [["1", lowerBoundObservedAt], ["2", new Date(Date.now() + 301_000).toISOString()], ["3", afterExpiryObservedAt]]) {
+    assert.equal(queryJson(databaseUrl, asRoleSql("service_role", null, `SELECT public.portal_claim_tavus_webhook_service(
+      '${reservationId}','${providerRef}','${"e".repeat(64)}','${suffix.repeat(64)}','019f0000-0000-7000-8000-00000000632${suffix}','${sqlLiteral(observedAt)}'::timestamptz
+    );`)).outcome, "unauthorized", "out-of-window provider evidence is rejected before durable mutation");
+  }
+  assert.equal(queryScalar(databaseUrl,
+    `SELECT count(*) FROM public.tavus_webhook_deliveries WHERE reservation_id='${reservationId}';`), "0");
+  assertFailed(runSql(databaseUrl, asRoleSql("service_role", null,
+    `SELECT public.portal_activate_provider_effect_billing_service('${reservationId}');`)),
+  "placeholder alone never proves Tavus customer delivery");
+  assert.equal(queryScalar(databaseUrl, `SELECT customer_delivery_state FROM public.provider_effect_reservations WHERE id='${reservationId}';`), "held");
+  assert.equal(queryScalar(databaseUrl, `SELECT count(*) FROM public.billing_usage_outbox WHERE reservation_id='${reservationId}';`), "0");
+  assertFailed(runSql(databaseUrl, asRoleSql("service_role", null,
+    `SELECT public.portal_record_tavus_no_delivery_service('${reservationId}','${providerRef}','${"0".repeat(64)}','transcript_without_user_turn',now());`)),
+  "an in-progress placeholder cannot be forged into final no-delivery evidence");
+
+  const noDeliveryObservedAt = new Date().toISOString();
+  const noDeliveryDigest = "f".repeat(64);
+  const firstNoDeliveryClaim = "019f0000-0000-7000-8000-000000006324";
+  const secondNoDeliveryClaim = "019f0000-0000-7000-8000-000000006325";
+  assert.equal(queryJson(databaseUrl, asRoleSql("service_role", null, `SELECT public.portal_claim_tavus_webhook_service(
+    '${reservationId}','${providerRef}','${"e".repeat(64)}','${noDeliveryDigest}','${firstNoDeliveryClaim}','${noDeliveryObservedAt}'::timestamptz
+  );`)).outcome, "claimed");
+  assert.equal(queryScalar(databaseUrl, asRoleSql("service_role", null,
+    `SELECT public.portal_release_tavus_webhook_service('${reservationId}','${noDeliveryDigest}','${firstNoDeliveryClaim}');`)), "t");
+  assert.equal(queryJson(databaseUrl, asRoleSql("service_role", null,
+    `SELECT public.portal_preflight_tavus_webhook_service('${reservationId}','${"e".repeat(64)}');`)).outcome, "authorized",
+  "a retryable processing release preserves the callback capability");
+  assert.equal(queryJson(databaseUrl, asRoleSql("service_role", null, `SELECT public.portal_claim_tavus_webhook_service(
+    '${reservationId}','${providerRef}','${"e".repeat(64)}','${noDeliveryDigest}','${secondNoDeliveryClaim}','${noDeliveryObservedAt}'::timestamptz
+  );`)).outcome, "claimed");
+
+  assertSucceeded(runSql(databaseUrl, asRoleSql("service_role", null, `
+    SELECT public.portal_append_transcript_turns_service('video','${providerRef}','[{"role":"assistant","content":"greeting only"}]'::jsonb,now());
+  `)), "assistant-only final transcript");
+  const noDelivery = queryJson(databaseUrl, asRoleSql("service_role", null,
+    `SELECT public.portal_record_tavus_no_delivery_service('${reservationId}','${providerRef}','${noDeliveryDigest}','transcript_without_user_turn','${noDeliveryObservedAt}'::timestamptz);`));
+  assert.deepEqual(noDelivery, { voided: true, replayed: false, customerDeliveryState: "voided" });
+  assert.equal(queryScalar(databaseUrl, asRoleSql("service_role", null,
+    `SELECT public.portal_complete_tavus_webhook_service('${reservationId}','${noDeliveryDigest}','${secondNoDeliveryClaim}');`)), "t");
+  assert.equal(queryJson(databaseUrl, asRoleSql("service_role", null,
+    `SELECT public.portal_preflight_tavus_webhook_service('${reservationId}','${"e".repeat(64)}');`)).outcome, "replayed_terminal");
+  assert.equal(queryScalar(databaseUrl, `SELECT count(*) FROM public.billing_usage_outbox WHERE reservation_id='${reservationId}';`), "0");
+  assertSucceeded(runSql(databaseUrl, `UPDATE public.tavus_customer_delivery_receipts SET observed_at=now()-interval '8 days' WHERE reservation_id='${reservationId}';`),
+    "age the durable no-delivery receipt past the first-observation freshness window");
+  const persistedNoDeliveryObservedAt = queryScalar(databaseUrl,
+    `SELECT observed_at::text FROM public.tavus_customer_delivery_receipts WHERE reservation_id='${reservationId}';`);
+  assert.equal(queryJson(databaseUrl, asRoleSql("service_role", null, `SELECT public.portal_record_tavus_no_delivery_service(
+    '${reservationId}','${providerRef}','${noDeliveryDigest}','transcript_without_user_turn',
+    '${sqlLiteral(persistedNoDeliveryObservedAt)}'::timestamptz
+  );`)).replayed, true, "an exact durable no-delivery receipt replays indefinitely");
+
+  const deliveredId = "019f0000-0000-7000-8000-000000002321";
+  const deliveredRef = "provider-tavus-human-delivered";
+  const delivered = queryJson(databaseUrl, asRoleSql("service_role", null,
+    reservationInvocationSql(fixture.tenantDelta, fixture.agentDelta, "tavus-human-delivered", deliveredId, "019f0000-0000-7000-8000-000000003321")));
+  assert.equal(delivered.outcome, "reserved");
+  assert.equal(queryJson(databaseUrl, asRoleSql("service_role", null,
+    `SELECT public.portal_bind_tavus_webhook_capability_service('${deliveredId}','${"1".repeat(64)}');`)).acquired, true);
+  assert.equal(queryJson(databaseUrl, asRoleSql("service_role", null,
+    `SELECT public.portal_commit_provider_effect_service('${deliveredId}','${deliveredRef}','https://tavus.daily.co/private-human-room',null);`)).committed, true);
+  assert.equal(queryJson(databaseUrl, asRoleSql("service_role", null,
+    `SELECT public.portal_preflight_tavus_webhook_service('${deliveredId}','${"1".repeat(64)}');`)).outcome, "authorized");
+  const webhookClaimToken = "019f0000-0000-7000-8000-000000006321";
+  const webhookObservedAt = new Date().toISOString();
+  const webhookDigest = "6".repeat(64);
+  assertSucceeded(runSql(databaseUrl, asRoleSql("service_role", null, `
+    SELECT public.portal_register_provider_transcript_service('${deliveredId}','${fixture.tenantDelta}','${fixture.agentDelta}','video','${deliveredRef}');
+  `)), "Tavus human transcript placeholder");
+  assert.equal(queryJson(databaseUrl, asRoleSql("service_role", null, `SELECT public.portal_claim_tavus_webhook_service(
+    '${deliveredId}','${deliveredRef}','${"1".repeat(64)}','${webhookDigest}','${webhookClaimToken}','${webhookObservedAt}'::timestamptz
+  );`)).outcome, "claimed");
+  assertSucceeded(runSql(databaseUrl, asRoleSql("service_role", null, `
+    SELECT public.portal_append_transcript_turns_service('video','${deliveredRef}','[{"role":"user","content":"human participant spoke"}]'::jsonb,now());
+    SELECT public.portal_record_tavus_customer_delivery_service('${deliveredId}','${deliveredRef}','${webhookDigest}','application.transcription_ready','${webhookObservedAt}'::timestamptz);
+  `)), "durable Tavus human delivery receipt");
+  assert.equal(queryScalar(databaseUrl, asRoleSql("service_role", null,
+    `SELECT public.portal_complete_tavus_webhook_service('${deliveredId}','${webhookDigest}','${webhookClaimToken}');`)), "t");
+  assert.equal(queryJson(databaseUrl, asRoleSql("service_role", null,
+    `SELECT public.portal_preflight_tavus_webhook_service('${deliveredId}','${"1".repeat(64)}');`)).outcome, "replayed_terminal",
+  "a completed callback narrows the matching bearer to a body-free terminal acknowledgement");
+  assert.equal(queryScalar(databaseUrl,
+    `SELECT tavus_webhook_capability_revoked_at IS NOT NULL FROM public.provider_effect_reservations WHERE id='${deliveredId}';`), "t",
+  "terminal completion durably revokes all non-terminal callback authority");
+  assertSucceeded(runSql(databaseUrl, `UPDATE public.tavus_customer_delivery_receipts SET observed_at=now()-interval '8 days' WHERE reservation_id='${deliveredId}';`),
+    "age the durable customer-delivery receipt past the first-observation freshness window");
+  const deliveredObservedAt = queryScalar(databaseUrl,
+    `SELECT observed_at::text FROM public.tavus_customer_delivery_receipts WHERE reservation_id='${deliveredId}';`);
+  assert.equal(queryJson(databaseUrl, asRoleSql("service_role", null, `SELECT public.portal_record_tavus_customer_delivery_service(
+    '${deliveredId}','${deliveredRef}','${webhookDigest}','application.transcription_ready',
+    '${sqlLiteral(deliveredObservedAt)}'::timestamptz
+  );`)).replayed, true, "an exact durable customer-delivery receipt replays indefinitely");
+  const activation = queryJson(databaseUrl, asRoleSql("service_role", null,
+    `SELECT public.portal_activate_provider_effect_billing_service('${deliveredId}');`));
+  assert.equal(activation.activated, true);
+  assert.equal(queryJson(databaseUrl, asRoleSql("service_role", null,
+    `SELECT public.portal_activate_provider_effect_billing_service('${deliveredId}');`)).replayed, true,
+  "first authenticated Tavus human receipt activates exactly once");
+
+  const roomUrl = "https://tavus.daily.co/private-human-room";
+  const firstHash = "2".repeat(64);
+  const rotatedHash = "3".repeat(64);
+  assertFailed(runSql(databaseUrl, asRoleSql("service_role", null,
+    `SELECT public.portal_create_tavus_stage_capability_service('${fixture.tenantBeta}','${fixture.agentBeta}','${deliveredId}','${firstHash}','${roomUrl}');`)),
+  "cross-tenant stage capability creation is rejected");
+  const created = queryJson(databaseUrl, asRoleSql("service_role", null,
+    `SELECT public.portal_create_tavus_stage_capability_service('${fixture.tenantDelta}','${fixture.agentDelta}','${deliveredId}','${firstHash}','${roomUrl}');`));
+  assert.equal(created.created, true);
+  assert.equal(queryJson(databaseUrl, asRoleSql("service_role", null,
+    `SELECT public.portal_resolve_tavus_stage_capability_service('${"4".repeat(64)}');`)).found, false,
+  "a foreign capability hash cannot resolve another tenant room");
+  assert.equal(queryJson(databaseUrl, asRoleSql("service_role", null,
+    `SELECT public.portal_resolve_tavus_stage_capability_service('${firstHash}');`)).roomUrl, roomUrl);
+  const rotated = queryJson(databaseUrl, asRoleSql("service_role", null,
+    `SELECT public.portal_create_tavus_stage_capability_service('${fixture.tenantDelta}','${fixture.agentDelta}','${deliveredId}','${rotatedHash}','${roomUrl}');`));
+  assert.equal(rotated.rotated, true, "lost raw capability can be replaced after process death");
+  assert.equal(queryJson(databaseUrl, asRoleSql("service_role", null,
+    `SELECT public.portal_resolve_tavus_stage_capability_service('${firstHash}');`)).found, false,
+  "rotation invalidates the previously exposed capability");
+  assert.equal(queryJson(databaseUrl, asRoleSql("service_role", null,
+    `SELECT public.portal_resolve_tavus_stage_capability_service('${rotatedHash}');`)).found, true);
+  assertSucceeded(runSql(databaseUrl, `UPDATE public.tavus_stage_capabilities SET expires_at=now()-interval '1 second' WHERE reservation_id='${deliveredId}';`), "expire stage capability deterministically");
+  assert.equal(queryJson(databaseUrl, asRoleSql("service_role", null,
+    `SELECT public.portal_resolve_tavus_stage_capability_service('${rotatedHash}');`)).found, false,
+  "expired stage capability is fail-closed");
+}
+
+function assertProviderReconciliationLease(databaseUrl) {
+  const reservationId = "019f0000-0000-7000-8000-000000002020";
+  // Existing unknown-barrier fixture was released; create a fresh durable
+  // unknown row and lease only the worker, never the provider-effect state.
+  const target = "019f0000-0000-7000-8000-000000002310";
+  const reserve = queryJson(databaseUrl, asRoleSql("service_role", null,
+    reservationInvocationSql(fixture.tenantGamma, fixture.agentGamma, "reconcile-lease", target, "019f0000-0000-7000-8000-000000003310", "recall")));
+  assert.equal(reserve.outcome, "reserved");
+  assertSucceeded(runSql(databaseUrl, asRoleSql("service_role", null, `
+    SELECT public.portal_mark_provider_effect_in_flight_service('${target}');
+    SELECT public.portal_mark_provider_effect_unknown_service('${target}','timeout');
+  `)), "unknown reconciliation fixture");
+  const token = "019f0000-0000-7000-8000-000000006100";
+  const leased = queryJson(databaseUrl, asRoleSql("service_role", null,
+    `SELECT public.portal_lease_provider_effect_reconciliation_service('${token}',20,60);`));
+  const row = leased.find((candidate) => candidate.reservationId === target);
+  assert.ok(row);
+  assert.equal(row.state, "unknown");
+  assert.equal(row.leaseToken, token);
+  assert.equal(typeof row.nextAttemptAt, "string");
+  assert.equal(queryScalar(databaseUrl, `SELECT state FROM public.provider_effect_reservations WHERE id='${target}';`), "unknown",
+    "worker lease never releases the financial barrier");
+  const receipt = "019f0000-0000-7000-8000-000000006101";
+  assert.equal(queryScalar(databaseUrl, asRoleSql("service_role", null,
+    `SELECT public.portal_ack_provider_effect_reconciliation_service('${target}','${token}','${receipt}','reconciliation_absent','recall_lookup_absent_310');`)), "t");
+  assert.equal(queryScalar(databaseUrl, asRoleSql("service_role", null,
+    `SELECT public.portal_ack_provider_effect_reconciliation_service('${target}','${token}','${receipt}','reconciliation_absent','recall_lookup_absent_310');`)), "t",
+    "ack ambiguity replays the exact durable receipt after the lease is cleared");
+  assert.equal(queryScalar(databaseUrl, `SELECT state FROM public.provider_effect_reservations WHERE id='${target}';`), "released");
+  assert.equal(queryScalar(databaseUrl, `SELECT count(*) FROM public.provider_effect_reconciliation_receipts WHERE reservation_id='${target}';`), "1");
+  assert.equal(reservationId.length, target.length);
+}
+
+async function assertAiUsageConcurrencyCap(databaseUrl) {
+  const aiMutationNames = [
+    "portal_begin_ai_usage_reservation",
+    "portal_mark_ai_usage_in_flight",
+    "portal_commit_ai_usage",
+    "portal_mark_ai_usage_unknown",
+    "portal_release_ai_usage",
+  ];
+  assert.equal(queryScalar(databaseUrl, `SELECT count(*) FROM pg_proc p JOIN pg_namespace n ON n.oid=p.pronamespace
+    WHERE n.nspname='public' AND p.proname IN (${aiMutationNames.map((name) => `'${name}'`).join(",")});`), "0",
+  "there are no browser-authenticated AI ledger wrappers to call");
+
+  const rowsBeforeAttack = queryScalar(databaseUrl, "SELECT count(*) FROM public.ai_usage_reservations;");
+  const costsBeforeAttack = queryScalar(databaseUrl, "SELECT count(*) FROM public.cost_events WHERE provider_id='openrouter';");
+  assertFailed(runSql(databaseUrl, asRoleSql("authenticated", fixture.userAlpha, `SELECT public.portal_begin_ai_usage_reservation_service(
+    '019f0000-0000-7000-8000-000000002890','019f0000-0000-7000-8000-000000003890','${fixture.tenantAlpha}','${fixture.agentAlpha}',null,
+    'ai-auth-forged-envelope','chat_generation',2000000,2000000,10
+  );`)), "authenticated caller cannot forge an AI token/cost envelope through the service RPC");
+  assert.equal(queryScalar(databaseUrl, "SELECT count(*) FROM public.ai_usage_reservations;"), rowsBeforeAttack,
+    "denied authenticated AI mutation writes zero reservation rows");
+  assert.equal(queryScalar(databaseUrl, "SELECT count(*) FROM public.cost_events WHERE provider_id='openrouter';"), costsBeforeAttack,
+    "denied authenticated AI mutation writes zero cost rows");
+
+  assertFailed(runSql(databaseUrl, asRoleSql("service_role", null, `SELECT public.portal_begin_ai_usage_reservation_service(
+    '019f0000-0000-7000-8000-000000002891','019f0000-0000-7000-8000-000000003891','${fixture.tenantAlpha}','${fixture.agentBeta}',null,
+    'ai-cross-tenant-agent','chat_generation',20000,512,0.05
+  );`)), "service boundary rejects an agent from another tenant");
+  assert.equal(queryScalar(databaseUrl, "SELECT count(*) FROM public.ai_usage_reservations WHERE id='019f0000-0000-7000-8000-000000002891';"), "0",
+    "cross-tenant rejection writes no reservation");
+
+  const usageMissingReservation = "019f0000-0000-7000-8000-000000002889";
+  assert.equal(queryJson(databaseUrl, asRoleSql("service_role", null, `SELECT public.portal_begin_ai_usage_reservation_service(
+    '${usageMissingReservation}','019f0000-0000-7000-8000-000000003889','${fixture.tenantEpsilon}','${fixture.agentEpsilon}',null,
+    'ai-missing-provider-usage','brain_generation',20000,512,0.05
+  );`)).outcome, "reserved");
+  assert.equal(queryJson(databaseUrl, asRoleSql("service_role", null,
+    `SELECT public.portal_mark_ai_usage_in_flight_service('${usageMissingReservation}');`)).acquired, true);
+  assert.equal(queryJson(databaseUrl, asRoleSql("service_role", null,
+    `SELECT public.portal_commit_ai_usage_service('${usageMissingReservation}',0,0,null);`)).committed, true);
+  assert.equal(queryJson(databaseUrl, asRoleSql("service_role", null,
+    `SELECT public.portal_commit_ai_usage_service('${usageMissingReservation}',0,0,null);`)).replayed, true,
+  "the same missing-usage tuple replays after worst-case normalization");
+  assert.equal(queryScalar(databaseUrl, "SELECT quantity::bigint::text||':'||source FROM public.cost_events WHERE id='019f0000-0000-7000-8000-000000003889';"),
+    "20512:estimated", "missing provider usage commits the reserved worst-case envelope instead of zero spend");
+  assert.equal(queryScalar(databaseUrl, "SELECT count(*) FROM public.cost_events WHERE id='019f0000-0000-7000-8000-000000003889';"), "1");
+
+  // A committed reservation must consume ACTUAL tokens, not retain its max
+  // envelope. 458k + 100 actual + two exact 20,512-token envelopes remains
+  // under 500k; retaining the first max envelope would reject the third begin.
+  assertSucceeded(runSql(databaseUrl, `INSERT INTO public.cost_events
+    (tenant_id,id,provider_id,service,unit_type,quantity,unit_cost_usd,amount_usd,source,occurred_at)
+    VALUES ('${fixture.tenantBeta}','019f0000-0000-7000-8000-000000004890','openrouter','ai.actual-cap.fixture','token',458000,0,0,'estimated',now());`),
+  "AI actual-token capacity fixture");
+  const actualReservation = "019f0000-0000-7000-8000-000000002892";
+  const heldReservation = "019f0000-0000-7000-8000-000000002893";
+  const preUnknownReservation = "019f0000-0000-7000-8000-000000002894";
+  const beginBeta = (id, costId, key) => `SELECT public.portal_begin_ai_usage_reservation_service(
+    '${id}','${costId}','${fixture.tenantBeta}','${fixture.agentBeta}',null,'${key}','chat_generation',20000,512,0.05
+  );`;
+  assert.equal(queryJson(databaseUrl, asRoleSql("service_role", null,
+    beginBeta(actualReservation, "019f0000-0000-7000-8000-000000003892", "ai-actual-commit"))).outcome, "reserved");
+  assert.equal(queryJson(databaseUrl, asRoleSql("service_role", null,
+    `SELECT public.portal_mark_ai_usage_in_flight_service('${actualReservation}');`)).acquired, true);
+  assert.equal(queryJson(databaseUrl, asRoleSql("service_role", null,
+    `SELECT public.portal_commit_ai_usage_service('${actualReservation}',60,40,null);`)).committed, true);
+  const exactCommitReplay = queryJson(databaseUrl, asRoleSql("service_role", null,
+    `SELECT public.portal_commit_ai_usage_service('${actualReservation}',60,40,null);`));
+  assert.equal(exactCommitReplay.replayed, true, "an exact AI commit replay returns the original receipt");
+  assertFailed(runSql(databaseUrl, asRoleSql("service_role", null,
+    `SELECT public.portal_commit_ai_usage_service('${actualReservation}',61,39,null);`)),
+  "AI commit replay with different measured evidence conflicts");
+  assert.equal(queryScalar(databaseUrl, "SELECT quantity::bigint::text FROM public.cost_events WHERE id='019f0000-0000-7000-8000-000000003892';"), "100",
+    "AI cost evidence records actual committed tokens");
+  assert.equal(queryScalar(databaseUrl, `SELECT actual_input_tokens::text||':'||actual_output_tokens::text
+    FROM public.ai_usage_reservations WHERE id='${actualReservation}';`), "60:40",
+  "a conflicting AI commit replay cannot rewrite measured usage");
+  assert.equal(queryScalar(databaseUrl, "SELECT count(*) FROM public.cost_events WHERE id='019f0000-0000-7000-8000-000000003892';"), "1",
+  "AI commit replay leaves exactly one ledger row");
+  assert.equal(queryJson(databaseUrl, asRoleSql("service_role", null,
+    beginBeta(heldReservation, "019f0000-0000-7000-8000-000000003893", "ai-after-actual"))).outcome, "reserved",
+  "unused max envelope is returned to daily capacity at commit");
+  assert.equal(queryJson(databaseUrl, asRoleSql("service_role", null,
+    beginBeta(preUnknownReservation, "019f0000-0000-7000-8000-000000003894", "ai-pre-unknown"))).outcome, "reserved");
+  assert.equal(queryJson(databaseUrl, asRoleSql("service_role", null,
+    `SELECT public.portal_mark_ai_usage_in_flight_service('${heldReservation}');`)).acquired, true);
+  assert.equal(queryScalar(databaseUrl, asRoleSql("service_role", null,
+    `SELECT public.portal_mark_ai_usage_unknown_service('${heldReservation}','ambiguous_timeout');`)), "t");
+  assert.equal(queryScalar(databaseUrl, asRoleSql("service_role", null,
+    `SELECT public.portal_mark_ai_usage_unknown_service('${heldReservation}','ambiguous_timeout');`)), "t",
+  "lost unknown receipt replays idempotently without changing the barrier");
+  assert.equal(queryJson(databaseUrl, asRoleSql("service_role", null,
+    `SELECT public.portal_mark_ai_usage_in_flight_service('${preUnknownReservation}');`)).acquired, false,
+  "an unknown outcome fences reservations that were acquired earlier but not dispatched");
+  assert.equal(queryJson(databaseUrl, asRoleSql("service_role", null,
+    beginBeta("019f0000-0000-7000-8000-000000002895", "019f0000-0000-7000-8000-000000003895", "ai-after-unknown"))).outcome, "blocked_unknown",
+  "an unresolved ambiguous inference blocks every new AI effect for the tenant");
+  assert.equal(queryScalar(databaseUrl, "SELECT count(*) FROM public.ai_usage_reservations WHERE id='019f0000-0000-7000-8000-000000002895';"), "0");
+  assert.equal(queryScalar(databaseUrl, asRoleSql("service_role", null,
+    `SELECT public.portal_release_ai_usage_service('${preUnknownReservation}','not_dispatched');`)), "t");
+  assert.equal(queryScalar(databaseUrl, asRoleSql("service_role", null,
+    `SELECT public.portal_release_ai_usage_service('${preUnknownReservation}','not_dispatched');`)), "t",
+  "lost pre-dispatch release receipt replays idempotently");
+  assert.equal(queryScalar(databaseUrl, asRoleSql("service_role", null,
+    `SELECT public.portal_release_ai_usage_service('${heldReservation}','not_dispatched');`)), "f",
+  "pre-dispatch evidence cannot release an effect that crossed the fence");
+  assertFailed(runSql(databaseUrl, asRoleSql("service_role", null,
+    `SELECT public.portal_release_ai_usage_service('${heldReservation}','reconciliation_absent');`)),
+  "M5-01 has no unaudited OpenRouter reconciliation escape hatch");
+  assert.equal(queryScalar(databaseUrl, `SELECT state FROM public.ai_usage_reservations WHERE id='${heldReservation}';`), "unknown",
+    "ambiguous OpenRouter usage remains a durable tenant barrier");
+
+  assertSucceeded(runSql(databaseUrl, `INSERT INTO public.cost_events
+    (tenant_id,id,provider_id,service,unit_type,quantity,unit_cost_usd,amount_usd,source,occurred_at)
+    VALUES ('${fixture.tenantGamma}','019f0000-0000-7000-8000-000000004900','openrouter','ai.cap.fixture','token',479488,0,0,'estimated',now());`),
+  "AI daily cap-1 fixture");
+  const begin = (id, costId, key) => `SELECT public.portal_begin_ai_usage_reservation_service(
+    '${id}','${costId}','${fixture.tenantGamma}','${fixture.agentGamma}',null,'${key}','brain_generation',20000,512,0.05
+  );`;
+  const [first, second] = await Promise.all([
+    runSqlAsync(databaseUrl, asRoleSql("service_role", null,
+      begin("019f0000-0000-7000-8000-000000002900", "019f0000-0000-7000-8000-000000003900", "ai-cap-parallel-a"))),
+    runSqlAsync(databaseUrl, asRoleSql("service_role", null,
+      begin("019f0000-0000-7000-8000-000000002901", "019f0000-0000-7000-8000-000000003901", "ai-cap-parallel-b"))),
+  ]);
+  assertSucceeded(first, "first concurrent AI reservation");
+  assertSucceeded(second, "second concurrent AI reservation");
+  const receipts = [parseLastJson(first.stdout), parseLastJson(second.stdout)];
+  assert.deepEqual(receipts.map((row) => row.outcome).sort(), ["capped", "reserved"],
+    "tenant serialization admits exactly one AI reservation at the daily token boundary");
+  const winner = receipts[0].outcome === "reserved"
+    ? { key: "ai-cap-parallel-a", id: "019f0000-0000-7000-8000-000000002900" }
+    : { key: "ai-cap-parallel-b", id: "019f0000-0000-7000-8000-000000002901" };
+  const replay = queryJson(databaseUrl, asRoleSql("service_role", null,
+    begin("019f0000-0000-7000-8000-000000002909", "019f0000-0000-7000-8000-000000003909", winner.key)));
+  assert.equal(replay.outcome, "replayed");
+  assert.equal(replay.reservationId, winner.id, "AI replay keeps the original reservation identity");
+  assert.equal(queryScalar(databaseUrl, `SELECT count(*) FROM public.ai_usage_reservations WHERE tenant_id='${fixture.tenantGamma}' AND idempotency_key IN ('ai-cap-parallel-a','ai-cap-parallel-b');`), "1",
+    "AI token cap cannot be oversubscribed by concurrent begins");
+}
+
+function dailyCostFixturesSql(count) {
+  return Array.from({ length: count }, (_, index) => {
+    const id = `019f0000-0000-7000-8000-${String(4000 + index).padStart(12, "0")}`;
+    return `INSERT INTO public.cost_events (tenant_id,id,provider_id,service,unit_type,quantity,unit_cost_usd,amount_usd,source,occurred_at)
+      VALUES ('${fixture.tenantAlpha}','${id}','tavus','cap.fixture','conversation',1,0,0,'estimated',now());`;
+  }).join("\n");
+}
+
+function authPreludeSql() {
+  return `
+    CREATE ROLE anon NOLOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE NOINHERIT NOBYPASSRLS;
+    CREATE ROLE authenticated NOLOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE NOINHERIT NOBYPASSRLS;
+    CREATE ROLE service_role NOLOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE NOINHERIT BYPASSRLS;
+    CREATE ROLE supabase_auth_admin NOLOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE NOINHERIT BYPASSRLS;
+    CREATE SCHEMA auth AUTHORIZATION postgres;
+    CREATE TABLE auth.users (
+      id uuid PRIMARY KEY,
+      email text UNIQUE,
+      created_at timestamptz NOT NULL DEFAULT now()
+    );
+    CREATE OR REPLACE FUNCTION auth.uid() RETURNS uuid
+    LANGUAGE sql STABLE
+    SET search_path = ''
+    AS $$ SELECT nullif(current_setting('request.jwt.claim.sub', true), '')::uuid $$;
+    REVOKE ALL ON SCHEMA auth FROM PUBLIC;
+    GRANT USAGE ON SCHEMA auth TO anon, authenticated, service_role, supabase_auth_admin;
+    GRANT EXECUTE ON FUNCTION auth.uid() TO anon, authenticated, service_role, supabase_auth_admin;
+    ALTER DEFAULT PRIVILEGES FOR ROLE postgres IN SCHEMA public GRANT ALL ON TABLES TO anon, authenticated, service_role;
+    ALTER DEFAULT PRIVILEGES FOR ROLE postgres IN SCHEMA public GRANT EXECUTE ON FUNCTIONS TO anon, authenticated, service_role;
+    ALTER DEFAULT PRIVILEGES FOR ROLE postgres IN SCHEMA public GRANT USAGE ON SEQUENCES TO anon, authenticated, service_role;
+  `;
+}
+
+function postPortablePreludeSql() {
+  return `
+    GRANT USAGE ON SCHEMA public, app TO anon, authenticated, service_role, supabase_auth_admin;
+    GRANT USAGE ON TYPE app.uuid_v7 TO anon, authenticated, service_role, supabase_auth_admin;
+    INSERT INTO auth.users (id, email) VALUES
+      ('${fixture.userAlpha}', 'alpha@example.test'),
+      ('${fixture.userBeta}', 'beta@example.test'),
+      ('${fixture.userGamma}', 'gamma@example.test'),
+      ('${fixture.userDelta}', 'delta@example.test');
+    INSERT INTO public.tenants (id, slug, legal_name, status, home_region, default_language, default_timezone) VALUES
+      ('${fixture.tenantAlpha}', 'portal-harness-alpha', 'Portal Harness Alpha', 'active', 'local', 'en', 'UTC'),
+      ('${fixture.tenantBeta}', 'portal-harness-beta', 'Portal Harness Beta', 'active', 'local', 'en', 'UTC'),
+      ('${fixture.tenantGamma}', 'portal-harness-gamma', 'Portal Harness Gamma', 'active', 'local', 'en', 'UTC'),
+      ('${fixture.tenantDelta}', 'portal-harness-delta', 'Portal Harness Delta', 'active', 'local', 'en', 'UTC'),
+      ('${fixture.tenantEpsilon}', 'portal-harness-epsilon', 'Portal Harness Epsilon', 'active', 'local', 'en', 'UTC'),
+      ('${fixture.tenantZeta}', 'portal-harness-zeta', 'Portal Harness Zeta', 'active', 'local', 'en', 'UTC');
+    INSERT INTO public.agents (tenant_id, id, name, role_type, status, disclosure_profile_id) VALUES
+      ('${fixture.tenantAlpha}', '${fixture.agentAlpha}', 'Harness Agent Alpha', 'sales', 'active', 'default'),
+      ('${fixture.tenantBeta}', '${fixture.agentBeta}', 'Harness Agent Beta', 'sales', 'active', 'default'),
+      ('${fixture.tenantGamma}', '${fixture.agentGamma}', 'Harness Agent Gamma', 'sales', 'active', 'default'),
+      ('${fixture.tenantDelta}', '${fixture.agentDelta}', 'Harness Agent Delta', 'sales', 'active', 'default'),
+      ('${fixture.tenantEpsilon}', '${fixture.agentEpsilon}', 'Harness Agent Epsilon', 'sales', 'active', 'default'),
+      ('${fixture.tenantZeta}', '${fixture.agentZeta}', 'Harness Agent Zeta', 'sales', 'active', 'default'),
+      ('${fixture.tenantAlpha}', '019f6de0-0000-7000-8000-0000000a0001', 'Rafaela Harness Seed', 'sales', 'active', 'default');
+    CREATE TABLE public.axtro_supabase_test_migrations (
+      version integer PRIMARY KEY,
+      filename text NOT NULL,
+      applied_at timestamptz NOT NULL DEFAULT now()
+    );
+  `;
+}
+
+function asRoleSql(role, userId, sql) {
+  const claim = userId === null ? "" : `SET request.jwt.claim.sub = '${userId}';`;
+  return `SET ROLE ${role}; ${claim} ${sql} RESET ROLE;`;
+}
+
+async function resolveBaseDatabaseUrl() {
+  if (externalDatabaseUrl !== undefined) {
+    if (process.env.AXTRO_ALLOW_LOCAL_DATABASE_URL !== "1") {
+      throw new Error("AXTRO_LOCAL_DATABASE_URL requires AXTRO_ALLOW_LOCAL_DATABASE_URL=1");
+    }
+    return database.parseLocalDatabaseUrl(externalDatabaseUrl);
+  }
+  if (postgresBin === null) throw new Error("PostgreSQL 17 binaries are required for the Supabase portal integration test");
+  assertPostgres17WithPgvector(postgresBin);
+  temporaryDirectory = mkdtempSync(join(tmpdir(), "axtro-portal-postgres-"));
+  const port = await reserveLocalPort();
+  run(join(postgresBin, "initdb"), [
+    "--no-locale", "--encoding=UTF8", "--username=postgres", "--auth=trust", "--pgdata", temporaryDirectory,
+  ], "cluster initialization");
+  run(join(postgresBin, "pg_ctl"), [
+    "--pgdata", temporaryDirectory,
+    "--log", join(temporaryDirectory, "postgres.log"),
+    "--options", `-h 127.0.0.1 -p ${port}`,
+    "--wait", "start",
+  ], "cluster startup");
+  cluster = { pgCtl: join(postgresBin, "pg_ctl"), dataDirectory: temporaryDirectory };
+  return `postgresql://postgres@127.0.0.1:${port}/postgres`;
+}
+
+function runFile(databaseUrl, path) {
+  return spawnSync(psqlPath, psqlArgs(databaseUrl, ["--file", path]), { encoding: "utf8", env: childEnvironment() });
+}
+
+function runSql(databaseUrl, sql) {
+  return spawnSync(psqlPath, psqlArgs(databaseUrl, ["--command", sql]), { encoding: "utf8", env: childEnvironment() });
+}
+
+function runSqlAsync(databaseUrl, sql) {
+  return new Promise((resolve, reject) => {
+    const child = spawn(psqlPath, psqlArgs(databaseUrl, ["--command", sql]), { env: childEnvironment() });
+    let stdout = "";
+    let stderr = "";
+    child.stdout.setEncoding("utf8");
+    child.stderr.setEncoding("utf8");
+    child.stdout.on("data", (chunk) => { stdout += chunk; });
+    child.stderr.on("data", (chunk) => { stderr += chunk; });
+    child.once("error", reject);
+    child.once("close", (status) => resolve({ status, stdout, stderr }));
+  });
+}
+
+function psqlArgs(databaseUrl, tail) {
+  return ["--no-psqlrc", "--no-password", "--tuples-only", "--no-align", "--set", "ON_ERROR_STOP=1", "--dbname", databaseUrl, ...tail];
+}
+
+function queryScalar(databaseUrl, sql) {
+  const result = runSql(databaseUrl, sql);
+  assertSucceeded(result, `scalar query: ${sql.trim().slice(0, 100)}`);
+  return result.stdout.trim().split("\n").filter((line) => line !== "SET" && line !== "RESET").at(-1) ?? "";
+}
+
+function queryRows(databaseUrl, sql) {
+  const result = runSql(databaseUrl, sql);
+  assertSucceeded(result, "row query");
+  return result.stdout.trim().split("\n").filter(Boolean);
+}
+
+function queryJson(databaseUrl, sql) {
+  const result = runSql(databaseUrl, sql);
+  assertSucceeded(result, "JSON query");
+  return parseLastJson(result.stdout);
+}
+
+function parseLastJson(output) {
+  const line = output.trim().split("\n").filter((value) => value.startsWith("{") || value.startsWith("[")).at(-1);
+  if (line === undefined) throw new Error(`Expected JSON output, received: ${output.trim()}`);
+  return JSON.parse(line);
+}
+
+function firstOutcome(output) {
+  return parseLastJson(output).outcome;
+}
+
+function assertSucceeded(result, phase) {
+  if (result.status !== 0) {
+    const detail = [result.stderr, result.stdout].filter(Boolean).join("\n").trim();
+    throw new Error(`Supabase portal integration failed during ${phase}${detail === "" ? "" : `: ${detail}`}`);
+  }
+}
+
+function assertFailed(result, phase) {
+  if (result.status === 0) throw new Error(`Supabase portal integration expected failure during ${phase}`);
+}
+
+function createDatabase(baseUrl, executable, name) {
+  const result = spawnSync(executable, psqlArgs(baseUrl, ["--command", `CREATE DATABASE ${quoteIdentifier(name)};`]), { encoding: "utf8", env: childEnvironment() });
+  assertSucceeded(result, "test database creation");
+}
+
+function dropDatabase(baseUrl, executable, name) {
+  const result = spawnSync(executable, psqlArgs(baseUrl, ["--command", `DROP DATABASE IF EXISTS ${quoteIdentifier(name)} WITH (FORCE);`]), { encoding: "utf8", env: childEnvironment() });
+  assertSucceeded(result, "test database cleanup");
+}
+
+function databaseUrlFor(baseUrl, databaseName) {
+  const parsed = new URL(baseUrl);
+  parsed.pathname = `/${databaseName}`;
+  return parsed.toString();
+}
+
+function databaseUrlWithUser(databaseUrl, username) {
+  const parsed = new URL(databaseUrl);
+  parsed.username = username;
+  parsed.password = "";
+  return parsed.toString();
+}
+
+function quoteIdentifier(value) {
+  return `"${value.replaceAll('"', '""')}"`;
+}
+
+function sqlLiteral(value) {
+  return value.replaceAll("'", "''");
+}
+
+function childEnvironment() {
+  return database.createSanitizedPsqlEnvironment(process.env);
+}
+
+function resolvePostgresBin() {
+  const configured = process.env.AXTRO_POSTGRES_BIN;
+  if (configured !== undefined) return configured;
+  const homebrewPostgres17 = "/opt/homebrew/opt/postgresql@17/bin";
+  return existsSync(join(homebrewPostgres17, "initdb")) ? homebrewPostgres17 : null;
+}
+
+function assertPostgres17WithPgvector(directory) {
+  const version = spawnSync(join(directory, "postgres"), ["--version"], { encoding: "utf8", env: childEnvironment() });
+  if (version.status !== 0 || !/\b17\./.test(version.stdout ?? "")) throw new Error("AXTRO_POSTGRES_BIN must contain PostgreSQL 17 binaries");
+  const sharedir = spawnSync(join(directory, "pg_config"), ["--sharedir"], { encoding: "utf8", env: childEnvironment() });
+  if (sharedir.status !== 0 || !existsSync(join((sharedir.stdout ?? "").trim(), "extension", "vector.control"))) {
+    throw new Error("PostgreSQL 17 with pgvector is required. Install matching pgvector or set AXTRO_POSTGRES_BIN.");
+  }
+}
+
+function reserveLocalPort() {
+  return new Promise((resolve, reject) => {
+    const server = createServer();
+    server.once("error", reject);
+    server.listen(0, "127.0.0.1", () => {
+      const address = server.address();
+      if (address === null || typeof address === "string") {
+        server.close(() => reject(new Error("Unable to reserve a local PostgreSQL port")));
+        return;
+      }
+      server.close((error) => error === undefined ? resolve(address.port) : reject(error));
+    });
+  });
+}
+
+function run(executable, args, phase) {
+  const result = spawnSync(executable, args, { encoding: "utf8", env: childEnvironment() });
+  if (result.status !== 0) throw new Error(`Local PostgreSQL ${phase} failed`);
+}
+
+function cleanupResources() {
+  if (cleanupStarted) return [];
+  cleanupStarted = true;
+  const errors = [];
+  if (baseDatabaseUrl !== undefined && testDatabaseName !== undefined) {
+    try { dropDatabase(baseDatabaseUrl, psqlPath, testDatabaseName); } catch (error) { errors.push(error instanceof Error ? error.message : "test database cleanup failed"); }
+    const dropProbe = runSql(baseDatabaseUrl, "DROP ROLE IF EXISTS portal_runtime_probe;");
+    if (dropProbe.status !== 0) errors.push("portal runtime probe role cleanup failed");
+  }
+  let clusterStopped = cluster === undefined;
+  if (cluster !== undefined) {
+    const stop = spawnSync(cluster.pgCtl, ["--pgdata", cluster.dataDirectory, "--wait", "--mode", "immediate", "stop"], { encoding: "utf8", env: childEnvironment() });
+    if (stop.status === 0) clusterStopped = true;
+    else errors.push("temporary PostgreSQL cluster did not stop cleanly");
+  }
+  if (temporaryDirectory !== undefined && clusterStopped) {
+    try { rmSync(temporaryDirectory, { recursive: true, force: true }); } catch (error) { errors.push(error instanceof Error ? error.message : "temporary directory cleanup failed"); }
+  } else if (temporaryDirectory !== undefined) {
+    errors.push(`temporary PostgreSQL directory retained for inspection: ${temporaryDirectory}`);
+  }
+  return errors;
+}

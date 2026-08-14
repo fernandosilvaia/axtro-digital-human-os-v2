@@ -4,9 +4,17 @@ import { redirect } from "next/navigation";
 
 import { createStripeBillingPort } from "@axtro/provider-stripe";
 
+import {
+  checkoutCatalogExpectation,
+  createDeterministicFakeCheckoutPort,
+} from "@/lib/billing/checkout-preflight";
+import { createDurableCheckout } from "@/lib/billing/checkout-intents";
 import { BILLING_TERMINAL_STATUSES, hasNonTerminalSubscription, isPlanId, PLAN_CATALOG } from "@/lib/billing/plans";
 import { fetchTenantOverview } from "@/lib/portal-data";
+import { portalPublicOrigin } from "@/lib/public-origin";
+import { isRateLimited } from "@/lib/rate-limit";
 import { createClient } from "@/lib/supabase/server";
+import { createServiceRoleClient } from "@/lib/supabase/service";
 import { logError as trackError } from "@/lib/telemetry";
 
 /**
@@ -17,11 +25,6 @@ import { logError as trackError } from "@/lib/telemetry";
  * nativamente, e criar uma SEGUNDA Checkout Session pra um tenant que já
  * assina criaria uma segunda assinatura cobrando em paralelo).
  */
-
-function publicUrl(path: string): string {
-  const base = (process.env.PORTAL_PUBLIC_URL ?? process.env.NEXT_PUBLIC_SITE_URL ?? "https://portal-production-b43e.up.railway.app").replace(/\/$/, "");
-  return `${base}${path}`;
-}
 
 interface BillingStatusRow {
   readonly plan_id?: string | null;
@@ -35,14 +38,6 @@ export async function startCheckout(formData: FormData): Promise<void> {
     redirect("/configuracoes?billing_error=plano_invalido");
   }
   const plan = PLAN_CATALOG[planIdRaw];
-
-  const apiKey = (process.env.STRIPE_SECRET_KEY ?? "").trim();
-  const basePriceId = (process.env[plan.basePriceEnvVar] ?? "").trim();
-  const overagePriceId = (process.env[plan.overagePriceEnvVar] ?? "").trim();
-  if (apiKey.length === 0 || basePriceId.length === 0 || overagePriceId.length === 0) {
-    trackError("billing_checkout_not_configured", new Error("Stripe billing is not configured"), { plan_id: plan.id });
-    redirect("/configuracoes?billing_error=nao_configurado");
-  }
 
   const supabase = await createClient();
   const { data: { user } } = await supabase.auth.getUser();
@@ -62,7 +57,28 @@ export async function startCheckout(formData: FormData): Promise<void> {
     redirect("/configuracoes?billing_error=apenas_admin");
   }
 
-  const { data: statusData } = await supabase.rpc("portal_billing_status");
+  // Direct Server Action calls bypass the submit-once UI. The database is
+  // still the durable single-effect authority; this tenant-scoped limiter
+  // bounds catalog GET/recovery traffic on the current application instance.
+  if (isRateLimited(`billing-checkout:${overview.tenant.id}`, 60_000, 6)) {
+    redirect("/configuracoes?billing_error=checkout_pendente");
+  }
+
+  const fakeProviders = (process.env.PORTAL_FAKE_PROVIDERS ?? "").trim() === "1";
+  const apiKey = (process.env.STRIPE_SECRET_KEY ?? "").trim();
+  const basePriceId = (process.env[plan.basePriceEnvVar] ?? "").trim();
+  const overagePriceId = (process.env[plan.overagePriceEnvVar] ?? "").trim();
+  const overageEventName = (process.env.STRIPE_CONVERSATION_OVERAGE_EVENT_NAME ?? "").trim();
+  if (!fakeProviders && (apiKey.length === 0 || basePriceId.length === 0 || overagePriceId.length === 0 || overageEventName.length === 0)) {
+    trackError("billing_checkout_not_configured", new Error("Stripe billing is not configured"), { plan_id: plan.id });
+    redirect("/configuracoes?billing_error=nao_configurado");
+  }
+
+  const { data: statusData, error: statusError } = await supabase.rpc("portal_billing_status");
+  if (statusError) {
+    trackError("billing_checkout_status_failed", statusError, { plan_id: plan.id });
+    redirect("/configuracoes?billing_error=falha_ao_ler_status");
+  }
   const existing = (statusData ?? {}) as BillingStatusRow;
   const hasCustomer = typeof existing.stripe_customer_id === "string";
   if (hasCustomer && hasNonTerminalSubscription(existing.status)) {
@@ -86,46 +102,71 @@ export async function startCheckout(formData: FormData): Promise<void> {
     ? existing.stripe_customer_id
     : undefined;
 
-  const port = createStripeBillingPort({ apiKey });
-  let checkoutUrl: string;
+  const effectiveApiKey = fakeProviders ? "sk_test_fake_checkout" : apiKey;
+  const effectiveBasePriceId = fakeProviders ? `price_fake${plan.id}base` : basePriceId;
+  const effectiveOveragePriceId = fakeProviders ? `price_fake${plan.id}overage` : overagePriceId;
+  const effectiveEventName = fakeProviders ? "axtro_conversation_overage" : overageEventName;
+  let checkoutDestination: string;
   try {
-    const session = await port.createCheckoutSession({
+    const origin = portalPublicOrigin();
+    const port = fakeProviders
+      ? createDeterministicFakeCheckoutPort(`${origin}/configuracoes?billing_error=nao_configurado`)
+      : createStripeBillingPort({ apiKey });
+    // Stripe/SQL require at least 30 minutes. One minute of margin prevents
+    // statement_timestamp() from making an exact +30m client instant stale
+    // by the time the service-role transaction validates it.
+    const expiresAtIso = new Date(Math.floor((Date.now() + 31 * 60_000) / 1000) * 1000).toISOString();
+    const result = await createDurableCheckout({
       tenantId: overview.tenant.id,
+      userId: user.id,
       planId: plan.id,
-      basePriceId,
-      overagePriceId,
+      basePriceId: effectiveBasePriceId,
+      overagePriceId: effectiveOveragePriceId,
       ...(existingCustomerId ? { existingStripeCustomerId: existingCustomerId } : {}),
-      ...(!existingCustomerId && typeof user.email === "string" && user.email.length > 0 ? { customerEmail: user.email } : {}),
-      successUrl: publicUrl("/configuracoes?billing_success=1"),
-      cancelUrl: publicUrl("/configuracoes?billing_error=cancelado"),
-      // Janela de 1min: absorve duplo clique, retry de rede e duas abas
-      // abertas na mesma conta/plano sem bloquear uma tentativa legítima
-      // alguns minutos depois (achado da auditoria 2026-08-06 — sem isso,
-      // duas Checkout Sessions completadas criam duas assinaturas cobrando
-      // em paralelo, e o upsert por tenant_id só deixa uma visível na UI).
-      idempotencyKey: `checkout:${overview.tenant.id}:${plan.id}:${Math.floor(Date.now() / 60_000)}`,
+      successUrl: `${origin}/configuracoes?billing_success=1`,
+      cancelUrl: `${origin}/configuracoes?billing_error=cancelado`,
+      expiresAtIso,
+      catalog: checkoutCatalogExpectation(plan, {
+        apiKey: effectiveApiKey,
+        eventName: effectiveEventName,
+        basePriceId: effectiveBasePriceId,
+        overagePriceId: effectiveOveragePriceId,
+      }),
+    }, {
+      client: createServiceRoleClient(),
+      port,
     });
-    checkoutUrl = session.checkoutUrl;
+    checkoutDestination = result.status === "ready"
+      ? result.checkoutUrl
+      : `/configuracoes?billing_error=${result.status === "conflict" ? "checkout_conflito" : "checkout_pendente"}`;
   } catch (error) {
     trackError("billing_checkout_failed", error, { plan_id: plan.id });
     redirect("/configuracoes?billing_error=falha_ao_criar_checkout");
   }
 
-  redirect(checkoutUrl);
+  redirect(checkoutDestination);
 }
 
 export async function openBillingPortal(): Promise<void> {
+  const supabase = await createClient();
+  const { data: { user } } = await supabase.auth.getUser();
+  if (user === null) {
+    redirect("/login");
+  }
+
+  const overview = await fetchTenantOverview();
+  if (!overview.provisioned || overview.tenant === undefined) {
+    redirect("/configuracoes?billing_error=conta_nao_provisionada");
+  }
+  if (overview.role !== "tenant_admin") {
+    redirect("/configuracoes?billing_error=apenas_admin");
+  }
+
   const apiKey = (process.env.STRIPE_SECRET_KEY ?? "").trim();
   if (apiKey.length === 0) {
     redirect("/configuracoes?billing_error=nao_configurado");
   }
 
-  const overview = await fetchTenantOverview();
-  if (overview.role !== "tenant_admin") {
-    redirect("/configuracoes?billing_error=apenas_admin");
-  }
-
-  const supabase = await createClient();
   const { data: statusData, error } = await supabase.rpc("portal_billing_status");
   if (error) {
     trackError("billing_portal_status_failed", error, {});
@@ -141,7 +182,7 @@ export async function openBillingPortal(): Promise<void> {
   try {
     const session = await port.createPortalSession({
       stripeCustomerId: status.stripe_customer_id,
-      returnUrl: publicUrl("/configuracoes"),
+      returnUrl: `${portalPublicOrigin()}/configuracoes`,
     });
     portalUrl = session.portalUrl;
   } catch (portalError) {

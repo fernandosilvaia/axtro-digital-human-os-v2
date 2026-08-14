@@ -244,3 +244,18 @@ test("embedQuery (real): devolve o vetor e os tokens da resposta real", withReal
   assert.equal(result.inputTokens, 7);
   assert.deepEqual(result.embedding, new Array(1536).fill(0.25));
 }));
+
+test("embedQuery e embedChunks propagam custo reportado sem expor conteúdo", withRealProviders(async () => {
+  globalThis.fetch = async (_url, init) => {
+    const body = JSON.parse(init.body);
+    return new Response(JSON.stringify({
+      data: body.input.map((_text, index) => ({ index, embedding: new Array(1536).fill(0.1) })),
+      model: "openai/text-embedding-3-small",
+      usage: { prompt_tokens: 9, total_tokens: 9, cost: 0.000004 },
+    }), { status: 200 });
+  };
+  const query = await knowledge.embedQuery("test-openrouter-key-0000000000000000", "pergunta sensível");
+  assert.equal(query.reportedCostUsd, 0.000004);
+  const chunks = await knowledge.embedChunks("test-openrouter-key-0000000000000000", ["conteúdo sensível"]);
+  assert.equal(chunks.reportedCostUsd, 0.000004);
+}));

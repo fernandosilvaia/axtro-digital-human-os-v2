@@ -52,6 +52,8 @@ Racional completo: D-V2-055, D-V2-056 e D-V2-058 em
 | `0037_fix_agent_status_concurrency.sql` | sim (2026-08-12, via MCP `apply_migration`, autorizado explicitamente pelo Fernando) — fecha achado P3 (auto-revisão da própria onda D-V2-114): `portal_set_agent_status` (0014) tinha o mesmo padrão check-then-act sem lock — duas ativações genuinamente concorrentes do mesmo agente podiam as duas retornar `changed:true`, reenviando o e-mail "Agente ativado" mesmo com o fix de `changed` em `resources.ts` já aplicado. Mesmo fix de `FOR UPDATE` de 0035. Confirmado via `execute_sql`: `pg_get_functiondef` contém `FOR UPDATE` |
 | `0039_revoke_default_grants_rls_no_policy_tables.sql` | sim (2026-08-12, via MCP `apply_migration`, autorizado explicitamente pelo Fernando) — fecha achado P2 (onda 7, D-V2-116): 6 tabelas com RLS habilitada e zero policies (agent_brain_config, agent_video_config, conversation_transcripts, meeting_bot_sessions, tenant_cost_alerts, tenant_subscriptions) nunca revogaram o GRANT ALL padrão do Supabase pra anon/authenticated (confirmado ao vivo via `information_schema.role_table_grants` + `pg_default_acl`) — só `tenant_invites`/`user_tenant_memberships` fizeram isso desde o início. Seguro antes e depois (RLS+zero policy já nega tudo), é defesa-em-profundidade contra uma policy futura mal escrita valer imediatamente pra INSERT/UPDATE/DELETE também. Mesmo padrão de `revoke all on table ... from authenticated, anon, public` já usado em 0002/0006. Confirmado via `execute_sql`: zero linhas em `information_schema.role_table_grants` pra `anon`/`authenticated` nas 6 tabelas; advisor de segurança revisado — mesmo baseline de WARN/INFO já conhecidos, nenhum achado novo; RPCs SECURITY DEFINER dessas tabelas confirmadas funcionando (rodam como dono da função, não dependem do grant do caller) |
 | `0038_checkbudget_service_aggregation.sql` | sim (2026-08-12, via MCP `apply_migration`, autorizado explicitamente pelo Fernando) — fecha achado P1 (onda 6, D-V2-115): `checkBudget` (rota `/api/brain/[agentId]/chat/completions`, chamada em TODO turno de vídeo) fazia scan sem índice de `cost_events` + soma em JS a cada requisição. Adiciona índice `cost_events_tenant_unit_type_occurred_at_idx (tenant_id, unit_type, occurred_at)` + RPC `portal_ai_tokens_today_service` (agregação SQL, service-role). Confirmado via `execute_sql`: índice presente em `pg_indexes`, RPC retorna `bigint` corretamente pra tenants reais; advisor de segurança revisado — a RPC NÃO aparece em `authenticated_security_definer_function_executable`, confirmando que não está exposta a `authenticated`, só a `service_role` |
+| `0040_production_integrity_hardening.sql` | **pendente** — fase expand de M5-01: reservations duráveis de Tavus/Recall e IA, unknown barrier, estimates conservadores datados, activation com receipt durável e snapshot de billing no instante da entrega, outbox Stripe, reconciler leased, capability hash Tavus, dedup Recall, ownership service de transcript e capability v40. Aplicar antes de iniciar o artefato M5-01. O artefato novo deve permanecer `unready` e sem tráfego enquanto o schema estiver em v40. |
+| `0041_provider_transcript_contract.sql` | **pendente** — fase contract de M5-01: bloqueia preclaim autenticado de refs de provider e eleva a capability final para v41. Aplicar com o artefato novo presente, porém ainda fora de tráfego; somente após o probe v41 responder corretamente `/api/ready` pode liberar tráfego. Depois de 0041, rollback para writer legado é proibido — corrija/repromova o app novo, nunca reabra a superfície insegura. |
 | `0021_meeting_bot_sessions.sql` | sim (2026-07-30, via MCP `apply_migration`, autorizado explicitamente pelo Fernando) — tabela + 3 funções confirmadas via `execute_sql`, RLS forçada |
 | `0022_agent_video_config_rpc.sql` | sim (2026-07-31, via Management API `database/query`) — RPC testada ao vivo provisionando a persona da Marina |
 | `0023_cleanup_rpcs.sql` | sim (2026-07-31, via Management API `database/query`) — exclusão de rascunho de agente e de fonte revogada, testada no e2e |
@@ -60,9 +62,42 @@ Racional completo: D-V2-055, D-V2-056 e D-V2-058 em
 ## Regras
 
 - Aplicar via SQL editor do dashboard ou `apply_migration`/`execute_sql` (MCP).
-- Nunca aplicar no harness local — os arquivos assumem o schema das migrations
-  portáveis (`app.uuid_v7`, `public.tenants`, ...) mais a camada de auth do
-  Supabase.
+- O harness `pnpm db:portal:test` aplica as migrations portáveis 0001-0011,
+  cria stubs mínimos e sem privilégio excessivo para `auth.users`,
+  `auth.uid()` e roles Supabase, e então executa toda a cadeia Supabase-only
+  em PostgreSQL 17 efêmero/local. Isso é teste de compatibilidade, grants,
+  RLS, concorrência e rollback; nunca substitui o apply remoto autorizado.
+- O harness prova separadamente a compatibilidade expand de v40 (turn de
+  transcript com extra-key legado ainda aceito) e o contrato estrito de v41;
+  também injeta uma falha no meio da 0040 e prova rollback transacional, executa
+  concorrência real de cap/reserva e registro idempotente de transcript, fence
+  set-once do callback Tavus, claim Recall, ordinal de overage no instante de
+  activation, rollback cost+provider-ref, exclusão de fonte sem reter seu ID no
+  recibo de IA e leases de billing/reconciliação. Nenhum lease libera um efeito
+  externo ambíguo.
+- Os RPCs M5-01 de provider, webhook, billing e reconciliação são somente
+  `service_role`. As tabelas de controle/recibo também revogam DML direto da
+  própria `service_role`; o acesso é exclusivamente pelas RPCs SECURITY DEFINER.
+  As mutações de AI reservation são igualmente service-only e recebem tenant
+  explícito depois da autorização no servidor.
+- A 0041 revoga os dois writers autenticados legados capazes de preclaim de
+  referência de provider: transcript de vídeo/reunião e sessão de bot Recall.
+  As respectivas capabilities precisam estar `true` antes de liberar tráfego.
+- `provider_effect_reservations.related_ref` aceita somente referência opaca e
+  limitada; URLs de reunião permanecem no registro operacional tenant-scoped e
+  nunca são copiadas para o recibo financeiro durável. O outbox reutiliza o
+  `cost_event_id` UUIDv7 criado pela aplicação como sua identidade 1:1.
+- Checkout de assinatura usa `billing_checkout_intents`: uma única tentativa
+  aberta por tenant, idempotency key estável e sessão Stripe vinculada antes do
+  redirect. A 0041 revoga o writer last-write-wins legado; evento de uma
+  assinatura superseded nunca substitui outra assinatura ativa.
+- `portal_usage_summary` preserva os campos históricos durante o cutover e
+  acrescenta totais tenant-scoped de hoje/7d que somam `amount_usd` de todo o
+  ledger (inclusive Tavus e Recall), com precisão explicitamente mista.
+- A reserva Tavus usa o maior overage CVI publicado encontrado em
+  2026-08-13, USD 0,37/minuto, arredondando cada minuto iniciado. A página
+  pública possui valores conflitantes; a tarifa real da conta deve ser
+  reconciliada com dashboard/invoice e nunca tratada como custo medido.
 - Toda alteração aqui deve ser reaplicada no projeto hospedado no mesmo PR e
   anotada na tabela acima.
 - Advisor do Supabase: os WARNs `authenticated_security_definer_function_executable`

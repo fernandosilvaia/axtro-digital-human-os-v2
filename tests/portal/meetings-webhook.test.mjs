@@ -101,6 +101,19 @@ test("rejeita cabeçalhos ausentes, segredo sem prefixo whsec_, ou assinatura em
   assert.equal(webhook.verifyRecallWebhookSignature(TEST_SECRET, { ...base, signature: "garbage-no-comma" }, TEST_RAW_BODY, TEST_NOW), false);
 });
 
+test("parser whsec compartilhado rejeita base64 permissivo, não canônico e chave curta", () => {
+  assert.equal(webhook.isRecallWebhookSecretConfigured(TEST_SECRET), true);
+  for (const secret of [
+    "x".repeat(32),
+    "whsec_not-base64!!!!",
+    `whsec_${Buffer.from("curta").toString("base64")}`,
+    `whsec_${Buffer.from("x".repeat(25)).toString("base64").replace(/=$/, "")}`,
+  ]) {
+    assert.equal(webhook.parseRecallWebhookSecret(secret), null);
+    assert.equal(webhook.isRecallWebhookSecretConfigured(secret), false);
+  }
+});
+
 // D-V2-106: transcript.done tem shape diferente dos eventos bot.* de status
 // — data.transcript.id é o que importa aqui (busca de conteúdo em 2 hops).
 test("parseRecallTranscriptDonePayload extrai botId e transcriptId de transcript.done", () => {

@@ -50,6 +50,8 @@ export interface MeetingBot {
 
 export interface TranscriptMetadata {
   readonly transcriptId: string;
+  /** Bot canônico cujo recording contém este transcript. */
+  readonly botId: string;
   /** URL assinada (fora do domínio da Recall.ai) de onde baixar o conteúdo — null enquanto ainda não está pronta. */
   readonly downloadUrl: string | null;
 }
@@ -71,10 +73,13 @@ export type MeetingBotErrorCode =
 
 export class MeetingBotError extends Error {
   readonly code: MeetingBotErrorCode;
-  constructor(code: MeetingBotErrorCode, message: string) {
+  /** Provider HTTP status when a response was received; absent for local/network failures. */
+  readonly httpStatus: number | null;
+  constructor(code: MeetingBotErrorCode, message: string, httpStatus: number | null = null) {
     super(message);
     this.name = "MeetingBotError";
     this.code = code;
+    this.httpStatus = httpStatus;
   }
 }
 
@@ -90,8 +95,8 @@ export interface MeetingBotPort {
   startCameraWebpage(botId: string, webpageUrl: string): Promise<void>;
   stopCameraWebpage(botId: string): Promise<void>;
   leaveCall(botId: string): Promise<void>;
-  /** GET /api/v1/transcript/{id}/ — metadados + URL de download (fora do domínio Recall.ai). */
-  fetchTranscriptMetadata(transcriptId: string): Promise<TranscriptMetadata>;
+  /** GET /api/v1/bot/{expectedBotId}/ — vincula o artifact ao bot antes de devolver a URL. */
+  fetchTranscriptMetadata(transcriptId: string, expectedBotId?: string): Promise<TranscriptMetadata>;
   /** Baixa e faz o parse do conteúdo em downloadUrl (docs.recall.ai/docs/async-transcription). */
   downloadTranscript(downloadUrl: string): Promise<readonly TranscriptBlock[]>;
 }
@@ -99,6 +104,8 @@ export interface MeetingBotPort {
 export interface RecallAdapterOptions {
   readonly apiKey: string;
   readonly region: RecallRegion;
+  /** Hostnames exatos autorizados para URLs assinadas de transcript. Vazio/ausente fecha o download. */
+  readonly transcriptDownloadHosts?: readonly string[];
   readonly timeoutMs?: number;
   readonly fetchImplementation?: typeof fetch;
 }
@@ -109,6 +116,9 @@ const MAX_WEBPAGE_URL_CHARS = 2000;
 const MAX_DOWNLOAD_URL_CHARS = 4000;
 const MAX_TRANSCRIPT_BYTES = 5_000_000;
 const DEFAULT_TIMEOUT_MS = 20_000;
+const MAX_TRANSCRIPT_REDIRECTS = 3;
+const RECALL_REGIONS = new Set<RecallRegion>(["us-east-1", "us-west-2", "eu-central-1", "ap-northeast-1"]);
+const REDIRECT_STATUSES = new Set([301, 302, 303, 307, 308]);
 // Recall.ai bot/transcript ids são UUIDs (confirmado na doc oficial: "id (UUID of bot)").
 const BOT_ID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const ISO_8601_PATTERN = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(\.\d+)?(Z|[+-]\d{2}:\d{2})$/;
@@ -122,14 +132,59 @@ function isHttpsUrl(value: string, maxChars: number): boolean {
   }
 }
 
+export function isRecallRegion(value: string | undefined): value is RecallRegion {
+  return typeof value === "string" && RECALL_REGIONS.has(value as RecallRegion);
+}
+
+export function recallApiBaseUrl(region: RecallRegion): string {
+  return `https://${region}.recall.ai/api/v1`;
+}
+
+function isForbiddenHostname(hostname: string): boolean {
+  const normalized = hostname.toLowerCase();
+  if (normalized === "localhost" || normalized.endsWith(".localhost")) return true;
+  // URL normaliza IPv6 literal sem os colchetes em alguns runtimes e com
+  // eles em outros; ambos são recusados. IP público também é recusado: a
+  // configuração é deliberadamente por hostname exato, nunca por literal.
+  const candidate = normalized.startsWith("[") && normalized.endsWith("]") ? normalized.slice(1, -1) : normalized;
+  if (/^\d{1,3}(?:\.\d{1,3}){3}$/.test(candidate)) return true;
+  if (candidate.includes(":")) return true;
+  return false;
+}
+
+function isExactHostname(value: string): boolean {
+  if (value.length === 0 || value.length > 253 || value !== value.toLowerCase()) return false;
+  if (isForbiddenHostname(value) || value.endsWith(".")) return false;
+  return value.split(".").every((label) => label.length > 0 && label.length <= 63 && /^[a-z0-9](?:[a-z0-9-]*[a-z0-9])?$/.test(label));
+}
+
+/** Parse compartilhado por adapter e readiness; null significa config inválida/ausente. */
+export function parseRecallTranscriptDownloadHosts(value: string | undefined): readonly string[] | null {
+  if (typeof value !== "string" || value.trim().length === 0) return null;
+  const hosts = value.split(",").map((host) => host.trim().toLowerCase());
+  if (hosts.some((host) => !isExactHostname(host))) return null;
+  return Object.freeze([...new Set(hosts)]);
+}
+
 export function createRecallMeetingBotPort(options: RecallAdapterOptions): MeetingBotPort {
   const apiKey = typeof options.apiKey === "string" ? options.apiKey.trim() : "";
   if (apiKey.length < 8) throw new MeetingBotError("missing_api_key", "Recall.ai API key is not configured");
   const timeoutMs = options.timeoutMs ?? DEFAULT_TIMEOUT_MS;
   const fetchImplementation = options.fetchImplementation ?? fetch;
-  const base = `https://${options.region}.recall.ai/api/v1`;
+  if (!isRecallRegion(options.region)) throw new MeetingBotError("invalid_request", "Recall.ai region is invalid");
+  const base = recallApiBaseUrl(options.region);
+  const configuredTranscriptHosts = options.transcriptDownloadHosts ?? [];
+  if (configuredTranscriptHosts.some((host) => !isExactHostname(host))) {
+    throw new MeetingBotError("invalid_request", "Recall.ai transcript host allowlist is invalid");
+  }
+  const transcriptDownloadHosts = new Set(configuredTranscriptHosts);
 
-  async function call(method: "POST" | "DELETE" | "GET", path: string, body?: Record<string, unknown>): Promise<unknown> {
+  async function call(
+    method: "POST" | "DELETE" | "GET",
+    path: string,
+    body?: Record<string, unknown>,
+    options: Readonly<{ notFoundIsSuccess?: boolean }> = {},
+  ): Promise<unknown> {
     const controller = new AbortController();
     const timer = setTimeout(() => controller.abort(), timeoutMs);
     let response: Response;
@@ -154,8 +209,12 @@ export function createRecallMeetingBotPort(options: RecallAdapterOptions): Meeti
     // fora daquela rodada).
     try {
       if (!response.ok) {
+        // O leave é uma compensação idempotente: 404 confirma que não há bot
+        // ativo para manter custo. O opt-in impede que create/get confundam
+        // ausência do recurso com sucesso.
+        if (response.status === 404 && options.notFoundIsSuccess === true) return null;
         const code: MeetingBotErrorCode = response.status >= 500 ? "provider_unavailable" : "provider_rejected";
-        throw new MeetingBotError(code, `Recall.ai respondeu HTTP ${response.status}`);
+        throw new MeetingBotError(code, `Recall.ai respondeu HTTP ${response.status}`, response.status);
       }
       if (response.status === 204) return null;
       let text: string;
@@ -183,13 +242,55 @@ export function createRecallMeetingBotPort(options: RecallAdapterOptions): Meeti
     }
   }
 
-  function isHttpsDownloadUrl(value: string): boolean {
-    if (typeof value !== "string" || value.length === 0 || value.length > MAX_DOWNLOAD_URL_CHARS) return false;
+  function parseSafeDownloadUrl(value: string): URL | null {
+    if (typeof value !== "string" || value.length === 0 || value.length > MAX_DOWNLOAD_URL_CHARS) return null;
     try {
-      return new URL(value).protocol === "https:";
+      const url = new URL(value);
+      if (url.protocol !== "https:" || url.username.length > 0 || url.password.length > 0 || url.port.length > 0) return null;
+      const hostname = url.hostname.toLowerCase();
+      if (isForbiddenHostname(hostname) || !transcriptDownloadHosts.has(hostname)) return null;
+      return url;
     } catch {
-      return false;
+      return null;
     }
+  }
+
+  async function readBoundedTranscriptBody(response: Response, signal: AbortSignal): Promise<string> {
+    const declaredLength = Number(response.headers.get("content-length") ?? "");
+    if (Number.isFinite(declaredLength) && declaredLength > MAX_TRANSCRIPT_BYTES) {
+      throw new MeetingBotError("malformed_provider_response", "Recall.ai transcript exceeds the sanity size cap");
+    }
+    if (response.body === null || response.body === undefined || typeof response.body.getReader !== "function") {
+      const text = await response.text();
+      if (Buffer.byteLength(text, "utf8") > MAX_TRANSCRIPT_BYTES) {
+        throw new MeetingBotError("malformed_provider_response", "Recall.ai transcript exceeds the sanity size cap");
+      }
+      return text;
+    }
+    const reader = response.body.getReader();
+    const chunks: Uint8Array[] = [];
+    let bytes = 0;
+    try {
+      while (true) {
+        if (signal.aborted) throw Object.assign(new Error("aborted"), { name: "AbortError" });
+        const { done, value } = await reader.read();
+        if (done) break;
+        if (value !== undefined) {
+          bytes += value.byteLength;
+          if (bytes > MAX_TRANSCRIPT_BYTES) {
+            await reader.cancel();
+            throw new MeetingBotError("malformed_provider_response", "Recall.ai transcript exceeds the sanity size cap");
+          }
+          chunks.push(value);
+        }
+      }
+    } finally {
+      reader.releaseLock();
+    }
+    const body = new Uint8Array(bytes);
+    let offset = 0;
+    for (const chunk of chunks) { body.set(chunk, offset); offset += chunk.byteLength; }
+    return new TextDecoder("utf-8", { fatal: true }).decode(body);
   }
 
   return Object.freeze({
@@ -228,18 +329,26 @@ export function createRecallMeetingBotPort(options: RecallAdapterOptions): Meeti
         // Teto duro de bot-hora (auditoria 2026-08-02: sem isto e sem nenhum
         // call site de leaveCall, o bot ficava na reunião cobrando por hora
         // indefinidamente). Campos oficiais da doc (reference/bot_create):
-        // sala Tavus vive no máx. 1800s, então 2400s de teto em call cobre
-        // a conversa inteira com folga e ainda corta o pior caso.
+        // A sala Tavus vive no máx. 1800s. Limitamos a espera a 300s e cada
+        // ramo in-call a 1800s, mantendo o pior caso sequencial em até 35min
+        // (+ alguns segundos documentados para o leave). A reserva financeira
+        // continua conservadora em 40min.
         automatic_leave: {
-          waiting_room_timeout: 900,
-          noone_joined_timeout: 900,
+          waiting_room_timeout: 300,
+          noone_joined_timeout: 300,
           everyone_left_timeout: { timeout: 30 },
-          in_call_not_recording_timeout: 2400,
+          // Recorded meetings need their own hard ceiling; the sibling
+          // non-recording timeout does not apply while transcription/recording
+          // is active. Both branches are capped to the same 40-minute spend
+          // envelope reserved before provider dispatch.
+          recording_permission_denied_timeout: 60,
+          in_call_recording_timeout: 1800,
+          in_call_not_recording_timeout: 1800,
         },
       });
       const record = (payload ?? {}) as Record<string, unknown>;
       const botId = record.id;
-      if (typeof botId !== "string" || botId.length === 0) {
+      if (typeof botId !== "string" || !BOT_ID_PATTERN.test(botId)) {
         throw new MeetingBotError("malformed_provider_response", "Recall.ai bot payload has no id");
       }
       return Object.freeze({ botId });
@@ -262,99 +371,102 @@ export function createRecallMeetingBotPort(options: RecallAdapterOptions): Meeti
 
     async leaveCall(botId: string): Promise<void> {
       validateBotId(botId);
-      await call("POST", `/bot/${botId}/leave_call/`);
+      await call("POST", `/bot/${botId}/leave_call/`, undefined, { notFoundIsSuccess: true });
     },
 
-    async fetchTranscriptMetadata(transcriptId: string): Promise<TranscriptMetadata> {
+    async fetchTranscriptMetadata(transcriptId: string, expectedBotId?: string): Promise<TranscriptMetadata> {
       if (typeof transcriptId !== "string" || !BOT_ID_PATTERN.test(transcriptId)) {
         throw new MeetingBotError("invalid_request", "transcriptId must be a plain Recall.ai transcript id");
       }
-      const payload = await call("GET", `/transcript/${transcriptId}/`);
+      const botId = expectedBotId ?? "";
+      validateBotId(botId);
+      // Retrieve Transcript não expõe bot_id no schema v1.11. O binding
+      // seguro vem do Retrieve Bot: só aceitamos o artifact cujo id aparece
+      // dentro de recordings[].media_shortcuts.transcript do bot esperado.
+      const payload = await call("GET", `/bot/${botId}/`);
       const record = (payload ?? {}) as Record<string, unknown>;
-      const id = record.id;
-      if (typeof id !== "string" || id.length === 0) {
-        throw new MeetingBotError("malformed_provider_response", "Recall.ai transcript payload has no id");
+      if (record.id !== botId || !Array.isArray(record.recordings)) {
+        throw new MeetingBotError("malformed_provider_response", "Recall.ai bot transcript metadata is malformed");
       }
-      const downloadUrl = record.download_url;
+      let downloadUrl: string | null = null;
+      for (const recordingValue of record.recordings) {
+        const recording = (recordingValue ?? {}) as Record<string, unknown>;
+        const shortcuts = (recording.media_shortcuts ?? {}) as Record<string, unknown>;
+        const transcript = (shortcuts.transcript ?? {}) as Record<string, unknown>;
+        if (transcript.id !== transcriptId) continue;
+        const data = (transcript.data ?? {}) as Record<string, unknown>;
+        downloadUrl = typeof data.download_url === "string" && data.download_url.length > 0 ? data.download_url : null;
+        break;
+      }
+      if (downloadUrl === null) {
+        throw new MeetingBotError("malformed_provider_response", "Recall.ai transcript does not belong to the expected bot or is not ready");
+      }
       return Object.freeze({
-        transcriptId: id,
-        downloadUrl: typeof downloadUrl === "string" && downloadUrl.length > 0 ? downloadUrl : null,
+        transcriptId,
+        botId,
+        downloadUrl,
       });
     },
 
     async downloadTranscript(downloadUrl: string): Promise<readonly TranscriptBlock[]> {
-      if (!isHttpsDownloadUrl(downloadUrl)) {
-        throw new MeetingBotError("invalid_request", "downloadUrl must be an https URL");
-      }
+      let currentUrl = parseSafeDownloadUrl(downloadUrl);
+      if (currentUrl === null) throw new MeetingBotError("invalid_request", "downloadUrl host is not authorized");
       // URL assinada de storage (fora do domínio da Recall.ai) — sem header
       // de Authorization da API, e SEM base/timeout compartilhado do call().
       const controller = new AbortController();
       const timer = setTimeout(() => controller.abort(), timeoutMs);
-      let response: Response;
       try {
-        response = await fetchImplementation(downloadUrl, { signal: controller.signal });
-      } catch (error) {
-        clearTimeout(timer);
-        if (error instanceof Error && error.name === "AbortError") {
-          throw new MeetingBotError("provider_timeout", `Recall.ai transcript download timed out after ${timeoutMs}ms`);
+        let response: Response | null = null;
+        for (let redirects = 0; redirects <= MAX_TRANSCRIPT_REDIRECTS; redirects += 1) {
+          response = await fetchImplementation(currentUrl.toString(), { signal: controller.signal, redirect: "manual" });
+          if (!REDIRECT_STATUSES.has(response.status)) break;
+          if (redirects === MAX_TRANSCRIPT_REDIRECTS) {
+            throw new MeetingBotError("provider_rejected", "Recall.ai transcript download exceeded redirect cap");
+          }
+          const location = response.headers.get("location");
+          if (location === null) throw new MeetingBotError("provider_rejected", "Recall.ai transcript redirect has no location");
+          const redirected = parseSafeDownloadUrl(new URL(location, currentUrl).toString());
+          if (redirected === null) throw new MeetingBotError("invalid_request", "Recall.ai transcript redirect host is not authorized");
+          await response.body?.cancel().catch(() => undefined);
+          currentUrl = redirected;
         }
-        throw new MeetingBotError("provider_unavailable", "Recall.ai transcript download failed before a response");
-      }
-      let parsed: unknown;
-      // O timer segue vivo até o corpo ser consumido — headers rápidos com
-      // body pendurado (até 5MB de transcrição) não escapam do timeout
-      // (achado P1 da auditoria 2026-08-11, mesma correção do call() acima).
-      try {
+        if (response === null) throw new MeetingBotError("provider_unavailable", "Recall.ai transcript download returned no response");
         if (!response.ok) {
           const code: MeetingBotErrorCode = response.status >= 500 ? "provider_unavailable" : "provider_rejected";
-          throw new MeetingBotError(code, `Recall.ai transcript download respondeu HTTP ${response.status}`);
+          throw new MeetingBotError(code, `Recall.ai transcript download respondeu HTTP ${response.status}`, response.status);
         }
-        // Checa Content-Length ANTES de bufferizar (achado P2 da revisão
-        // adversarial 2026-08-10): não evita 100% (um servidor podia mentir
-        // no header), mas corta o caso comum sem segurar o corpo inteiro em
-        // memória primeiro. O teto pós-buffer abaixo continua como rede de
-        // segurança pro caso do header ausente ou mentiroso.
-        const declaredLength = Number(response.headers.get("content-length") ?? "");
-        if (Number.isFinite(declaredLength) && declaredLength > MAX_TRANSCRIPT_BYTES) {
-          throw new MeetingBotError("malformed_provider_response", "Recall.ai transcript exceeds the sanity size cap");
-        }
-        let text: string;
+        const text = await readBoundedTranscriptBody(response, controller.signal);
         try {
-          text = await response.text();
-        } catch (error) {
-          if (error instanceof Error && error.name === "AbortError") {
-            throw new MeetingBotError("provider_timeout", `Recall.ai transcript download timed out after ${timeoutMs}ms`);
+          const parsed: unknown = JSON.parse(text);
+          if (!Array.isArray(parsed)) {
+            throw new MeetingBotError("malformed_provider_response", "Recall.ai transcript download must be a JSON array");
           }
-          throw new MeetingBotError("provider_unavailable", "Recall.ai transcript download body failed to read");
-        }
-        if (text.length > MAX_TRANSCRIPT_BYTES) {
-          throw new MeetingBotError("malformed_provider_response", "Recall.ai transcript exceeds the sanity size cap");
-        }
-        try {
-          parsed = JSON.parse(text);
+          return Object.freeze(parsed.map((block): TranscriptBlock => {
+            const record = (block ?? {}) as Record<string, unknown>;
+            const participant = (record.participant ?? {}) as Record<string, unknown>;
+            const words = Array.isArray(record.words) ? record.words : [];
+            const text = words
+              .map((word) => (word as Record<string, unknown>)?.text)
+              .filter((value): value is string => typeof value === "string")
+              .join(" ");
+            return Object.freeze({
+              participantName: typeof participant.name === "string" ? participant.name : null,
+              isHost: participant.is_host === true,
+              text,
+            });
+          }));
         } catch {
           throw new MeetingBotError("malformed_provider_response", "Recall.ai transcript download is not valid JSON");
         }
+      } catch (error) {
+        if (error instanceof MeetingBotError) throw error;
+        if (error instanceof Error && error.name === "AbortError") {
+          throw new MeetingBotError("provider_timeout", `Recall.ai transcript download timed out after ${timeoutMs}ms`);
+        }
+        throw new MeetingBotError("provider_unavailable", "Recall.ai transcript download failed before completion");
       } finally {
         clearTimeout(timer);
       }
-      if (!Array.isArray(parsed)) {
-        throw new MeetingBotError("malformed_provider_response", "Recall.ai transcript download must be a JSON array");
-      }
-      return Object.freeze(parsed.map((block): TranscriptBlock => {
-        const record = (block ?? {}) as Record<string, unknown>;
-        const participant = (record.participant ?? {}) as Record<string, unknown>;
-        const words = Array.isArray(record.words) ? record.words : [];
-        const text = words
-          .map((word) => (word as Record<string, unknown>)?.text)
-          .filter((value): value is string => typeof value === "string")
-          .join(" ");
-        return Object.freeze({
-          participantName: typeof participant.name === "string" ? participant.name : null,
-          isHost: participant.is_host === true,
-          text,
-        });
-      }));
     },
   });
 }

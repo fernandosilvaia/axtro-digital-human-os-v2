@@ -2,6 +2,8 @@
 
 import { useState, useTransition } from "react";
 
+import { isTrustedTavusConversationUrl } from "@axtro/provider-tavus";
+
 import { joinExternalMeeting } from "@/lib/actions/meeting-bot";
 
 /**
@@ -25,15 +27,21 @@ export function ExternalMeeting({ agentId, agentName, timeZone }: { agentId: str
     event.preventDefault();
     setError(null);
     setSuccess(null);
+    const commandId = crypto.randomUUID();
     startTransition(async () => {
       const result = await joinExternalMeeting(
         agentId,
         meetingUrl.trim(),
         scheduleAt.trim().length > 0 ? scheduleAt.trim() : null,
         timeZone,
+        commandId,
       );
       if (result.error) {
         setError(result.error);
+        return;
+      }
+      if (result.conversationUrl !== null && !isTrustedTavusConversationUrl(result.conversationUrl)) {
+        setError("A sala de acompanhamento retornou um endereço não confiável.");
         return;
       }
       setSuccess({ scheduled: result.scheduled, conversationUrl: result.conversationUrl });
@@ -41,6 +49,11 @@ export function ExternalMeeting({ agentId, agentName, timeZone }: { agentId: str
       setScheduleAt("");
     });
   }
+
+  const returnedConversationUrl = success?.conversationUrl ?? null;
+  const trustedConversationUrl = isTrustedTavusConversationUrl(returnedConversationUrl)
+    ? returnedConversationUrl
+    : null;
 
   return (
     <section className="card" style={{ marginTop: 16 }} aria-labelledby="reuniao-externa">
@@ -109,10 +122,10 @@ export function ExternalMeeting({ agentId, agentName, timeZone }: { agentId: str
             {success.scheduled
               ? `✓ ${agentName} vai entrar na reunião no horário marcado.`
               : `✓ ${agentName} está entrando na reunião agora — pode levar alguns segundos para aparecer.`}
-            {success.conversationUrl && (
+            {trustedConversationUrl && (
               <>
                 {" "}
-                <a href={success.conversationUrl} target="_blank" rel="noreferrer" style={{ color: "var(--accent)" }}>
+                <a href={trustedConversationUrl} target="_blank" rel="noreferrer" style={{ color: "var(--accent)" }}>
                   Abrir a sala dela
                 </a>{" "}
                 <span style={{ color: "var(--text-faint)" }}>(para acompanhar o que ela vê e fala)</span>

@@ -146,7 +146,7 @@ const COST_EVENT_CHECK_CONSTRAINTS = [
   { name: "cost_events_currency_check", signatures: ["currencyusd"] },
   { name: "cost_events_provider_id_length_check", signatures: ["char_lengthprovider_id1andchar_lengthprovider_id120"] },
   { name: "cost_events_service_length_check", signatures: ["char_lengthservice1andchar_lengthservice160"] },
-  { name: "cost_events_unit_type_check", signatures: ["unit_type", "minute", "second", "token", "character", "megabyte", "request", "seat", "flat"] },
+  { name: "cost_events_unit_type_check", signatures: ["unit_type", "minute", "second", "token", "character", "megabyte", "request", "seat", "flat", "conversation"] },
   { name: "cost_events_amount_reconciliation_check", signatures: ["amount_usdroundquantityunit_cost_usd8"] },
   {
     name: "cost_events_rate_card_pair_check",
@@ -273,6 +273,7 @@ const SENTINEL_SQL_BY_VERSION: Readonly<Record<number, string>> = {
   9: "SELECT (EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'cost_events_amount_reconciliation_check') AND EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'cost_events_tenant_id_reconciles_cost_event_id_fkey') AND to_regclass('public.cost_events_tenant_source_provider_request_ref_unique') IS NOT NULL)::int;",
   10: "SELECT (EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'session_timeline_tenant_event_id_key') AND EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'session_timeline_event_document_identity_check'))::int;",
   11: "SELECT (to_regclass('public.workflow_commands') IS NOT NULL AND to_regclass('public.workflow_step_receipts') IS NOT NULL AND to_regclass('public.post_call_workflow_results') IS NOT NULL AND to_regclass('public.post_call_workflow_result_evidence') IS NOT NULL)::int;",
+  12: "SELECT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'cost_events_unit_type_check' AND pg_get_constraintdef(oid) LIKE '%conversation%')::int;",
 };
 
 const EXPECTED_PUBLIC_TABLES = [

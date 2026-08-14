@@ -5,7 +5,7 @@
 ```bash
 pnpm install --frozen-lockfile
 pnpm lint                      # boundaries + whitespace
-pnpm contracts:check           # drift dos 47 schemas
+pnpm contracts:check           # drift dos 48 schemas
 pnpm typecheck                 # tsc --build dos packages
 pnpm test                      # 427+ testes Node + 26 unittest Python
 uv run pytest                  # validadores Python

@@ -3,9 +3,11 @@
  * rate card de custo (database/supabase-only/0017_rate_card.sql): preço
  * como código, versionado, datado, nunca escondido numa tabela editável em
  * runtime. Números e racional completos em docs/PRICING_UNIT_ECONOMICS.md
- * (2026-08-03) — custo real medido de ~US$4,55/conversa de 12min (Tavus
- * 92% + ElevenLabs 4,5% + OpenRouter 3,4%), margem-alvo 90%+ no incluído e
- * nunca abaixo de ~55% no overage, mesmo no pior caso.
+ * (2026-08-13) — custo variável modelado de ~US$4,55/conversa de 12min,
+ * baseado em rate cards públicos e hipóteses declaradas. Não é custo
+ * invoice-grade nem margem bruta completa: infra, suporte, capacidade ociosa,
+ * taxas e impostos ficam fora. O guardrail preserva pelo menos ~55% de margem
+ * variável modelada no overage, mesmo no pior caso suportado.
  *
  * Unidade cobrada é CONVERSA de vídeo, não minuto: o produto não mede
  * duração real de chamada hoje — cobrar por minuto prometeria uma precisão
@@ -29,13 +31,51 @@ export interface PlanDefinition {
   readonly overagePriceEnvVar: string;
 }
 
+/**
+ * Guardrail econômico, não dado de invoice: o provider Tavus aceita no
+ * máximo 1.800s por conversa e a reunião externa é a superfície de maior
+ * custo variável modelado. As premissas datadas vivem no documento de unit
+ * economics e devem ser substituídas por reconciliação de invoice quando
+ * existir histórico suficiente.
+ */
+export const MAX_BILLABLE_CONVERSATION_MINUTES = 30;
+export const MODELED_VARIABLE_COST_USD_PER_MINUTE = Object.freeze({
+  direct_video: 0.43,
+  external_meeting: 0.43,
+});
+export const MODELED_FIXED_COST_USD_PER_CONVERSATION = Object.freeze({
+  direct_video: 0,
+  // Reserva Recall web_4_core + transcript: US$0,75/h por 40 minutos.
+  // O adapter limita espera a 5min e cada ramo in-call a 30min; os 5min
+  // restantes cobrem o leave/overhead conservador do provider.
+  external_meeting: 0.5,
+});
+export const MINIMUM_OVERAGE_VARIABLE_MARGIN = 0.55;
+
+export type BillableConversationSurface = keyof typeof MODELED_VARIABLE_COST_USD_PER_MINUTE;
+
+export function modeledVariableMargin(
+  overageUsdCents: number,
+  surface: BillableConversationSurface,
+  durationMinutes: number,
+): number {
+  if (!Number.isFinite(overageUsdCents) || overageUsdCents <= 0) throw new RangeError("overageUsdCents must be positive");
+  if (!Number.isFinite(durationMinutes) || durationMinutes <= 0 || durationMinutes > MAX_BILLABLE_CONVERSATION_MINUTES) {
+    throw new RangeError(`durationMinutes must be 1..${MAX_BILLABLE_CONVERSATION_MINUTES}`);
+  }
+  const priceUsd = overageUsdCents / 100;
+  const modeledCostUsd = MODELED_VARIABLE_COST_USD_PER_MINUTE[surface] * durationMinutes
+    + MODELED_FIXED_COST_USD_PER_CONVERSATION[surface];
+  return (priceUsd - modeledCostUsd) / priceUsd;
+}
+
 export const PLAN_CATALOG: Readonly<Record<PlanId, PlanDefinition>> = Object.freeze({
   piloto: Object.freeze({
     id: "piloto",
     name: "Piloto",
     priceUsdCents: 49_700,
     includedConversationsPerMonth: 7,
-    overageUsdCentsPerConversation: 1_400,
+    overageUsdCentsPerConversation: 3_000,
     basePriceEnvVar: "STRIPE_PRICE_PILOTO_BASE",
     overagePriceEnvVar: "STRIPE_PRICE_PILOTO_OVERAGE",
   }),
@@ -44,7 +84,7 @@ export const PLAN_CATALOG: Readonly<Record<PlanId, PlanDefinition>> = Object.fre
     name: "Crescimento",
     priceUsdCents: 149_700,
     includedConversationsPerMonth: 30,
-    overageUsdCentsPerConversation: 1_200,
+    overageUsdCentsPerConversation: 3_000,
     basePriceEnvVar: "STRIPE_PRICE_CRESCIMENTO_BASE",
     overagePriceEnvVar: "STRIPE_PRICE_CRESCIMENTO_OVERAGE",
   }),
@@ -53,7 +93,7 @@ export const PLAN_CATALOG: Readonly<Record<PlanId, PlanDefinition>> = Object.fre
     name: "Escala",
     priceUsdCents: 399_700,
     includedConversationsPerMonth: 85,
-    overageUsdCentsPerConversation: 1_000,
+    overageUsdCentsPerConversation: 3_000,
     basePriceEnvVar: "STRIPE_PRICE_ESCALA_BASE",
     overagePriceEnvVar: "STRIPE_PRICE_ESCALA_OVERAGE",
   }),

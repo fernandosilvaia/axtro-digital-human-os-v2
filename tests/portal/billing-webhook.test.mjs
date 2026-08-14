@@ -9,8 +9,10 @@ const webhook = await import("../../apps/portal/src/lib/billing/webhook.ts");
 const TEST_SECRET = "whsec_test_stripe_secret_material_32b";
 const TEST_TIMESTAMP = "1700000000";
 const TEST_NOW = Number(TEST_TIMESTAMP);
-const TEST_BODY = '{"id":"evt_test123","type":"customer.subscription.created","created":1699999000,"data":{"object":{"id":"sub_test123","customer":"cus_test123","status":"active","metadata":{"tenant_id":"tenant-abc","plan_id":"crescimento"},"items":{"data":[{"price":{"id":"price_crescimento_base_123","recurring":{"usage_type":"licensed"}},"current_period_start":1700000000,"current_period_end":1702592000}]}}}}';
-const TEST_SIGNATURE_HEX = "56ec48dc5b82dcaf4fa4f00faf9f8863fc90f3d81995a8fd6f1d95d6625efacc";
+const TENANT_ID = "0198a8b2-3c4d-7e5f-8a90-1234567890aa";
+const CHECKOUT_INTENT_ID = "0198a8b2-3c4d-7e5f-8a90-1234567890ab";
+const TEST_BODY = '{"id":"evt_test123","type":"customer.subscription.created","created":1699999000,"data":{"object":{"id":"sub_test123","customer":"cus_test123","status":"active","metadata":{"tenant_id":"0198a8b2-3c4d-7e5f-8a90-1234567890aa","plan_id":"crescimento","checkout_intent_id":"0198a8b2-3c4d-7e5f-8a90-1234567890ab"},"items":{"data":[{"price":{"id":"price_CrescimentoBase123","recurring":{"usage_type":"licensed"}},"current_period_start":1700000000,"current_period_end":1702592000},{"price":{"id":"price_CrescimentoOverage123","recurring":{"usage_type":"metered"}},"current_period_start":1700000000,"current_period_end":1702592000}]}}}}';
+const TEST_SIGNATURE_HEX = "88a4d8109d539fe84b610964fea03ae64e94bfa4100c54335ac541a972135643";
 const TEST_HEADER = `t=${TEST_TIMESTAMP},v1=${TEST_SIGNATURE_HEX}`;
 
 test("assinatura válida (HMAC-SHA256, formato Stripe-Signature) é aceita", () => {
@@ -48,9 +50,11 @@ test("parseStripeSubscriptionEvent extrai tenant/metadataPlanId/status/período/
     eventId: "evt_test123",
     eventType: "customer.subscription.created",
     eventCreatedIso: new Date(1699999000 * 1000).toISOString(),
-    tenantId: "tenant-abc",
+    tenantId: TENANT_ID,
+    checkoutIntentId: CHECKOUT_INTENT_ID,
     metadataPlanId: "crescimento",
-    licensedPriceId: "price_crescimento_base_123",
+    licensedPriceId: "price_CrescimentoBase123",
+    meteredPriceId: "price_CrescimentoOverage123",
     stripeCustomerId: "cus_test123",
     stripeSubscriptionId: "sub_test123",
     status: "active",
@@ -59,7 +63,7 @@ test("parseStripeSubscriptionEvent extrai tenant/metadataPlanId/status/período/
   });
 });
 
-test("ignora eventos fora do escopo mapeado (invoice.*, checkout.session.completed) sem lançar", () => {
+test("parser de assinatura ignora eventos pertencentes a outros parsers sem lançar", () => {
   for (const type of ["invoice.payment_failed", "checkout.session.completed", "payment_intent.succeeded"]) {
     assert.equal(webhook.parseStripeSubscriptionEvent({ id: "evt_x", type, data: { object: {} } }), null);
   }
@@ -78,32 +82,46 @@ test("rejeita evento de assinatura sem metadata.tenant_id/plan_id válidos (chec
   const badStatus = structuredClone(base);
   badStatus.data.object.status = "not-a-real-status";
   assert.equal(webhook.parseStripeSubscriptionEvent(badStatus), null);
+
+  const badCheckoutIntent = structuredClone(base);
+  badCheckoutIntent.data.object.metadata.checkout_intent_id = "not-a-uuidv7";
+  assert.equal(webhook.parseStripeSubscriptionEvent(badCheckoutIntent), null);
 });
 
-test("payload malformado (não-objeto, sem data.object, items ausente) nunca lança — devolve null ou período/price nulos", () => {
+test("payload malformado (não-objeto, sem data.object ou par de items) nunca lança e falha fechado", () => {
   assert.equal(webhook.parseStripeSubscriptionEvent(null), null);
   assert.equal(webhook.parseStripeSubscriptionEvent("string"), null);
   assert.equal(webhook.parseStripeSubscriptionEvent({ id: "evt_1", type: "customer.subscription.updated" }), null);
 
   const noItems = JSON.parse(TEST_BODY);
   delete noItems.data.object.items;
-  const parsed = webhook.parseStripeSubscriptionEvent(noItems);
-  assert.equal(parsed.periodStartIso, null);
-  assert.equal(parsed.periodEndIso, null);
-  assert.equal(parsed.licensedPriceId, null);
+  assert.equal(webhook.parseStripeSubscriptionEvent(noItems), null);
 
   const missingCreated = JSON.parse(TEST_BODY);
   delete missingCreated.created;
-  assert.equal(webhook.parseStripeSubscriptionEvent(missingCreated).eventCreatedIso, null);
+  assert.equal(webhook.parseStripeSubscriptionEvent(missingCreated), null);
 });
 
-test("nenhum item marcado 'licensed' NUNCA cai pro primeiro item da lista — período e price ficam null (Art. 14)", () => {
+test("o catálogo exige exatamente um item licensed e um metered, sem extras ou pares ambíguos", () => {
   const noLicensed = JSON.parse(TEST_BODY);
   noLicensed.data.object.items.data[0].price.recurring.usage_type = "metered";
-  const parsed = webhook.parseStripeSubscriptionEvent(noLicensed);
-  assert.equal(parsed.licensedPriceId, null);
-  assert.equal(parsed.periodStartIso, null);
-  assert.equal(parsed.periodEndIso, null);
+  assert.equal(webhook.parseStripeSubscriptionEvent(noLicensed), null);
+
+  const noMetered = JSON.parse(TEST_BODY);
+  noMetered.data.object.items.data.pop();
+  assert.equal(webhook.parseStripeSubscriptionEvent(noMetered), null);
+
+  const duplicateLicensed = JSON.parse(TEST_BODY);
+  duplicateLicensed.data.object.items.data[1].price.recurring.usage_type = "licensed";
+  assert.equal(webhook.parseStripeSubscriptionEvent(duplicateLicensed), null);
+
+  const extraRecurring = JSON.parse(TEST_BODY);
+  extraRecurring.data.object.items.data.push(structuredClone(extraRecurring.data.object.items.data[1]));
+  assert.equal(webhook.parseStripeSubscriptionEvent(extraRecurring), null);
+
+  const malformedPrice = JSON.parse(TEST_BODY);
+  malformedPrice.data.object.items.data[1].price.id = "price_hostile_suffix";
+  assert.equal(webhook.parseStripeSubscriptionEvent(malformedPrice), null);
 });
 
 test("customer.subscription.deleted (status=canceled) é tratado igual aos outros dois eventos", () => {
@@ -134,4 +152,74 @@ test("evento do tipo certo mas sem tenant_id/plan_id válidos: tipo é reconheci
   delete orphan.data.object.metadata.tenant_id;
   assert.equal(webhook.parseStripeSubscriptionEvent(orphan), null, "parse deve falhar sem tenant_id");
   assert.equal(webhook.isHandledStripeSubscriptionEventType(orphan.type), true, "mas o TIPO segue sendo um dos 3 tratados — route.ts deve logar isso, não silenciar");
+});
+
+function checkoutEvent(type = "checkout.session.completed", overrides = {}) {
+  return {
+    id: "evt_checkout123",
+    type,
+    created: 1700000000,
+    data: {
+      object: {
+        id: "cs_test_checkout123",
+        client_reference_id: CHECKOUT_INTENT_ID,
+        customer: "cus_test123",
+        subscription: "sub_test123",
+        payment_status: "paid",
+        metadata: {
+          checkout_intent_id: CHECKOUT_INTENT_ID,
+          tenant_id: TENANT_ID,
+          plan_id: "crescimento",
+        },
+        ...overrides,
+      },
+    },
+  };
+}
+
+test("parseStripeCheckoutEvent aceita os quatro eventos fechados e preserva correlação durável", () => {
+  for (const type of [
+    "checkout.session.completed",
+    "checkout.session.expired",
+    "checkout.session.async_payment_succeeded",
+    "checkout.session.async_payment_failed",
+  ]) {
+    const parsed = webhook.parseStripeCheckoutEvent(checkoutEvent(type));
+    assert.deepEqual(parsed, {
+      eventId: "evt_checkout123",
+      eventType: type,
+      eventCreatedIso: new Date(1700000000 * 1000).toISOString(),
+      checkoutIntentId: CHECKOUT_INTENT_ID,
+      stripeSessionId: "cs_test_checkout123",
+      tenantId: TENANT_ID,
+      planId: "crescimento",
+      stripeCustomerId: "cus_test123",
+      stripeSubscriptionId: "sub_test123",
+      paymentStatus: "paid",
+    });
+    assert.equal(webhook.isHandledStripeCheckoutEventType(type), true);
+  }
+});
+
+test("checkout assinado falha fechado em metadata, client_reference_id, IDs ou payment status inconsistentes", () => {
+  const cases = [
+    checkoutEvent("checkout.session.completed", { client_reference_id: TENANT_ID }),
+    checkoutEvent("checkout.session.completed", { id: "session_wrong" }),
+    checkoutEvent("checkout.session.completed", { customer: "customer_wrong" }),
+    checkoutEvent("checkout.session.completed", { subscription: "subscription_wrong" }),
+    checkoutEvent("checkout.session.completed", { payment_status: "unknown" }),
+    checkoutEvent("checkout.session.completed", { metadata: { checkout_intent_id: CHECKOUT_INTENT_ID, tenant_id: "tenant_wrong", plan_id: "crescimento" } }),
+  ];
+  for (const event of cases) assert.equal(webhook.parseStripeCheckoutEvent(event), null);
+});
+
+test("checkout permite customer/subscription/payment_status nulos no evento expired", () => {
+  const parsed = webhook.parseStripeCheckoutEvent(checkoutEvent("checkout.session.expired", {
+    customer: null,
+    subscription: null,
+    payment_status: null,
+  }));
+  assert.equal(parsed.stripeCustomerId, null);
+  assert.equal(parsed.stripeSubscriptionId, null);
+  assert.equal(parsed.paymentStatus, null);
 });

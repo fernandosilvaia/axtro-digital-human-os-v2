@@ -38,9 +38,52 @@ test("createConversation envia payload fechado ao endpoint fixo e devolve id + u
   assert.equal(body.properties.language, "portuguese");
 });
 
+test("conversation URL usa allowlist exata do origin Tavus/Daily", () => {
+  for (const trusted of [
+    "https://tavus.daily.co/c123abc",
+    "https://TAVUS.DAILY.CO/room-123?token=opaque",
+  ]) assert.equal(provider.isTrustedTavusConversationUrl(trusted), true, trusted);
+
+  for (const hostile of [
+    "http://tavus.daily.co/room",
+    "https://tavus.daily.co/",
+    "https://tavus.daily.co:443/room",
+    "https://user@tavus.daily.co/room",
+    "https://tavus.daily.co@evil.example/room",
+    "https://tavus.daily.co.evil.example/room",
+    "https://customer.daily.co/room",
+    "https://daily.co/room",
+    "https://127.0.0.1/room",
+    "https://localhost/room",
+    "https://tavus.daily.co\\@evil.example/room",
+    "https://tavus.daily.co/room#provider-controlled-fragment",
+    " https://tavus.daily.co/room",
+  ]) assert.equal(provider.isTrustedTavusConversationUrl(hostile), false, hostile);
+});
+
+test("createConversation rejeita origin hostil mesmo quando o payload Tavus tem id válido", async () => {
+  for (const conversationUrl of [
+    "https://evil.example/room",
+    "https://tavus.daily.co.evil.example/room",
+    "https://tavus.daily.co:8443/room",
+    "https://10.0.0.8/room",
+  ]) {
+    const hostile = fakeFetch(async () => new Response(
+      JSON.stringify({ conversation_id: "conv_001", conversation_url: conversationUrl }),
+      { status: 200 },
+    ));
+    const port = provider.createTavusVideoConversationPort({ apiKey: API_KEY, fetchImplementation: hostile.implementation });
+    await assert.rejects(
+      () => port.createConversation(request()),
+      (error) => error.code === "malformed_provider_response",
+      conversationUrl,
+    );
+  }
+});
+
 test("createConversation envia callback_url quando informado, e rejeita se não for https", async () => {
   const { calls, implementation } = fakeFetch(async () => new Response(
-    JSON.stringify({ conversation_id: "c1", conversation_url: "https://tavus.daily.co/c1" }),
+    JSON.stringify({ conversation_id: "conv_001", conversation_url: "https://tavus.daily.co/conv_001" }),
     { status: 200 },
   ));
   const port = provider.createTavusVideoConversationPort({ apiKey: API_KEY, fetchImplementation: implementation });
@@ -68,6 +111,7 @@ test("validação fecha replica, nome, contexto e duração antes da rede; chave
   assert.equal(calls.length, 0);
   await assert.rejects(() => port.createConversation(request()), (e) => {
     assert.equal(e.code, "provider_rejected");
+    assert.equal(e.httpStatus, 401);
     assert.equal(e.message.includes(API_KEY), false);
     return true;
   });
@@ -76,9 +120,13 @@ test("validação fecha replica, nome, contexto e duração antes da rede; chave
 test("5xx vira provider_unavailable; payload sem url vira malformed; sem chave nem constrói", async () => {
   const down = fakeFetch(async () => new Response("x", { status: 503 }));
   const portDown = provider.createTavusVideoConversationPort({ apiKey: API_KEY, fetchImplementation: down.implementation });
-  await assert.rejects(() => portDown.createConversation(request()), (e) => e.code === "provider_unavailable");
+  await assert.rejects(() => portDown.createConversation(request()), (e) => {
+    assert.equal(e.code, "provider_unavailable");
+    assert.equal(e.httpStatus, 503);
+    return true;
+  });
 
-  const junk = fakeFetch(async () => new Response(JSON.stringify({ conversation_id: "c1" }), { status: 200 }));
+  const junk = fakeFetch(async () => new Response(JSON.stringify({ conversation_id: "conv_001" }), { status: 200 }));
   const portJunk = provider.createTavusVideoConversationPort({ apiKey: API_KEY, fetchImplementation: junk.implementation });
   await assert.rejects(() => portJunk.createConversation(request()), (e) => e.code === "malformed_provider_response");
 
@@ -116,6 +164,16 @@ test("endConversation valida id e chama o endpoint de encerramento", async () =>
   await port.endConversation("c123abc");
   assert.equal(calls[0].url, "https://tavusapi.com/v2/conversations/c123abc/end");
   await assert.rejects(() => port.endConversation("../evil"), (e) => e.code === "invalid_request");
+});
+
+test("endConversation trata 404 como compensação idempotente, sem relaxar createConversation", async () => {
+  const missing = fakeFetch(async () => new Response("not found", { status: 404 }));
+  const port = provider.createTavusVideoConversationPort({ apiKey: API_KEY, fetchImplementation: missing.implementation });
+  await port.endConversation("c123abc");
+  await assert.rejects(
+    () => port.createConversation(request()),
+    (error) => error.code === "provider_rejected" && error.httpStatus === 404,
+  );
 });
 
 // Achado P3 da auto-revisão 2026-08-11: este adapter (e provider-recall,

@@ -24,6 +24,7 @@ const USAGE_SERVICE_LABELS: Record<string, string> = {
   "portal.knowledge_embedding": "Ingestão de conhecimento",
   "portal.knowledge_retrieval": "Busca de conhecimento (RAG)",
   "portal.video_conversation": "Conversas em vídeo",
+  "portal.meeting_bot_session": "Reuniões externas",
 };
 
 export default async function DashboardPage() {
@@ -110,14 +111,14 @@ export default async function DashboardPage() {
               <div className="metric-hint">Chamadas Tavus iniciadas pela conta</div>
             </div>
             <div>
-              <span className="metric-label">Custo estimado hoje</span>
-              <div className="metric-value">{formatUsd(usage.ai_cost_usd_today + usage.video_cost_floor_usd_today)}</div>
-              <div className="metric-hint">Preço público de tabela — não é a fatura real</div>
+              <span className="metric-label">Custo atribuído hoje</span>
+              <div className="metric-value">{formatUsd(usage.total_cost_usd_today)}</div>
+              <div className="metric-hint">Ledger estimado/reportado — não é a fatura conciliada</div>
             </div>
             <div>
               <span className="metric-label">Serviços ativos (7 dias)</span>
               <div className="metric-value">{usage.services_7d.length}</div>
-              <div className="metric-hint">Custo (7d): {formatUsd(usage.ai_cost_usd_7d + usage.video_cost_floor_usd_7d)}</div>
+              <div className="metric-hint">Custo atribuído (7d): {formatUsd(usage.total_cost_usd_7d)}</div>
             </div>
           </div>
           {usage.services_7d.length > 0 && (

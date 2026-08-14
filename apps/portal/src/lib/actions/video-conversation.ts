@@ -1,16 +1,16 @@
 "use server";
 
-import { createUuidV7 } from "@axtro/domain";
 import { createTavusVideoConversationPort, VideoProviderError } from "@axtro/provider-tavus";
 
 import { fakeProvidersEnabled } from "@/lib/knowledge";
 import { isRateLimited } from "@/lib/rate-limit";
-import { checkVideoCap, reportConversationOverageIfNeeded, VIDEO_CAP_CHECK_FAILED_MESSAGE, VIDEO_CAP_MESSAGE } from "@/lib/video-cap";
+import { VIDEO_CAP_MESSAGE } from "@/lib/video-cap";
+import { beginProviderEffect, commitProviderEffectOrCompensate, compensateCommittedProviderEffect, fenceProviderFailure, isPaidEffectCommandId, paidEffectIntentKey, providerCorrelationLabel, retryReleasedProviderEffect } from "@/lib/paid-effects";
 import { fetchAgents, fetchTenantOverview } from "@/lib/portal-data";
 import { buildDeckContext, buildPlatformDeck, buildSalesDeck, type Deck } from "@/lib/presentation/deck";
 import { createClient } from "@/lib/supabase/server";
 import { logError as trackError } from "@/lib/telemetry";
-import { registerTranscriptPlaceholder, tavusWebhookCallbackUrl } from "@/lib/transcripts/register";
+import { prepareTavusWebhookCallback, registerTranscriptPlaceholder } from "@/lib/transcripts/register";
 import { fetchKnowledgeDigest, resolveAgentVideoConfig } from "@/lib/video-config";
 
 export interface VideoConversationResult {
@@ -51,11 +51,12 @@ export interface PresentationConversationResult {
  */
 const VIDEO_CONVERSATION_DEDUP_WINDOW_MS = 30_000;
 
-function videoConversationDedupKey(tenantId: string, agentId: string, mode: "video" | "presentation"): string {
-  return `video-conversation:${tenantId}:${agentId}:${mode}`;
+function videoConversationDedupKey(tenantId: string, commandId: string, mode: "video" | "presentation"): string {
+  return `video-conversation:${tenantId}:${commandId}:${mode}`;
 }
 
-export async function startVideoConversation(agentId: string): Promise<VideoConversationResult> {
+export async function startVideoConversation(agentId: string, commandId: string): Promise<VideoConversationResult> {
+  if (!isPaidEffectCommandId(commandId)) return { url: null, error: "A intenção da chamada é inválida. Tente novamente." };
   const apiKey = process.env.TAVUS_API_KEY ?? "";
   const defaultReplicaId = process.env.TAVUS_REPLICA_ID ?? "";
   if (apiKey.trim().length === 0) {
@@ -84,12 +85,6 @@ export async function startVideoConversation(agentId: string): Promise<VideoConv
   // Config de vídeo específica do agente (persona própria = voz/percepção próprias).
   const supabase = await createClient();
 
-  // Teto diário de segurança (sempre) + teto mensal do plano (overage cobrado, nunca bloqueia) — falha fechada só no diário.
-  const capVerdict = await checkVideoCap(supabase);
-  if (capVerdict === "capped" || capVerdict === "check_failed") {
-    return { url: null, error: capVerdict === "capped" ? VIDEO_CAP_MESSAGE : VIDEO_CAP_CHECK_FAILED_MESSAGE };
-  }
-
   const configResult = await resolveAgentVideoConfig(supabase, agentId, "video");
   if (!configResult.ok) {
     return { url: null, error: configResult.error };
@@ -112,12 +107,36 @@ export async function startVideoConversation(agentId: string): Promise<VideoConv
   // de dedup do agente por engano (achado da própria auto-revisão desta
   // onda: mesma preocupação que motivou o posicionamento do guard em si).
   const port = createTavusVideoConversationPort({ apiKey });
-  const callbackUrl = tavusWebhookCallbackUrl();
-
-  if (isRateLimited(videoConversationDedupKey(overview.tenant.id, agentId, "video"), VIDEO_CONVERSATION_DEDUP_WINDOW_MS, 1)) {
+  const reservationInput = {
+    tenantId: overview.tenant.id,
+    agentId,
+    provider: "tavus" as const,
+    idempotencyKey: paidEffectIntentKey(commandId, "tavus:video"),
+    relatedRef: "portal-video",
+    maxDurationSeconds: 600,
+  };
+  const reservation = await retryReleasedProviderEffect(reservationInput, await beginProviderEffect(reservationInput));
+  if (reservation.outcome === "capped") return { url: null, error: VIDEO_CAP_MESSAGE };
+  if (reservation.outcome === "blocked_unknown" || reservation.reservationId === null) {
+    return { url: null, error: "Uma tentativa anterior ainda está em reconciliação. Aguarde antes de tentar novamente." };
+  }
+  if (reservation.state === "committed" && reservation.providerUrl && reservation.providerRef) {
+    if (reservation.customerDeliveryState === "activated") return { url: reservation.providerUrl, error: null };
+    const persisted = await registerTranscriptPlaceholder(overview.tenant.id, agentId, "video", reservation.providerRef);
+    if (persisted) return { url: reservation.providerUrl, error: null };
+    await compensateVideoConversation(port, reservation.reservationId, reservation.providerRef, "replay_persistence_failed").catch(() => undefined);
+    return { url: null, error: "A chamada não pôde ser registrada com segurança. Tente novamente." };
+  }
+  if (isRateLimited(videoConversationDedupKey(overview.tenant.id, commandId, "video"), VIDEO_CONVERSATION_DEDUP_WINDOW_MS, 1)) {
     return { url: null, error: "Uma chamada já está sendo aberta para este agente — aguarde alguns segundos antes de tentar de novo." };
   }
-
+  let callbackUrl: string;
+  try {
+    callbackUrl = (await prepareTavusWebhookCallback(reservation.reservationId)).callbackUrl;
+  } catch (error) {
+    trackError("video_webhook_capability_bind_failed", error, { agent_id: agentId });
+    return { url: null, error: "A chamada não pôde ser preparada com segurança. Tente novamente." };
+  }
   try {
     const conversation = await port.createConversation(
       personaId
@@ -125,15 +144,15 @@ export async function startVideoConversation(agentId: string): Promise<VideoConv
             // A persona já carrega prompt, voz, percepção e interrupção — reforçamos
             // idioma, duração e (quando houver) o conhecimento autorizado da conta.
             personaId,
-            conversationName: `preview-${agent.id.slice(0, 8)}`,
+            conversationName: providerCorrelationLabel(`preview-${agent.id.slice(0, 8)}`, reservation.reservationId, 120),
             ...(knowledgeDigest ? { conversationalContext: buildKnowledgeContext(knowledgeDigest) } : {}),
             language,
             maxCallDurationSeconds: 600,
-            ...(callbackUrl ? { callbackUrl } : {}),
+            callbackUrl,
           }
         : {
             replicaId,
-            conversationName: `preview-${agent.id.slice(0, 8)}`,
+            conversationName: providerCorrelationLabel(`preview-${agent.id.slice(0, 8)}`, reservation.reservationId, 120),
             conversationalContext: buildVideoSalesContext(agent.name, overview.tenant.legal_name, knowledgeDigest, language),
             // Saudação e contexto no MESMO idioma passado ao provider — um
             // agente configurado em inglês abria a call ouvindo pt-BR
@@ -143,24 +162,27 @@ export async function startVideoConversation(agentId: string): Promise<VideoConv
               : `Oi! Eu sou ${firstName(agent.name)}, consultora digital da ${overview.tenant.legal_name}. Que bom te ver! Me conta — o que te trouxe até aqui hoje?`,
             language,
             maxCallDurationSeconds: 600,
-            ...(callbackUrl ? { callbackUrl } : {}),
+            callbackUrl,
           },
     );
-    // Cada conversa criada vira uma linha no ledger de custos (unit
-    // 'conversation'; preço entra na reconciliação). Falha de log não pode
-    // derrubar a chamada já criada — mas fica visível no servidor.
-    const videoUsageEventId = createUuidV7();
-    const { error: logError } = await supabase.rpc("portal_log_video_usage", { p_id: videoUsageEventId });
-    if (logError) {
-      trackError("portal_log_video_usage_failed", logError, { agent_id: agentId, mode: "video" });
-    } else {
-      await reportConversationOverageIfNeeded(supabase, capVerdict, videoUsageEventId);
-    }
+    await commitProviderEffectOrCompensate(
+      reservation.reservationId, "tavus", conversation.conversationId,
+      () => port.endConversation(conversation.conversationId), conversation.conversationUrl,
+    );
     // Placeholder do histórico (D-V2-106) — o webhook da Tavus preenche
     // `turns` quando a call terminar (application.transcription_ready).
-    await registerTranscriptPlaceholder(supabase, agentId, "video", conversation.conversationId);
+    if (!(await registerTranscriptPlaceholder(overview.tenant.id, agentId, "video", conversation.conversationId))) {
+      try {
+        await compensateVideoConversation(port, reservation.reservationId, conversation.conversationId, "transcript_persistence_failed");
+      }
+      catch (compensationError) { trackError("video_transcript_compensation_failed", compensationError, { agent_id: agentId }); }
+      return { url: null, error: "A chamada não pôde ser registrada com segurança. Tente novamente." };
+    }
+    // Provider cost is committed, but customer billing stays held until the
+    // capability-authenticated transcript callback proves a human user turn.
     return { url: conversation.conversationUrl, error: null };
   } catch (error) {
+    await fenceProviderFailure(reservation.reservationId, error).catch((fenceError) => trackError("video_effect_fence_failed", fenceError, { agent_id: agentId }));
     if (error instanceof VideoProviderError) {
       if (error.code === "provider_rejected") {
         return { url: null, error: "O provider de vídeo recusou a chamada (limite de conversas simultâneas ou créditos). Tente novamente em instantes." };
@@ -178,7 +200,8 @@ export async function startVideoConversation(agentId: string): Promise<VideoConv
  * tools. O digest de conhecimento divide o teto de 6000 chars do contexto
  * com o roteiro do deck.
  */
-export async function startPresentationConversation(agentId: string): Promise<PresentationConversationResult> {
+export async function startPresentationConversation(agentId: string, commandId: string): Promise<PresentationConversationResult> {
+  if (!isPaidEffectCommandId(commandId)) return { url: null, conversationId: null, deck: null, error: "A intenção da apresentação é inválida. Tente novamente." };
   const apiKey = process.env.TAVUS_API_KEY ?? "";
   const fakeMode = fakeProvidersEnabled();
   if (apiKey.trim().length === 0 && !fakeMode) {
@@ -213,16 +236,6 @@ export async function startPresentationConversation(agentId: string): Promise<Pr
     return { url: null, conversationId: "simulated", deck, error: null, simulated: true };
   }
 
-  // Teto diário de segurança (sempre) + teto mensal do plano (overage cobrado, nunca bloqueia) — falha fechada só no diário.
-  const capVerdict = await checkVideoCap(supabase);
-  if (capVerdict === "capped" || capVerdict === "check_failed") {
-    return {
-      url: null,
-      conversationId: null,
-      deck: null,
-      error: capVerdict === "capped" ? VIDEO_CAP_MESSAGE : VIDEO_CAP_CHECK_FAILED_MESSAGE,
-    };
-  }
   const personaId = config.configured ? config.persona_id ?? null : null;
   if (!personaId) {
     return { url: null, conversationId: null, deck: null, error: "Este agente ainda não tem persona de vídeo configurada — o modo apresentação exige uma." };
@@ -239,36 +252,79 @@ export async function startPresentationConversation(agentId: string): Promise<Pr
   // Validação local síncrona ANTES do guard de dedup — mesma razão da
   // startVideoConversation acima (achado da auto-revisão desta onda).
   const port = createTavusVideoConversationPort({ apiKey });
-  const callbackUrl = tavusWebhookCallbackUrl();
-
-  if (isRateLimited(videoConversationDedupKey(overview.tenant.id, agentId, "presentation"), VIDEO_CONVERSATION_DEDUP_WINDOW_MS, 1)) {
+  const reservationInput = {
+    tenantId: overview.tenant.id,
+    agentId,
+    provider: "tavus" as const,
+    idempotencyKey: paidEffectIntentKey(commandId, "tavus:presentation"),
+    relatedRef: "portal-presentation",
+    maxDurationSeconds: 900,
+  };
+  const reservation = await retryReleasedProviderEffect(reservationInput, await beginProviderEffect(reservationInput));
+  if (reservation.outcome === "capped") return { url: null, conversationId: null, deck: null, error: VIDEO_CAP_MESSAGE };
+  if (reservation.outcome === "blocked_unknown" || reservation.reservationId === null) return { url: null, conversationId: null, deck: null, error: "Uma tentativa anterior ainda está em reconciliação." };
+  if (reservation.state === "committed" && reservation.providerUrl && reservation.providerRef) {
+    if (reservation.customerDeliveryState === "activated") return { url: reservation.providerUrl, conversationId: reservation.providerRef, deck, error: null };
+    const persisted = await registerTranscriptPlaceholder(overview.tenant.id, agentId, "video", reservation.providerRef);
+    if (persisted) return { url: reservation.providerUrl, conversationId: reservation.providerRef, deck, error: null };
+    await compensateVideoConversation(port, reservation.reservationId, reservation.providerRef, "replay_persistence_failed").catch(() => undefined);
+    return { url: null, conversationId: null, deck: null, error: "A apresentação não pôde ser registrada com segurança." };
+  }
+  if (isRateLimited(videoConversationDedupKey(overview.tenant.id, commandId, "presentation"), VIDEO_CONVERSATION_DEDUP_WINDOW_MS, 1)) {
     return { url: null, conversationId: null, deck: null, error: "Uma apresentação já está sendo aberta para este agente — aguarde alguns segundos antes de tentar de novo." };
   }
-
+  let callbackUrl: string;
+  try {
+    callbackUrl = (await prepareTavusWebhookCallback(reservation.reservationId)).callbackUrl;
+  } catch (error) {
+    trackError("presentation_webhook_capability_bind_failed", error, { agent_id: agentId });
+    return { url: null, conversationId: null, deck: null, error: "A apresentação não pôde ser preparada com segurança." };
+  }
   try {
     const conversation = await port.createConversation({
       personaId,
-      conversationName: `apresentacao-${agent.id.slice(0, 8)}`,
+      conversationName: providerCorrelationLabel(`apresentacao-${agent.id.slice(0, 8)}`, reservation.reservationId, 120),
       conversationalContext,
       language,
       maxCallDurationSeconds: 900,
-      ...(callbackUrl ? { callbackUrl } : {}),
+      callbackUrl,
     });
-    const presentationUsageEventId = createUuidV7();
-    const { error: logError } = await supabase.rpc("portal_log_video_usage", { p_id: presentationUsageEventId });
-    if (logError) {
-      trackError("portal_log_video_usage_failed", logError, { agent_id: agentId, mode: "presentation" });
-    } else {
-      await reportConversationOverageIfNeeded(supabase, capVerdict, presentationUsageEventId);
+    await commitProviderEffectOrCompensate(
+      reservation.reservationId, "tavus", conversation.conversationId,
+      () => port.endConversation(conversation.conversationId), conversation.conversationUrl,
+    );
+    if (!(await registerTranscriptPlaceholder(overview.tenant.id, agentId, "video", conversation.conversationId))) {
+      try {
+        await compensateVideoConversation(port, reservation.reservationId, conversation.conversationId, "transcript_persistence_failed");
+      }
+      catch (compensationError) { trackError("presentation_transcript_compensation_failed", compensationError, { agent_id: agentId }); }
+      return { url: null, conversationId: null, deck: null, error: "A apresentação não pôde ser registrada com segurança." };
     }
-    await registerTranscriptPlaceholder(supabase, agentId, "video", conversation.conversationId);
+    // Delivery/billing is activated only by the authenticated Tavus callback
+    // after a non-empty human turn is durably present in the transcript.
     return { url: conversation.conversationUrl, conversationId: conversation.conversationId, deck, error: null };
   } catch (error) {
+    await fenceProviderFailure(reservation.reservationId, error).catch((fenceError) => trackError("presentation_effect_fence_failed", fenceError, { agent_id: agentId }));
     if (error instanceof VideoProviderError && error.code === "provider_rejected") {
       return { url: null, conversationId: null, deck: null, error: "O provider de vídeo recusou a chamada (limite de conversas simultâneas ou créditos). Tente novamente em instantes." };
     }
     return { url: null, conversationId: null, deck: null, error: "Não foi possível iniciar a apresentação agora." };
   }
+}
+
+async function compensateVideoConversation(
+  port: ReturnType<typeof createTavusVideoConversationPort>,
+  reservationId: string,
+  conversationId: string,
+  failureCode: string,
+): Promise<void> {
+  await compensateCommittedProviderEffect({
+    reservationId,
+    provider: "tavus",
+    providerRef: conversationId,
+    failureCode,
+    terminate: () => port.endConversation(conversationId),
+  });
 }
 
 function firstName(agentName: string): string {

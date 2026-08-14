@@ -99,6 +99,10 @@ export interface UsageSummary {
   readonly video_cost_floor_usd_today: number;
   readonly ai_cost_usd_7d: number;
   readonly video_cost_floor_usd_7d: number;
+  /** Soma tenant-scoped de todos os eventos do ledger; pode combinar estimativas e valores reportados. */
+  readonly total_cost_usd_today: number;
+  readonly total_cost_usd_7d: number;
+  readonly cost_precision: "mixed_estimated_provider_reported";
   readonly cost_estimate_note: string;
   readonly services_7d: readonly UsageServiceRow[];
 }

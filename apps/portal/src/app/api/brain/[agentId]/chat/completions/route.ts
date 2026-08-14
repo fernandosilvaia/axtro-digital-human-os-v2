@@ -5,8 +5,20 @@ import { createOpenRouterTextGenerationPort } from "@axtro/provider-openrouter";
 
 import type { BrainKnowledgeMatch } from "@/lib/brain/chat-completion-core";
 import type { BrainLanguage } from "@/lib/brain/metodo-silva";
-import { BrainHttpError, handleBrainChatRequest, type BudgetVerdict, type ResolvedBrainAgent } from "@/lib/brain/handle-chat-request";
-import { maybeAlertCostCap } from "@/lib/cost-alerts";
+import { authenticateBrainRequest, BrainHttpError, handleBrainChatRequest, type BudgetVerdict, type ResolvedBrainAgent } from "@/lib/brain/handle-chat-request";
+import {
+  aiProviderRequestScope,
+  beginAiUsage,
+  commitAiUsage,
+  configuredOpenRouterGenerationModel,
+  markAiUsageInFlight,
+  markAiUsageUnknown,
+  recordAiUsageProviderFailure,
+  releaseAiUsageNotDispatched,
+  stableAiUsageIdempotencyKey,
+  type AiUsageReservation,
+} from "@/lib/ai-budget/reservations";
+import { readBoundedTextBody } from "@/lib/http/read-bounded-body";
 import { embedQuery } from "@/lib/knowledge";
 import { createServiceRoleClient, ServiceRoleUnavailableError } from "@/lib/supabase/service";
 import { logError as trackError, logEvent } from "@/lib/telemetry";
@@ -15,23 +27,23 @@ import { logError as trackError, logEvent } from "@/lib/telemetry";
  * Endpoint OpenAI-compatible que o Tavus chama como LLM da persona de vídeo
  * (`layers.llm.base_url`, M4-04). Wiring fino sobre `handleBrainChatRequest`
  * (puro e testado): resolve o segredo via service role (sem sessão de
- * usuário — chamada servidor-a-servidor), aplica teto diário de tokens e
- * rate limit, e formata a resposta em SSE `chat.completion.chunk`.
+ * usuário — chamada servidor-a-servidor), reserva atomicamente o pior caso
+ * de custo antes de cada provider, aplica rate limit e formata a resposta em
+ * SSE `chat.completion.chunk`.
  */
 export const dynamic = "force-dynamic";
-
-/** Mesmo teto do sandbox de chat (agent-preview.ts) — um orçamento por tenant, não por superfície. */
-const DAILY_TOKEN_CAP = 500_000;
 
 /**
  * Rate limit em memória por agente: uma call de vídeo real gera no máximo
  * um turno a cada poucos segundos — 40/min é folga generosa e ainda corta
  * um loop de script. Processo único no Railway; se um dia houver réplicas,
- * isto vira melhor-esforço por instância (o teto diário de tokens continua
- * sendo a proteção dura de gasto).
+ * isto vira melhor-esforço por instância (a reserva transacional no banco
+ * continua sendo a proteção dura de gasto).
  */
 const RATE_LIMIT_WINDOW_MS = 60_000;
 const RATE_LIMIT_MAX_REQUESTS = 40;
+const RATE_LIMIT_MAX_AGENTS = 5_000;
+const MAX_BRAIN_REQUEST_BYTES = 256 * 1_024;
 const requestTimestampsByAgent = new Map<string, number[]>();
 
 function isRateLimited(agentId: string): boolean {
@@ -43,7 +55,12 @@ function isRateLimited(agentId: string): boolean {
     return true;
   }
   timestamps.push(now);
+  requestTimestampsByAgent.delete(agentId);
   requestTimestampsByAgent.set(agentId, timestamps);
+  if (requestTimestampsByAgent.size > RATE_LIMIT_MAX_AGENTS) {
+    const oldest = requestTimestampsByAgent.keys().next().value;
+    if (oldest !== undefined && oldest !== agentId) requestTimestampsByAgent.delete(oldest);
+  }
   return false;
 }
 
@@ -90,28 +107,6 @@ async function resolveConfig(secretHash: string): Promise<ResolvedBrainAgent | n
 }
 
 /**
- * Teto diário de tokens por tenant, lido do ledger real (cost_events) via
- * service role com filtro EXPLÍCITO de tenant (contrato do service.ts).
- * Falha-fechada: erro de leitura → "unavailable" → o núcleo degrada sem
- * gerar (auditoria 2026-08-02: antes não havia teto nenhum neste caminho).
- */
-async function checkBudget(tenantId: string): Promise<BudgetVerdict> {
-  const supabase = createServiceRoleClient();
-  // Agregação no banco (achado D-V2-115: rodava um `select quantity` de
-  // TODAS as linhas do dia + soma em JS, em TODO turno de vídeo — mesmo
-  // padrão que portal_ai_tokens_today() já resolve pro caminho de chat
-  // autenticado; esta é a variante service-role, migration 0038).
-  const { data: rawTotal, error } = await supabase.rpc("portal_ai_tokens_today_service", { p_tenant_id: tenantId });
-  // Postgres bigint pode chegar como string via PostgREST (preserva precisão)
-  // — mesma defesa já usada por agent-preview.ts pro RPC autenticado irmão.
-  const total = Number(rawTotal);
-  if (error || !Number.isFinite(total)) return "unavailable";
-  // Alerta proativo (D-V2-107): fire-and-forget, mesmo ponto que já lê o uso do dia.
-  void maybeAlertCostCap({ tenantId, capKind: "daily_tokens", current: total, cap: DAILY_TOKEN_CAP });
-  return total >= DAILY_TOKEN_CAP ? "exhausted" : "allowed";
-}
-
-/**
  * RAG pro caminho de vídeo (fecha o gap declarado desde D-V2-083/M4-04):
  * embeda a pergunta e busca via `portal_search_knowledge_service` (0032,
  * variante service-role de `portal_search_knowledge`, 0010 — mesmo corpo de
@@ -125,24 +120,47 @@ async function checkBudget(tenantId: string): Promise<BudgetVerdict> {
  * nunca lança — RAG indisponível não pode derrubar a call de vídeo, e sem
  * fontes o agente não inventa (Art. 14).
  *
- * GAP DECLARADO E ACEITO (Art. 16): o custo da chamada de embedding desta
- * busca NÃO entra no ledger (`cost_events`) — ao contrário do caminho de
- * chat, que loga via `portal.knowledge_retrieval`. `portal_log_ai_usage_service`
- * (0019) tem preço fixo de chat (Haiku), não de embedding; adicionar um
- * parâmetro de serviço exigiria DROP+CREATE numa função já em produção
- * (risco real, lição de D-V2-103) por um ganho de precisão irrelevante — uma
- * query de busca é ~30-100 tokens a US$0,02/1M, fração de centavo por
- * conversa, já dominado pelo piso Tavus (US$0,175/conversa). Mesmo espírito
- * de "custo por conversa é piso, não exato" já aceito no projeto inteiro.
+ * A chamada de embedding também usa reserva prévia, fence antes do envio e
+ * commit com tokens/custo reportado. Falha ambígua fecha o tenant até a
+ * reconciliação, mas o RAG ainda degrada para `[]` sem expor conversa no log.
  */
-async function retrieveKnowledge(tenantId: string, queryText: string): Promise<readonly BrainKnowledgeMatch[]> {
+async function retrieveKnowledge(
+  tenantId: string,
+  agentId: string,
+  queryText: string,
+  idempotencyMaterial: string,
+): Promise<readonly BrainKnowledgeMatch[]> {
   const trimmed = queryText.trim();
   const apiKey = process.env.OPENROUTER_API_KEY ?? "";
   if (trimmed.length === 0 || apiKey.trim().length === 0) return [];
 
+  const supabase = createServiceRoleClient();
+  const begin = await beginAiUsage({
+    client: supabase,
+    tenantId,
+    operation: "knowledge_query_embedding",
+    idempotencyKey: stableAiUsageIdempotencyKey("knowledge_query_embedding", idempotencyMaterial),
+    agentId,
+  });
+  if (!begin.allowed) return [];
+  const reservation = begin.reservation;
+  let providerDispatched = false;
+  let terminalRecorded = false;
   try {
-    const { embedding } = await embedQuery(apiKey, trimmed);
-    const supabase = createServiceRoleClient();
+    providerDispatched = await markAiUsageInFlight(supabase, reservation);
+    if (!providerDispatched) return [];
+    const { embedding, inputTokens, reportedCostUsd } = await embedQuery(apiKey, trimmed);
+    const committed = await commitAiUsage(supabase, reservation, {
+      inputTokens,
+      outputTokens: 0,
+      ...(reportedCostUsd === undefined ? {} : { reportedCostUsd }),
+    });
+    if (!committed) {
+      await markAiUsageUnknown(supabase, reservation, "usage_commit_failed");
+      terminalRecorded = true;
+      trackError("brain_ai_usage_commit_failed", new Error("knowledge query reservation did not commit"), { tenant_id: tenantId, agent_id: agentId });
+      return [];
+    }
     const { data, error } = await supabase.rpc("portal_search_knowledge_service", {
       p_tenant_id: tenantId,
       p_embedding: embedding,
@@ -157,23 +175,14 @@ async function retrieveKnowledge(tenantId: string, queryText: string): Promise<r
       .filter((match) => typeof match.similarity !== "number" || match.similarity >= 0.25)
       .map((match) => ({ source_name: match.source_name, chunk_text: match.chunk_text }));
   } catch (error) {
+    if (providerDispatched && !terminalRecorded) {
+      await recordAiUsageProviderFailure(supabase, reservation, error);
+      terminalRecorded = true;
+    } else if (!providerDispatched) {
+      await releaseAiUsageNotDispatched(supabase, reservation);
+    }
     trackError("brain_knowledge_retrieval_failed", error, { tenant_id: tenantId });
     return [];
-  }
-}
-
-async function logGenerationUsage(tenantId: string, agentId: string, inputTokens: number, outputTokens: number): Promise<void> {
-  try {
-    const supabase = createServiceRoleClient();
-    const { error } = await supabase.rpc("portal_log_ai_usage_service", {
-      p_tenant_id: tenantId,
-      p_id: createUuidV7(),
-      p_input_tokens: inputTokens,
-      p_output_tokens: outputTokens,
-    });
-    if (error) trackError("brain_log_usage_failed", error, { agent_id: agentId });
-  } catch (error) {
-    trackError("brain_log_usage_failed", error, { agent_id: agentId });
   }
 }
 
@@ -218,18 +227,60 @@ export async function POST(
     return NextResponse.json({ error: "language_provider_not_configured" }, { status: 503 });
   }
 
-  if (isRateLimited(agentId)) {
-    logEvent("brain_rate_limited", { agent_id: agentId });
+  let authenticatedConfig: ResolvedBrainAgent;
+  try {
+    authenticatedConfig = await authenticateBrainRequest(
+      { authorizationHeader: request.headers.get("authorization"), agentIdFromPath: agentId },
+      resolveConfig,
+    );
+  } catch (error) {
+    if (error instanceof BrainHttpError) return NextResponse.json({ error: "unauthorized" }, { status: error.status });
+    if (error instanceof ServiceRoleUnavailableError) return NextResponse.json({ error: "brain_not_configured" }, { status: 503 });
+    throw error;
+  }
+  if (isRateLimited(authenticatedConfig.agentId)) {
+    logEvent("brain_rate_limited", { agent_id: authenticatedConfig.agentId });
     return NextResponse.json({ error: "rate_limited" }, { status: 429 });
   }
 
+  let providerModel: string;
+  try {
+    providerModel = configuredOpenRouterGenerationModel(process.env);
+  } catch (error) {
+    trackError("brain_ai_rate_card_configuration_invalid", error, { agent_id: authenticatedConfig.agentId });
+    return NextResponse.json({ error: "language_provider_not_configured" }, { status: 503 });
+  }
+
+  // Somente depois do bearer ser validado confiamos numa identidade enviada
+  // pelo provider. Sem header estavel usamos um request-scope novo, evitando
+  // que duas conversas com mensagens identicas reciclem o mesmo commit.
+  const providerRequestScope = aiProviderRequestScope(
+    request.headers.get("idempotency-key") ?? request.headers.get("x-request-id"),
+  );
+
+  // Autentica e limita ANTES de ler/deserializar corpo controlado pelo
+  // chamador. Isso evita que um segredo ausente/inválido compre CPU e memória
+  // proporcional ao payload no endpoint server-to-server.
+  const boundedBody = await readBoundedTextBody(request, MAX_BRAIN_REQUEST_BYTES);
+  if (!boundedBody.ok) {
+    return boundedBody.reason === "too_large"
+      ? NextResponse.json({ error: "payload_too_large" }, { status: 413 })
+      : NextResponse.json({ error: "invalid_request_body" }, { status: 400 });
+  }
   let body: unknown;
   try {
-    body = await request.json();
+    body = JSON.parse(boundedBody.text);
   } catch {
     return NextResponse.json({ error: "invalid_json_body" }, { status: 400 });
   }
   const rawMessages = (body as { messages?: unknown } | null)?.messages;
+  const canonicalMessages = Array.isArray(rawMessages)
+    ? rawMessages.map((message) => {
+      if (message === null || typeof message !== "object") return message;
+      const record = message as Record<string, unknown>;
+      return { role: record.role, content: record.content };
+    })
+    : rawMessages;
   const model = typeof (body as { model?: unknown } | null)?.model === "string"
     ? (body as { model: string }).model
     : "axtro-digital-human-os-brain";
@@ -239,6 +290,12 @@ export async function POST(
     appUrl: "https://portal-production-b43e.up.railway.app",
     appTitle: "Axtro Digital Human OS — Brain",
   });
+  const reservationMaterial = `${authenticatedConfig.tenantId}:${agentId}:${providerRequestScope}:${JSON.stringify(canonicalMessages)}`;
+  const serviceClient = createServiceRoleClient();
+  let generationReservation: AiUsageReservation | null = null;
+  let generationDispatched = false;
+  let generationTerminalRecorded = false;
+  let generationReportedCostUsd: number | undefined;
 
   try {
     const result = await handleBrainChatRequest(
@@ -248,14 +305,53 @@ export async function POST(
         rawMessages,
       },
       {
-        resolveConfig,
-        checkBudget,
-        retrieveKnowledge,
-        generate: (messages, maxOutputTokens) =>
-          port.generate({ model: process.env.OPENROUTER_MODEL ?? "anthropic/claude-haiku-4.5", messages, maxOutputTokens }),
-        logGenerationUsage,
+        resolveConfig: async () => authenticatedConfig,
+        checkBudget: async (tenantId): Promise<BudgetVerdict> => {
+          const begin = await beginAiUsage({
+            client: serviceClient,
+            operation: "brain_generation",
+            idempotencyKey: stableAiUsageIdempotencyKey("brain_generation", reservationMaterial),
+            tenantId,
+            agentId,
+          });
+          if (!begin.allowed) return begin.reason === "capped" ? "exhausted" : "unavailable";
+          if (begin.reservation.state !== "reserved") return "unavailable";
+          generationReservation = begin.reservation;
+          return "allowed";
+        },
+        retrieveKnowledge: (tenantId, queryText) =>
+          retrieveKnowledge(tenantId, agentId, queryText, reservationMaterial),
+        generate: async (messages, maxOutputTokens) => {
+          if (generationReservation === null) throw new Error("AI usage reservation missing");
+          generationDispatched = await markAiUsageInFlight(serviceClient, generationReservation);
+          if (!generationDispatched) throw new Error("AI usage reservation is not executable");
+          const generated = await port.generate({ model: providerModel, messages, maxOutputTokens });
+          generationReportedCostUsd = generated.usage.reportedCostUsd;
+          return generated;
+        },
+        logGenerationUsage: async (_tenantId, _agentId, inputTokens, outputTokens) => {
+          if (generationReservation === null) throw new Error("AI usage reservation missing at commit");
+          const committed = await commitAiUsage(serviceClient, generationReservation, {
+            inputTokens,
+            outputTokens,
+            ...(generationReportedCostUsd === undefined ? {} : { reportedCostUsd: generationReportedCostUsd }),
+          });
+          if (!committed) {
+            await markAiUsageUnknown(serviceClient, generationReservation, "usage_commit_failed");
+            generationTerminalRecorded = true;
+            throw new Error("AI usage commit failed after provider success");
+          }
+        },
       },
     );
+    if (generationReservation !== null && result.degraded) {
+      if (generationDispatched && !generationTerminalRecorded && result.degradedReason === "generation_failed") {
+        await recordAiUsageProviderFailure(serviceClient, generationReservation, result.cause);
+        generationTerminalRecorded = true;
+      } else if (!generationDispatched) {
+        await releaseAiUsageNotDispatched(serviceClient, generationReservation);
+      }
+    }
     if (result.degraded) {
       // Degradação NUNCA pode parecer saúde na operação (Art. 16) — era um
       // catch vazio; agora todo fallback vira telemetria com o motivo real.

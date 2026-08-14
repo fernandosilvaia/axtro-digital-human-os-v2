@@ -1,48 +1,44 @@
 import type { Metadata } from "next";
 
+import { resolveAgentFaceStageCapability } from "@/lib/meetings/stage";
+
 import { FaceStage } from "./face-stage";
 
 /**
  * Rota PÚBLICA consumida pelo bot do Recall.ai como "câmera" dele dentro de
- * reuniões externas (Output Media). Recebe a sala do Tavus por query param
- * e entra nela sozinha, mostrando só o rosto da agente.
+ * reuniões externas (Output Media). Recebe apenas uma capability aleatória
+ * curta e resolve a sala no servidor, mostrando só o rosto da agente.
  *
  * Por que pública: o bot do Recall.ai roda num navegador sem sessão nossa —
- * não há como autenticar. A URL da sala do Tavus JÁ É a credencial (quem
- * tem o link entra na conversa), então passá-la por query param não amplia
- * o acesso: é a mesma capacidade, carregada por outro caminho. Salas do
- * Tavus são efêmeras e expiram com a conversa.
+ * não há sessão de usuário disponível. A capability é tenant-bound, expira
+ * em prazo curto e só seu hash fica persistido. A room URL, que é um bearer,
+ * nunca aparece na URL pública/logável desta rota.
  *
  * `noindex` explícito: é superfície técnica, não conteúdo público.
  */
 export const metadata: Metadata = {
   title: "Palco do agente — Axtro Digital Human OS",
   robots: { index: false, follow: false },
+  referrer: "no-referrer",
 };
 
 export const dynamic = "force-dynamic";
-
-const ALLOWED_ROOM_HOSTS = new Set(["tavus.daily.co"]);
+export const revalidate = 0;
 
 export default async function AgentFacePage({
   searchParams,
 }: {
-  searchParams: Promise<{ sala?: string }>;
+  searchParams: Promise<{ cap?: string }>;
 }) {
-  const { sala } = await searchParams;
-  const roomUrl = typeof sala === "string" ? sala.trim() : "";
-
-  // Só aceitamos salas do próprio provider de vídeo: sem isso, esta rota
-  // viraria um renderizador de página arbitrária dentro de reuniões alheias.
-  let allowed = false;
+  const { cap } = await searchParams;
+  let resolved = null;
   try {
-    const parsed = new URL(roomUrl);
-    allowed = parsed.protocol === "https:" && ALLOWED_ROOM_HOSTS.has(parsed.host);
+    resolved = await resolveAgentFaceStageCapability(typeof cap === "string" ? cap : "");
   } catch {
-    allowed = false;
+    // Resolution fails closed and does not log the public bearer.
   }
 
-  if (!allowed) {
+  if (resolved === null) {
     return (
       <div
         style={{
@@ -64,5 +60,5 @@ export default async function AgentFacePage({
     );
   }
 
-  return <FaceStage roomUrl={roomUrl} />;
+  return <FaceStage roomUrl={resolved.roomUrl} />;
 }

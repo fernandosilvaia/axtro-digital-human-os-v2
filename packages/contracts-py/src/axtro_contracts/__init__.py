@@ -55,6 +55,39 @@ class BehaviorDirective(TypedDict):
     generated_at: str
     expires_at: str
 
+# Source: contracts/schemas/billing_checkout_intent.schema.json; schema: https://schemas.axtro.ai/v2/billing_checkout_intent.schema.json; version: 2.0.0.
+class BillingCheckoutIntent(TypedDict):
+    schema_version: Literal['2.0.0']
+    checkout_intent_id: str
+    tenant_id: str
+    actor_id: str
+    plan_id: Literal['piloto', 'crescimento', 'escala']
+    state: Literal['reserved', 'dispatched', 'bound', 'completed', 'expired', 'released', 'unknown', 'conflict']
+    stripe_idempotency_key: str
+    catalog_fingerprint: str
+    provider_request_fingerprint: str | None
+    stripe_livemode: bool
+    base_price_id: str
+    overage_price_id: str
+    base_unit_amount_cents: int
+    overage_unit_amount_cents: int
+    meter_event_name: str
+    existing_stripe_customer_id: str | None
+    success_url: str
+    cancel_url: str
+    checkout_expires_at: str
+    stripe_checkout_session_id: str | None
+    stripe_customer_id: str | None
+    stripe_subscription_id: str | None
+    provider_dispatched_at: str | None
+    session_created_at: str | None
+    checkout_completed_at: str | None
+    subscription_bound_at: str | None
+    expired_at: str | None
+    released_at: str | None
+    created_at: str
+    updated_at: str
+
 # Source: contracts/schemas/catalog_lookup_command.schema.json; schema: https://schemas.axtro.ai/v2/catalog_lookup_command.schema.json; version: 2.0.0.
 class CatalogLookupCommand(TypedDict):
     schema_version: Literal['2.0.0']
@@ -107,15 +140,15 @@ class ConversationState(TypedDict):
     incremental_summary: str
     updated_at: str
 
-# Source: contracts/schemas/cost_event.schema.json; schema: https://schemas.axtro.ai/v2/cost_event.schema.json; version: 2.0.0.
+# Source: contracts/schemas/cost_event.schema.json; schema: https://schemas.axtro.ai/v2/cost_event.schema.json; version: 2.1.0.
 class _CostEventRequired(TypedDict):
-    schema_version: Literal['2.0.0']
+    schema_version: Literal['2.1.0']
     cost_event_id: str
     tenant_id: str
     session_id: str | None
     provider_id: str
     service: str
-    unit_type: Literal['minute', 'second', 'token', 'character', 'megabyte', 'request', 'seat', 'flat']
+    unit_type: Literal['minute', 'second', 'token', 'character', 'megabyte', 'request', 'seat', 'flat', 'conversation']
     quantity: float
     unit_cost_usd: float
     amount_usd: float
@@ -741,6 +774,12 @@ CONTRACT_METADATA: dict[str, dict[str, str]] = {
     "source_hash": "c39247db6b39501972745ca9e0920416751e92bbdeb1c83f7b3445405fe7454c",
     "source_schema": "contracts/schemas/behavior_directive.schema.json"
   },
+  "BillingCheckoutIntent": {
+    "schema_id": "https://schemas.axtro.ai/v2/billing_checkout_intent.schema.json",
+    "schema_version": "2.0.0",
+    "source_hash": "6d33517d05dcfdd2371a51f3496f16de81e3d983dc6ba393b50a7a876e0e6c0b",
+    "source_schema": "contracts/schemas/billing_checkout_intent.schema.json"
+  },
   "CatalogLookupCommand": {
     "schema_id": "https://schemas.axtro.ai/v2/catalog_lookup_command.schema.json",
     "schema_version": "2.0.0",
@@ -767,8 +806,8 @@ CONTRACT_METADATA: dict[str, dict[str, str]] = {
   },
   "CostEvent": {
     "schema_id": "https://schemas.axtro.ai/v2/cost_event.schema.json",
-    "schema_version": "2.0.0",
-    "source_hash": "bed4a4a890ed8779b0ac9b79a392aec01f31eb8bea68ab038beab1f5a9e75e98",
+    "schema_version": "2.1.0",
+    "source_hash": "3f8f3dc18a2c6b4f2a910d50059d5cec21549fe58c6f2926a8e4baacf5724858",
     "source_schema": "contracts/schemas/cost_event.schema.json"
   },
   "DeploymentPromotion": {
@@ -1013,6 +1052,7 @@ __all__ = [
     'ActionIntent',
     'AgentSuggestion',
     'BehaviorDirective',
+    'BillingCheckoutIntent',
     'CatalogLookupCommand',
     'ConsentEvidence',
     'ContextComposition',

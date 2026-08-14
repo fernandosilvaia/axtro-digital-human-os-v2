@@ -124,6 +124,21 @@ test("ledger computes decimal costs with explicit half-up rounding and rejects i
   assert.equal(ledger.list(request).length, 2);
 });
 
+test("conversation is a first-class cost unit for portal video effects", () => {
+  const ledger = costing.createDeterministicCostLedger();
+  const authority = costing.createCostAttributionAuthority();
+  const request = authorizedRequest(tenantAlpha, actorAlpha, "dev_cost_conversation_alpha");
+  const conversationCard = rateCard(authority, "4.55", "portal.video_conversation", "conversation");
+  const recorded = ledger.record(request, costInput({
+    eventId: id(25), tenantId: tenantAlpha, sessionId: sessionAlpha, source: "estimated", quantity: 1,
+    rateCard: conversationCard,
+    providerRequest: providerRequest(authority, conversationCard, tenantAlpha, sessionAlpha),
+    offset: 25,
+  }));
+  assert.equal(recorded.event.unit_type, "conversation");
+  assert.equal(recorded.amount_usd_decimal, "4.55");
+});
+
 test("estimated, measured, and provider-reported evidence stays append-only and aggregates separately", () => {
   const ledger = costing.createDeterministicCostLedger();
   const authority = costing.createCostAttributionAuthority();

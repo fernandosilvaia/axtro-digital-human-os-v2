@@ -17,6 +17,32 @@ import { createHmac, timingSafeEqual } from "node:crypto";
 const WEBHOOK_SECRET_PREFIX = "whsec_";
 const SIGNATURE_TOLERANCE_SECONDS = 5 * 60;
 
+/**
+ * Decodifica somente o formato canônico emitido pelo Standard Webhooks.
+ * `Buffer.from(..., "base64")` sozinho é permissivo (ignora caracteres
+ * inválidos), portanto a ida-e-volta canônica é parte da validação.
+ */
+export function parseRecallWebhookSecret(secret: string): Buffer | null {
+  if (!secret.startsWith(WEBHOOK_SECRET_PREFIX)) return null;
+  const encoded = secret.slice(WEBHOOK_SECRET_PREFIX.length);
+  if (encoded.length === 0 || encoded.length % 4 !== 0 || !/^[A-Za-z0-9+/]+={0,2}$/.test(encoded)) return null;
+  try {
+    const decoded = Buffer.from(encoded, "base64");
+    // 192 bits é o piso conservador já compatível com os segredos reais
+    // emitidos pelo provider; strings curtas que apenas "parecem base64"
+    // não viram chaves HMAC válidas.
+    if (decoded.length < 24 || decoded.toString("base64") !== encoded) return null;
+    return decoded;
+  } catch {
+    return null;
+  }
+}
+
+/** Mesma configuração mínima exigida pela rota antes de verificar a assinatura. */
+export function isRecallWebhookSecretConfigured(secret: string): boolean {
+  return secret.length >= 24 && parseRecallWebhookSecret(secret) !== null;
+}
+
 export interface RecallWebhookSignatureHeaders {
   readonly id: string | null;
   readonly timestamp: string | null;
@@ -37,7 +63,6 @@ export function verifyRecallWebhookSignature(
   rawBody: string,
   nowSeconds: number,
 ): boolean {
-  if (!secret.startsWith(WEBHOOK_SECRET_PREFIX)) return false;
   const { id, timestamp, signature } = headers;
   if (id === null || timestamp === null || signature === null) return false;
   if (id.length === 0 || timestamp.length === 0 || signature.length === 0) return false;
@@ -46,13 +71,8 @@ export function verifyRecallWebhookSignature(
   if (!Number.isFinite(timestampSeconds)) return false;
   if (Math.abs(nowSeconds - timestampSeconds) > SIGNATURE_TOLERANCE_SECONDS) return false;
 
-  let keyBytes: Buffer;
-  try {
-    keyBytes = Buffer.from(secret.slice(WEBHOOK_SECRET_PREFIX.length), "base64");
-  } catch {
-    return false;
-  }
-  if (keyBytes.length === 0) return false;
+  const keyBytes = parseRecallWebhookSecret(secret);
+  if (keyBytes === null) return false;
 
   const expected = createHmac("sha256", keyBytes).update(`${id}.${timestamp}.${rawBody}`).digest();
 

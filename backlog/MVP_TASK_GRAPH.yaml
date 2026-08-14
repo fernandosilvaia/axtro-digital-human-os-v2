@@ -1,5 +1,5 @@
-version: 1
-as_of: 2026-07-14
+version: 2
+as_of: 2026-08-13
 execution_rule: A task may start only when all dependencies are green and its owned files are not being edited by another worktree.
 milestones:
   M0:
@@ -17,6 +17,9 @@ milestones:
   M4:
     name: Custom Brain (LLM próprio na persona de vídeo)
     exit_gate: M4-04
+  M5:
+    name: Production Integrity, Trust and Discovery
+    exit_gate: M5-03
 tasks:
   - id: M0-01
     milestone: M0
@@ -658,3 +661,44 @@ tasks:
       - response is valid OpenAI-compatible SSE (chat.completion.chunk)
       - provider or retrieval failure degrades to an explicit spoken fallback, never a raw 500 (Constitution Art. 14)
     tests: [auth valid/invalid/cross-tenant, SSE shape, degradation on provider failure]
+  - id: M5-01
+    milestone: M5
+    title: Close production integrity and denial-of-wallet gaps
+    lane: security
+    dependencies: [M4-04]
+    objective: Make paid provider effects attributable and retry-safe, harden transcript/webhook boundaries, and separate liveness from fail-closed readiness.
+    primary_files: [apps/portal/src/app/api/, apps/portal/src/lib/, database/supabase-only/, tests/portal/, railway.json]
+    acceptance:
+      - every portal-generated cost event uses a valid UUIDv7 and a failed ledger write is observable
+      - scheduled Recall attachment has a single durable winner and rechecks the tenant cap before Tavus spend
+      - transcript payloads require an exact bounded shape, list limits are applied before aggregation, and authenticated users cannot preclaim provider transcript references
+      - persistence failures on provider transcript webhooks return a retryable status
+      - Railway routes traffic only when mandatory portal dependencies are ready; liveness remains independent
+    tests: [UUIDv7 paid routes, concurrent sentinel claim, cap failure, strict transcript schema, bounded transcript listing, provider transcript ownership, retryable webhook persistence failure, readiness matrix]
+  - id: M5-02
+    milestone: M5
+    title: Bridge portal channels to constitutional runtime boundaries
+    lane: architecture
+    dependencies: [M5-01]
+    objective: Put real portal channels behind the canonical session, consent, disclosure, presenter, policy and receipt boundaries without placing the Axtro Agent in the synchronous media loop.
+    primary_files: [docs/adr/, apps/portal/src/lib/runtime/, apps/portal/src/lib/brain/, apps/portal/src/app/api/, packages/session-application/, tests/]
+    acceptance:
+      - ADR defines the reversible bridge and explicit kill-switch behavior before implementation
+      - a real channel cannot create a provider resource before session, disclosure and purpose-scoped consent are recorded
+      - untrusted retrieval/provider context never becomes system authority
+      - model-originated scene actions pass a closed manifest, generation fence and receipt boundary
+    tests: [session bridge happy path, disclosure failure, consent failure, one-mouth conflict, stale generation, prompt injection corpus, kill switch]
+  - id: M5-03
+    milestone: M5
+    title: Ship premium public experience and advanced discovery surfaces
+    lane: frontend
+    dependencies: [M5-02]
+    objective: Deliver a premium, accessible public site with truthful conversion copy, original visual assets, complete sharing metadata, coherent index policy, and search/AI discovery surfaces.
+    primary_files: [apps/portal/src/app/, apps/portal/src/lib/site.ts, apps/portal/public/, tests/ui/, docs/operations/DECISIONS_LOG.md]
+    acceptance:
+      - home and pricing pages are responsive, accessible and visually verified at desktop and mobile viewports
+      - favicon, manifest icons, Open Graph/Twitter assets, canonicals and public-page metadata are complete
+      - sitemap, robots, legal-page indexing and canonical domain are internally consistent
+      - structured data is visible-content-backed and makes no invented ratings or guarantees
+      - AI search crawlers can discover public content while private and training policy remains explicit
+    tests: [public build, metadata render, structured data parse, sitemap and robots policy, llms files, keyboard and contrast smoke, desktop and mobile visual evidence]

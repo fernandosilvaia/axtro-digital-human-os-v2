@@ -83,7 +83,7 @@ try {
   createDatabase(baseDatabaseUrl, psqlPath, testDatabaseName);
   const testDatabaseUrl = databaseUrlFor(baseDatabaseUrl, testDatabaseName);
   const migrated = database.applyLocalMigrations({ databaseUrl: testDatabaseUrl, psqlPath });
-  assert.equal(migrated.history.length, 11);
+  assert.equal(migrated.history.length, 12);
   assertSucceeded(runDevelopmentSeed(testDatabaseUrl), "deterministic development seed");
   assertSucceeded(runSql(testDatabaseUrl, psqlPath, seedSql(fixture)), "deterministic tenant fixture seed");
   assertSucceeded(provisionRuntimeRole(baseDatabaseUrl, testDatabaseUrl, psqlPath, runtimeRole), "least-privilege runtime role");

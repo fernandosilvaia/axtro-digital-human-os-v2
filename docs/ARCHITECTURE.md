@@ -6,7 +6,7 @@
 ## Duas camadas
 
 1. **Kernel M0-M3** (`packages/`, `apps/api|realtime-worker|...`): plataforma genérica de
-   funcionários digitais — domínio, contratos (47 schemas), tenancy/RLS, Action Runtime,
+   funcionários digitais — domínio, contratos (48 schemas), tenancy/RLS, Action Runtime,
    Turn Coordinator, percepção, Role Pack de vendas, avaliação. 100% fake-first, verde,
    congelada por release gates (M1-11, M2-13, M3).
 2. **Produto** (`apps/portal/`): Next.js 16 + Supabase real — auth, dashboard, agentes,

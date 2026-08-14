@@ -2,6 +2,8 @@
 
 import { useState, useTransition } from "react";
 
+import { isTrustedTavusConversationUrl } from "@axtro/provider-tavus";
+
 import { startVideoConversation } from "@/lib/actions/video-conversation";
 
 export function VideoCall({ agentId, agentName }: { agentId: string; agentName: string }) {
@@ -12,10 +14,11 @@ export function VideoCall({ agentId, agentName }: { agentId: string; agentName: 
 
   function start() {
     setError(null);
+    const commandId = crypto.randomUUID();
     startTransition(async () => {
-      const result = await startVideoConversation(agentId);
-      if (result.url) setUrl(result.url);
-      else setError(result.error ?? "Erro inesperado.");
+      const result = await startVideoConversation(agentId, commandId);
+      if (isTrustedTavusConversationUrl(result.url)) setUrl(result.url);
+      else setError(result.url ? "A sala de vídeo retornou um endereço não confiável." : (result.error ?? "Erro inesperado."));
     });
   }
 
@@ -29,12 +32,16 @@ export function VideoCall({ agentId, agentName }: { agentId: string; agentName: 
     }
   }
 
-  if (url) {
+  const trustedUrl = isTrustedTavusConversationUrl(url) ? url : null;
+  if (trustedUrl) {
     return (
       <section className="card" style={{ marginTop: 16, padding: 12 }}>
         <iframe
-          src={url}
-          allow="camera; microphone; fullscreen; display-capture"
+          src={trustedUrl}
+          allow="camera; microphone; fullscreen"
+          allowFullScreen
+          sandbox="allow-scripts allow-same-origin allow-forms allow-popups"
+          referrerPolicy="no-referrer"
           style={{ width: "100%", height: 480, border: "none", borderRadius: 10, background: "#000" }}
           title={`Conversa em vídeo com ${agentName}`}
         />
@@ -44,10 +51,10 @@ export function VideoCall({ agentId, agentName }: { agentId: string; agentName: 
           </p>
           {/* A sala é uma URL comum do provider: dá pra testar do celular ou
               chamar um colega pra avaliar — não precisa ficar presa ao iframe. */}
-          <button type="button" className="btn" onClick={() => copyRoomLink(url)} style={{ padding: "7px 12px", fontSize: "0.8rem" }}>
+          <button type="button" className="btn" onClick={() => copyRoomLink(trustedUrl)} style={{ padding: "7px 12px", fontSize: "0.8rem" }}>
             {copied ? "Link copiado ✓" : "Copiar link da sala"}
           </button>
-          <a href={url} target="_blank" rel="noreferrer" className="btn" style={{ padding: "7px 12px", fontSize: "0.8rem" }}>
+          <a href={trustedUrl} target="_blank" rel="noreferrer" className="btn" style={{ padding: "7px 12px", fontSize: "0.8rem" }}>
             Abrir em nova aba
           </a>
           <button type="button" className="btn" onClick={() => setUrl(null)} style={{ padding: "7px 12px", fontSize: "0.8rem" }}>

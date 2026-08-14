@@ -1,12 +1,21 @@
 # Progresso de implementação
 
-**Estado atual:** M0, M1, M2 e M3 concluídos (M3-01 a M3-09 fake-first/dry-run completos; M3-10 com ferramenta pronta, piloto real e bake-off de provider pendentes de gate humano); VISUAL-01 concluído; Cérebro Método Silva no ar (D-V2-073/074); SEO-AEO-01 concluído; rate card de custos no ar (D-V2-078); M4 (cérebro customizado próprio na persona de vídeo) com CÓDIGO completo (M4-01 a M4-04) e migrations 0018/0019 aplicadas no Supabase real — falta só `SUPABASE_SERVICE_ROLE_KEY` e o rewiring de uma persona Tavus real (ver Pendências externas)
+**Estado atual:** M0-M4 com código concluído; M5 aberto após auditoria multidisciplinar de produção, segurança, dados, custo, testes, arquitetura, UX e descoberta. M5-01 está em andamento para fechar riscos críticos antes de qualquer ampliação visual ou promoção de provider.
 
-**Marco atual:** M4 (migrations aplicadas; falta a chave de service role e o gate humano de ligar numa persona real)
-**Tarefa atual:** nenhuma — aguardando o Fernando prover `SUPABASE_SERVICE_ROLE_KEY` e decidir quando/qual persona apontar pro cérebro customizado
-**Última evidência verde:** migrations 0018/0019 aplicadas em 2026-07-27 (autorização explícita do Fernando) — tabela `agent_brain_config` + 5 funções confirmadas via `execute_sql`, RLS forçada, advisor de segurança revisado (só WARNs já aceitos pra RPCs `portal_*`). Código do M4 (467 Node + 26 Python, `next build` real, typecheck, lint, 9 validadores) segue verde
+**Marco atual:** M5 — Production Integrity, Trust and Discovery
+**Tarefa atual:** M5-01 — in_progress
+**Última evidência verde:** baseline de 2026-08-13 no HEAD `8c904c4`: `python3 scripts/validate_all.py` com 9/9 validadores verdes; auditoria read-only confirmou os write sets de M5-01 antes da edição
 **Bloqueadores internos:** nenhum
 **Pendências externas:** consultar `PENDENCIAS_EXTERNAS.md`  
+
+> Auditoria adversarial M5-01 (2026-08-13): o primeiro patch fechou UUIDv7,
+> schema de transcript e a corrida local do SENTINELA, mas foi recusado como
+> fronteira final porque ainda liberava efeitos de resultado ambíguo e não
+> coordenava os demais caminhos pagos. ADR-036 foi registrado antes da segunda
+> implementação: reserva durável única, estado `unknown` sem expiração,
+> finalização/overage transacionais, rollout expand-contract e teste PostgreSQL
+> executável são agora critérios obrigatórios. Nenhuma migration 0040 foi
+> aplicada no Supabase hospedado.
 
 ## Regras de atualização
 
@@ -77,6 +86,9 @@
 | `M4-02` | M4 | done | Parse Tavus custom-LLM messages into brain input | `M4-01` | `tavus-request.ts`: system messages do Tavus descartadas da conversa mas varridas por tags de percepção antes; 13 testes novos (450 Node total) verdes |
 | `M4-03` | M4 | done | Add agent_brain_config migration | `M4-01` | `0018_agent_brain_config.sql` revisado, `secret.ts` com 7 testes novos (457 Node total); aplicada no Supabase real em 2026-07-27 (autorização explícita do Fernando) |
 | `M4-04` | M4 | done (código; sem persona real ligada) | Add Tavus-facing brain chat-completions HTTP route | `M4-01`, `M4-02`, `M4-03` | `/api/brain/[agentId]/chat/completions` (SSE), `handle-chat-request.ts` com 10 testes novos (467 Node total), `next build` real gera a rota; `0019_agent_brain_service_role_rpcs.sql` aplicada em 2026-07-27 (tabela + 5 funções + RLS forçada confirmadas via `execute_sql`, advisor de segurança revisado — só WARNs já aceitos). Falta só `SUPABASE_SERVICE_ROLE_KEY` no ambiente (nunca configurada) pro endpoint funcionar de ponta a ponta; RAG real é gap declarado (retorna vazio); nenhuma persona Tavus real aponta pra cá ainda |
+| `M5-01` | M5 | in_progress | Close production integrity and denial-of-wallet gaps | `M4-04` | Auditoria inicial concluída; implementação e testes em andamento |
+| `M5-02` | M5 | pending | Bridge portal channels to constitutional runtime boundaries | `M5-01` | Aguarda M5-01 verde e ADR prévio |
+| `M5-03` | M5 | pending | Ship premium public experience and advanced discovery surfaces | `M5-02` | Auditoria visual baseline e ativo premium inicial já capturados; implementação aguarda dependências |
 
 ## Log de execução
 

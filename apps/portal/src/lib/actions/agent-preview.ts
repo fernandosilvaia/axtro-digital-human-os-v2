@@ -4,9 +4,19 @@ import { createUuidV7 } from "@axtro/domain";
 import { createOpenRouterTextGenerationPort, TextGenerationError } from "@axtro/provider-openrouter";
 
 import { BrainChatValidationError, runBrainChatCompletion } from "@/lib/brain/chat-completion-core";
-import { maybeAlertCostCap } from "@/lib/cost-alerts";
+import {
+  beginAiUsage,
+  commitAiUsage,
+  configuredOpenRouterGenerationModel,
+  markAiUsageInFlight,
+  markAiUsageUnknown,
+  recordAiUsageProviderFailure,
+  releaseAiUsageNotDispatched,
+  stableAiUsageIdempotencyKey,
+} from "@/lib/ai-budget/reservations";
 import { embedQuery, fakeProvidersEnabled, type KnowledgeMatch } from "@/lib/knowledge";
 import { fetchAgents, fetchTenantOverview } from "@/lib/portal-data";
+import { createServiceRoleClient } from "@/lib/supabase/service";
 import { createClient } from "@/lib/supabase/server";
 import { logError as trackError, logEvent } from "@/lib/telemetry";
 
@@ -22,8 +32,6 @@ export interface AgentPreviewResult {
 
 const MAX_HISTORY_TURNS = 10;
 const MAX_TURN_CHARS = 2000;
-const DAILY_TOKEN_CAP = 500_000;
-const DEFAULT_MODEL = "anthropic/claude-haiku-4.5";
 /** UUID formato solto — o client gera com crypto.randomUUID(), aceitamos qualquer id de tamanho razoável (é só a chave de idempotência do upsert, nunca é interpolado em SQL fora de bind param). */
 const TRANSCRIPT_ID_PATTERN = /^[a-zA-Z0-9_-]{8,128}$/;
 
@@ -121,24 +129,60 @@ export async function sendAgentPreviewMessage(
   }
 
   const supabase = await createClient();
+  const budgetClient = createServiceRoleClient();
+  let providerModel: string;
+  try {
+    providerModel = configuredOpenRouterGenerationModel(process.env);
+  } catch (error) {
+    trackError("chat_ai_rate_card_configuration_invalid", error, { agent_id: agentId });
+    return { reply: null, error: "O modelo configurado não possui um envelope de custo aprovado." };
+  }
 
-  // Teto diário de tokens por tenant — falha fechada se a leitura falhar.
-  const { data: tokensToday, error: usageError } = await supabase.rpc("portal_ai_tokens_today");
-  if (usageError) {
-    return { reply: null, error: "Não foi possível verificar o uso de IA da conta. Tente novamente." };
-  }
-  // Alerta proativo (D-V2-107): fire-and-forget, mesmo ponto que já lê o uso do dia.
-  void maybeAlertCostCap({ tenantId: overview.tenant.id, capKind: "daily_tokens", current: Number(tokensToday), cap: DAILY_TOKEN_CAP });
-  if (Number(tokensToday) >= DAILY_TOKEN_CAP) {
-    return { reply: null, error: "Limite diário de tokens de teste da conta atingido. Volte amanhã ou fale com o suporte." };
-  }
+  // O client atual sempre envia um transcriptId por conversa. Chamadores
+  // antigos sem essa identidade ganham um escopo unico por Server Action;
+  // mensagens identicas de conversas diferentes nunca colidem para sempre.
+  const turnScope = typeof transcriptId === "string" && TRANSCRIPT_ID_PATTERN.test(transcriptId)
+    ? transcriptId
+    : createUuidV7();
+  const idempotencyMaterial = `${overview.tenant.id}:${agentId}:${turnScope}:${JSON.stringify(history)}:${message}`;
 
   // RAG: busca vetorial nas fontes ativas da conta. Falha de recuperação
   // degrada para o prompt sem fontes (o chat não pode morrer por isso),
   // mas fica visível no log do servidor.
   let knowledgeMatches: readonly KnowledgeMatch[] = [];
+  const retrievalReservationResult = await beginAiUsage({
+    client: budgetClient,
+    tenantId: overview.tenant.id,
+    operation: "knowledge_query_embedding",
+    idempotencyKey: stableAiUsageIdempotencyKey("knowledge_query_embedding", idempotencyMaterial),
+    agentId,
+  });
+  if (!retrievalReservationResult.allowed) {
+    return { reply: null, error: "Limite diário de IA da conta atingido ou temporariamente indisponível. Tente novamente mais tarde." };
+  }
+  if (retrievalReservationResult.reservation.state !== "reserved") {
+    return { reply: null, error: "Esta solicitação de IA já foi processada. Inicie um novo turno para continuar." };
+  }
+  const retrievalReservation = retrievalReservationResult.reservation;
+  let retrievalDispatched = false;
+  let retrievalTerminalRecorded = false;
   try {
-    const { embedding, inputTokens } = await embedQuery(apiKey, message);
+    retrievalDispatched = await markAiUsageInFlight(budgetClient, retrievalReservation);
+    if (!retrievalDispatched) {
+      return { reply: null, error: "Esta solicitação de IA já está em processamento. Aguarde antes de tentar novamente." };
+    }
+    const { embedding, inputTokens, reportedCostUsd } = await embedQuery(apiKey, message);
+    const retrievalCommitted = await commitAiUsage(budgetClient, retrievalReservation, {
+      inputTokens,
+      outputTokens: 0,
+      ...(reportedCostUsd === undefined ? {} : { reportedCostUsd }),
+    });
+    if (!retrievalCommitted) {
+      await markAiUsageUnknown(budgetClient, retrievalReservation, "usage_commit_failed");
+      retrievalTerminalRecorded = true;
+      trackError("ai_usage_commit_failed", new Error("knowledge query reservation did not commit"), { agent_id: agentId, operation: "knowledge_query_embedding" });
+      return { reply: null, error: "Não foi possível confirmar o uso de IA da conta. Tente novamente." };
+    }
     const { data: searchData, error: searchError } = await supabase.rpc("portal_search_knowledge", {
       p_embedding: embedding,
       p_limit: 5,
@@ -154,18 +198,16 @@ export async function sendAgentPreviewMessage(
       knowledgeMatches = (searchData as (KnowledgeMatch & { similarity?: number })[]).filter(
         (match) => typeof match.similarity !== "number" || match.similarity >= 0.25,
       );
-      const { error: retrievalLogError } = await supabase.rpc("portal_log_ai_usage", {
-        p_id: createUuidV7(),
-        p_service: "portal.knowledge_retrieval",
-        p_input_tokens: inputTokens,
-        p_output_tokens: 0,
-      });
-      if (retrievalLogError) {
-        trackError("portal_log_ai_usage_failed", retrievalLogError, { agent_id: agentId, service: "portal.knowledge_retrieval" });
-      }
     }
   } catch (retrievalError) {
+    if (retrievalDispatched && !retrievalTerminalRecorded) {
+      await recordAiUsageProviderFailure(budgetClient, retrievalReservation, retrievalError);
+      retrievalTerminalRecorded = true;
+    } else if (!retrievalDispatched) {
+      await releaseAiUsageNotDispatched(budgetClient, retrievalReservation);
+    }
     trackError("knowledge_retrieval_failed", retrievalError, { agent_id: agentId });
+    return { reply: null, error: "O orçamento da busca de conhecimento ficou pendente de reconciliação. Tente novamente mais tarde." };
   }
 
   const port = createOpenRouterTextGenerationPort({
@@ -173,6 +215,23 @@ export async function sendAgentPreviewMessage(
     appUrl: "https://portal-production-b43e.up.railway.app",
     appTitle: "Axtro Digital Human OS",
   });
+
+  const generationReservationResult = await beginAiUsage({
+    client: budgetClient,
+    tenantId: overview.tenant.id,
+    operation: "chat_generation",
+    idempotencyKey: stableAiUsageIdempotencyKey("chat_generation", idempotencyMaterial),
+    agentId,
+  });
+  if (!generationReservationResult.allowed) {
+    return { reply: null, error: "Limite diário de tokens de teste da conta atingido. Volte amanhã ou fale com o suporte." };
+  }
+  if (generationReservationResult.reservation.state !== "reserved") {
+    return { reply: null, error: "Esta solicitação de IA já foi processada. Inicie um novo turno para continuar." };
+  }
+  const generationReservation = generationReservationResult.reservation;
+  let generationDispatched = false;
+  let generationTerminalRecorded = false;
 
   try {
     const result = await runBrainChatCompletion(
@@ -185,23 +244,22 @@ export async function sendAgentPreviewMessage(
         userMessage: message,
       },
       {
-        generate: (messages, maxOutputTokens) =>
-          port.generate({ model: process.env.OPENROUTER_MODEL ?? DEFAULT_MODEL, messages, maxOutputTokens }),
+        generate: async (messages, maxOutputTokens) => {
+          generationDispatched = await markAiUsageInFlight(budgetClient, generationReservation);
+          if (!generationDispatched) throw new Error("AI usage reservation is not executable");
+          return port.generate({ model: providerModel, messages, maxOutputTokens });
+        },
         logGenerationUsage: async (inputTokens, outputTokens, reportedCostUsd) => {
-          // Registro de uso no ledger de custo do tenant. Falha de log não pode
-          // sumir com a resposta já paga — mas precisa ficar visível no servidor.
-          // Com o custo faturado reportado pelo OpenRouter, o evento entra como
-          // 'provider_reported' (valor exato, qualquer modelo) em vez de
-          // estimativa por tabela do Haiku (0027).
-          const { error: logError } = await supabase.rpc("portal_log_ai_usage", {
-            p_id: createUuidV7(),
-            p_service: "portal.agent_preview",
-            p_input_tokens: inputTokens,
-            p_output_tokens: outputTokens,
-            ...(reportedCostUsd !== undefined ? { p_reported_cost_usd: reportedCostUsd } : {}),
+          const committed = await commitAiUsage(budgetClient, generationReservation, {
+            inputTokens,
+            outputTokens,
+            ...(reportedCostUsd === undefined ? {} : { reportedCostUsd }),
           });
-          if (logError) {
-            trackError("portal_log_ai_usage_failed", logError, { agent_id: agentId, service: "portal.agent_preview" });
+          if (!committed) {
+            await markAiUsageUnknown(budgetClient, generationReservation, "usage_commit_failed");
+            generationTerminalRecorded = true;
+            trackError("ai_usage_commit_failed", new Error("chat generation reservation did not commit"), { agent_id: agentId, operation: "chat_generation" });
+            throw new Error("AI usage commit failed after provider success");
           }
         },
       },
@@ -221,6 +279,12 @@ export async function sendAgentPreviewMessage(
 
     return { reply: result.reply, error: null };
   } catch (error) {
+    if (generationDispatched && !generationTerminalRecorded) {
+      await recordAiUsageProviderFailure(budgetClient, generationReservation, error);
+      generationTerminalRecorded = true;
+    } else if (!generationDispatched) {
+      await releaseAiUsageNotDispatched(budgetClient, generationReservation);
+    }
     if (error instanceof BrainChatValidationError) {
       return { reply: null, error: "Não foi possível gerar a resposta agora." };
     }
@@ -236,4 +300,3 @@ export async function sendAgentPreviewMessage(
     return { reply: null, error: "Erro inesperado ao falar com o agente." };
   }
 }
-

@@ -5,8 +5,9 @@
     "buildCommand": "pnpm install --frozen-lockfile && pnpm run build && pnpm --filter @axtro/portal run build"
   },
   "deploy": {
+    "preDeployCommand": "pnpm run production:bootstrap",
     "startCommand": "pnpm --filter @axtro/portal run start",
-    "healthcheckPath": "/api/health",
+    "healthcheckPath": "/api/ready",
     "restartPolicyType": "ON_FAILURE",
     "restartPolicyMaxRetries": 3
   }

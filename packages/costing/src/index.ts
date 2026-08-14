@@ -140,7 +140,7 @@ export class CostLedgerTransactionError extends Error {
 }
 
 const COST_SOURCES = ["estimated", "measured", "provider_reported"] as const;
-const COST_UNITS = ["minute", "second", "token", "character", "megabyte", "request", "seat", "flat"] as const;
+const COST_UNITS = ["minute", "second", "token", "character", "megabyte", "request", "seat", "flat", "conversation"] as const;
 const PROVIDER_ID_PATTERN = /^[a-z][a-z0-9_-]{0,119}$/;
 const SERVICE_PATTERN = /^[a-z][a-z0-9._/-]{0,159}$/;
 const RATE_CARD_REFERENCE_PATTERN = /^[a-z][a-z0-9._/-]{0,159}$/;
@@ -420,7 +420,7 @@ function normalizeWrite(request: AuthorizedRequestContext, input: unknown): Norm
 
 function createStoredCostEvent(input: NormalizedWrite): StoredCostEvent {
   const event = deepFreeze({
-    schema_version: "2.0.0",
+    schema_version: "2.1.0",
     cost_event_id: input.eventId,
     tenant_id: input.tenantId,
     session_id: input.sessionId,

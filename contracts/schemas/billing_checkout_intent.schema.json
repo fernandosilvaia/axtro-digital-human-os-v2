@@ -1,0 +1,106 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://schemas.axtro.ai/v2/billing_checkout_intent.schema.json",
+  "title": "Billing Checkout Intent",
+  "description": "Durable, tenant-scoped authority for one Stripe Checkout subscription attempt and its reconciliation lifecycle.",
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "schema_version": { "type": "string", "const": "2.0.0" },
+    "checkout_intent_id": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$"
+    },
+    "tenant_id": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$"
+    },
+    "actor_id": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$"
+    },
+    "plan_id": { "type": "string", "enum": ["piloto", "crescimento", "escala"] },
+    "state": {
+      "type": "string",
+      "enum": ["reserved", "dispatched", "bound", "completed", "expired", "released", "unknown", "conflict"]
+    },
+    "stripe_idempotency_key": {
+      "type": "string",
+      "pattern": "^billing:checkout:[0-9a-f]{32}$",
+      "maxLength": 49
+    },
+    "catalog_fingerprint": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{64}$"
+    },
+    "provider_request_fingerprint": {
+      "type": ["string", "null"],
+      "pattern": "^[0-9a-f]{64}$"
+    },
+    "stripe_livemode": { "type": "boolean" },
+    "base_price_id": { "type": "string", "pattern": "^price_[A-Za-z0-9]{1,255}$" },
+    "overage_price_id": { "type": "string", "pattern": "^price_[A-Za-z0-9]{1,255}$" },
+    "base_unit_amount_cents": { "type": "integer", "minimum": 1, "maximum": 100000000 },
+    "overage_unit_amount_cents": { "type": "integer", "minimum": 1, "maximum": 100000000 },
+    "meter_event_name": { "type": "string", "pattern": "^[a-z][a-z0-9_]{2,99}$" },
+    "existing_stripe_customer_id": {
+      "type": ["string", "null"],
+      "pattern": "^cus_[A-Za-z0-9]{1,255}$"
+    },
+    "success_url": { "type": "string", "format": "uri", "maxLength": 2000 },
+    "cancel_url": { "type": "string", "format": "uri", "maxLength": 2000 },
+    "checkout_expires_at": { "type": "string", "format": "date-time" },
+    "stripe_checkout_session_id": {
+      "type": ["string", "null"],
+      "pattern": "^cs_(?:test|live)_[A-Za-z0-9_]{1,240}$"
+    },
+    "stripe_customer_id": {
+      "type": ["string", "null"],
+      "pattern": "^cus_[A-Za-z0-9]{1,255}$"
+    },
+    "stripe_subscription_id": {
+      "type": ["string", "null"],
+      "pattern": "^sub_[A-Za-z0-9]{1,255}$"
+    },
+    "provider_dispatched_at": { "type": ["string", "null"], "format": "date-time" },
+    "session_created_at": { "type": ["string", "null"], "format": "date-time" },
+    "checkout_completed_at": { "type": ["string", "null"], "format": "date-time" },
+    "subscription_bound_at": { "type": ["string", "null"], "format": "date-time" },
+    "expired_at": { "type": ["string", "null"], "format": "date-time" },
+    "released_at": { "type": ["string", "null"], "format": "date-time" },
+    "created_at": { "type": "string", "format": "date-time" },
+    "updated_at": { "type": "string", "format": "date-time" }
+  },
+  "required": [
+    "schema_version",
+    "checkout_intent_id",
+    "tenant_id",
+    "actor_id",
+    "plan_id",
+    "state",
+    "stripe_idempotency_key",
+    "catalog_fingerprint",
+    "provider_request_fingerprint",
+    "stripe_livemode",
+    "base_price_id",
+    "overage_price_id",
+    "base_unit_amount_cents",
+    "overage_unit_amount_cents",
+    "meter_event_name",
+    "existing_stripe_customer_id",
+    "success_url",
+    "cancel_url",
+    "checkout_expires_at",
+    "stripe_checkout_session_id",
+    "stripe_customer_id",
+    "stripe_subscription_id",
+    "provider_dispatched_at",
+    "session_created_at",
+    "checkout_completed_at",
+    "subscription_bound_at",
+    "expired_at",
+    "released_at",
+    "created_at",
+    "updated_at"
+  ]
+}

@@ -3,8 +3,16 @@ import { test } from "node:test";
 
 const webhook = await import("../../apps/portal/src/lib/transcripts/tavus-webhook.ts");
 
+test("append receipt is acknowledged only after a matching placeholder was persisted", () => {
+  assert.equal(webhook.transcriptAppendWasPersisted({ found: true }), true);
+  assert.equal(webhook.transcriptAppendWasPersisted({ found: false }), false);
+  assert.equal(webhook.transcriptAppendWasPersisted({}), false);
+  assert.equal(webhook.transcriptAppendWasPersisted(null), false);
+});
+
 const VALID_EVENT = {
   event_type: "application.transcription_ready",
+  message_type: "application",
   conversation_id: "conv_abc123",
   timestamp: "2026-08-10T12:00:00.000Z",
   properties: {
@@ -19,12 +27,46 @@ test("parseTavusTranscriptEvent extrai conversationId e normaliza turns pro shap
   const parsed = webhook.parseTavusTranscriptEvent(VALID_EVENT);
   assert.deepEqual(parsed, {
     conversationId: "conv_abc123",
+    observedAt: "2026-08-10T12:00:00.000Z",
     turns: [
       { role: "assistant", content: "Oi, tudo bem?" },
       { role: "user", content: "Tudo! Testando." },
     ],
+    hasHumanTurn: true,
     truncated: false,
   });
+});
+
+test("system.replica_joined nunca é prova de humano; apenas transcript com turno user é delivery", () => {
+  assert.equal(webhook.parseTavusTranscriptEvent({ ...VALID_EVENT, event_type: "system.replica_joined" }), null);
+  const assistantOnly = webhook.parseTavusTranscriptEvent({
+    ...VALID_EVENT,
+    properties: { transcript: [{ role: "assistant", content: "Olá, estou pronta." }] },
+  });
+  assert.equal(assistantOnly.hasHumanTurn, false);
+  assert.equal(webhook.parseTavusTranscriptEvent(VALID_EVENT).hasHumanTurn, true);
+});
+
+test("aceita somente shutdown autenticável com o reason exato de participante ausente", () => {
+  const absent = {
+    event_type: "system.shutdown",
+    message_type: "system",
+    conversation_id: "conv_abc123",
+    timestamp: "2026-08-10T12:00:00.000Z",
+    properties: { shutdown_reason: "participant_absent_timeout reached" },
+  };
+  assert.deepEqual(webhook.parseTavusNoDeliveryEvent(absent), {
+    conversationId: "conv_abc123",
+    observedAt: "2026-08-10T12:00:00.000Z",
+    reason: "participant_absent_timeout reached",
+  });
+  for (const mutation of [
+    { ...absent, message_type: "application" },
+    { ...absent, conversation_id: "" },
+    { ...absent, timestamp: "not-a-timestamp" },
+    { ...absent, properties: { shutdown_reason: "participant_left_timeout reached" } },
+    { ...absent, properties: { shutdown_reason: "participant_absent_timeout" } },
+  ]) assert.equal(webhook.parseTavusNoDeliveryEvent(mutation), null);
 });
 
 test("ignora eventos fora do escopo (system.replica_joined, recording.ready) sem lançar", () => {
@@ -39,6 +81,11 @@ test("rejeita payload malformado (sem conversation_id, sem properties.transcript
   assert.equal(webhook.parseTavusTranscriptEvent({ ...VALID_EVENT, conversation_id: undefined }), null);
   assert.equal(webhook.parseTavusTranscriptEvent({ ...VALID_EVENT, properties: {} }), null);
   assert.equal(webhook.parseTavusTranscriptEvent({ ...VALID_EVENT, properties: { transcript: [] } }), null);
+  assert.equal(webhook.parseTavusTranscriptEvent({ ...VALID_EVENT, message_type: "system" }), null);
+  assert.equal(webhook.parseTavusTranscriptEvent({ ...VALID_EVENT, message_type: undefined }), null);
+  for (const conversation_id of ["ab", " conv_abc123", "conv.abc", "conv/abc", "a".repeat(65)]) {
+    assert.equal(webhook.parseTavusTranscriptEvent({ ...VALID_EVENT, conversation_id }), null);
+  }
 });
 
 test("achado da auto-revisão D-V2-115: item com role inválido é PULADO, não descarta o evento inteiro (mesma disciplina do turno de content vazio)", () => {

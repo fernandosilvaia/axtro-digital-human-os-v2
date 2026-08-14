@@ -1,0 +1,60 @@
+name: Dispatch Stripe billing usage
+
+on:
+  schedule:
+    - cron: '*/5 * * * *'
+  workflow_dispatch:
+
+concurrency:
+  group: billing-usage-dispatch-production
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  dispatch:
+    if: github.event_name == 'workflow_dispatch' || vars.BILLING_DISPATCH_SCHEDULE_ENABLED == 'true'
+    runs-on: ubuntu-latest
+    # The dispatcher may legally spend 20 seconds on each of 20 rows. Each row
+    # gets a fresh 60-second lease; the workflow allows the bounded run to
+    # finish without starting an overlapping client-side retry.
+    timeout-minutes: 10
+    env:
+      BILLING_DISPATCH_URL: ${{ vars.BILLING_DISPATCH_URL }}
+      BILLING_DISPATCH_SECRET: ${{ secrets.BILLING_DISPATCH_SECRET }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Validate protected endpoint configuration
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [[ ! "${BILLING_DISPATCH_URL}" =~ ^https://[^[:space:]]+/api/internal/billing-usage$ ]]; then
+            echo "BILLING_DISPATCH_URL must be an https URL ending in /api/internal/billing-usage" >&2
+            exit 1
+          fi
+          if (( ${#BILLING_DISPATCH_SECRET} < 24 )); then
+            echo "BILLING_DISPATCH_SECRET is not configured or is too short" >&2
+            exit 1
+          fi
+
+      - name: Lease and deliver one bounded batch
+        shell: bash
+        run: |
+          set -euo pipefail
+          RESPONSE_FILE="${RUNNER_TEMP}/billing-dispatch-response.json"
+          HTTP_STATUS="$(curl --silent --show-error \
+            --connect-timeout 10 --max-time 480 \
+            --output "${RESPONSE_FILE}" --write-out '%{http_code}' \
+            --request POST \
+            --header "Authorization: Bearer ${BILLING_DISPATCH_SECRET}" \
+            --header 'Accept: application/json' \
+            "${BILLING_DISPATCH_URL}")"
+          if [[ "${HTTP_STATUS}" != "200" ]]; then
+            echo "Billing dispatcher returned HTTP ${HTTP_STATUS}" >&2
+            jq -c '{ok,error}' "${RESPONSE_FILE}" 2>/dev/null || true
+            exit 1
+          fi
+          jq -e -f scripts/worker-response-gate.jq "${RESPONSE_FILE}" >/dev/null
+          jq -c '{leased,delivered,failed,deadLettered,backlog,oldestAgeSeconds,deadLetterBacklog,held,oldestHeldAgeSeconds,providerInFlight,unknown,cleanupPending,oldestProviderPendingAgeSeconds}' "${RESPONSE_FILE}"

@@ -12,7 +12,7 @@
 | Testes Python | (mesma suíte) | **26/26 verdes** |
 | Typecheck | `pnpm typecheck` (tsc --build --force) | limpo |
 | Lint | `pnpm lint` | limpo (boundaries + whitespace) |
-| Validadores canônicos | `python3 scripts/validate_all.py` | **9/9 verdes** (47 schemas, 42 tabelas, secret scan, dependency scan sem high/critical) |
+| Validadores canônicos | `python3 scripts/validate_all.py` | **9/9 verdes** (48 schemas, 42 tabelas, secret scan, dependency scan sem high/critical) |
 | Build de produção do portal | `npx next build` | ✓ 18/18 páginas, sem erro |
 | E2E Playwright | `apps/portal/e2e/portal.spec.ts` | 17 testes no spec; roda em CI a cada PR/push (D-V2-096, destravado em D-V2-098) — não re-executado localmente nesta baseline |
 

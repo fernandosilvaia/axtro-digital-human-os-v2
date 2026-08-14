@@ -22,6 +22,8 @@ const ERROR_MESSAGE: Record<string, string> = {
   ja_assinante: "Sua conta já tem uma assinatura ativa — gerencie o plano pelo botão abaixo.",
   cancelado: "Assinatura não concluída — você pode tentar de novo quando quiser.",
   falha_ao_criar_checkout: "Não foi possível abrir o checkout agora. Tente novamente em instantes.",
+  checkout_pendente: "Sua solicitação de checkout está sendo conciliada com a Stripe. Aguarde alguns instantes antes de tentar novamente.",
+  checkout_conflito: "Já existe outra solicitação de checkout em andamento para esta conta. Conclua ou cancele a tentativa anterior antes de iniciar outra.",
   sem_assinatura: "Sua conta ainda não tem uma assinatura para gerenciar.",
   falha_ao_ler_status: "Não foi possível ler o status da assinatura agora. Tente novamente.",
   falha_ao_abrir_portal: "Não foi possível abrir o gerenciamento de assinatura agora. Tente novamente.",

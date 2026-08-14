@@ -1,0 +1,57 @@
+name: Reconcile paid provider effects
+
+on:
+  schedule:
+    - cron: '*/5 * * * *'
+  workflow_dispatch:
+
+concurrency:
+  group: provider-effect-reconcile-production
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  reconcile:
+    if: github.event_name == 'workflow_dispatch' || vars.PROVIDER_EFFECT_RECONCILE_SCHEDULE_ENABLED == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    env:
+      PROVIDER_EFFECT_RECONCILE_URL: ${{ vars.PROVIDER_EFFECT_RECONCILE_URL }}
+      PROVIDER_EFFECT_RECONCILE_SECRET: ${{ secrets.PROVIDER_EFFECT_RECONCILE_SECRET }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Validate protected endpoint configuration
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [[ ! "${PROVIDER_EFFECT_RECONCILE_URL}" =~ ^https://[^[:space:]]+/api/internal/provider-effects/reconcile$ ]]; then
+            echo "PROVIDER_EFFECT_RECONCILE_URL must be an https URL ending in /api/internal/provider-effects/reconcile" >&2
+            exit 1
+          fi
+          if (( ${#PROVIDER_EFFECT_RECONCILE_SECRET} < 24 )); then
+            echo "PROVIDER_EFFECT_RECONCILE_SECRET is not configured or is too short" >&2
+            exit 1
+          fi
+
+      - name: Lease and reconcile one bounded batch
+        shell: bash
+        run: |
+          set -euo pipefail
+          RESPONSE_FILE="${RUNNER_TEMP}/provider-effect-reconcile-response.json"
+          HTTP_STATUS="$(curl --silent --show-error \
+            --connect-timeout 10 --max-time 90 \
+            --output "${RESPONSE_FILE}" --write-out '%{http_code}' \
+            --request POST \
+            --header "Authorization: Bearer ${PROVIDER_EFFECT_RECONCILE_SECRET}" \
+            --header 'Accept: application/json' \
+            "${PROVIDER_EFFECT_RECONCILE_URL}")"
+          if [[ "${HTTP_STATUS}" != "200" ]]; then
+            echo "Provider-effect reconciler returned HTTP ${HTTP_STATUS}" >&2
+            jq -c '{ok,error}' "${RESPONSE_FILE}" 2>/dev/null || true
+            exit 1
+          fi
+          jq -e -f scripts/worker-response-gate.jq "${RESPONSE_FILE}" >/dev/null
+          jq -c '{leased,reconciled,failed,deadLettered,operatorRequired,backlog,processing,deadLetterBacklog,providerInFlight,unknown,cleanupPending,oldestAgeSeconds,oldestUnknownAgeSeconds}' "${RESPONSE_FILE}"

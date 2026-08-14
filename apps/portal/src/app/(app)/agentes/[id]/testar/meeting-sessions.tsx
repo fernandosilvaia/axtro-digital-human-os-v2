@@ -12,7 +12,7 @@ import { logError as trackError } from "@/lib/telemetry";
 interface MeetingSessionRow {
   readonly id: string;
   readonly agentId: string;
-  readonly meetingUrl: string;
+  readonly meetingRef: string | null;
   readonly status: string;
   readonly createdAt: string;
   readonly endedAt: string | null;
@@ -38,12 +38,9 @@ function formatInZone(iso: string, timeZone: string): string {
   }).format(parsed);
 }
 
-function meetingHost(url: string): string {
-  try {
-    return new URL(url).host;
-  } catch {
-    return url.slice(0, 40);
-  }
+function meetingReference(ref: string | null): string {
+  if (typeof ref !== "string" || ref.length < 12) return "Referência protegida";
+  return `…${ref.slice(-10)}`;
 }
 
 export async function MeetingSessions({ agentId, timeZone }: { agentId: string; timeZone: string }) {
@@ -77,7 +74,7 @@ export async function MeetingSessions({ agentId, timeZone }: { agentId: string; 
           <tbody>
             {sessions.map((session) => (
               <tr key={session.id}>
-                <td className="mono" style={{ fontSize: "0.8rem" }}>{meetingHost(session.meetingUrl)}</td>
+                <td className="mono" style={{ fontSize: "0.8rem" }}>{meetingReference(session.meetingRef)}</td>
                 <td>{STATUS_LABEL[session.status] ?? session.status}</td>
                 <td style={{ fontSize: "0.82rem" }}>{formatInZone(session.createdAt, timeZone)}</td>
                 <td style={{ fontSize: "0.82rem" }}>{session.endedAt ? formatInZone(session.endedAt, timeZone) : "—"}</td>

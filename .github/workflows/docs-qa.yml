@@ -191,3 +191,8 @@ jobs:
           AXTRO_LOCAL_DATABASE_URL: postgresql://postgres@127.0.0.1:5432/postgres
           AXTRO_ALLOW_LOCAL_DATABASE_URL: "1"
         run: pnpm db:rls
+      - name: Apply and test Supabase portal migrations through the final contract phase
+        env:
+          AXTRO_LOCAL_DATABASE_URL: postgresql://postgres@127.0.0.1:5432/postgres
+          AXTRO_ALLOW_LOCAL_DATABASE_URL: "1"
+        run: pnpm db:portal:test

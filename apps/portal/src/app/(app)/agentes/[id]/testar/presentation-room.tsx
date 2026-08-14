@@ -10,6 +10,8 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 
+import { isTrustedTavusConversationUrl } from "@axtro/provider-tavus";
+
 import type { Deck, DeckSlide, DeckSlideKind } from "@/lib/presentation/deck";
 import { startPresentationConversation } from "@/lib/actions/video-conversation";
 
@@ -247,8 +249,9 @@ export function PresentationRoom({ agentId, agentName }: { agentId: string; agen
   const start = useCallback(() => {
     setError(null);
     setPhase("starting");
+    const commandId = crypto.randomUUID();
     void (async () => {
-      const result = await startPresentationConversation(agentId);
+      const result = await startPresentationConversation(agentId, commandId);
       if (result.simulated && result.deck) {
         // Modo demonstração: deck navegável manualmente, sem sala de vídeo.
         deckRef.current = result.deck;
@@ -261,6 +264,12 @@ export function PresentationRoom({ agentId, agentName }: { agentId: string; agen
       }
       if (!result.url || !result.deck) {
         setError(result.error ?? "Erro inesperado.");
+        setPhase("idle");
+        return;
+      }
+      const conversationUrl = result.url;
+      if (!isTrustedTavusConversationUrl(conversationUrl)) {
+        setError("A sala de vídeo retornou um endereço não confiável.");
         setPhase("idle");
         return;
       }
@@ -283,7 +292,7 @@ export function PresentationRoom({ agentId, agentName }: { agentId: string; agen
           }
         }) as never);
         call.on("left-meeting", (() => setPhase("ended")) as never);
-        await call.join({ url: result.url });
+        await call.join({ url: conversationUrl });
         setPhase("live");
       } catch {
         setError("Não foi possível entrar na sala de vídeo. Verifique câmera e microfone e tente de novo.");

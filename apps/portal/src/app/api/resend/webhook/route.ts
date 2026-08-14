@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 
 import { isHandledResendEventType, parseResendWebhookEvent, verifyResendWebhookSignature } from "@/lib/email-webhook";
+import { readBoundedTextBody } from "@/lib/http/read-bounded-body";
 import { logError as trackError, logEvent } from "@/lib/telemetry";
 
 /**
@@ -21,6 +22,7 @@ import { logError as trackError, logEvent } from "@/lib/telemetry";
  * status de entrega por convite individual (feature maior, fora de escopo).
  */
 export const dynamic = "force-dynamic";
+const RESEND_WEBHOOK_MAX_BODY_BYTES = 256 * 1024;
 
 export async function POST(request: NextRequest): Promise<Response> {
   const webhookSecret = (process.env.RESEND_WEBHOOK_SECRET ?? "").trim();
@@ -28,7 +30,15 @@ export async function POST(request: NextRequest): Promise<Response> {
     return NextResponse.json({ error: "not_configured" }, { status: 503 });
   }
 
-  const rawBody = await request.text();
+  const boundedBody = await readBoundedTextBody(request, RESEND_WEBHOOK_MAX_BODY_BYTES);
+  if (!boundedBody.ok) {
+    const status = boundedBody.reason === "too_large" ? 413 : 400;
+    return NextResponse.json(
+      { error: boundedBody.reason === "too_large" ? "payload_too_large" : "invalid_body" },
+      { status },
+    );
+  }
+  const rawBody = boundedBody.text;
   const signatureValid = verifyResendWebhookSignature(
     webhookSecret,
     request.headers.get("svix-id"),

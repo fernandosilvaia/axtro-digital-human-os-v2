@@ -1,7 +1,7 @@
 /*
  * GENERATED FILE. DO NOT EDIT.
  * generator: scripts/generate_contract_types.py@1.0.0
- * source: 47 JSON Schema Draft 2020-12 documents under contracts/schemas/
+ * source: 48 JSON Schema Draft 2020-12 documents under contracts/schemas/
  */
 
 export const CONTRACT_GENERATOR_VERSION = "1.0.0" as const;
@@ -63,6 +63,40 @@ export interface BehaviorDirective {
   priority: number;
   generated_at: string;
   expires_at: string;
+}
+
+/** Source: contracts/schemas/billing_checkout_intent.schema.json; schema: https://schemas.axtro.ai/v2/billing_checkout_intent.schema.json; version: 2.0.0. */
+export interface BillingCheckoutIntent {
+  schema_version: "2.0.0";
+  checkout_intent_id: string;
+  tenant_id: string;
+  actor_id: string;
+  plan_id: "piloto" | "crescimento" | "escala";
+  state: "reserved" | "dispatched" | "bound" | "completed" | "expired" | "released" | "unknown" | "conflict";
+  stripe_idempotency_key: string;
+  catalog_fingerprint: string;
+  provider_request_fingerprint: string | null;
+  stripe_livemode: boolean;
+  base_price_id: string;
+  overage_price_id: string;
+  base_unit_amount_cents: number;
+  overage_unit_amount_cents: number;
+  meter_event_name: string;
+  existing_stripe_customer_id: string | null;
+  success_url: string;
+  cancel_url: string;
+  checkout_expires_at: string;
+  stripe_checkout_session_id: string | null;
+  stripe_customer_id: string | null;
+  stripe_subscription_id: string | null;
+  provider_dispatched_at: string | null;
+  session_created_at: string | null;
+  checkout_completed_at: string | null;
+  subscription_bound_at: string | null;
+  expired_at: string | null;
+  released_at: string | null;
+  created_at: string;
+  updated_at: string;
 }
 
 /** Source: contracts/schemas/catalog_lookup_command.schema.json; schema: https://schemas.axtro.ai/v2/catalog_lookup_command.schema.json; version: 2.0.0. */
@@ -144,15 +178,15 @@ export interface ConversationState {
   updated_at: string;
 }
 
-/** Source: contracts/schemas/cost_event.schema.json; schema: https://schemas.axtro.ai/v2/cost_event.schema.json; version: 2.0.0. */
+/** Source: contracts/schemas/cost_event.schema.json; schema: https://schemas.axtro.ai/v2/cost_event.schema.json; version: 2.1.0. */
 export interface CostEvent {
-  schema_version: "2.0.0";
+  schema_version: "2.1.0";
   cost_event_id: string;
   tenant_id: string;
   session_id: string | null;
   provider_id: string;
   service: string;
-  unit_type: "minute" | "second" | "token" | "character" | "megabyte" | "request" | "seat" | "flat";
+  unit_type: "minute" | "second" | "token" | "character" | "megabyte" | "request" | "seat" | "flat" | "conversation";
   quantity: number;
   unit_cost_usd: number;
   amount_usd: number;
@@ -934,6 +968,12 @@ export const CONTRACT_METADATA = {
     "source_hash": "c39247db6b39501972745ca9e0920416751e92bbdeb1c83f7b3445405fe7454c",
     "source_schema": "contracts/schemas/behavior_directive.schema.json"
   },
+  "BillingCheckoutIntent": {
+    "schema_id": "https://schemas.axtro.ai/v2/billing_checkout_intent.schema.json",
+    "schema_version": "2.0.0",
+    "source_hash": "6d33517d05dcfdd2371a51f3496f16de81e3d983dc6ba393b50a7a876e0e6c0b",
+    "source_schema": "contracts/schemas/billing_checkout_intent.schema.json"
+  },
   "CatalogLookupCommand": {
     "schema_id": "https://schemas.axtro.ai/v2/catalog_lookup_command.schema.json",
     "schema_version": "2.0.0",
@@ -960,8 +1000,8 @@ export const CONTRACT_METADATA = {
   },
   "CostEvent": {
     "schema_id": "https://schemas.axtro.ai/v2/cost_event.schema.json",
-    "schema_version": "2.0.0",
-    "source_hash": "bed4a4a890ed8779b0ac9b79a392aec01f31eb8bea68ab038beab1f5a9e75e98",
+    "schema_version": "2.1.0",
+    "source_hash": "3f8f3dc18a2c6b4f2a910d50059d5cec21549fe58c6f2926a8e4baacf5724858",
     "source_schema": "contracts/schemas/cost_event.schema.json"
   },
   "DeploymentPromotion": {

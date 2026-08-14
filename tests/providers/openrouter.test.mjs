@@ -233,6 +233,16 @@ test("embed reordena pelo index do payload (contrato OpenAI-compat)", async () =
   assert.deepEqual(result.embeddings, [[1, 1], [2, 2]]);
 });
 
+test("embed preserva usage.cost reportado pelo provider para finalizar a reserva", async () => {
+  const { implementation } = fakeFetch(async () => new Response(JSON.stringify({
+    ...embeddingsPayload([[0.1, 0.2]]),
+    usage: { prompt_tokens: 12, total_tokens: 12, cost: 0.0000042 },
+  }), { status: 200 }));
+  const port = provider.createOpenRouterEmbeddingPort({ apiKey: API_KEY, fetchImplementation: implementation });
+  const result = await port.embed({ model: "openai/text-embedding-3-small", inputs: ["chunk"] });
+  assert.deepEqual(result.usage, { inputTokens: 12, outputTokens: 0, reportedCostUsd: 0.0000042 });
+});
+
 test("embed valida inputs antes da rede e rejeita payloads inconsistentes", async () => {
   const { calls, implementation } = fakeFetch(async () => new Response("{}", { status: 200 }));
   const port = provider.createOpenRouterEmbeddingPort({ apiKey: API_KEY, fetchImplementation: implementation });

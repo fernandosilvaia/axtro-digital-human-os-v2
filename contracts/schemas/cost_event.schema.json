@@ -8,7 +8,7 @@
   "properties": {
     "schema_version": {
       "type": "string",
-      "const": "2.0.0"
+      "const": "2.1.0"
     },
     "cost_event_id": {
       "type": "string",
@@ -45,7 +45,8 @@
         "megabyte",
         "request",
         "seat",
-        "flat"
+        "flat",
+        "conversation"
       ]
     },
     "quantity": {

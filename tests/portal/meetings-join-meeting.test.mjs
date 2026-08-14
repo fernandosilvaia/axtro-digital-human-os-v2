@@ -6,7 +6,7 @@ const joinMeeting = await import("../../apps/portal/src/lib/meetings/join-meetin
 const PERSONA = { personaId: "pa2dcc2d9c3e", agentName: "Raissa" };
 
 function fakeDeps(overrides = {}) {
-  const calls = { resolveAgentPersona: [], createVideoConversation: [], createMeetingBot: [], recordSession: [], endVideoConversation: [] };
+  const calls = { resolveAgentPersona: [], createVideoConversation: [], createMeetingBot: [], recordSession: [], endVideoConversation: [], leaveMeetingBot: [] };
   return {
     calls,
     deps: {
@@ -31,6 +31,10 @@ function fakeDeps(overrides = {}) {
       endVideoConversation: async (conversationId) => {
         calls.endVideoConversation.push(conversationId);
         if (overrides.endVideoConversationThrows) throw new Error("end failed");
+      },
+      leaveMeetingBot: async (botId) => {
+        calls.leaveMeetingBot.push(botId);
+        if (overrides.leaveMeetingBotThrows) throw new Error("leave failed");
       },
     },
   };
@@ -117,8 +121,17 @@ test("falha ao criar o bot do Recall propaga como provider_unavailable", async (
   );
 });
 
-test("falha ao gravar a sessão não desfaz o bot que já entrou de verdade", async () => {
-  const { deps } = fakeDeps({ recordSessionThrows: true });
-  const result = await joinMeeting.handleJoinMeeting(BASE_REQUEST, deps);
-  assert.equal(result.botId, "550e8400-e29b-41d4-a716-446655440000");
+test("falha ao gravar a sessão compensa bot e Tavus e nunca retorna sucesso sem receipt", async () => {
+  const { deps, calls } = fakeDeps({ recordSessionThrows: true });
+  await assert.rejects(() => joinMeeting.handleJoinMeeting(BASE_REQUEST, deps), (e) => e.code === "provider_unavailable");
+  assert.deepEqual(calls.leaveMeetingBot, ["550e8400-e29b-41d4-a716-446655440000"]);
+  assert.deepEqual(calls.endVideoConversation, ["abc123"]);
+});
+
+test("falha de compensação após persistência mantém resultado em reconciliação e falha fechado", async () => {
+  const { deps } = fakeDeps({ recordSessionThrows: true, leaveMeetingBotThrows: true });
+  await assert.rejects(
+    () => joinMeeting.handleJoinMeeting(BASE_REQUEST, deps),
+    (e) => e.code === "provider_unavailable" && /reconciliation/.test(e.message),
+  );
 });

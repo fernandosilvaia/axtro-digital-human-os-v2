@@ -42,6 +42,8 @@ export interface JoinMeetingDeps {
   }) => Promise<void>;
   /** Encerra a sala Tavus já criada quando o bot falha — sem isto a sala paga ficava aberta (auditoria 2026-08-02). Best-effort. */
   readonly endVideoConversation: (conversationId: string) => Promise<void>;
+  /** Compensação obrigatória se a persistência falhar depois da criação. */
+  readonly leaveMeetingBot: (botId: string) => Promise<void>;
 }
 
 export type JoinMeetingErrorCode = "invalid_request" | "agent_not_configured" | "provider_unavailable";
@@ -135,8 +137,14 @@ export async function handleJoinMeeting(request: JoinMeetingRequest, deps: JoinM
       conversationId: conversation?.conversationId ?? null,
     });
   } catch {
-    // O bot já entrou de verdade — não desfazemos por falha de log (mesma
-    // disciplina do resto do projeto: recibo pode falhar sem desfazer o efeito).
+    let compensated = true;
+    try { await deps.leaveMeetingBot(bot.botId); } catch { compensated = false; }
+    if (conversation) {
+      try { await deps.endVideoConversation(conversation.conversationId); } catch { compensated = false; }
+    }
+    throw new JoinMeetingError("provider_unavailable", compensated
+      ? "session persistence failed; provider effects were compensated"
+      : "session persistence failed; provider effect outcome requires reconciliation");
   }
 
   return {

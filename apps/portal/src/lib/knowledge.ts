@@ -105,6 +105,7 @@ export interface EmbeddedChunk {
 export interface EmbeddingRunResult {
   readonly chunks: readonly EmbeddedChunk[];
   readonly inputTokens: number;
+  readonly reportedCostUsd?: number;
 }
 
 /** Gera embeddings em lotes e devolve o payload pronto para `portal_ingest_knowledge`. */
@@ -129,10 +130,14 @@ export async function embedChunks(apiKey: string, texts: readonly string[]): Pro
 
   const chunks: EmbeddedChunk[] = [];
   let inputTokens = 0;
+  let reportedCostUsd = 0;
+  let hasReportedCost = true;
   for (let start = 0; start < texts.length; start += EMBED_BATCH_SIZE) {
     const batch = texts.slice(start, start + EMBED_BATCH_SIZE);
     const result = await port.embed({ model: EMBEDDING_MODEL, inputs: batch });
     inputTokens += result.usage.inputTokens;
+    if (result.usage.reportedCostUsd === undefined) hasReportedCost = false;
+    else reportedCostUsd += result.usage.reportedCostUsd;
     for (const [offset, vector] of result.embeddings.entries()) {
       const text = batch[offset];
       if (text === undefined) {
@@ -150,7 +155,7 @@ export async function embedChunks(apiKey: string, texts: readonly string[]): Pro
       });
     }
   }
-  return { chunks, inputTokens };
+  return { chunks, inputTokens, ...(hasReportedCost ? { reportedCostUsd } : {}) };
 }
 
 export interface KnowledgeMatch {
@@ -160,7 +165,7 @@ export interface KnowledgeMatch {
 }
 
 /** Embeda a pergunta e devolve o embedding como array simples (payload do RPC de busca). */
-export async function embedQuery(apiKey: string, query: string): Promise<{ embedding: readonly number[]; inputTokens: number }> {
+export async function embedQuery(apiKey: string, query: string): Promise<{ embedding: readonly number[]; inputTokens: number; reportedCostUsd?: number }> {
   if (fakeProvidersEnabled()) {
     return { embedding: fakeEmbedding(query.slice(0, 4000)), inputTokens: 0 };
   }
@@ -174,5 +179,9 @@ export async function embedQuery(apiKey: string, query: string): Promise<{ embed
   if (!embedding) {
     throw new Error("embedding provider returned no vector for the query");
   }
-  return { embedding, inputTokens: result.usage.inputTokens };
+  return {
+    embedding,
+    inputTokens: result.usage.inputTokens,
+    ...(result.usage.reportedCostUsd === undefined ? {} : { reportedCostUsd: result.usage.reportedCostUsd }),
+  };
 }

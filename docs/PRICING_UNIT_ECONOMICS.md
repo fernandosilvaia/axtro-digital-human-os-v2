@@ -1,4 +1,4 @@
-# Unit economics e preço — Axtro Digital Human OS (2026-08-03)
+# Unit economics e preço — Axtro Digital Human OS (revisto em 2026-08-13)
 
 > Todo número tem fonte e data. Estimativas de mercado/premissas (razão de fala
 > do agente, turnos/minuto) são marcadas como tal — nunca apresentadas como
@@ -14,8 +14,8 @@
 | ElevenLabs (voz da agente, `eleven_turbo_v2_5`, chave própria) | ~US$ 0,017 | [elevenlabs.io/pricing](https://elevenlabs.io/pricing) US$0,05/1.000 chars (Turbo/Flash) × ~750 chars/min de fala × ~45% do tempo de call com a agente falando (estimativa) | 2026-08-03 |
 | OpenRouter (cérebro, Claude Haiku 4.5) | ~US$ 0,014 | Rate card do repo (US$1/US$5 por 1M tokens in/out) × ~5.000 tokens de entrada/turno (prompt de vídeo ~10,4k chars medido + blocos de contexto) × ~2,5 turnos/min (estimativa) | rate card 2026-07-22 |
 | **Total — vídeo sob demanda / portal** | **~US$ 0,38/min** (faixa 0,36–0,43) | soma acima | |
-| + Recall.ai (só reunião externa, bot-hora) | + US$ 0,0083 | [recall.ai/blog](https://www.recall.ai/blog/new-recall-ai-pricing-for-2026) US$0,50/hora de bot ATIVO (cobra independente de gravação — confirmado em [docs.recall.ai/docs/calculating-usage](https://docs.recall.ai/docs/calculating-usage)), sem taxa de plataforma | 2026-08-03 |
-| **Total — reunião externa (Zoom/Meet/Teams)** | **~US$ 0,39/min** | | |
+| + Recall.ai (reunião externa, `web_4_core` + transcript) | US$ 0,60/h de bot + US$ 0,15/h de transcrição | [Output Media](https://docs.recall.ai/docs/stream-media): `web_4_core` PAYG US$0,60/h; [usage](https://docs.recall.ai/docs/calculating-usage): runtime inclui waiting room. O adapter limita waiting room/no-one-joined a 5min, recording/non-recording a 30min e permission-denied a 1min; a reserva conservadora permanece 40min = US$0,50 | 2026-08-13 |
+| **Total — reunião externa (Zoom/Meet/Teams)** | **até US$ 13,40 por conversa de 30min** | topo do vídeo (30 × US$0,43) + reserva Recall de 40min (US$0,50) | |
 
 **Achado real desta análise**: o custo do ElevenLabs não entra em `cost_events`
 hoje — é pago com chave própria (`ELEVENLABS_API_KEY`) fora do ledger. A
@@ -63,25 +63,50 @@ preço na faixa média de AI SDR — mas a estrutura de custo NÃO permite
 "ilimitado" barato como os concorrentes de texto fazem. Preço tem que
 carregar metragem de uso.
 
-## 4. Recomendação: 3 planos com minutos incluídos + overage
+## 4. Catálogo vigente: conversas incluídas + overage por conversa
 
 Preço em USD (custos são 100% USD-denominados — evita a margem sangrar com
 câmbio; ofereça fatura em BRL como conversão de referência, não como preço
 nativo, e com cláusula de reajuste cambial se faturar em BRL).
 
-| Plano | Preço/mês | Minutos incluídos | ≈ chamadas de 12min | Overage/min | Margem no incluído | Margem no overage |
+Desde D-V2-101, a unidade faturável implementada é **conversa**, não minuto:
+o sistema ainda não reconcilia duração real com invoice. O adapter Tavus fecha
+cada conversa em no máximo 30 minutos; por isso o preço flat do overage precisa
+suportar o pior caso inteiro, inclusive reunião externa.
+
+| Plano | Preço/mês | Conversas incluídas | Overage/conversa | Custo variável modelado a 30min | Margem variável no pior caso |
 |---|---|---|---|---|---|---|
-| **Piloto** | US$ 497 | 80 min | ~6–7 | US$ 1,20 | **94%** | 68% |
-| **Crescimento** | US$ 1.497 | 350 min | ~29 | US$ 1,00 | **91%** | 62% |
-| **Escala** | US$ 3.997 | 1.000 min | ~83 | US$ 0,85 | **90%** | 55% |
+| **Piloto** | US$ 497 | 7 | **US$ 30** | até US$ 13,40 | **55,33%** |
+| **Crescimento** | US$ 1.497 | 30 | **US$ 30** | até US$ 13,40 | **55,33%** |
+| **Escala** | US$ 3.997 | 85 | **US$ 30** | até US$ 13,40 | **55,33%** |
 
-Reunião externa (Recall) conta no mesmo pool de minutos — a diferença de
-custo (+US$0,008/min) é irrelevante (~2% do preço de overage).
+Reunião externa (Recall) conta no mesmo pool — ela é usada como cenário
+conservador: topo da faixa total documentada de US$0,43/min mais a reserva
+Recall `web_4_core` + transcript inteira de 40 minutos (US$0,50), mesmo que
+a conversa Tavus termine em 30 minutos. A conta versionada em
+`apps/portal/src/lib/billing/plans.ts` é:
 
-**Por que overage nunca fica no vermelho**: mesmo o cliente mais pesado, que
-estoura o plano inteiro em overage, ainda deixa 55–68% de margem. Não existe
-risco de "baleia" destruir a economia — ao contrário de um plano flat
-ilimitado, onde um único cliente de alto uso pode inverter a margem.
+`(US$30 - (30 × US$0,43 + US$0,50)) ÷ US$30 = 55,33%`.
+
+Uma sala Tavus começa a gerar custo antes de existir prova de entrega humana.
+M5-01 limita essa exposição a três efeitos no total entre `held` e efeitos
+despachados sem ativação por tenant/período; a transição de um estado ao outro
+não reabre uma vaga. No pior envelope de 30 minutos, isso limita o custo
+modelado não faturável a `3 × US$11,10 = US$33,30` por
+período, sem consumir o orçamento de conversas ativadas nem bloquear overage
+legítimo. É um guardrail de custo estimado; a tarifa real ainda deve ser
+reconciliada com a fatura Tavus.
+
+**Por que o preço anterior foi corrigido**: os valores de US$14/US$12/US$10
+por conversa só preservavam margem numa chamada média de 12 minutos. No teto
+real de 30 minutos, o plano Escala teria margem variável negativa. O preço
+único de US$30 mantém pelo menos 55% em todas as combinações testadas de
+plano × superfície × duração suportada.
+
+Esta é margem **modelada**, não invoice-grade. Não inclui impostos, taxas de
+pagamento, Railway/Supabase, suporte, capacidade ociosa dos planos mínimos nem
+desconto negociado. O gate de Stripe live continua humano: antes de ativar,
+os três Prices metered precisam ser recriados/atualizados e seus IDs revistos.
 
 **Referência — o que um flat ilimitado exigiria**: se algum dia quiser
 oferecer "ilimitado" (linguagem de marketing), o teto de uso justo tem que
@@ -90,7 +115,7 @@ min/mês (~109 calls) — acima disso a conta vira prejuízo.
 
 ## 5. Enquadramento por valor (para a conversa comercial, não só custo)
 
-Um plano Crescimento (US$1.497/mês, 29 conversas) custa menos que UM SDR
+Um plano Crescimento (US$1.497/mês, 30 conversas) custa menos que UM SDR
 júnior por semana. Se o ticket médio do cliente for de alguns milhares de
 dólares por venda fechada, uma única venda influenciada já paga o plano do
 ano inteiro — é o mesmo enquadramento que a HubSpot usou ao lançar preço
@@ -111,14 +136,9 @@ por lead qualificado (~US$1/lead) em vez de por assento.
 
 ## 7. Próximos passos sugeridos
 
-1. ~~Definir os 3 planos acima (ou ajustar os números) e implementar o
-   mecanismo de cobrança~~ — **feito** (D-V2-101, 2026-08-03): os 3 planos
-   desta seção (Piloto/Crescimento/Escala) estão implementados em código
-   com esses mesmos números, catálogo real provisionado na Stripe em modo
-   teste (2026-08-10) e o funil completo (checkout → webhook → tetos →
-   overage → alertas de custo) está em produção — falta só configurar as
-   env vars da Stripe no Railway (gate humano, ver `docs/NEEDS_CONNECTION.md`)
-   pra ativar cobrança de verdade.
+1. Reprovisionar os Prices metered de teste para **US$30/conversa**, validar
+   lookup keys e só então promover IDs novos. Stripe live permanece gate
+   humano (ver `docs/NEEDS_CONNECTION.md`).
 2. Manter Tavus no plano Starter até o uso agregado passar de ~150min/mês;
    migrar pra Growth quando compensar.
 3. Considerar logar o custo do ElevenLabs em `cost_events` pra o painel de

@@ -22,7 +22,9 @@
     "db:drift": "pnpm build && node scripts/database.mjs drift",
     "db:seed": "pnpm build && node scripts/development-seed.mjs",
     "db:test": "pnpm build && node scripts/database-integration.mjs",
-    "db:rls": "pnpm build && node scripts/rls-integration.mjs"
+    "db:rls": "pnpm build && node scripts/rls-integration.mjs",
+    "db:portal:test": "pnpm build && node scripts/supabase-portal-integration.mjs",
+    "production:bootstrap": "node scripts/production-readiness-bootstrap.mjs"
   },
   "devDependencies": {
     "@types/node": "24.10.1",

@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import json
+import re
 import sys
 from pathlib import Path
 from typing import Any
@@ -13,7 +14,7 @@ ROOT = Path(__file__).resolve().parents[1]
 SCHEMAS = ROOT / "contracts" / "schemas"
 VALID = ROOT / "contracts" / "examples" / "valid"
 INVALID = ROOT / "contracts" / "examples" / "invalid"
-EXPECTED_COUNT = 47
+EXPECTED_COUNT = 48
 
 
 def load_json(path: Path) -> Any:
@@ -92,8 +93,9 @@ def main() -> int:
         ids.add(schema_id)
         if document.get("$schema") != "https://json-schema.org/draft/2020-12/schema":
             errors.append(f"{path.relative_to(ROOT)}: wrong JSON Schema draft")
-        if document.get("properties", {}).get("schema_version", {}).get("const") != "2.0.0":
-            errors.append(f"{path.relative_to(ROOT)}: schema_version must be const 2.0.0")
+        schema_version = document.get("properties", {}).get("schema_version", {}).get("const")
+        if not isinstance(schema_version, str) or re.fullmatch(r"2\.\d+\.\d+", schema_version) is None:
+            errors.append(f"{path.relative_to(ROOT)}: schema_version must be a fixed v2 semantic version")
         if "schema_version" not in document.get("required", []):
             errors.append(f"{path.relative_to(ROOT)}: schema_version must be required")
         for closed_error in walk_closed_objects(document):

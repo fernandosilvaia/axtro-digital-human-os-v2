@@ -18,7 +18,7 @@ rate limiting e telemetria.
 O repositório já contém:
 
 - fundação modular, gates locais e CI (kernel + build/typecheck do portal);
-- 47 contratos com code generation determinístico;
+- 48 contratos com code generation determinístico;
 - tenancy, RLS, autenticação real (Supabase) e audit trail;
 - lifecycle, Session Actor, turnos textuais, contexto bounded, ações governadas, timeline, relay e workflow pós-call (fake no kernel; real no portal via OpenRouter/Tavus);
 - portal Next.js completo: dashboard, agentes, conhecimento (RAG real), equipe, chat e vídeo com o Cérebro Método Silva;
@@ -108,7 +108,7 @@ ficam fora do caminho crítico de áudio para áudio.
 apps/portal/           produto em produção: Next.js + Supabase, cérebro, RAG, vídeo Tavus
 apps/                  demais aplicações e workers do kernel M0-M3
 packages/               domínio, contratos, segurança, providers e UI
-contracts/             47 JSON Schemas + OpenAPI + AsyncAPI + exemplos
+contracts/             48 JSON Schemas + OpenAPI + AsyncAPI + exemplos
 backlog/               task graph executável e workstreams do kernel
 database/migrations/    schema portátil, RLS e matriz de tenancy
 database/supabase-only/ SQL específico do projeto Supabase hospedado (auth.users)

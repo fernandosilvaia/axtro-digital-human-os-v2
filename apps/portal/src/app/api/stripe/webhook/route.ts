@@ -1,9 +1,14 @@
 import { NextRequest, NextResponse } from "next/server";
 
-import { createUuidV7 } from "@axtro/domain";
-
 import { PLAN_CATALOG, PLAN_ORDER } from "@/lib/billing/plans";
-import { isHandledStripeSubscriptionEventType, parseStripeSubscriptionEvent, verifyStripeWebhookSignature } from "@/lib/billing/webhook";
+import {
+  isHandledStripeCheckoutEventType,
+  isHandledStripeSubscriptionEventType,
+  parseStripeCheckoutEvent,
+  parseStripeSubscriptionEvent,
+  verifyStripeWebhookSignature,
+} from "@/lib/billing/webhook";
+import { readBoundedTextBody } from "@/lib/http/read-bounded-body";
 import { createServiceRoleClient, ServiceRoleUnavailableError } from "@/lib/supabase/service";
 import { logError as trackError, logEvent } from "@/lib/telemetry";
 
@@ -13,28 +18,54 @@ import { logError as trackError, logEvent } from "@/lib/telemetry";
  * HMAC obrigatória (STRIPE_WEBHOOK_SECRET), corpo cru lido ANTES do parse
  * JSON (a assinatura é sobre os bytes exatos que a Stripe mandou).
  *
- * Só os 3 eventos de ciclo de vida de assinatura são tratados (ver
- * lib/billing/webhook.ts) — outros tipos (invoice.*, checkout.session.*,
- * payment_intent.*) respondem 200 sem ação (Art. 14: escopo declarado).
+ * Trata o ciclo de vida de assinatura e os eventos assinados de Checkout
+ * que fecham ou expiram uma intenção durável. Outros tipos respondem 200
+ * sem ação (Art. 14: escopo declarado).
  *
- * O PLANO é resolvido pelo price id do item licensed (`resolvePlanId`),
+ * O PLANO é resolvido pelo par exato licensed+metered (`resolvePlanId`),
  * NUNCA pela metadata sozinha — a Stripe não reescreve metadata quando o
  * cliente troca de plano pelo Customer Portal, então confiar só nela cobra
- * o plano errado depois de upgrade/downgrade (achado da revisão adversarial
- * 2026-08-03). Metadata só entra como fallback de última instância, com
- * telemetria — nunca em silêncio.
+ * o plano errado depois de upgrade/downgrade. Price desconhecido agora falha
+ * fechado; não há fallback de metadata no writer financeiro estrito.
  */
 export const dynamic = "force-dynamic";
+const STRIPE_WEBHOOK_MAX_BODY_BYTES = 1024 * 1024;
 
-function resolvePlanId(licensedPriceId: string | null, metadataPlanId: string): { planId: string; source: "price" | "metadata_fallback" } {
-  if (licensedPriceId !== null) {
-    for (const planId of PLAN_ORDER) {
-      if ((process.env[PLAN_CATALOG[planId].basePriceEnvVar] ?? "").trim() === licensedPriceId) {
-        return { planId, source: "price" };
-      }
+function resolvePlanId(licensedPriceId: string | null, meteredPriceId: string | null): string | null {
+  if (licensedPriceId === null || meteredPriceId === null) return null;
+  for (const planId of PLAN_ORDER) {
+    if (
+      (process.env[PLAN_CATALOG[planId].basePriceEnvVar] ?? "").trim() === licensedPriceId
+      && (process.env[PLAN_CATALOG[planId].overagePriceEnvVar] ?? "").trim() === meteredPriceId
+    ) {
+      return planId;
     }
   }
-  return { planId: metadataPlanId, source: "metadata_fallback" };
+  return null;
+}
+
+function exactReceipt(value: unknown, keys: readonly string[]): Record<string, unknown> | null {
+  if (value === null || typeof value !== "object" || Array.isArray(value)) return null;
+  const record = value as Record<string, unknown>;
+  const actual = Object.keys(record).sort();
+  const expected = [...keys].sort();
+  return actual.length === expected.length && actual.every((key, index) => key === expected[index]) ? record : null;
+}
+
+function expectedCheckoutReceiptState(
+  eventType: string,
+  paymentStatus: string | null,
+): "completed" | "expired" | "unknown" | null {
+  if (eventType === "checkout.session.completed") {
+    if (paymentStatus === "unpaid") return "unknown";
+    return paymentStatus === "paid" || paymentStatus === "no_payment_required" ? "completed" : null;
+  }
+  if (eventType === "checkout.session.async_payment_succeeded") {
+    return paymentStatus === "paid" || paymentStatus === "no_payment_required" ? "completed" : null;
+  }
+  return eventType === "checkout.session.expired" || eventType === "checkout.session.async_payment_failed"
+    ? "expired"
+    : null;
 }
 
 export async function POST(request: NextRequest): Promise<Response> {
@@ -48,7 +79,15 @@ export async function POST(request: NextRequest): Promise<Response> {
     return NextResponse.json({ error: "not_configured" }, { status: 503 });
   }
 
-  const rawBody = await request.text();
+  const boundedBody = await readBoundedTextBody(request, STRIPE_WEBHOOK_MAX_BODY_BYTES);
+  if (!boundedBody.ok) {
+    const status = boundedBody.reason === "too_large" ? 413 : 400;
+    return NextResponse.json(
+      { error: boundedBody.reason === "too_large" ? "payload_too_large" : "invalid_body" },
+      { status },
+    );
+  }
+  const rawBody = boundedBody.text;
   const signatureValid = verifyStripeWebhookSignature(
     webhookSecret,
     request.headers.get("stripe-signature"),
@@ -66,6 +105,60 @@ export async function POST(request: NextRequest): Promise<Response> {
     return NextResponse.json({ error: "invalid_json_body" }, { status: 400 });
   }
 
+  const checkout = parseStripeCheckoutEvent(body);
+  if (checkout !== null) {
+    const expectedState = expectedCheckoutReceiptState(checkout.eventType, checkout.paymentStatus);
+    if (expectedState === null) {
+      trackError(
+        "stripe_webhook_malformed_event",
+        new Error("checkout event/payment status combination is outside the closed contract"),
+        { event_id: checkout.eventId, event_type: checkout.eventType },
+      );
+      return NextResponse.json({ error: "malformed_in_scope_event" }, { status: 503 });
+    }
+    try {
+      const supabase = createServiceRoleClient();
+      const response = await supabase.rpc("portal_apply_billing_checkout_event_service", {
+        p_event_id: checkout.eventId,
+        p_event_type: checkout.eventType,
+        p_event_created_at: checkout.eventCreatedIso,
+        p_checkout_intent_id: checkout.checkoutIntentId,
+        p_stripe_session_id: checkout.stripeSessionId,
+        p_tenant_id: checkout.tenantId,
+        p_plan_id: checkout.planId,
+        p_stripe_customer_id: checkout.stripeCustomerId,
+        p_stripe_subscription_id: checkout.stripeSubscriptionId,
+        p_payment_status: checkout.paymentStatus,
+      });
+      const receipt = exactReceipt(response.data, ["applied", "replayed", "state"]);
+      if (
+        response.error
+        || receipt === null
+        || typeof receipt.applied !== "boolean"
+        || typeof receipt.replayed !== "boolean"
+        || (receipt.applied === true && receipt.replayed === true)
+        || receipt.state !== expectedState
+      ) {
+        throw new Error(response.error?.message ?? "checkout event receipt was malformed");
+      }
+      logEvent("stripe_checkout_event_applied", {
+        event_id: checkout.eventId,
+        event_type: checkout.eventType,
+        checkout_intent_id: checkout.checkoutIntentId,
+        state: receipt.state,
+        replayed: receipt.replayed,
+      });
+      return NextResponse.json({ ok: true, handled: true, replayed: receipt.replayed });
+    } catch (error) {
+      if (error instanceof ServiceRoleUnavailableError) {
+        trackError("stripe_webhook_service_role_unavailable", error, { event_id: checkout.eventId });
+        return NextResponse.json({ error: "not_configured" }, { status: 503 });
+      }
+      trackError("stripe_checkout_event_persistence_failed", error, { event_id: checkout.eventId, event_type: checkout.eventType });
+      return NextResponse.json({ error: "internal_error" }, { status: 500 });
+    }
+  }
+
   const parsed = parseStripeSubscriptionEvent(body);
   if (parsed === null) {
     // "Fora de escopo" (invoice.*, checkout.session.*...) é silêncio
@@ -74,50 +167,67 @@ export async function POST(request: NextRequest): Promise<Response> {
     // de assinatura órfã (ex.: criada manualmente no dashboard Stripe pra
     // suporte) que ficava invisível pra investigar, inconsistente com o
     // resto deste arquivo (achado da auditoria 2026-08-06).
-    const record = body as Record<string, unknown>;
-    if (isHandledStripeSubscriptionEventType(record.type)) {
+    const record = body !== null && typeof body === "object" && !Array.isArray(body)
+      ? body as Record<string, unknown>
+      : null;
+    const eventType = record?.type;
+    if (isHandledStripeSubscriptionEventType(eventType) || isHandledStripeCheckoutEventType(eventType)) {
       trackError(
-        "stripe_webhook_malformed_subscription_event",
-        new Error("event type in scope but payload failed validation (missing/invalid tenant_id or plan_id metadata)"),
-        { event_id: typeof record.id === "string" ? record.id : "?", event_type: String(record.type) },
+        "stripe_webhook_malformed_event",
+        new Error("event type in scope but payload failed strict validation"),
+        { event_id: typeof record?.id === "string" ? record.id : "?", event_type: String(eventType) },
       );
+      // A signed event from our closed financial surface must not disappear.
+      // Stripe retries non-2xx; operators can correct catalog/metadata drift
+      // while the same globally unique event id remains pending evidence.
+      return NextResponse.json({ error: "malformed_in_scope_event" }, { status: 503 });
     }
     return NextResponse.json({ ok: true, handled: false });
   }
 
-  const { planId, source: planSource } = resolvePlanId(parsed.licensedPriceId, parsed.metadataPlanId);
-  if (planSource === "metadata_fallback") {
-    // Price id do item licensed não bateu com nenhum STRIPE_PRICE_*_BASE
-    // conhecido — pode ser env desatualizada ou preço fora do catálogo.
-    // Segue com o valor de metadata (pode estar certo na criação, mas é
-    // exatamente o caso que fica errado depois de uma troca de plano) e
-    // fica visível pra investigar, nunca falha em silêncio.
+  const planId = resolvePlanId(parsed.licensedPriceId, parsed.meteredPriceId);
+  if (planId === null) {
     trackError(
-      "stripe_webhook_plan_resolved_from_metadata_fallback",
-      new Error(`licensedPriceId=${parsed.licensedPriceId ?? "null"} não bateu com nenhum plano conhecido`),
+      "stripe_webhook_unknown_licensed_price",
+      new Error("licensed price does not match the configured catalog"),
       { event_id: parsed.eventId, event_type: parsed.eventType, tenant_id: parsed.tenantId },
     );
+    return NextResponse.json({ error: "catalog_mismatch" }, { status: 500 });
   }
 
   try {
     const supabase = createServiceRoleClient();
-    const { error } = await supabase.rpc("portal_upsert_tenant_subscription_service", {
-      p_id: createUuidV7(),
+    const response = await supabase.rpc("portal_apply_tenant_subscription_event_service", {
+      p_event_id: parsed.eventId,
+      p_event_type: parsed.eventType,
+      p_event_created_at: parsed.eventCreatedIso,
       p_tenant_id: parsed.tenantId,
+      p_checkout_intent_id: parsed.checkoutIntentId,
       p_plan_id: planId,
       p_status: parsed.status,
       p_stripe_customer_id: parsed.stripeCustomerId,
       p_stripe_subscription_id: parsed.stripeSubscriptionId,
       p_current_period_start: parsed.periodStartIso,
       p_current_period_end: parsed.periodEndIso,
-      p_event_created_at: parsed.eventCreatedIso,
     });
-    if (error) {
-      trackError("stripe_webhook_upsert_failed", error, { event_id: parsed.eventId, event_type: parsed.eventType, tenant_id: parsed.tenantId });
+    const receipt = exactReceipt(response.data, ["applied", "outcome", "replayed"]);
+    const outcomes = new Set(["applied", "replayed", "ignored_stale", "ignored_superseded_subscription", "duplicate_subscription_conflict"]);
+    const validReceipt = receipt !== null
+      && outcomes.has(String(receipt.outcome))
+      && typeof receipt.applied === "boolean"
+      && typeof receipt.replayed === "boolean"
+      && receipt.applied === (receipt.outcome === "applied")
+      && receipt.replayed === (receipt.outcome === "replayed");
+    if (response.error || !validReceipt) {
+      trackError("stripe_subscription_event_persistence_failed", response.error ?? new Error("subscription receipt was malformed"), { event_id: parsed.eventId, event_type: parsed.eventType, tenant_id: parsed.tenantId });
       return NextResponse.json({ error: "internal_error" }, { status: 500 });
     }
-    logEvent("stripe_subscription_synced", { event_id: parsed.eventId, event_type: parsed.eventType, plan_id: planId, plan_source: planSource, status: parsed.status });
-    return NextResponse.json({ ok: true, handled: true });
+    if (receipt!.outcome === "duplicate_subscription_conflict") {
+      trackError("stripe_subscription_duplicate_conflict", new Error("tenant has a conflicting live subscription"), { event_id: parsed.eventId, tenant_id: parsed.tenantId });
+      return NextResponse.json({ error: "subscription_conflict" }, { status: 409 });
+    }
+    logEvent("stripe_subscription_synced", { event_id: parsed.eventId, event_type: parsed.eventType, plan_id: planId, outcome: receipt!.outcome, status: parsed.status });
+    return NextResponse.json({ ok: true, handled: true, replayed: receipt!.replayed });
   } catch (error) {
     if (error instanceof ServiceRoleUnavailableError) {
       trackError("stripe_webhook_service_role_unavailable", error, { event_id: parsed.eventId });

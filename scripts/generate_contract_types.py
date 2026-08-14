@@ -13,7 +13,7 @@ from typing import Any
 
 ROOT = Path(__file__).resolve().parents[1]
 SCHEMAS_DIR = ROOT / "contracts" / "schemas"
-EXPECTED_SCHEMA_COUNT = 47
+EXPECTED_SCHEMA_COUNT = 48
 GENERATOR_VERSION = "1.0.0"
 IDENTIFIER = re.compile(r"^[A-Za-z_$][A-Za-z0-9_$]*$")
 

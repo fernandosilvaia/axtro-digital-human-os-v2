@@ -30,3 +30,24 @@ Legal hold is purpose-specific and time-bounded. It blocks deletion only for the
 ## Post-call workflow evidence
 
 Post-call commands, checkpoint receipts, deterministic results and their timeline evidence are append-only and tenant-scoped. A result can contain restricted structural summary data, so retention or erasure must follow the session purpose and legal-hold policy. The relational evidence link must not be detached or reassigned to another tenant or session. M1 does not create external follow-up content or provider-side data to delete.
+
+## Financial and provider-effect evidence
+
+Provider-effect reservations, cost events, billing outbox rows, provider/AI
+reconciliation receipts, Stripe Checkout intents and webhook delivery digests are financial integrity
+evidence. Tenant closure first disables new effects and drains or manually
+reconciles every in-flight/unknown/cleanup row. Rows required by invoice,
+chargeback, tax or legal-hold policy are retained tenant-scoped for the
+applicable period; credentials, transcript content and meeting URLs are never
+copied into this evidence. After retention expires, deletion is performed by
+the closure workflow in foreign-key order and produces a deletion receipt.
+An open Checkout intent must first reach signed `expired`, `completed` or a
+reconciled terminal state; closure never deletes an ambiguous dispatched
+intent merely because its local expiry elapsed.
+
+Tavus stage capabilities are operational secrets, not financial evidence.
+They store only the token hash plus a private room URL, expire within 45
+minutes, are revoked when the provider effect terminates, and must be purged
+before tenant closure completes. Worker heartbeats contain only versioned,
+low-cardinality counters and may be replaced or purged after the operational
+audit window; they must never carry tenant IDs, provider references or PII.

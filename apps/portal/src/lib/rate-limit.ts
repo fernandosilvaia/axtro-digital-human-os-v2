@@ -14,14 +14,11 @@ const timestampsByKey = new Map<string, number[]>();
  * eram removidas do Map.
  *
  * NUNCA usar `Map.clear()` aqui — achado P1 CONFIRMADO pela auto-revisão
- * desta mesma onda (D-V2-115): a chave vem de `x-forwarded-for`, um
- * header controlado pelo cliente sem validação de proxy confiável
- * (`clientIp()` em auth.ts/video-session/route.ts). `/api/leads/video-
- * session` roda `isRateLimited` ANTES da autenticação por bearer secret —
- * um atacante consegue floodar 5000+ chaves forjadas baratas e
- * não-autenticadas só pra estourar o teto de propósito. Um `clear()`
- * total nesse ponto apagaria de uma vez o rate-limit de QUALQUER OUTRO
- * IP/usuário já bloqueado (signin/signup de terceiros), transformando uma
+ * desta mesma onda (D-V2-115): algumas superfícies públicas podem alimentar
+ * chaves controláveis pelo cliente. A rota de lead M5-01 autentica primeiro
+ * e usa uma chave fixa; signup/login continuam sendo consumidores públicos.
+ * Um `clear()` total apagaria de uma vez o rate-limit de QUALQUER OUTRO
+ * IP/usuário já bloqueado, transformando uma
  * correção de vazamento de memória num botão de reset de proteção de
  * abuso pra todo mundo. Em vez disso: evict de UMA entrada por vez (a
  * mais antiga por toque — LRU real via delete+reinsert a cada uso, não só

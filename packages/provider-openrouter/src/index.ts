@@ -324,6 +324,7 @@ function parseEmbeddings(payload: unknown, expectedCount: number): EmbeddingResu
   }
   const usageRecord = (record.usage ?? {}) as Record<string, unknown>;
   const model = typeof record.model === "string" && record.model.length > 0 ? record.model : "openrouter/unknown";
+  const reportedCostUsd = normalizeReportedCost(usageRecord.cost);
 
   return Object.freeze({
     embeddings: Object.freeze(ordered),
@@ -331,6 +332,7 @@ function parseEmbeddings(payload: unknown, expectedCount: number): EmbeddingResu
     usage: Object.freeze({
       inputTokens: normalizeTokenCount(usageRecord.prompt_tokens ?? usageRecord.total_tokens),
       outputTokens: 0,
+      ...(reportedCostUsd === undefined ? {} : { reportedCostUsd }),
     }),
   });
 }

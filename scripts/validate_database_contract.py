@@ -19,6 +19,7 @@ EXPECTED = [
     "0009_cost_event_reconciliation.sql",
     "0010_session_timeline_event_identity.sql",
     "0011_post_call_workflow_persistence.sql",
+    "0012_cost_event_conversation_unit.sql",
 ]
 
 
@@ -109,6 +110,11 @@ def main() -> int:
         errors.append("Cost reconciliation target trigger is missing")
     if "CREATE UNIQUE INDEX cost_events_tenant_source_provider_request_ref_unique" not in cost_reconciliation_migration:
         errors.append("Cost provider request replay guard is missing")
+    cost_conversation_migration = (MIGRATIONS / "0012_cost_event_conversation_unit.sql").read_text(encoding="utf-8")
+    if "'conversation'" not in cost_conversation_migration:
+        errors.append("Cost conversation unit must be added by a forward-only migration")
+    if "VALIDATE CONSTRAINT cost_events_unit_type_check" not in cost_conversation_migration:
+        errors.append("Cost conversation unit constraint must be validated")
     workflow_migration = (MIGRATIONS / "0011_post_call_workflow_persistence.sql").read_text(encoding="utf-8")
     for invariant in (
         "workflow_commands_profile_check",

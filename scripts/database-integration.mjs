@@ -78,7 +78,7 @@ try {
   const invalidUrl = databaseUrlFor(baseDatabaseUrl, invalidName);
   const invalidTimelineUrl = databaseUrlFor(baseDatabaseUrl, invalidTimelineName);
   const cleanResult = database.applyLocalMigrations({ databaseUrl: cleanUrl, psqlPath });
-  assert.equal(cleanResult.applied.length, 11);
+  assert.equal(cleanResult.applied.length, 12);
   const cleanDrift = database.checkLocalSchemaDrift({ databaseUrl: cleanUrl, psqlPath });
   assert.equal(runDevelopmentSeed(cleanUrl).status, 0);
   const firstSeedComposition = readDevelopmentSeedComposition(cleanUrl);
@@ -162,7 +162,7 @@ try {
     `${timelinePrerequisiteSql(historicalTimeline)} ${legacyTimelineInsertSql(historicalTimeline)}`,
   ).status, 0);
   const upgradeResult = database.applyLocalMigrations({ databaseUrl: upgradeUrl, psqlPath });
-  assert.deepEqual(upgradeResult.applied.map((migration) => migration.version), [10, 11]);
+  assert.deepEqual(upgradeResult.applied.map((migration) => migration.version), [10, 11, 12]);
   assert.equal(
     queryScalar(
       upgradeUrl,

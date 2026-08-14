@@ -28,7 +28,7 @@ git diff --check
 Resultados:
 
 - 28 workspaces não foram alterados pelo install congelado;
-- 47 schemas e tipos gerados sem drift;
+- 48 schemas e tipos gerados sem drift;
 - 209 testes Node e 23 unittest Python verdes;
 - 23 testes pytest verdes;
 - PostgreSQL temporário local verde para apply limpo, upgrade, seed, drift,
@@ -42,8 +42,8 @@ Resultados:
 
 ```text
 DOCUMENTATION QA PASSED: 28 required files, 52 executable tasks
-CONTRACT VALIDATION PASSED: 47 schemas, 47 valid examples, 47 invalid examples
-CONTRACT TYPE CHECK PASSED: 47 schemas, generator 1.0.0
+CONTRACT VALIDATION PASSED: 48 schemas, 48 valid examples, 48 invalid examples
+CONTRACT TYPE CHECK PASSED: 48 schemas, generator 1.0.0
 CONTRACT GENERATION VALIDATION PASSED
 SPEC VALIDATION PASSED: 11 OpenAPI paths, 5 AsyncAPI operations
 DATABASE CONTRACT VALIDATION PASSED: 42 tables, 11 migrations
