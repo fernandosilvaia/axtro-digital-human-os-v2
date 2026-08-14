@@ -22,7 +22,7 @@ export function CreateAgentForm() {
       <h3 style={{ fontSize: "0.85rem", color: "var(--text-muted)", margin: "0 0 10px" }}>
         Novo agente
       </h3>
-      <div className="form-row" style={{ gridTemplateColumns: "2fr 1fr auto", alignItems: "end" }}>
+      <div className="form-row form-row-3">
         <div className="field" style={{ marginBottom: 0 }}>
           <label htmlFor="agent-name">Nome do agente</label>
           <input id="agent-name" name="name" type="text" minLength={2} maxLength={120} autoComplete="off" required />

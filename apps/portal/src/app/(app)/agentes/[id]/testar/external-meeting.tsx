@@ -96,10 +96,11 @@ export function ExternalMeeting({ agentId, agentName, timeZone }: { agentId: str
         </div>
 
         <div className="field" style={{ marginBottom: 14 }}>
-          <label style={{ display: "flex", alignItems: "center", gap: 8, fontWeight: 400, cursor: "pointer" }}>
+          <label style={{ display: "flex", alignItems: "center", gap: 10, fontWeight: 400, cursor: "pointer", padding: "10px 0", minHeight: 44 }}>
             <input
               type="checkbox"
               checked={scheduling}
+              style={{ width: 20, height: 20, flexShrink: 0 }}
               onChange={(event) => {
                 setScheduling(event.target.checked);
                 if (!event.target.checked) setScheduleAt("");

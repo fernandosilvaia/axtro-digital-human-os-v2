@@ -80,6 +80,16 @@ export function BillingSection({
         <CurrentPlanCard billing={billing} planId={billing.plan_id} isAdmin={isAdmin} />
       ) : needsAttention ? (
         <NeedsAttentionCard billing={billing} isAdmin={isAdmin} />
+      ) : billingSuccess ? (
+        // O checkout confirmou na Stripe, mas o webhook que atualiza o plano
+        // aqui pode levar alguns segundos — mostrar a grade de planos com
+        // "Assinar" ativo bem abaixo de "Assinatura confirmada" convidava a
+        // pagar de novo antes do primeiro pagamento aparecer (achado ao vivo
+        // W7 2026-08-14).
+        <p style={{ color: "var(--text-muted)", fontSize: "0.86rem", margin: 0 }}>
+          Confirmando com a Stripe — pode levar alguns segundos. Recarregue a página em instantes
+          para ver seu plano aqui.
+        </p>
       ) : (
         <NoPlanCards isAdmin={isAdmin} />
       )}

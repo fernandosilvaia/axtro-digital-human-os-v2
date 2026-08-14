@@ -643,6 +643,23 @@ table.data tbody tr:hover {
   grid-template-columns: 1fr 1fr;
 }
 
+/*
+ * Variantes de coluna usadas por formulários de uma linha só (convite de
+ * equipe, criar agente, criar fonte de conhecimento). Precisam ser classes
+ * (não style inline) porque um style inline vence a media query de colapso
+ * mobile do .form-row abaixo independente de especificidade — travava esses
+ * 3 formulários acima da largura mínima de conteúdo em telas de celular
+ * (achado ao vivo W7 2026-08-14).
+ */
+.form-row-3 {
+  grid-template-columns: 2fr 1fr auto;
+  align-items: end;
+}
+.form-row-4 {
+  grid-template-columns: 2fr 1fr 1fr auto;
+  align-items: end;
+}
+
 .saved-flag {
   color: var(--success);
   font-size: 0.83rem;
@@ -717,7 +734,9 @@ table.data tbody tr:hover {
   .grid-2 {
     grid-template-columns: 1fr;
   }
-  .form-row {
+  .form-row,
+  .form-row-3,
+  .form-row-4 {
     grid-template-columns: 1fr;
   }
   .menu-toggle {
@@ -747,8 +766,8 @@ table.data tbody tr:hover {
 
 .menu-toggle {
   place-items: center;
-  width: 38px;
-  height: 38px;
+  width: 44px;
+  height: 44px;
   border-radius: var(--radius-sm);
   border: 1px solid var(--border);
   background: var(--surface);

@@ -1,14 +1,21 @@
 "use client";
 
 import { useRouter } from "next/navigation";
-import { useActionState, useEffect } from "react";
+import { useActionState, useEffect, useState } from "react";
 
 import { createKnowledgeSource, type ResourceActionState } from "@/lib/actions/resources";
 
 const initialState: ResourceActionState = { error: null, done: false };
 
+const CONTENT_PLACEHOLDER: Record<string, string> = {
+  url: "Não buscamos a URL sozinhos: abra a página, copie o texto relevante e cole aqui. Com o texto colado, a fonte é ingerida com embeddings reais e fica ativa.",
+  document: "Cole aqui o conteúdo do documento (texto). Com conteúdo, a fonte é ingerida com embeddings reais e fica ativa — os agentes passam a citar apenas o que estiver aqui.",
+  faq: "Cole aqui as perguntas e respostas (texto). Com conteúdo, a fonte é ingerida com embeddings reais e fica ativa — os agentes passam a citar apenas o que estiver aqui.",
+};
+
 export function CreateSourceForm() {
   const [state, formAction, pending] = useActionState(createKnowledgeSource, initialState);
+  const [sourceType, setSourceType] = useState("document");
   const router = useRouter();
 
   // Refresh explícito pós-criação: ver nota no AgentStatusToggle (flake de
@@ -22,17 +29,17 @@ export function CreateSourceForm() {
       <h3 style={{ fontSize: "0.85rem", color: "var(--text-muted)", margin: "0 0 10px" }}>
         Nova fonte
       </h3>
-      <div className="form-row" style={{ gridTemplateColumns: "2fr 1fr 1fr auto", alignItems: "end" }}>
+      <div className="form-row form-row-4">
         <div className="field" style={{ marginBottom: 0 }}>
           <label htmlFor="source-name">Nome da fonte</label>
           <input id="source-name" name="display_name" type="text" minLength={2} maxLength={160} autoComplete="off" required />
         </div>
         <div className="field" style={{ marginBottom: 0 }}>
           <label htmlFor="source-type">Tipo</label>
-          <select id="source-type" name="source_type" defaultValue="document">
+          <select id="source-type" name="source_type" value={sourceType} onChange={(event) => setSourceType(event.target.value)}>
             <option value="document">Documento</option>
             <option value="faq">FAQ</option>
-            <option value="url">Página web</option>
+            <option value="url">Página web (colar o texto)</option>
           </select>
         </div>
         <div className="field" style={{ marginBottom: 0 }}>
@@ -54,7 +61,7 @@ export function CreateSourceForm() {
           name="content"
           rows={6}
           maxLength={80000}
-          placeholder="Cole aqui o conteúdo do documento (texto). Com conteúdo, a fonte é ingerida com embeddings reais e fica ativa — os agentes passam a citar apenas o que estiver aqui."
+          placeholder={CONTENT_PLACEHOLDER[sourceType] ?? CONTENT_PLACEHOLDER.document}
           style={{ resize: "vertical", fontSize: "0.82rem", lineHeight: 1.5 }}
         />
       </div>

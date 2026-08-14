@@ -14,7 +14,7 @@ export function InviteForm() {
       <h3 style={{ fontSize: "0.85rem", color: "var(--text-muted)", margin: "0 0 10px" }}>
         Convidar membro
       </h3>
-      <div className="form-row" style={{ gridTemplateColumns: "2fr 1fr auto", alignItems: "end" }}>
+      <div className="form-row form-row-3">
         <div className="field" style={{ marginBottom: 0 }}>
           <label htmlFor="invite-email">E-mail</label>
           <input id="invite-email" name="email" type="email" autoComplete="off" required />

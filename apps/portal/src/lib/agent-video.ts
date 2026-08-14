@@ -25,6 +25,14 @@ const DEFAULT_VOICE_ID = "jXrDvfgyizjxORhXsh4y";
 export interface ProvisionResult {
   readonly provisioned: boolean;
   readonly personaId?: string;
+  /**
+   * true quando esta chamada realmente tentou criar a persona (não é o modo
+   * fake nem um agente que já tinha vídeo configurado) e não conseguiu —
+   * distingue "nada a fazer" de "quebrou" pro chamador poder avisar o
+   * usuário em vez de deixar a falha muda (achado ao vivo W7 2026-08-14:
+   * ativação sempre mostrava sucesso mesmo com a persona nunca criada).
+   */
+  readonly attempted?: boolean;
 }
 
 /**
@@ -48,14 +56,14 @@ export async function provisionAgentVideoIfMissing(
     // chave/replica ausentes aqui é config quebrada de verdade — sem log,
     // toda ativação de agente falhava a auto-provisão de vídeo em silêncio.
     trackError("agent_video_autoprovision_config_missing", new Error("TAVUS_API_KEY or TAVUS_REPLICA_ID not configured"), { agent_id: agent.id });
-    return { provisioned: false };
+    return { provisioned: false, attempted: true };
   }
 
   // Falha de LEITURA não é "não configurado": seguir adiante criaria uma
   // persona duplicada no provider e sobrescreveria uma persona curada à mão.
   // Ativação continua mesmo assim — provisão fica pra próxima ativação/pausa+ativação.
   const configResult = await resolveAgentVideoConfig(supabase, agent.id, "auto-provision");
-  if (!configResult.ok) return { provisioned: false };
+  if (!configResult.ok) return { provisioned: false, attempted: true };
   if (configResult.config.configured) return { provisioned: false };
 
   const firstName = agent.name.split(/[\s—-]+/)[0] ?? agent.name;
@@ -89,13 +97,13 @@ export async function provisionAgentVideoIfMissing(
     });
     if (rpcError) {
       trackError("agent_video_config_save_failed", rpcError, { agent_id: agent.id, persona_id: persona.personaId });
-      return { provisioned: false };
+      return { provisioned: false, attempted: true };
     }
 
     logEvent("agent_video_provisioned", { agent_id: agent.id, persona_id: persona.personaId });
     return { provisioned: true, personaId: persona.personaId };
   } catch (error) {
     trackError("agent_video_provision_failed", error, { agent_id: agent.id });
-    return { provisioned: false };
+    return { provisioned: false, attempted: true };
   }
 }

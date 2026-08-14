@@ -20,6 +20,8 @@ import { logError as trackError } from "@/lib/telemetry";
 export interface ResourceActionState {
   readonly error: string | null;
   readonly done: boolean;
+  /** Aviso não-bloqueante: a ação principal teve sucesso, mas um efeito colateral best-effort falhou. */
+  readonly warning?: string;
 }
 
 const CREATE_ERROR_MESSAGES: Readonly<Record<string, string>> = {
@@ -267,6 +269,11 @@ export async function setAgentStatus(
   // ou clique duplo que escapa do disabled={pending}) reprovisionava vídeo
   // e reenviava o e-mail "Agente ativado" mesmo sem nenhuma mudança real.
   const changed = (data as { changed?: boolean } | null)?.changed !== false;
+  // Sinal não-bloqueante pro chamador: ativação nunca falha por causa disto
+  // (best-effort por contrato, ver agent-video.ts), mas o usuário merece
+  // saber que o vídeo não ficou pronto em vez de descobrir minutos depois
+  // numa tela sem relação nenhuma com a ativação (achado ao vivo W7).
+  let videoProvisioningWarning: string | undefined;
   if (status === "active" && changed) {
     try {
       const [overview, agents, adminEmailsResult] = await Promise.all([
@@ -276,7 +283,10 @@ export async function setAgentStatus(
       ]);
       const agent = agents.find((candidate) => candidate.id === agentId);
       if (agent && overview.tenant) {
-        await provisionAgentVideoIfMissing(supabase, agent, overview.tenant.legal_name, overview.tenant.default_language);
+        const video = await provisionAgentVideoIfMissing(supabase, agent, overview.tenant.legal_name, overview.tenant.default_language);
+        if (video.attempted && !video.provisioned) {
+          videoProvisioningWarning = "Agente ativado, mas o vídeo ainda não foi configurado — tente pausar e ativar de novo em alguns minutos.";
+        }
       }
       const admins = (adminEmailsResult.data ?? []) as string[];
       if (agent && overview.tenant && admins.length > 0) {
@@ -288,12 +298,13 @@ export async function setAgentStatus(
       }
     } catch (notifyError) {
       trackError("agent_activation_side_effects_failed", notifyError, { agent_id: agentId });
+      videoProvisioningWarning = "Agente ativado, mas o vídeo ainda não foi configurado — tente pausar e ativar de novo em alguns minutos.";
     }
   }
 
   revalidatePath("/agentes");
   revalidatePath("/dashboard");
-  return { error: null, done: true };
+  return { error: null, done: true, ...(videoProvisioningWarning ? { warning: videoProvisioningWarning } : {}) };
 }
 
 /** Exclui um agente ainda em rascunho (sem histórico de sessões) — libera o limite da conta. */
