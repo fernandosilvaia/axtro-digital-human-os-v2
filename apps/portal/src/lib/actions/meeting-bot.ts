@@ -72,6 +72,9 @@ function requiredEnv(name: string): string {
  */
 const MEETING_JOIN_DEDUP_WINDOW_MS = 30_000;
 
+/** Folga pra tratar um horário agendado "no passado por pouco" como entrada imediata. */
+const SCHEDULED_JOIN_GRACE_MS = 120_000;
+
 function meetingJoinDedupKey(tenantId: string, commandId: string): string {
   return `meeting-join:${tenantId}:${commandId}`;
 }
@@ -126,8 +129,18 @@ export async function joinExternalMeeting(
       }
       throw error;
     }
-    if (new Date(joinAtIso).getTime() <= Date.now()) {
-      return { conversationUrl: null, scheduled: false, error: `O horário agendado já passou — escolha um horário futuro (fuso ${timeZone}).` };
+    const scheduledDeltaMs = new Date(joinAtIso).getTime() - Date.now();
+    if (scheduledDeltaMs <= 0) {
+      // Um horário "agora" digitado no picker (minutos, não segundos) quase
+      // sempre já ficou alguns segundos no passado até o clique chegar aqui
+      // — em vez de recusar no meio de uma call ao vivo, trata como "entra
+      // agora" dentro de uma folga curta; só além dela é erro de verdade
+      // (achado ao vivo 2026-08-14).
+      if (scheduledDeltaMs > -SCHEDULED_JOIN_GRACE_MS) {
+        joinAtIso = undefined;
+      } else {
+        return { conversationUrl: null, scheduled: false, error: `O horário agendado já passou — escolha um horário futuro (fuso ${timeZone}).` };
+      }
     }
   }
 
