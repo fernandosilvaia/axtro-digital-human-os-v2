@@ -246,3 +246,39 @@ export async function sendCostCapAlertEmail(options: {
     logEvent: "cost_cap_alert_email",
   });
 }
+
+/**
+ * E-mail de proposta pra um prospect externo, depois de um fechamento ao
+ * vivo (D-V2-123): a única mensagem deste arquivo que sai pra um endereço
+ * fora do tenant, nunca reaproveitada pelos outros e-mails (todos internos,
+ * pra admins já cadastrados). "IA rascunha, humano manda" (doutrina já
+ * documentada em docs/BRIEFING_RAISSA_CLOSER_VIDEO.md §6) — este envio
+ * exige clique explícito de um admin depois de revisar empresa/e-mail/
+ * plano, nunca dispara sozinho no meio de uma call.
+ */
+export async function sendProposalEmail(options: {
+  readonly to: string;
+  readonly prospectCompanyName: string;
+  readonly closerName: string;
+  readonly planLabel: string;
+  readonly checkoutUrl: string;
+}): Promise<EmailSendResult> {
+  const company = escapeHtml(options.prospectCompanyName);
+  const closer = escapeHtml(options.closerName);
+  const plan = escapeHtml(options.planLabel);
+  const html = [
+    `<div style="font-family:system-ui,-apple-system,sans-serif;max-width:520px;margin:0 auto;padding:24px">`,
+    `<h2 style="font-size:18px;margin:0 0 12px">Proposta Axtro Digital Human OS — ${company}</h2>`,
+    `<p style="color:#444;line-height:1.5;margin:0 0 12px">Foi ótimo conversar com você. Como combinamos com <strong>${closer}</strong>, aqui está o link pra confirmar o plano <strong>${plan}</strong>.</p>`,
+    `<p style="margin:0 0 18px"><a href="${escapeHtml(options.checkoutUrl)}" style="background:#5b4dff;color:#fff;text-decoration:none;padding:11px 20px;border-radius:8px;display:inline-block">Confirmar plano</a></p>`,
+    `<p style="color:#888;font-size:12px;line-height:1.5;margin:0">Alguma dúvida antes de confirmar? Responda este e-mail que o time da Axtro te ajuda.</p>`,
+    `</div>`,
+  ].join("");
+
+  return sendHtmlEmail({
+    to: [options.to],
+    subject: `Sua proposta Axtro Digital Human OS — ${options.prospectCompanyName}`,
+    html,
+    logEvent: "proposal_email",
+  });
+}

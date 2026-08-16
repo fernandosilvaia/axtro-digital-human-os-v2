@@ -4,6 +4,7 @@ import { notFound } from "next/navigation";
 import { fetchAgents, fetchTenantOverview } from "@/lib/portal-data";
 import { StatusBadge } from "@/components/status-badge";
 
+import { ClosingProposal } from "./closing-proposal";
 import { ExternalMeeting } from "./external-meeting";
 import { MeetingSessions } from "./meeting-sessions";
 import { PresentationRoom } from "./presentation-room";
@@ -55,6 +56,7 @@ export default async function AgentPreviewPage({ params }: { params: Promise<{ i
       <VideoCall agentId={agent.id} agentName={agent.name} />
       <div style={{ height: 16 }} />
       <PreviewChat agentId={agent.id} agentName={agent.name} />
+      <ClosingProposal agentId={agent.id} agentName={agent.name} />
     </>
   );
 }

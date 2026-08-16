@@ -69,6 +69,24 @@ export interface CheckoutSession {
   readonly expiresAtIso: string;
 }
 
+/**
+ * Sessão de checkout pra um prospect sem conta/tenant no produto — usada
+ * pelo fechamento ao vivo de um closer (D-V2-123), não pelo autosserviço.
+ * Sem `checkoutIntentId`/`tenantId`: não existe assinatura durável nem
+ * conflito de assinatura concorrente a proteger aqui, só uma sessão avulsa
+ * pra uma empresa que ainda não é cliente.
+ */
+export interface CreateProspectCheckoutSessionRequest {
+  readonly basePriceId: string;
+  readonly overagePriceId: string;
+  readonly prospectEmail: string;
+  readonly prospectCompanyName: string;
+  readonly successUrl: string;
+  readonly cancelUrl: string;
+  readonly expiresAtIso: string;
+  readonly idempotencyKey: string;
+}
+
 export interface CreatePortalSessionRequest {
   readonly stripeCustomerId: string;
   readonly returnUrl: string;
@@ -116,6 +134,7 @@ export interface StripeBillingCatalogReceipt {
 export interface StripeBillingPort {
   readonly providerId: string;
   createCheckoutSession(request: CreateCheckoutSessionRequest): Promise<CheckoutSession>;
+  createProspectCheckoutSession(request: CreateProspectCheckoutSessionRequest): Promise<CheckoutSession>;
   createPortalSession(request: CreatePortalSessionRequest): Promise<PortalSession>;
   reportOverageUsage(request: ReportOverageUsageRequest): Promise<void>;
   verifyBillingCatalog(request: VerifyStripeBillingCatalogRequest): Promise<StripeBillingCatalogReceipt>;
@@ -137,6 +156,9 @@ const PRICE_ID_PATTERN = /^price_[A-Za-z0-9]{1,255}$/;
 const CUSTOMER_ID_PATTERN = /^cus_[A-Za-z0-9]{1,255}$/;
 const CHECKOUT_SESSION_ID_PATTERN = /^cs_(?:test|live)_[A-Za-z0-9_]{1,240}$/;
 const CHECKOUT_INTENT_ID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+const PROSPECT_EMAIL_PATTERN = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+const MAX_EMAIL_CHARS = 255;
+const MAX_COMPANY_NAME_CHARS = 160;
 
 function isHttpsUrl(value: unknown, maxChars: number): value is string {
   if (typeof value !== "string" || value.length === 0 || value.length > maxChars) return false;
@@ -362,6 +384,79 @@ export function createStripeBillingPort(options: StripeAdapterOptions): StripeBi
               checkout_intent_id: request.checkoutIntentId,
               tenant_id: request.tenantId,
               plan_id: request.planId,
+            },
+          },
+        },
+        request.idempotencyKey,
+      );
+      const record = (payload ?? {}) as Record<string, unknown>;
+      const sessionId = record.id;
+      const checkoutUrl = record.url;
+      const responseExpirySeconds = record.expires_at;
+      if (
+        typeof sessionId !== "string"
+        || !CHECKOUT_SESSION_ID_PATTERN.test(sessionId)
+        || !isStripeCheckoutUrl(checkoutUrl, sessionId)
+        || !Number.isInteger(responseExpirySeconds)
+        || responseExpirySeconds !== expiresAtSeconds
+      ) {
+        throw new StripeBillingError("malformed_provider_response", "Stripe checkout session payload has an invalid id/url/expiry");
+      }
+      return Object.freeze({ sessionId, checkoutUrl, expiresAtIso: request.expiresAtIso });
+    },
+
+    async createProspectCheckoutSession(request: CreateProspectCheckoutSessionRequest): Promise<CheckoutSession> {
+      if (!PRICE_ID_PATTERN.test(request.basePriceId) || !PRICE_ID_PATTERN.test(request.overagePriceId)) {
+        throw new StripeBillingError("invalid_request", "basePriceId/overagePriceId must be plain Stripe price ids");
+      }
+      if (
+        typeof request.prospectEmail !== "string"
+        || request.prospectEmail.length === 0
+        || request.prospectEmail.length > MAX_EMAIL_CHARS
+        || !PROSPECT_EMAIL_PATTERN.test(request.prospectEmail)
+      ) {
+        throw new StripeBillingError("invalid_request", "prospectEmail must be a plain email address");
+      }
+      if (
+        typeof request.prospectCompanyName !== "string"
+        || request.prospectCompanyName.trim().length === 0
+        || request.prospectCompanyName.length > MAX_COMPANY_NAME_CHARS
+      ) {
+        throw new StripeBillingError("invalid_request", "prospectCompanyName must be 1.." + MAX_COMPANY_NAME_CHARS + " chars");
+      }
+      if (!isHttpsUrl(request.successUrl, MAX_URL_CHARS) || !isHttpsUrl(request.cancelUrl, MAX_URL_CHARS)) {
+        throw new StripeBillingError("invalid_request", "successUrl/cancelUrl must be https URLs");
+      }
+      const expiresAtSeconds = checkoutExpirySeconds(request.expiresAtIso);
+      if (expiresAtSeconds === null) {
+        throw new StripeBillingError("invalid_request", "expiresAtIso must be a second-precision ISO 8601 instant");
+      }
+      if (typeof request.idempotencyKey !== "string" || request.idempotencyKey.length === 0 || request.idempotencyKey.length > MAX_ID_CHARS) {
+        throw new StripeBillingError("invalid_request", "idempotencyKey is required");
+      }
+
+      const payload = await call(
+        "POST",
+        "/checkout/sessions",
+        {
+          mode: "subscription",
+          customer_email: request.prospectEmail,
+          success_url: request.successUrl,
+          cancel_url: request.cancelUrl,
+          expires_at: expiresAtSeconds,
+          allow_promotion_codes: true,
+          metadata: {
+            prospect_company: request.prospectCompanyName,
+            source: "axtro_closer_proposal",
+          },
+          line_items: [
+            { price: request.basePriceId, quantity: 1 },
+            { price: request.overagePriceId },
+          ],
+          subscription_data: {
+            metadata: {
+              prospect_company: request.prospectCompanyName,
+              source: "axtro_closer_proposal",
             },
           },
         },
