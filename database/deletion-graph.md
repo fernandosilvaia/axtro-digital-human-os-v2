@@ -45,6 +45,12 @@ An open Checkout intent must first reach signed `expired`, `completed` or a
 reconciled terminal state; closure never deletes an ambiguous dispatched
 intent merely because its local expiry elapsed.
 
+Provider-effect termination receipts are separate, append-only operational evidence.
+They retain only tenant-scoped actor identity, bounded status/error code and an
+opaque provider receipt digest; never a provider reference, meeting URL or media.
+Tenant closure waits for any live termination lease to settle or reaches its
+documented operator-required state before its retention workflow may purge it.
+
 Tavus stage capabilities are operational secrets, not financial evidence.
 They store only the token hash plus a private room URL, expire within 45
 minutes, are revoked when the provider effect terminates, and must be purged

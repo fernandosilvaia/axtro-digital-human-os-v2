@@ -87,8 +87,9 @@ const ENV = Object.freeze({
 });
 
 const CAPABILITIES = Object.freeze({
-  version: 45,
+  version: 46,
   providerEffectReservations: true,
+  providerEffectTerminationFence: true,
   billingUsageOutbox: true,
   recallWebhookDedupe: true,
   recallTenantBinding: true,
@@ -219,8 +220,8 @@ test("worker readiness RPC errors fail closed after schema validation", async ()
   assert.equal(body.checks.workers, false);
 });
 
-test("readiness requires schema version 45 exactly and never probes workers on mismatch", async () => {
-  for (const version of [41, 42, 43, 44, undefined]) {
+test("readiness requires schema version 46 exactly and never probes workers on mismatch", async () => {
+  for (const version of [42, 43, 44, 45, undefined]) {
     const calls = [];
     const response = await handleReadiness({
       env: { ...ENV },
@@ -275,6 +276,7 @@ test("readiness fails closed while AI reservation capability is absent", async (
 
 test("readiness fails closed while any runtime bridge capability is absent", async () => {
   for (const capability of [
+    "providerEffectTerminationFence",
     "runtimeChannelAdmission",
     "runtimeChannelGrantFences",
     "runtimeProviderBindingReceipts",

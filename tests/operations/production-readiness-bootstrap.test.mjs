@@ -33,8 +33,9 @@ const ENV = Object.freeze({
 });
 
 const SCHEMA = Object.freeze({
-  version: 45,
+  version: 46,
   providerEffectReservations: true,
+  providerEffectTerminationFence: true,
   providerEffectReconciliation: true,
   billingUsageOutbox: true,
   recallWebhookDedupe: true,
@@ -195,6 +196,7 @@ test("schema v44 capability mismatch fails before backlog, Stripe or heartbeat c
     "legacySubscriptionWriterRevoked",
     "costEventSchemaVersion",
     "legacyCostWritersRevoked",
+    "providerEffectTerminationFence",
     "runtimeChannelAdmission",
     "runtimeChannelGrantFences",
     "runtimeProviderBindingReceipts",
@@ -212,8 +214,8 @@ test("schema v44 capability mismatch fails before backlog, Stripe or heartbeat c
   }
 });
 
-test("bootstrap requires schema version 45 exactly before any downstream probe", async () => {
-  for (const version of [41, 42, 43, 44, undefined]) {
+test("bootstrap requires schema version 46 exactly before any downstream probe", async () => {
+  for (const version of [42, 43, 44, 45, undefined]) {
     const { calls, promise } = run({ schema: { ...SCHEMA, version } });
     await assert.rejects(promise, isCode("SCHEMA_CAPABILITY_MISMATCH"));
     assert.equal(calls.length, 1, `version:${String(version)}`);
@@ -275,7 +277,7 @@ test("happy path validates all read-only probes then persists exact versioned he
   const { calls, promise } = run();
   assert.deepEqual(await promise, {
     ok: true,
-    schemaVersion: 45,
+    schemaVersion: 46,
     bootstrapVersion: PRODUCTION_BOOTSTRAP_VERSION,
     deploymentId: ENV.RAILWAY_GIT_COMMIT_SHA,
     stripeMode: "test",

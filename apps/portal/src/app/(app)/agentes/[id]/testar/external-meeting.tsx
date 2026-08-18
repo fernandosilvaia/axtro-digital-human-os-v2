@@ -4,7 +4,7 @@ import { useState, useTransition } from "react";
 
 import { isTrustedTavusConversationUrl } from "@axtro/provider-tavus";
 
-import { joinExternalMeeting } from "@/lib/actions/meeting-bot";
+import { joinExternalMeeting, stopExternalMeeting } from "@/lib/actions/meeting-bot";
 
 // ADR-038: the control plane must collect disclosure and purpose-specific
 // consent from each participant before this can create a recording bot.
@@ -29,13 +29,18 @@ export function ExternalMeeting({ agentId, agentName, timeZone }: { agentId: str
   const [scheduling, setScheduling] = useState(false);
   const [scheduleAt, setScheduleAt] = useState("");
   const [error, setError] = useState<string | null>(null);
-  const [success, setSuccess] = useState<{ scheduled: boolean; conversationUrl: string | null } | null>(null);
+  const [success, setSuccess] = useState<{ scheduled: boolean; conversationUrl: string | null; commandId: string } | null>(null);
   const [pending, startTransition] = useTransition();
+  const [stopError, setStopError] = useState<string | null>(null);
+  const [stopped, setStopped] = useState(false);
+  const [stopping, startStopTransition] = useTransition();
 
   function submit(event: React.FormEvent) {
     event.preventDefault();
     setError(null);
     setSuccess(null);
+    setStopError(null);
+    setStopped(false);
     const commandId = crypto.randomUUID();
     // scheduleAt só é enviado quando a pessoa optou por agendar — entrada
     // imediata nunca lê este campo, então não existe como um valor "agora"
@@ -52,10 +57,34 @@ export function ExternalMeeting({ agentId, agentName, timeZone }: { agentId: str
         setError("A sala de acompanhamento retornou um endereço não confiável.");
         return;
       }
-      setSuccess({ scheduled: result.scheduled, conversationUrl: result.conversationUrl });
+      setSuccess({ scheduled: result.scheduled, conversationUrl: result.conversationUrl, commandId });
       setMeetingUrl("");
       setScheduleAt("");
       setScheduling(false);
+    });
+  }
+
+  function stopMeeting() {
+    if (!success) return;
+    setStopError(null);
+    const commandId = success.commandId;
+    startStopTransition(async () => {
+      try {
+        const result = await stopExternalMeeting(agentId, commandId);
+        // `stopped` não basta para a UI: o backend pode relatar que um lado
+        // aceitou o pedido enquanto outro provider ainda está pendente. Só
+        // uma confirmação integral, sem erro, encerra o retry do operador.
+        if (result.stopped && result.error === null) {
+          setStopped(true);
+          return;
+        }
+        setStopped(false);
+        setStopError(result.error ?? "Não foi possível confirmar o encerramento completo da reunião. Tente novamente.");
+      } catch {
+        // Mantém success/commandId para que o operador possa repetir o mesmo
+        // stop idempotente depois de uma falha de transporte.
+        setStopError("Não foi possível encerrar a reunião agora. Tente novamente.");
+      }
     });
   }
 
@@ -165,6 +194,20 @@ export function ExternalMeeting({ agentId, agentName, timeZone }: { agentId: str
               </>
             )}
           </div>
+        )}
+
+        {success && EXTERNAL_MEETING_AVAILABLE && !stopped && (
+          <div style={{ margin: "0 0 12px", display: "flex", alignItems: "center", gap: 10 }}>
+            <button type="button" className="btn" onClick={stopMeeting} disabled={stopping} style={{ padding: "7px 12px", fontSize: "0.8rem" }}>
+              {stopping ? "Encerrando…" : "Encerrar reunião"}
+            </button>
+            {stopError && <p className="form-error" role="alert" style={{ margin: 0 }}>{stopError}</p>}
+          </div>
+        )}
+        {stopped && (
+          <p role="status" style={{ margin: "0 0 12px", fontSize: "0.82rem", color: "var(--text-muted)" }}>
+            O provider confirmou o pedido para que {agentName} saia da reunião.
+          </p>
         )}
 
         <button

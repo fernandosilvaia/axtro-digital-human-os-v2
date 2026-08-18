@@ -18,7 +18,7 @@ import { logError as trackError } from "@/lib/telemetry";
 import { prepareTavusWebhookCallback, registerTranscriptPlaceholder } from "@/lib/transcripts/register";
 import { VIDEO_CAP_MESSAGE } from "@/lib/video-cap";
 import { resolveAgentVideoConfig } from "@/lib/video-config";
-import { acquireProviderDispatch, beginProviderEffect, commitProviderEffectOrCompensate, compensateCommittedProviderEffect, fenceProviderFailure, isPaidEffectCommandId, paidEffectIntentKey, providerCorrelationLabel, releaseProviderEffect, retryReleasedProviderEffect } from "@/lib/paid-effects";
+import { acquireProviderDispatch, beginProviderEffect, commitProviderEffectOrCompensate, compensateCommittedProviderEffect, fenceProviderFailure, isPaidEffectCommandId, paidEffectIntentKey, providerCorrelationLabel, releaseProviderEffect, retryReleasedProviderEffect, terminateProviderEffectForOperator, type ProviderEffectTerminationResult } from "@/lib/paid-effects";
 import { createServiceRoleClient } from "@/lib/supabase/service";
 
 /**
@@ -30,6 +30,14 @@ import { createServiceRoleClient } from "@/lib/supabase/service";
 export interface JoinExternalMeetingResult {
   readonly conversationUrl: string | null;
   readonly scheduled: boolean;
+  readonly error: string | null;
+}
+
+export interface StopExternalMeetingResult {
+  /** True iff the Recall bot is confirmed OUT of the real external meeting — the operator-facing definition of "stopped". */
+  readonly stopped: boolean;
+  readonly recallStopped: boolean;
+  readonly tavusStopped: boolean;
   readonly error: string | null;
 }
 
@@ -414,4 +422,68 @@ export async function joinExternalMeeting(
     trackError("meeting_bot_unexpected_error", error, { agent_id: agentId });
     return { conversationUrl: null, scheduled: false, error: "Erro inesperado ao tentar entrar na reunião." };
   }
+}
+
+/**
+ * Operator-initiated "encerrar agora" for a live external meeting (M5-03 P0
+ * follow-up, D-V2-135/136). Correct-but-inert while
+ * participantScopedMeetingAdmissionReady() stays false — joinExternalMeeting
+ * cannot create a real reservation today, so there is nothing this can ever
+ * find to stop, same ADR-038 gate as the join side.
+ *
+ * Recall and Tavus are independent durable requests. The response means the
+ * provider accepted the termination request; it is not physical-media proof.
+ */
+export async function stopExternalMeeting(agentId: string, commandId: string): Promise<StopExternalMeetingResult> {
+  if (!isPaidEffectCommandId(commandId)) return { stopped: false, recallStopped: false, tavusStopped: false, error: "A intenção não é válida." };
+  const recallApiKey = requiredEnv("RECALL_API_KEY");
+  const recallRegion = requiredEnv("RECALL_API_REGION");
+  const tavusApiKey = requiredEnv("TAVUS_API_KEY");
+  if (recallApiKey.length === 0 || recallRegion.length === 0) {
+    return { stopped: false, recallStopped: false, tavusStopped: false, error: "O provider de reuniões externas ainda não está configurado neste ambiente." };
+  }
+  if (recallRegion !== "us-east-1" && recallRegion !== "us-west-2" && recallRegion !== "eu-central-1" && recallRegion !== "ap-northeast-1") {
+    trackError("stop_meeting_invalid_region", new Error(`RECALL_API_REGION inválida: ${recallRegion}`), { agent_id: agentId });
+    return { stopped: false, recallStopped: false, tavusStopped: false, error: "A região do provider de reuniões externas não está configurada corretamente." };
+  }
+
+  const [overview, agents] = await Promise.all([fetchTenantOverview(), fetchAgents()]);
+  if (!overview.provisioned || !overview.tenant) return { stopped: false, recallStopped: false, tavusStopped: false, error: "Conta ainda não provisionada." };
+  const tenantId = overview.tenant.id;
+  if (!agents.some((candidate) => candidate.id === agentId)) {
+    return { stopped: false, recallStopped: false, tavusStopped: false, error: "Agente não encontrado nesta conta." };
+  }
+
+  const recallPort = createRecallMeetingBotPort({ apiKey: recallApiKey, region: recallRegion });
+  const tavusRequested = true;
+  const requests: Promise<ProviderEffectTerminationResult>[] = [terminateProviderEffectForOperator({
+    tenantId, agentId, commandId, provider: "recall", discriminator: "recall:meeting",
+    terminate: (providerRef) => recallPort.leaveCall(providerRef),
+  })];
+  const tavusPort = tavusApiKey.length > 0 ? createTavusVideoConversationPort({ apiKey: tavusApiKey }) : null;
+  requests.push(terminateProviderEffectForOperator({
+    tenantId, agentId, commandId, provider: "tavus", discriminator: "tavus:meeting",
+    terminate: (providerRef) => {
+      if (tavusPort !== null) return tavusPort.endConversation(providerRef);
+      throw Object.assign(new Error("TAVUS_API_KEY is not configured for an active provider termination"), { code: "provider_termination_unavailable" });
+    },
+  }));
+  const settled = await Promise.allSettled(requests);
+  const resultAt = (index: number): ProviderEffectTerminationResult | null => settled[index]?.status === "fulfilled" ? settled[index].value : null;
+  const recall = resultAt(0);
+  const tavus = resultAt(1);
+  const recallStopped = recall?.outcome === "accepted";
+  // No Tavus request/receipt is never evidence that the avatar stopped. A
+  // rejected, disabled, in-progress or not-stoppable leg stays unresolved.
+  const tavusStopped = tavusRequested && (tavus?.outcome === "accepted" || tavus?.outcome === "not_started");
+
+  return {
+    stopped: recallStopped && tavusStopped,
+    recallStopped,
+    tavusStopped,
+    error: recallStopped && tavusStopped ? null
+      : (recall?.outcome === "disabled" || tavus?.outcome === "disabled"
+        ? "O encerramento seguro por provider ainda não está disponível neste ambiente."
+        : "O provider ainda não aceitou todos os pedidos de encerramento. Tente novamente em instantes."),
+  };
 }

@@ -482,6 +482,11 @@ class ProviderCapability(TypedDict):
     status: Literal['candidate', 'approved', 'fallback', 'deprecated', 'disabled']
     evaluated_at: str
 
+# Source: contracts/schemas/provider_effect_termination_result.schema.json; schema: https://schemas.axtro.ai/v2/provider_effect_termination_result.schema.json; version: 2.0.0.
+class ProviderEffectTerminationResult(TypedDict):
+    schema_version: Literal['2.0.0']
+    outcome: Literal['accepted', 'disabled', 'in_progress', 'retry_after', 'operator_required', 'not_started', 'not_stoppable', 'retryable_failure']
+
 # Source: contracts/schemas/provider_registry_entry.schema.json; schema: https://schemas.axtro.ai/v2/provider_registry_entry.schema.json; version: 2.0.0.
 class ProviderRegistryEntry(TypedDict):
     schema_version: Literal['2.0.0']
@@ -989,6 +994,12 @@ CONTRACT_METADATA: dict[str, dict[str, str]] = {
     "source_hash": "34b35d929e7f5bfb368350217d510533da5f3072ddae227b6ab166e3c81ac7b7",
     "source_schema": "contracts/schemas/provider_capability.schema.json"
   },
+  "ProviderEffectTerminationResult": {
+    "schema_id": "https://schemas.axtro.ai/v2/provider_effect_termination_result.schema.json",
+    "schema_version": "2.0.0",
+    "source_hash": "237787f98aaad567d64b8a7cd74fa86bc5722295418ae964a2cdc21b82e4f816",
+    "source_schema": "contracts/schemas/provider_effect_termination_result.schema.json"
+  },
   "ProviderRegistryEntry": {
     "schema_id": "https://schemas.axtro.ai/v2/provider_registry_entry.schema.json",
     "schema_version": "2.0.0",
@@ -1161,6 +1172,7 @@ __all__ = [
     'PostCallWorkflowStatus',
     'PreCallBriefing',
     'ProviderCapability',
+    'ProviderEffectTerminationResult',
     'ProviderRegistryEntry',
     'RolePackManifest',
     'RoleState',

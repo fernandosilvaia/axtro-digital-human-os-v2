@@ -1,12 +1,12 @@
 # Progresso de implementação
 
-**Estado atual:** M0-M5-03 com código e validação local concluídos; promoção realtime continua bloqueada por uma fronteira de mídia P0 não comprovada.
+**Estado atual:** M0-M5-03 com código e validação local concluídos; a contenção durável de término de provider v46 está em implementação antes do rollout autorizado. A promoção realtime continua bloqueada por uma fronteira de mídia P0 não comprovada.
 
 **Marco atual:** M5 — Production Integrity, Trust and Discovery
-**Tarefa atual:** M5-03 — done (código e QA local; rollout permanece humano e separado)
+**Tarefa atual:** D-V2-136 — in_progress (fence/receipt durável para término de Tavus e Recall; rollout autorizado, condicionado aos gates locais e remotos)
 **Última evidência verde:** 2026-08-18: `pnpm test` (1063 Node + 26 Python), `pnpm db:portal:test` (migrations 0001–0044), `pnpm --filter @axtro/portal run e2e:public` (3/3), build de produção e `git diff --check` verdes.
 **Bloqueadores internos:** P0 para promoção realtime — falta prova end-to-end de mídia controlada, cancelamento e descarte de saída tardia de Tavus/Recall.
-**Pendências externas:** aplicar 0044/v44 em maintenance antes de qualquer deploy deste patch; consultar `PENDENCIAS_EXTERNAS.md`.
+**Pendências externas:** o Supabase de produção está em v45; aplicar 0046/v46 em maintenance somente após os gates locais, verificar capability/readiness e então fazer o deploy Railway autorizado. `PORTAL_RUNTIME_BRIDGE_ENABLED` permanece desligada.
 
 **Auditoria 360 concluída (2026-08-18):** baseline reproduzida antes de qualquer patch: `python3 scripts/validate_all.py` (9/9), `pnpm lint`, `pnpm contracts:check`, `pnpm typecheck`, `pnpm test` (1056 Node + 26 Python; os testes de loopback exigiram execução fora do sandbox), e `UV_CACHE_DIR="$PWD/.uv-cache" uv run pytest` (26) verdes. Correções em integridade da bridge, telemetria e descoberta pública foram revalidadas depois do patch; o risco realtime de mídia/turnos reais permanece um bloqueio explícito de promoção, não um falso sinal de cobertura.
 
@@ -23,6 +23,13 @@
 > fences/receipts duráveis, os envelopes de IA são validados antes do provider
 > e o contrato do ledger está em v42. A promoção continua bloqueada até o
 > rollout expand-contract remoto de 0040→0042 e seus gates humanos.
+
+> D-V2-136 iniciado (2026-08-18): o preflight da publicação encontrou que o
+> fluxo local de parada de provider limpava a intenção do cliente cedo demais e
+> usava somente deduplicação em memória entre réplicas. A UI agora preserva a
+> intenção retryável; a mudança em andamento substitui o lookup/stop direto por
+> uma lease e recibo de término duráveis, com autorização `tenant_admin`, sem
+> declarar prova de silêncio de mídia tardia.
 
 ## Regras de atualização
 

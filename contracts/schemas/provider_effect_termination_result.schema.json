@@ -1,0 +1,13 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://schemas.axtro.ai/v2/provider_effect_termination_result.schema.json",
+  "title": "Provider Effect Termination Result",
+  "description": "Ref-free outcome of an authorized operator request. Accepted means provider request acceptance, never proof of physical-media silence.",
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "schema_version": { "type": "string", "const": "2.0.0" },
+    "outcome": { "type": "string", "enum": ["accepted", "disabled", "in_progress", "retry_after", "operator_required", "not_started", "not_stoppable", "retryable_failure"] }
+  },
+  "required": ["schema_version", "outcome"]
+}

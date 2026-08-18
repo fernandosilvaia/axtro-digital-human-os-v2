@@ -4,7 +4,7 @@ import { useState, useTransition } from "react";
 
 import { isTrustedTavusConversationUrl } from "@axtro/provider-tavus";
 
-import { startVideoConversation, type VideoChannelConsent } from "@/lib/actions/video-conversation";
+import { startVideoConversation, stopVideoConversation, type VideoChannelConsent } from "@/lib/actions/video-conversation";
 
 const INITIAL_CONSENT: VideoChannelConsent = {
   disclosure: false,
@@ -21,18 +21,49 @@ function allConsentConfirmed(consent: VideoChannelConsent): boolean {
 
 export function VideoCall({ agentId, agentName }: { agentId: string; agentName: string }) {
   const [url, setUrl] = useState<string | null>(null);
+  const [activeCommandId, setActiveCommandId] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [providerStopConfirmed, setProviderStopConfirmed] = useState(false);
   const [copied, setCopied] = useState(false);
   const [consent, setConsent] = useState<VideoChannelConsent>(INITIAL_CONSENT);
   const [pending, startTransition] = useTransition();
+  const [stopping, startStopTransition] = useTransition();
 
   function start() {
     setError(null);
+    setProviderStopConfirmed(false);
     const commandId = crypto.randomUUID();
     startTransition(async () => {
       const result = await startVideoConversation(agentId, commandId, consent);
-      if (isTrustedTavusConversationUrl(result.url)) setUrl(result.url);
-      else setError(result.url ? "A sala de vídeo retornou um endereço não confiável." : (result.error ?? "Erro inesperado."));
+      if (isTrustedTavusConversationUrl(result.url)) {
+        setUrl(result.url);
+        setActiveCommandId(commandId);
+      } else {
+        setError(result.url ? "A sala de vídeo retornou um endereço não confiável." : (result.error ?? "Erro inesperado."));
+      }
+    });
+  }
+
+  function end() {
+    const commandId = activeCommandId;
+    if (commandId === null) return;
+    setError(null);
+    startStopTransition(async () => {
+      try {
+        const result = await stopVideoConversation(agentId, commandId);
+        if (!result.stopped) {
+          setError(result.error ?? "Não foi possível confirmar o encerramento agora. Tente novamente.");
+          return;
+        }
+        // A URL e o commandId só saem da UI depois da confirmação do
+        // provider. Em uma falha transitória o mesmo gesto humano continua
+        // disponível para retry com a mesma chave de idempotência.
+        setProviderStopConfirmed(true);
+        setUrl(null);
+        setActiveCommandId(null);
+      } catch {
+        setError("Não foi possível confirmar o encerramento agora. Tente novamente.");
+      }
     });
   }
 
@@ -59,9 +90,10 @@ export function VideoCall({ agentId, agentName }: { agentId: string; agentName: 
           style={{ width: "100%", height: 480, border: "none", borderRadius: 10, background: "#000" }}
           title={`Conversa em vídeo com ${agentName}`}
         />
+        {error && <p className="form-error" role="alert" style={{ margin: "10px 4px 0" }}>{error}</p>}
         <div style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap", margin: "10px 4px 2px" }}>
           <p style={{ fontSize: "0.78rem", color: "var(--text-faint)", margin: 0, flex: 1, minWidth: 220 }}>
-            Libere câmera e microfone quando o navegador pedir. A chamada encerra sozinha em 10 minutos.
+            Libere câmera e microfone quando o navegador pedir. Ao solicitar o encerramento, esta tela aguarda a confirmação do provider.
           </p>
           {/* A sala é uma URL comum do provider: dá pra testar do celular ou
               chamar um colega pra avaliar — não precisa ficar presa ao iframe. */}
@@ -71,8 +103,8 @@ export function VideoCall({ agentId, agentName }: { agentId: string; agentName: 
           <a href={trustedUrl} target="_blank" rel="noreferrer" className="btn" style={{ padding: "7px 12px", fontSize: "0.8rem" }}>
             Abrir em nova aba
           </a>
-          <button type="button" className="btn" onClick={() => setUrl(null)} style={{ padding: "7px 12px", fontSize: "0.8rem" }}>
-            Encerrar conversa
+          <button type="button" className="btn" onClick={end} disabled={stopping} style={{ padding: "7px 12px", fontSize: "0.8rem" }}>
+            {stopping ? "Confirmando encerramento…" : "Encerrar conversa"}
           </button>
         </div>
       </section>
@@ -87,6 +119,11 @@ export function VideoCall({ agentId, agentName }: { agentId: string; agentName: 
           {agentName} aparece em vídeo, te escuta e conduz a venda por voz — como numa reunião real.
         </p>
       </div>
+      {providerStopConfirmed && (
+        <p role="status" style={{ margin: 0, width: "100%", color: "var(--text-muted)", fontSize: "0.82rem" }}>
+          O provider confirmou o pedido de encerramento da conversa.
+        </p>
+      )}
       <fieldset style={{ width: "100%", border: 0, padding: 0, margin: 0, display: "grid", gap: 8 }}>
         <legend style={{ fontSize: "0.82rem", fontWeight: 700, color: "var(--text)", padding: 0 }}>
           Consentimento para esta demonstração

@@ -119,14 +119,30 @@ test("human paid intents generate one command id at the client boundary and serv
   assert.doesNotMatch(meetingActions, /releaseProviderEffect\([^\n]*reconciliation_absent|releaseProviderEffect\([^\n]*compensation_confirmed/);
 });
 
-test("post-commit compensation always attempts termination but releases only after billing void", () => {
+test("operator termination has a durable lease/receipt and never exposes refs to the browser", async () => {
   assert.match(paidEffectsSource, /persistCleanup[\s\S]*?voidBilling[\s\S]*?input\.terminate\(\)[\s\S]*?cleanupPersisted && billingVoided && providerTerminated[\s\S]*?reconcile/);
   assert.match(videoActions, /compensateCommittedProviderEffect[\s\S]*?terminate:\s*\(\) => port\.endConversation/);
   assert.match(leadRoute, /compensateCommittedProviderEffect[\s\S]*?terminate:\s*\(\) => port\.endConversation/);
   assert.match(meetingActions, /provider:\s*"tavus"[\s\S]*?terminate:\s*\(\) => tavusPort\.endConversation/);
   assert.match(meetingActions, /provider:\s*"recall"[\s\S]*?terminate:\s*\(\) => recallPort\.leaveCall/);
-  assert.doesNotMatch(videoActions, /completeProviderEffect/);
-  assert.doesNotMatch(meetingActions, /completeProviderEffect/);
+  const terminationMigration = await readFile(new URL("../../database/supabase-only/0046_provider_effect_termination_fence.sql", import.meta.url), "utf8");
+  assert.match(terminationMigration, /create table public\.provider_effect_termination_receipts/);
+  assert.match(terminationMigration, /force row level security/);
+  assert.match(terminationMigration, /tenant admin membership required/);
+  assert.match(terminationMigration, /state='completed'[\s\S]*state='committed'/);
+  assert.match(paidEffectsSource, /terminateProviderEffectForOperator/);
+  assert.doesNotMatch(videoActions, /findProviderEffectReservation|completeProviderEffect\(/);
+  assert.doesNotMatch(meetingActions, /findProviderEffectReservation|completeProviderEffect\(/);
+  assert.match(meetingActions, /Promise\.allSettled\(requests\)/);
+  assert.match(meetingActions, /const tavusRequested = true/);
+  assert.match(meetingActions, /TAVUS_API_KEY is not configured for an active provider termination/,
+    "missing Tavus configuration is retryable only after a durable active-leg grant");
+  assert.match(meetingActions, /const tavusStopped = tavusRequested && \(tavus\?\.outcome === "accepted" \|\| tavus\?\.outcome === "not_started"\)/,
+    "a rejected requested Tavus leg must remain pending instead of being reported as stopped");
+  assert.match(meetingActions, /stopped: recallStopped && tavusStopped/,
+    "external meeting cannot report stopped while either provider leg remains unresolved");
+  assert.match(paidEffectsSource, /PORTAL_PROVIDER_TERMINATION_ENABLED[\s\S]{0,180}outcome: "disabled"/,
+    "provider termination stays dark-launched until explicitly enabled");
 });
 
 test("Tavus billing is held until authenticated human participation; Recall waits for camera receipt", () => {

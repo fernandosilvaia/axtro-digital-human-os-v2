@@ -85,6 +85,25 @@ def main() -> int:
         ):
             if invariant not in repair_sql:
                 errors.append(f"0045 meeting status overload repair invariant is missing: {invariant}")
+
+    termination_fence = SUPABASE_MIGRATIONS / "0046_provider_effect_termination_fence.sql"
+    if not termination_fence.exists():
+        errors.append("Missing Supabase-only provider effect termination fence 0046")
+    else:
+        fence_sql = termination_fence.read_text(encoding="utf-8")
+        if "BEGIN;" not in fence_sql or "COMMIT;" not in fence_sql:
+            errors.append("0046 termination fence must have explicit transaction boundaries")
+        for invariant in (
+            "provider_effect_termination_receipts",
+            "force row level security",
+            "portal_begin_provider_effect_termination_service",
+            "portal_settle_provider_effect_termination_service",
+            "tenant admin membership required",
+            "'version',46",
+            "'providerEffectTerminationFence'",
+        ):
+            if invariant not in fence_sql:
+                errors.append(f"0046 termination fence invariant is missing: {invariant}")
     if "tenant_isolation" not in all_sql:
         errors.append("Tenant isolation policy is missing")
     if "event_document ->> 'tenant_id' IS DISTINCT FROM tenant_id::text" not in all_sql:

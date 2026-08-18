@@ -119,8 +119,12 @@ agent, channel/provider and capability scope. Both switches are checked before
 grant issuance, paid dispatch, provider attachment, scene publish and callback
 processing. Disabling a switch blocks new effects and invalidates unpublished
 generations; it does not silently kill an established call. A separate,
-explicit emergency termination policy may compensate an already-known provider
-resource and records its receipt.
+explicit emergency termination policy is a lifecycle containment boundary: it
+independently verifies a server-derived `tenant_admin`, grants one
+reservation-scoped durable dispatch lease, and appends a termination receipt.
+Its accepted outcome means only that the provider accepted the request; it is
+not evidence of physical media silence and does not replace the generation
+fence for late output.
 
 The operator reconciliation surface required by ADR-036 is separate from
 normal channel authority. It accepts a server-derived operator identity, two
@@ -131,12 +135,14 @@ conditions exist, unknown paid effects remain blocked.
 ### Rollout and rollback
 
 The schema change is expand-contract. The initial contract is v43; the
-forward-only integrity repair `0044_runtime_bridge_integrity_repair.sql` raises
-the Portal readiness capability to v44 and is mandatory before the bridge can
-become ready. The bridge is disabled by default and there is no direct-provider
-fallback. During rollout, apply v43 and then v44 after v40–v42, validate the
-capability and its grants/RLS, start at zero public traffic, run fake and
-real-provider canaries, then explicitly enable the bridge for an approved
+forward-only integrity repair `0044_runtime_bridge_integrity_repair.sql` raised
+the Portal readiness capability to v44 and `0045` removed an ambiguous meeting
+status overload for v45. The termination fence `0046` raises the capability to
+v46 and is mandatory before an application artifact that exposes provider-stop
+actions can become ready. The bridge is disabled by default and there is no
+direct-provider fallback. During rollout, validate v46 capabilities, grants,
+RLS and concurrent termination behavior at zero public traffic; run fake and
+real-provider canaries; then explicitly enable the bridge only for an approved
 tenant. Rollback uses the durable kill switch or a forward fix; it never removes
 receipts, re-opens the legacy channel path, or relaxes M5-01 unknown barriers.
 

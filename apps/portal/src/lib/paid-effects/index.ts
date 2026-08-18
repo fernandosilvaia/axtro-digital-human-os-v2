@@ -4,11 +4,30 @@ import { createUuidV7 } from "@axtro/domain";
 import type { SupabaseClient } from "@supabase/supabase-js";
 
 import { conversationOverageEventName } from "../billing/plans.ts";
+import type { createClient } from "../supabase/server.ts";
 import { createServiceRoleClient } from "../supabase/service.ts";
 
 export type PaidProvider = "tavus" | "recall";
 export type PaidEffectState = "reserved" | "provider_in_flight" | "committed" | "released" | "unknown" | "cleanup_pending" | "completed";
 export type BeginOutcome = "reserved" | "replayed" | "capped" | "blocked_unknown";
+
+export type ProviderEffectTerminationOutcome = "accepted" | "disabled" | "in_progress" | "retry_after" | "operator_required" | "not_started" | "not_stoppable" | "retryable_failure";
+
+/** Public, ref-free result for a human operator's termination request. */
+export interface ProviderEffectTerminationResult {
+  readonly schema_version: "2.0.0";
+  readonly outcome: ProviderEffectTerminationOutcome;
+}
+
+export interface TerminateProviderEffectForOperatorInput {
+  readonly tenantId: string;
+  readonly agentId: string;
+  readonly commandId: string;
+  readonly discriminator: string;
+  readonly provider: PaidProvider;
+  /** The adapter accepts a provider reference only after the DB grants a lease. */
+  readonly terminate: (providerRef: string) => Promise<void>;
+}
 
 export interface ProviderEffectReservation {
   readonly outcome: BeginOutcome;
@@ -133,6 +152,83 @@ export async function beginProviderEffect(input: BeginProviderEffectInput, clien
       ? String(row.estimatedCostUsd)
       : null,
   });
+}
+
+function asTerminationOutcome(value: unknown): ProviderEffectTerminationOutcome {
+  if (value === "accepted" || value === "disabled" || value === "in_progress" || value === "retry_after" || value === "operator_required" || value === "not_started" || value === "not_stoppable" || value === "retryable_failure") return value;
+  throw new Error("provider termination returned an invalid outcome");
+}
+
+function sanitizedProviderFailureCode(error: unknown): string {
+  const code = asRecord(error).code;
+  return typeof code === "string" && /^[a-z][a-z0-9_]{2,79}$/.test(code) ? code : "provider_termination_unavailable";
+}
+
+function publicTerminationOutcome(value: unknown): ProviderEffectTerminationOutcome {
+  return value === "stale" ? "in_progress" : asTerminationOutcome(value);
+}
+
+/**
+ * The durable stop authority. Browser input is limited to its command ID;
+ * provider refs, reservation IDs and leases remain between the service RPC
+ * and this server action. A successful provider response means accepted by
+ * that provider, not proof that no late media frame can be emitted.
+ */
+export async function terminateProviderEffectForOperator(
+  input: TerminateProviderEffectForOperatorInput,
+  dependencies: {
+    readonly userClient?: Awaited<ReturnType<typeof createClient>>;
+    readonly serviceClient?: SupabaseClient;
+    readonly receiptId?: string;
+    readonly leaseToken?: string;
+  } = {},
+): Promise<ProviderEffectTerminationResult> {
+  if ((process.env.PORTAL_PROVIDER_TERMINATION_ENABLED ?? "false").trim() !== "true") {
+    return Object.freeze({ schema_version: "2.0.0", outcome: "disabled" });
+  }
+  if (!isPaidEffectCommandId(input.commandId)) return Object.freeze({ schema_version: "2.0.0", outcome: "not_stoppable" });
+  const userClient = dependencies.userClient ?? await import("../supabase/server.ts").then(({ createClient: createPortalClient }) => createPortalClient());
+  if (userClient === undefined) throw new Error("authenticated portal client is unavailable");
+  const { data: { user } } = await userClient.auth.getUser();
+  const actorId = typeof user?.app_metadata?.actor_id === "string" ? user.app_metadata.actor_id : null;
+  if (user?.id === undefined || actorId === null || !UUID_V7_PATTERN.test(actorId)) return Object.freeze({ schema_version: "2.0.0", outcome: "not_stoppable" });
+  const service = dependencies.serviceClient ?? createServiceRoleClient();
+  const receiptId = dependencies.receiptId ?? createUuidV7();
+  const leaseToken = dependencies.leaseToken ?? createUuidV7();
+  const { data, error } = await service.rpc("portal_begin_provider_effect_termination_service", {
+    p_receipt_id: receiptId,
+    p_lease_token: leaseToken,
+    p_tenant_id: input.tenantId,
+    p_user_id: user.id,
+    p_actor_id: actorId,
+    p_agent_id: input.agentId,
+    p_idempotency_key: paidEffectIntentKey(input.commandId, input.discriminator),
+    p_expected_provider: input.provider,
+    p_lease_seconds: 60,
+  });
+  if (error) throw new Error(`provider termination begin failed: ${error.message}`);
+  const begin = asRecord(data);
+  if (begin.outcome !== "dispatch_granted") {
+    return Object.freeze({ schema_version: "2.0.0", outcome: asTerminationOutcome(begin.outcome) });
+  }
+  const providerRef = typeof begin.providerRef === "string" ? begin.providerRef : null;
+  if (providerRef === null || !PROVIDER_REF_PATTERN.test(providerRef)) throw new Error("provider termination lease is missing a valid provider reference");
+  try {
+    await input.terminate(providerRef);
+  } catch (providerError) {
+    const settled = await service.rpc("portal_settle_provider_effect_termination_service", {
+      p_tenant_id: input.tenantId, p_receipt_id: receiptId, p_lease_token: leaseToken,
+      p_outcome: "retryable_failure", p_error_code: sanitizedProviderFailureCode(providerError),
+    });
+    if (settled.error) throw new AggregateError([providerError, new Error(settled.error.message)], "provider termination and durable failure receipt failed");
+    return Object.freeze({ schema_version: "2.0.0", outcome: publicTerminationOutcome(asRecord(settled.data).outcome) });
+  }
+  const settled = await service.rpc("portal_settle_provider_effect_termination_service", {
+    p_tenant_id: input.tenantId, p_receipt_id: receiptId, p_lease_token: leaseToken,
+    p_outcome: "provider_accepted", p_error_code: null,
+  });
+  if (settled.error) throw new Error(`provider termination settlement failed: ${settled.error.message}`);
+  return Object.freeze({ schema_version: "2.0.0", outcome: publicTerminationOutcome(asRecord(settled.data).outcome) });
 }
 
 export async function retryReleasedProviderEffect(

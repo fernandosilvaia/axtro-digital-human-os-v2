@@ -12,7 +12,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { isTrustedTavusConversationUrl } from "@axtro/provider-tavus";
 
 import type { Deck, DeckSlide, DeckSlideKind } from "@/lib/presentation/deck";
-import { startPresentationConversation, type VideoChannelConsent } from "@/lib/actions/video-conversation";
+import { startPresentationConversation, stopPresentationConversation, type VideoChannelConsent } from "@/lib/actions/video-conversation";
 
 const INITIAL_CONSENT: VideoChannelConsent = {
   disclosure: false,
@@ -188,9 +188,12 @@ export function PresentationRoom({ agentId, agentName }: { agentId: string; agen
   const [muted, setMuted] = useState(false);
   const [simulated, setSimulated] = useState(false);
   const [consent, setConsent] = useState<VideoChannelConsent>(INITIAL_CONSENT);
+  const [stopping, setStopping] = useState(false);
+  const [providerStopConfirmed, setProviderStopConfirmed] = useState(false);
 
   const callRef = useRef<DailyCall | null>(null);
   const conversationIdRef = useRef<string | null>(null);
+  const commandIdRef = useRef<string | null>(null);
   const slideIndexRef = useRef(0);
   const deckRef = useRef<Deck | null>(null);
   const remoteVideoRef = useRef<HTMLVideoElement | null>(null);
@@ -243,6 +246,7 @@ export function PresentationRoom({ agentId, agentName }: { agentId: string; agen
 
   const start = useCallback(() => {
     setError(null);
+    setProviderStopConfirmed(false);
     setPhase("starting");
     const commandId = crypto.randomUUID();
     void (async () => {
@@ -270,6 +274,7 @@ export function PresentationRoom({ agentId, agentName }: { agentId: string; agen
       }
       deckRef.current = result.deck;
       conversationIdRef.current = result.conversationId;
+      commandIdRef.current = commandId;
       setDeck(result.deck);
       slideIndexRef.current = 0;
       setSlideIndex(0);
@@ -296,20 +301,56 @@ export function PresentationRoom({ agentId, agentName }: { agentId: string; agen
     })();
   }, [agentId, attachTrack, consent, handleToolCall]);
 
-  const leave = useCallback(() => {
+  const disposeClientCall = useCallback(() => {
     const call = callRef.current;
     callRef.current = null;
     if (call) {
-      void call.leave().then(() => call.destroy());
+      void call.leave().catch(() => undefined).finally(() => {
+        void call.destroy().catch(() => undefined);
+      });
     }
-    setPhase("ended");
   }, []);
 
+  const leave = useCallback(async () => {
+    if (simulated) {
+      disposeClientCall();
+      setPhase("ended");
+      return;
+    }
+    const commandId = commandIdRef.current;
+    if (commandId === null) {
+      setError("Não encontramos a apresentação ativa para encerrar. Atualize a página antes de tentar de novo.");
+      return;
+    }
+
+    setError(null);
+    setStopping(true);
+    try {
+      const result = await stopPresentationConversation(agentId, commandId);
+      if (!result.stopped) {
+        setError(result.error ?? "Não foi possível confirmar o encerramento agora. Tente novamente.");
+        return;
+      }
+      // Mantém a chamada e sua chave de idempotência até a parada remota ser
+      // confirmada. Assim, uma falha de rede/provider não descarta o único
+      // caminho seguro para o operador repetir o comando.
+      commandIdRef.current = null;
+      disposeClientCall();
+      setProviderStopConfirmed(true);
+      setPhase("ended");
+    } catch {
+      setError("Não foi possível confirmar o encerramento agora. Tente novamente.");
+    } finally {
+      setStopping(false);
+    }
+  }, [agentId, disposeClientCall, simulated]);
+
   useEffect(() => () => {
-    const call = callRef.current;
-    callRef.current = null;
-    if (call) void call.leave().then(() => call.destroy());
-  }, []);
+    // Navegação/fechamento de aba não oferece uma confirmação de provider;
+    // não pode disparar um stop fire-and-forget que consuma o commandId sem
+    // deixar feedback ou retry para o operador.
+    disposeClientCall();
+  }, [disposeClientCall]);
 
   function toggleMute() {
     const call = callRef.current;
@@ -372,7 +413,9 @@ export function PresentationRoom({ agentId, agentName }: { agentId: string; agen
     return (
       <section className="card" style={{ marginTop: 16, padding: 16 }}>
         <p style={{ margin: 0, color: "var(--text-muted)", fontSize: "0.88rem" }}>
-          Apresentação encerrada. <button type="button" className="btn" onClick={() => { setPhase("idle"); setDeck(null); setSimulated(false); }} style={{ marginLeft: 8 }}>Nova apresentação</button>
+          {providerStopConfirmed
+            ? "O provider confirmou o pedido de encerramento da apresentação."
+            : "Apresentação finalizada nesta tela."} <button type="button" className="btn" onClick={() => { setPhase("idle"); setDeck(null); setSimulated(false); setProviderStopConfirmed(false); }} style={{ marginLeft: 8 }}>Nova apresentação</button>
         </p>
       </section>
     );
@@ -475,21 +518,22 @@ export function PresentationRoom({ agentId, agentName }: { agentId: string; agen
             </>
           )}
           <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
-            <button type="button" className="btn" onClick={() => goTo(slideIndexRef.current - 1)} disabled={slideIndex === 0} style={{ flex: 1 }}>
+            <button type="button" className="btn" onClick={() => goTo(slideIndexRef.current - 1)} disabled={stopping || slideIndex === 0} style={{ flex: 1 }}>
               ← Anterior
             </button>
-            <button type="button" className="btn btn-primary" onClick={() => goTo(slideIndexRef.current + 1)} disabled={deck !== null && slideIndex >= deck.slides.length - 1} style={{ flex: 1 }}>
+            <button type="button" className="btn btn-primary" onClick={() => goTo(slideIndexRef.current + 1)} disabled={stopping || (deck !== null && slideIndex >= deck.slides.length - 1)} style={{ flex: 1 }}>
               Próximo →
             </button>
             {!simulated && (
-              <button type="button" className="btn" onClick={toggleMute} style={{ flex: 1 }}>
+              <button type="button" className="btn" onClick={toggleMute} disabled={stopping} style={{ flex: 1 }}>
                 {muted ? "Ativar microfone" : "Silenciar"}
               </button>
             )}
-            <button type="button" className="btn" onClick={leave} style={{ flex: 1, borderColor: "rgba(255,120,120,0.4)", color: "#ff9d9d" }}>
-              Encerrar
+            <button type="button" className="btn" onClick={leave} disabled={stopping} style={{ flex: 1, borderColor: "rgba(255,120,120,0.4)", color: "#ff9d9d" }}>
+              {stopping ? "Confirmando encerramento…" : "Encerrar"}
             </button>
           </div>
+          {error && <p className="form-error" role="alert" style={{ margin: 0 }}>{error}</p>}
           <p style={{ fontSize: "0.74rem", color: "var(--text-faint)", margin: 0 }}>
             {simulated
               ? "Modo demonstração — navegue o deck manualmente para revisar a apresentação."

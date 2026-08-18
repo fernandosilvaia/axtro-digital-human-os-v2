@@ -89,8 +89,11 @@ try {
   const meetingStatusOverloadApplied = applySupabaseMigrations(databaseUrl, 45, 45);
   assert.deepEqual(meetingStatusOverloadApplied, ["0045"]);
   assertMeetingStatusOverloadRepairPhase(databaseUrl);
+  const terminationFenceApplied = applySupabaseMigrations(databaseUrl, 46, 46);
+  assert.deepEqual(terminationFenceApplied, ["0046"]);
+  await assertTerminationFencePhase(databaseUrl);
   assertFailed(runFile(databaseUrl, join(supabaseMigrationDirectory, "0040_production_integrity_hardening.sql")), "non-idempotent 0040 cannot be replayed without a migration receipt gate");
-  assert.equal(queryScalar(databaseUrl, "SELECT count(*) FROM public.axtro_supabase_test_migrations;"), "45");
+  assert.equal(queryScalar(databaseUrl, "SELECT count(*) FROM public.axtro_supabase_test_migrations;"), "46");
 
   assertMigrationCapabilities(databaseUrl);
   assertLeastPrivilege(databaseUrl);
@@ -116,7 +119,7 @@ try {
   assertCostEventSchemaVersion(databaseUrl);
   await assertRuntimeChannelBridge(databaseUrl);
 
-  console.log("SUPABASE PORTAL INTEGRATION PASSED: migrations 0001-0045, grants, RLS, transcripts, reservations and readiness capability");
+  console.log("SUPABASE PORTAL INTEGRATION PASSED: migrations 0001-0046, grants, RLS, transcripts, reservations and readiness capability");
 } catch (error) {
   primaryError = error;
   throw error;
@@ -132,7 +135,7 @@ function applySupabaseMigrations(databaseUrl, firstVersion, lastVersion) {
   const migrations = readdirSync(supabaseMigrationDirectory)
     .filter((name) => /^\d{4}_.+\.sql$/.test(name))
     .sort();
-  assert.equal(migrations.length, 45, "the harness must cover every Supabase-only migration through the 0045 meeting status overload repair phase");
+  assert.equal(migrations.length, 46, "the harness must cover every Supabase-only migration through the 0046 termination fence phase");
   const applied = [];
   for (const migration of migrations) {
     const numericVersion = Number(migration.slice(0, 4));
@@ -299,10 +302,240 @@ function assertMeetingStatusOverloadRepairPhase(databaseUrl) {
   );
 }
 
+async function assertTerminationFencePhase(databaseUrl) {
+  const capabilities = queryJson(databaseUrl, asRoleSql("service_role", null, "SELECT public.portal_schema_capabilities_service();"));
+  assert.equal(capabilities.version, 46, "0046 adds a durable provider-effect termination fence");
+  assert.equal(capabilities.providerEffectTerminationFence, true);
+  assert.equal(queryScalar(databaseUrl, "SELECT relrowsecurity AND relforcerowsecurity FROM pg_class WHERE oid='public.provider_effect_termination_receipts'::regclass;"), "t");
+  assert.equal(queryScalar(databaseUrl, "SELECT has_function_privilege('authenticated','public.portal_begin_provider_effect_termination_service(app.uuid_v7,app.uuid_v7,app.uuid_v7,uuid,app.uuid_v7,app.uuid_v7,text,text,integer)','EXECUTE');"), "f");
+
+  // tenantAlpha/userAlpha/actorAlpha already has a tenant_admin membership
+  // from the base prelude (line ~178) — reusing it avoids inventing a new
+  // membership fixture just for this phase. This phase runs immediately
+  // after migrations, before any other test has given a tenant a
+  // subscription — portal_begin_provider_effect_service returns
+  // outcome:"capped"/bucket:"billing_status" for a tenant with none (0040
+  // line ~856), identical in shape to a cap-bucket exhaustion. The
+  // subscription/reservation fixtures are deleted at the end of this
+  // function, same isolation pattern already used at the end of
+  // assertBillingCheckoutContract.
+  const tenantId = fixture.tenantAlpha;
+  const agentId = fixture.agentAlpha;
+  assertSucceeded(runSql(databaseUrl, `
+    INSERT INTO public.tenant_subscriptions
+      (id,tenant_id,stripe_customer_id,stripe_subscription_id,plan_id,status,current_period_start,current_period_end)
+    VALUES ('019f0000-0000-7000-8000-000000004602','${tenantId}','cus_HarnessAlphaTermination','sub_HarnessAlphaTermination','piloto','active',date_trunc('month',now()),date_trunc('month',now())+interval '1 month');
+  `), "termination-fence subscription fixture");
+
+  const reservationId = "019f0000-0000-7000-8000-000000004600";
+  const idempotencyKey = "termination-fence-fixture";
+  assert.equal(
+    queryJson(databaseUrl, asRoleSql("service_role", null, reservationInvocationSql(
+      tenantId, agentId, idempotencyKey, reservationId, "019f0000-0000-7000-8000-000000004601", "recall",
+    ))).outcome,
+    "reserved",
+  );
+  assert.equal(queryJson(databaseUrl, asRoleSql("service_role", null,
+    `SELECT public.portal_mark_provider_effect_in_flight_service('${reservationId}');`)).acquired, true);
+  const providerRef = "recall-bot-termination-fixture";
+  assert.equal(queryJson(databaseUrl, asRoleSql("service_role", null,
+    `SELECT public.portal_commit_provider_effect_service('${reservationId}','${providerRef}',null,null);`)).committed, true,
+  "the fence only ever begins termination for a committed reservation with a real provider ref");
+
+  const beginTerminationSql = (receiptId, leaseToken, overrides = {}) => `
+    SELECT public.portal_begin_provider_effect_termination_service(
+      '${receiptId}','${leaseToken}','${overrides.tenantId ?? tenantId}','${overrides.userId ?? fixture.userAlpha}',
+      '${overrides.actorId ?? fixture.actorAlpha}','${overrides.agentId ?? agentId}','${overrides.idempotencyKey ?? idempotencyKey}',
+      '${overrides.provider ?? "recall"}'${overrides.leaseSeconds ? `,${overrides.leaseSeconds}` : ""}
+    );
+  `;
+  const beginTermination = (receiptId, leaseToken, overrides = {}) => queryJson(databaseUrl, asRoleSql("service_role", null,
+    beginTerminationSql(receiptId, leaseToken, overrides)));
+
+  assertFailed(runSql(databaseUrl, asRoleSql("service_role", null, `
+    SELECT public.portal_begin_provider_effect_termination_service(
+      '019f0000-0000-7000-8000-000000004603','019f0000-0000-7000-8000-000000004604','${tenantId}','${fixture.userBeta}',
+      '${fixture.actorBeta}','${agentId}','${idempotencyKey}','recall'
+    );`)),
+  "termination requires the CALLER's actor to hold a tenant_admin membership on the target tenant — a foreign actor cannot even attempt it", /tenant admin membership required/);
+  assertFailed(runSql(databaseUrl, asRoleSql("service_role", null,
+    beginTerminationSql("019f0000-0000-7000-8000-000000004615", "019f0000-0000-7000-8000-000000004616", { actorId: fixture.actorBeta }))),
+  "a user-to-actor mismatch is rejected with the same tenant-admin boundary", /tenant admin membership required/);
+  for (const [overrides, expected] of [
+    [{ agentId: fixture.agentBeta }, "not_stoppable"],
+    [{ provider: "tavus" }, "not_stoppable"],
+    [{ idempotencyKey: "wrong-termination-key" }, "not_started"],
+  ]) {
+    const result = beginTermination("019f0000-0000-7000-8000-000000004617", "019f0000-0000-7000-8000-000000004618", overrides);
+    assert.deepEqual(result, { outcome: expected }, "wrong/missing target remains ref-free");
+  }
+
+  const firstReceiptId = "019f0000-0000-7000-8000-000000004605";
+  const firstLeaseToken = "019f0000-0000-7000-8000-000000004606";
+  const contenderReceiptId = "019f0000-0000-7000-8000-000000004607";
+  const contenderLeaseToken = "019f0000-0000-7000-8000-000000004608";
+  const concurrentBegins = await Promise.all([
+    runSqlAsync(databaseUrl, asRoleSql("service_role", null, beginTerminationSql(firstReceiptId, firstLeaseToken))),
+    runSqlAsync(databaseUrl, asRoleSql("service_role", null, beginTerminationSql(contenderReceiptId, contenderLeaseToken))),
+  ]);
+  for (const result of concurrentBegins) assertSucceeded(result, "concurrent termination begin");
+  const concurrentOutcomes = concurrentBegins.map((result) => parseLastJson(result.stdout));
+  assert.equal(concurrentOutcomes.filter((result) => result.outcome === "dispatch_granted").length, 1, "two database connections yield exactly one dispatch lease");
+  assert.equal(queryScalar(databaseUrl, `SELECT count(*) FROM public.provider_effect_termination_receipts WHERE reservation_id='${reservationId}';`), "1", "one concurrent receipt row");
+  const grantedIndex = concurrentOutcomes.findIndex((result) => result.outcome === "dispatch_granted");
+  const granted = concurrentOutcomes[grantedIndex];
+  assert.equal(granted.providerRef, providerRef, "the fence hands back the exact provider ref only to the winning server process");
+  const winningReceiptId = grantedIndex === 0 ? firstReceiptId : contenderReceiptId;
+  const winningLeaseToken = grantedIndex === 0 ? firstLeaseToken : contenderLeaseToken;
+
+  const failedSettle = queryJson(databaseUrl, asRoleSql("service_role", null, `
+    SELECT public.portal_settle_provider_effect_termination_service('${tenantId}','${winningReceiptId}','${winningLeaseToken}','retryable_failure','provider_unavailable');
+  `));
+  assert.equal(failedSettle.outcome, "retry_after");
+  assert.equal(
+    beginTermination("019f0000-0000-7000-8000-000000004609", "019f0000-0000-7000-8000-000000004610").outcome,
+    "retry_after",
+    "a begin attempt inside the exponential backoff window must not dispatch a second provider call",
+  );
+  assert.equal(queryScalar(databaseUrl, `SELECT retry_after > now() FROM public.provider_effect_termination_receipts WHERE id='${winningReceiptId}';`), "t");
+
+  const staleSettle = queryJson(databaseUrl, asRoleSql("service_role", null, `
+    SELECT public.portal_settle_provider_effect_termination_service('${tenantId}','${winningReceiptId}','${winningLeaseToken}','provider_accepted');
+  `));
+  assert.equal(staleSettle.outcome, "stale", "a lease already settled by the retryable-failure branch cannot be re-settled with a stale token");
+
+  assertSucceeded(runSql(databaseUrl, `UPDATE public.provider_effect_termination_receipts SET retry_after=now()-interval '1 second' WHERE id='${winningReceiptId}';`),
+    "fast-forward past the backoff window to exercise the accepted path without a real 15s wait");
+  const secondReceiptId = "019f0000-0000-7000-8000-000000004611";
+  const secondLeaseToken = "019f0000-0000-7000-8000-000000004612";
+  const secondAttempt = beginTermination(secondReceiptId, secondLeaseToken);
+  assert.equal(secondAttempt.outcome, "dispatch_granted");
+  const accepted = queryJson(databaseUrl, asRoleSql("service_role", null, `
+    SELECT public.portal_settle_provider_effect_termination_service('${tenantId}','${secondReceiptId}','${secondLeaseToken}','provider_accepted');
+  `));
+  assert.equal(accepted.outcome, "accepted");
+  assert.equal(queryScalar(databaseUrl, `SELECT state FROM public.provider_effect_reservations WHERE id='${reservationId}';`), "completed",
+    "a provider-accepted termination is the only path that marks the reservation completed");
+  assert.match(
+    queryScalar(databaseUrl, `SELECT provider_receipt_ref FROM public.provider_effect_termination_receipts WHERE id='${secondReceiptId}';`),
+    /^termination:recall:sha256:[0-9a-f]{64}$/,
+  );
+
+  assert.equal(beginTermination("019f0000-0000-7000-8000-000000004613", "019f0000-0000-7000-8000-000000004614").outcome, "accepted",
+    "a replayed begin after acceptance is idempotent, never a second dispatch");
+
+  const expiredReservationId = "019f0000-0000-7000-8000-000000004626";
+  const expiredKey = "termination-expired-lease";
+  assert.equal(queryJson(databaseUrl, asRoleSql("service_role", null, reservationInvocationSql(
+    tenantId, agentId, expiredKey, expiredReservationId, "019f0000-0000-7000-8000-000000004627", "recall",
+  ))).outcome, "reserved");
+  assert.equal(queryJson(databaseUrl, asRoleSql("service_role", null,
+    `SELECT public.portal_mark_provider_effect_in_flight_service('${expiredReservationId}');`)).acquired, true);
+  assert.equal(queryJson(databaseUrl, asRoleSql("service_role", null,
+    `SELECT public.portal_commit_provider_effect_service('${expiredReservationId}','recall-expired-lease-ref',null,null);`)).committed, true);
+  const expiredBegin = (receiptId, leaseToken) => beginTermination(receiptId, leaseToken, { idempotencyKey: expiredKey });
+  const expiredFirstId = "019f0000-0000-7000-8000-000000004628";
+  const expiredFirstLease = "019f0000-0000-7000-8000-000000004629";
+  assert.equal(expiredBegin(expiredFirstId, expiredFirstLease).outcome, "dispatch_granted");
+  assertSucceeded(runSql(databaseUrl, `UPDATE public.provider_effect_termination_receipts SET lease_until=now()-interval '1 second' WHERE id='${expiredFirstId}';`), "expire live termination lease");
+  const expiredSecondId = "019f0000-0000-7000-8000-000000004630";
+  assert.equal(expiredBegin(expiredSecondId, "019f0000-0000-7000-8000-000000004631").outcome, "dispatch_granted", "an expired live lease creates attempt 2");
+  assert.equal(queryScalar(databaseUrl, `SELECT count(*) FROM public.provider_effect_termination_receipts WHERE reservation_id='${expiredReservationId}';`), "2");
+  assert.equal(queryJson(databaseUrl, asRoleSql("service_role", null,
+    `SELECT public.portal_settle_provider_effect_termination_service('${tenantId}','${expiredFirstId}','${expiredFirstLease}','provider_accepted');`)).outcome, "stale",
+  "stale settle after a replaced lease cannot mutate the reservation");
+  assert.equal(queryScalar(databaseUrl, `SELECT state FROM public.provider_effect_reservations WHERE id='${expiredReservationId}';`), "committed");
+
+  const tavusReservationId = "019f0000-0000-7000-8000-000000004632";
+  const tavusTokenHash = "a".repeat(64);
+  const tavusTenantId = "019f0000-0000-7000-8000-000000000007";
+  const tavusAgentId = "019f0000-0000-7000-8000-000000000107";
+  const tavusUserId = "10000000-0000-4000-8000-000000000005";
+  const tavusActorId = "019f0000-0000-7000-8000-000000000208";
+  assertSucceeded(runSql(databaseUrl, `
+    INSERT INTO auth.users(id,email) VALUES ('${tavusUserId}','termination-stage@example.test');
+    INSERT INTO public.tenants(id,slug,legal_name,status,home_region,default_language,default_timezone)
+      VALUES ('${tavusTenantId}','termination-stage-harness','Termination Stage Harness','active','local','en','UTC');
+    INSERT INTO public.agents(tenant_id,id,name,role_type,status,disclosure_profile_id)
+      VALUES ('${tavusTenantId}','${tavusAgentId}','Termination Stage Agent','sales','active','default');
+    INSERT INTO public.user_tenant_memberships(user_id,tenant_id,actor_id,role) VALUES ('${tavusUserId}','${tavusTenantId}','${tavusActorId}','tenant_admin');
+    INSERT INTO public.tenant_subscriptions(id,tenant_id,stripe_customer_id,stripe_subscription_id,plan_id,status,current_period_start,current_period_end)
+      VALUES ('019f0000-0000-7000-8000-000000004636','${tavusTenantId}','cus_TerminationStage','sub_TerminationStage','piloto','active',date_trunc('month',now()),date_trunc('month',now())+interval '1 month');
+  `), "isolated Tavus termination fixture tenant");
+  assert.equal(queryJson(databaseUrl, asRoleSql("service_role", null, reservationInvocationSql(
+    tavusTenantId, tavusAgentId, "termination-tavus-stage", tavusReservationId, "019f0000-0000-7000-8000-000000004633", "tavus",
+  ))).outcome, "reserved");
+  assert.equal(queryJson(databaseUrl, asRoleSql("service_role", null,
+    `SELECT public.portal_mark_provider_effect_in_flight_service('${tavusReservationId}');`)).acquired, true);
+  assert.equal(queryJson(databaseUrl, asRoleSql("service_role", null,
+    `SELECT public.portal_commit_provider_effect_service('${tavusReservationId}','tavus-termination-stage-ref','https://tavus.daily.co/termination-stage',null);`)).committed, true);
+  assert.equal(queryJson(databaseUrl, asRoleSql("service_role", null,
+    `SELECT public.portal_create_tavus_stage_capability_service('${tavusTenantId}','${tavusAgentId}','${tavusReservationId}','${tavusTokenHash}','https://tavus.daily.co/termination-stage');`)).created, true);
+  assert.equal(queryJson(databaseUrl, asRoleSql("service_role", null,
+    `SELECT public.portal_resolve_tavus_stage_capability_service('${tavusTokenHash}');`)).found, true);
+  const tavusTermination = beginTermination("019f0000-0000-7000-8000-000000004634", "019f0000-0000-7000-8000-000000004635", { tenantId: tavusTenantId, userId: tavusUserId, actorId: tavusActorId, agentId: tavusAgentId, idempotencyKey: "termination-tavus-stage", provider: "tavus" });
+  assert.equal(tavusTermination.outcome, "dispatch_granted");
+  assert.equal(queryJson(databaseUrl, asRoleSql("service_role", null,
+    `SELECT public.portal_settle_provider_effect_termination_service('${tavusTenantId}','019f0000-0000-7000-8000-000000004634','019f0000-0000-7000-8000-000000004635','provider_accepted');`)).outcome, "accepted");
+  assert.deepEqual(queryJson(databaseUrl, asRoleSql("service_role", null,
+    `SELECT public.portal_resolve_tavus_stage_capability_service('${tavusTokenHash}');`)), { found: false }, "accepted Tavus termination never returns a room URL");
+  assert.equal(queryScalar(databaseUrl, `SELECT revoked_at is not null FROM public.tavus_stage_capabilities WHERE reservation_id='${tavusReservationId}';`), "t");
+  assertFailed(runSql(databaseUrl, asRoleSql("service_role", null,
+    `SELECT public.portal_create_tavus_stage_capability_service('${tavusTenantId}','${tavusAgentId}','${tavusReservationId}','${"b".repeat(64)}','https://tavus.daily.co/termination-stage');`)),
+  "a completed terminated Tavus reservation cannot re-open a stage capability");
+
+  const naturalReservationId = "019f0000-0000-7000-8000-000000004637";
+  assert.equal(queryJson(databaseUrl, asRoleSql("service_role", null, reservationInvocationSql(
+    tavusTenantId, tavusAgentId, "termination-natural-complete", naturalReservationId, "019f0000-0000-7000-8000-000000004638", "tavus",
+  ))).outcome, "reserved");
+  assert.equal(queryJson(databaseUrl, asRoleSql("service_role", null, `SELECT public.portal_mark_provider_effect_in_flight_service('${naturalReservationId}');`)).acquired, true);
+  assert.equal(queryJson(databaseUrl, asRoleSql("service_role", null, `SELECT public.portal_commit_provider_effect_service('${naturalReservationId}','tavus-natural-complete-ref','https://tavus.daily.co/natural-complete',null);`)).committed, true);
+  const naturalReceiptId = "019f0000-0000-7000-8000-000000004639";
+  const naturalLeaseToken = "019f0000-0000-7000-8000-000000004640";
+  assert.equal(beginTermination(naturalReceiptId, naturalLeaseToken, { tenantId: tavusTenantId, userId: tavusUserId, actorId: tavusActorId, agentId: tavusAgentId, idempotencyKey: "termination-natural-complete", provider: "tavus" }).outcome, "dispatch_granted");
+  assertSucceeded(runSql(databaseUrl, `UPDATE public.provider_effect_reservations SET state='completed',completed_at=now() WHERE id='${naturalReservationId}';`), "natural completion before termination settle");
+  assert.equal(queryJson(databaseUrl, asRoleSql("service_role", null, `SELECT public.portal_settle_provider_effect_termination_service('${tavusTenantId}','${naturalReceiptId}','${naturalLeaseToken}','provider_accepted');`)).outcome, "accepted", "natural completion settles the already-dispatched receipt without another provider call");
+
+  const raceReservationId = "019f0000-0000-7000-8000-000000004641";
+  const raceTokenHash = "c".repeat(64);
+  assert.equal(queryJson(databaseUrl, asRoleSql("service_role", null, reservationInvocationSql(
+    tavusTenantId, tavusAgentId, "termination-stage-race", raceReservationId, "019f0000-0000-7000-8000-000000004642", "tavus",
+  ))).outcome, "reserved");
+  assert.equal(queryJson(databaseUrl, asRoleSql("service_role", null, `SELECT public.portal_mark_provider_effect_in_flight_service('${raceReservationId}');`)).acquired, true);
+  assert.equal(queryJson(databaseUrl, asRoleSql("service_role", null, `SELECT public.portal_commit_provider_effect_service('${raceReservationId}','tavus-stage-race-ref','https://tavus.daily.co/stage-race',null);`)).committed, true);
+  const raceReceiptId = "019f0000-0000-7000-8000-000000004643";
+  const raceLeaseToken = "019f0000-0000-7000-8000-000000004644";
+  assert.equal(beginTermination(raceReceiptId, raceLeaseToken, { tenantId: tavusTenantId, userId: tavusUserId, actorId: tavusActorId, agentId: tavusAgentId, idempotencyKey: "termination-stage-race", provider: "tavus" }).outcome, "dispatch_granted");
+  const [raceCreate, raceSettle] = await Promise.all([
+    runSqlAsync(databaseUrl, asRoleSql("service_role", null, `SELECT public.portal_create_tavus_stage_capability_service('${tavusTenantId}','${tavusAgentId}','${raceReservationId}','${raceTokenHash}','https://tavus.daily.co/stage-race');`)),
+    runSqlAsync(databaseUrl, asRoleSql("service_role", null, `SELECT public.portal_settle_provider_effect_termination_service('${tavusTenantId}','${raceReceiptId}','${raceLeaseToken}','provider_accepted');`)),
+  ]);
+  assertSucceeded(raceSettle, "Tavus stage/termination concurrent settle");
+  if (raceCreate.status === 0) assert.equal(parseLastJson(raceCreate.stdout).created, true, "creator may win only before settlement revokes it");
+  else assert.match([raceCreate.stderr, raceCreate.stdout].filter(Boolean).join("\n"), /committed Tavus reservation required/, "creator loses only after the committed reservation becomes terminal");
+  assert.deepEqual(queryJson(databaseUrl, asRoleSql("service_role", null, `SELECT public.portal_resolve_tavus_stage_capability_service('${raceTokenHash}');`)), { found: false }, "the create/settle race cannot leave a live stage URL");
+
+  assertSucceeded(runSql(databaseUrl, `
+    DELETE FROM public.provider_effect_termination_receipts WHERE reservation_id='${reservationId}';
+    DELETE FROM public.provider_effect_termination_receipts WHERE reservation_id='${expiredReservationId}';
+    DELETE FROM public.provider_effect_reservations WHERE id='${reservationId}';
+    DELETE FROM public.provider_effect_reservations WHERE id='${expiredReservationId}';
+    DELETE FROM public.tavus_stage_capabilities WHERE reservation_id='${tavusReservationId}';
+    DELETE FROM public.provider_effect_termination_receipts WHERE reservation_id='${tavusReservationId}';
+    DELETE FROM public.provider_effect_reservations WHERE id='${tavusReservationId}';
+    DELETE FROM public.provider_effect_termination_receipts WHERE reservation_id='${naturalReservationId}';
+    DELETE FROM public.provider_effect_reservations WHERE id='${naturalReservationId}';
+    DELETE FROM public.tavus_stage_capabilities WHERE reservation_id='${raceReservationId}';
+    DELETE FROM public.provider_effect_termination_receipts WHERE reservation_id='${raceReservationId}';
+    DELETE FROM public.provider_effect_reservations WHERE id='${raceReservationId}';
+    DELETE FROM public.tenant_subscriptions WHERE tenant_id='${tenantId}';
+  `), "isolate termination-fence fixtures from later provider-budget scenarios");
+}
+
 function assertMigrationCapabilities(databaseUrl) {
   assert.equal(queryScalar(databaseUrl, "SELECT to_regprocedure('public.portal_schema_capabilities_service()') IS NOT NULL;"), "t");
   const capabilities = queryJson(databaseUrl, asRoleSql("service_role", null, "SELECT public.portal_schema_capabilities_service();"));
-  assert.equal(capabilities.version, 45);
+  assert.equal(capabilities.version, 46);
   assert.equal(capabilities.providerEffectReservations, true);
   assert.equal(capabilities.billingUsageOutbox, true);
   assert.equal(capabilities.recallWebhookDedupe, true);
@@ -331,6 +564,7 @@ function assertMigrationCapabilities(databaseUrl) {
   assert.equal(capabilities.runtimeDualOperatorReconciliation, true);
   assert.equal(capabilities.runtimeBridgeReceiptIntegrity, true);
   assert.equal(capabilities.meetingBotStatusUpdateUnambiguous, true);
+  assert.equal(capabilities.providerEffectTerminationFence, true);
   assert.equal(queryScalar(databaseUrl, "SELECT to_regclass('public.provider_effect_reservations') IS NOT NULL;"), "t");
   assert.equal(queryScalar(databaseUrl, "SELECT to_regclass('public.billing_usage_outbox') IS NOT NULL;"), "t");
   for (const signature of [
@@ -381,6 +615,7 @@ function assertLeastPrivilege(databaseUrl) {
 
   const m5Tables = [
     "provider_effect_reservations",
+    "provider_effect_termination_receipts",
     "provider_effect_reconciliation_receipts",
     "billing_usage_outbox",
     "recall_webhook_deliveries",
@@ -2669,8 +2904,12 @@ function assertSucceeded(result, phase) {
   }
 }
 
-function assertFailed(result, phase) {
+function assertFailed(result, phase, expectedDetail = null) {
   if (result.status === 0) throw new Error(`Supabase portal integration expected failure during ${phase}`);
+  if (expectedDetail !== null) {
+    const detail = [result.stderr, result.stdout].filter(Boolean).join("\n");
+    assert.match(detail, expectedDetail, `${phase} must fail with the expected SQLSTATE`);
+  }
 }
 
 function createDatabase(baseUrl, executable, name) {

@@ -5,7 +5,7 @@ import { createTavusVideoConversationPort, VideoProviderError } from "@axtro/pro
 import { fakeProvidersEnabled } from "@/lib/knowledge";
 import { isRateLimited } from "@/lib/rate-limit";
 import { VIDEO_CAP_MESSAGE } from "@/lib/video-cap";
-import { beginProviderEffect, commitProviderEffectOrCompensate, compensateCommittedProviderEffect, fenceProviderFailure, isPaidEffectCommandId, paidEffectIntentKey, providerCorrelationLabel, releaseProviderEffect, retryReleasedProviderEffect } from "@/lib/paid-effects";
+import { beginProviderEffect, commitProviderEffectOrCompensate, compensateCommittedProviderEffect, fenceProviderFailure, isPaidEffectCommandId, paidEffectIntentKey, providerCorrelationLabel, releaseProviderEffect, retryReleasedProviderEffect, terminateProviderEffectForOperator } from "@/lib/paid-effects";
 import { fetchAgents, fetchTenantOverview } from "@/lib/portal-data";
 import { buildDeckContext, buildPlatformDeck, buildSalesDeck, type Deck } from "@/lib/presentation/deck";
 import { admitPortalChannel, assertPortalProviderDispatchActive, bindPortalProviderChannel, type PortalChannelConsentConfirmation, type PortalChannelGrant, type PortalRuntimeOutcomeCode } from "@/lib/runtime/portal-channel-runtime-bridge";
@@ -25,6 +25,11 @@ export interface VideoConversationResult {
  * same transaction as the channel grant; it is never browser-only authority.
  */
 export type VideoChannelConsent = PortalChannelConsentConfirmation;
+
+export interface StopVideoConversationResult {
+  readonly stopped: boolean;
+  readonly error: string | null;
+}
 
 export interface PresentationConversationResult {
   readonly url: string | null;
@@ -133,6 +138,46 @@ async function bindCommittedTavusRuntimeChannel(
 
 function videoConversationDedupKey(tenantId: string, commandId: string, mode: "video" | "presentation"): string {
   return `video-conversation:${tenantId}:${commandId}:${mode}`;
+}
+
+/**
+ * Operator stop uses a durable tenant-admin lease. It reports provider request
+ * acceptance only; this path does not prove a physical media boundary.
+ */
+async function stopTavusConversation(
+  agentId: string,
+  commandId: string,
+  mode: "video" | "presentation",
+): Promise<StopVideoConversationResult> {
+  if (!isPaidEffectCommandId(commandId)) return { stopped: false, error: "A intenção não é válida." };
+  const apiKey = process.env.TAVUS_API_KEY ?? "";
+  if (apiKey.trim().length === 0) return { stopped: false, error: "O provider de vídeo ainda não está configurado neste ambiente." };
+
+  const [overview, agents] = await Promise.all([fetchTenantOverview(), fetchAgents()]);
+  if (!overview.provisioned || !overview.tenant) return { stopped: false, error: "Conta ainda não provisionada." };
+  const tenantId = overview.tenant.id;
+  if (!agents.some((candidate) => candidate.id === agentId)) return { stopped: false, error: "Agente não encontrado nesta conta." };
+
+  const port = createTavusVideoConversationPort({ apiKey });
+  const result = await terminateProviderEffectForOperator({
+    tenantId, agentId, commandId, provider: "tavus",
+    discriminator: mode === "video" ? "tavus:video" : "tavus:presentation",
+    terminate: (providerRef) => port.endConversation(providerRef),
+  });
+  if (result.outcome === "accepted") return { stopped: true, error: null };
+  if (result.outcome === "disabled") return { stopped: false, error: "O encerramento seguro por provider ainda não está disponível neste ambiente." };
+  if (result.outcome === "in_progress") return { stopped: false, error: "Uma solicitação de encerramento já está em andamento." };
+  if (result.outcome === "retry_after" || result.outcome === "retryable_failure") return { stopped: false, error: "O provider ainda não aceitou o encerramento. Tente novamente em instantes." };
+  if (result.outcome === "operator_required") return { stopped: false, error: "O encerramento exige intervenção da equipe responsável." };
+  return { stopped: false, error: "Não encontramos uma chamada ativa para encerrar." };
+}
+
+export async function stopVideoConversation(agentId: string, commandId: string): Promise<StopVideoConversationResult> {
+  return stopTavusConversation(agentId, commandId, "video");
+}
+
+export async function stopPresentationConversation(agentId: string, commandId: string): Promise<StopVideoConversationResult> {
+  return stopTavusConversation(agentId, commandId, "presentation");
 }
 
 export async function startVideoConversation(agentId: string, commandId: string, consent: VideoChannelConsent): Promise<VideoConversationResult> {

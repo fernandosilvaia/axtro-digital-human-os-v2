@@ -1,7 +1,7 @@
 /*
  * GENERATED FILE. DO NOT EDIT.
  * generator: scripts/generate_contract_types.py@1.0.0
- * source: 52 JSON Schema Draft 2020-12 documents under contracts/schemas/
+ * source: 53 JSON Schema Draft 2020-12 documents under contracts/schemas/
  */
 
 export const CONTRACT_GENERATOR_VERSION = "1.0.0" as const;
@@ -586,6 +586,12 @@ export interface ProviderCapability {
   cost_model_ref: string;
   status: "candidate" | "approved" | "fallback" | "deprecated" | "disabled";
   evaluated_at: string;
+}
+
+/** Source: contracts/schemas/provider_effect_termination_result.schema.json; schema: https://schemas.axtro.ai/v2/provider_effect_termination_result.schema.json; version: 2.0.0. */
+export interface ProviderEffectTerminationResult {
+  schema_version: "2.0.0";
+  outcome: "accepted" | "disabled" | "in_progress" | "retry_after" | "operator_required" | "not_started" | "not_stoppable" | "retryable_failure";
 }
 
 /** Source: contracts/schemas/provider_registry_entry.schema.json; schema: https://schemas.axtro.ai/v2/provider_registry_entry.schema.json; version: 2.0.0. */
@@ -1186,6 +1192,12 @@ export const CONTRACT_METADATA = {
     "schema_version": "2.0.0",
     "source_hash": "34b35d929e7f5bfb368350217d510533da5f3072ddae227b6ab166e3c81ac7b7",
     "source_schema": "contracts/schemas/provider_capability.schema.json"
+  },
+  "ProviderEffectTerminationResult": {
+    "schema_id": "https://schemas.axtro.ai/v2/provider_effect_termination_result.schema.json",
+    "schema_version": "2.0.0",
+    "source_hash": "237787f98aaad567d64b8a7cd74fa86bc5722295418ae964a2cdc21b82e4f816",
+    "source_schema": "contracts/schemas/provider_effect_termination_result.schema.json"
   },
   "ProviderRegistryEntry": {
     "schema_id": "https://schemas.axtro.ai/v2/provider_registry_entry.schema.json",

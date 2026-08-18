@@ -192,6 +192,38 @@ Delayed camera attachment persists its progress. Replays may resume
 conversation. Camera start success is a durable receipt/state, and failed
 cleanup remains fenced.
 
+### Durable operator termination lease and receipt
+
+Ending a known Tavus conversation or Recall bot is a lifecycle-containment
+operation, not reconciliation and not a financial compensation. It therefore
+has a separate, append-only termination receipt scoped to the existing
+reservation. The receipt records the server-derived tenant, canonical actor,
+provider, attempt, state, lease and sanitized failure/acceptance evidence. It
+never exposes a provider reference, reservation ID or lease token to the
+browser.
+
+The termination begin boundary locks the reservation and independently verifies
+that the authenticated user and canonical actor are the same `tenant_admin`
+membership. It resolves the reservation only from server-derived tenant, agent,
+provider and idempotency data. At most one live dispatching lease exists for a
+reservation across all replicas. A live lease returns an in-progress status;
+an accepted receipt replays an accepted status; a due retry appends the next
+attempt. Process-local rate limiting may improve UX but is never the authority
+for a provider call.
+
+The provider reference is released only to the server action that owns a fresh
+lease. A successful provider acknowledgement atomically settles the receipt
+and transitions the already-committed reservation to `completed`. A timeout or
+failure does not release, void, reconcile, or mark the paid reservation
+`unknown`: it records a retryable failure with bounded backoff, and eventually
+requires an operator. A stale lease token cannot settle a later attempt.
+
+This gives one concurrent provider termination dispatch, not a false
+exactly-once claim for an HTTP request after an ambiguous timeout. It also does
+not prove physical media silence, cancel late audio/video output, or replace
+the realtime generation fence required by ADR-038. User-facing success means
+only that the termination request was accepted by the provider boundary.
+
 ### Expand-contract deployment
 
 The first migration is additive: new tables, RPCs and a schema-capability probe
@@ -245,6 +277,10 @@ Stripe webhook.
 4. Block the HTTP response until Stripe accepts overage. Rejected because
    billing availability must not extend user-path latency and a crash would
    still lose the unit without durable state.
+5. Use a process-local stop deduplication window or reuse provider-effect
+   reconciliation receipts. Rejected because the former does not coordinate
+   replicas and the latter has billing-release semantics that are incorrect for
+   a normal operator termination.
 
 ## Consequences
 
@@ -265,6 +301,9 @@ Stripe webhook.
   false success.
 - Supabase-only migrations need an executable local harness for concurrency,
   grants, rollback and RLS; regex source tests remain lint only.
+- Normal operator termination has a separate durable receipt/lease and
+  `tenant_admin` authorization boundary; it cannot reuse financial
+  reconciliation or report media silence without independent evidence.
 
 ## Rollback
 
