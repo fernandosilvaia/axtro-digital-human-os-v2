@@ -7,6 +7,7 @@ import type { BrainKnowledgeMatch } from "@/lib/brain/chat-completion-core";
 import type { BrainLanguage } from "@/lib/brain/metodo-silva";
 import { authenticateBrainRequest, BrainHttpError, handleBrainChatRequest, type BudgetVerdict, type ResolvedBrainAgent } from "@/lib/brain/handle-chat-request";
 import {
+  AI_USAGE_LIMITS,
   aiProviderRequestScope,
   beginAiUsage,
   commitAiUsage,
@@ -18,8 +19,9 @@ import {
   stableAiUsageIdempotencyKey,
   type AiUsageReservation,
 } from "@/lib/ai-budget/reservations";
+import { AiUsageEnvelopeError } from "@/lib/ai-budget/envelope";
 import { readBoundedTextBody } from "@/lib/http/read-bounded-body";
-import { embedQuery } from "@/lib/knowledge";
+import { embedQuery, prepareEmbeddingQueryForReservedUsage } from "@/lib/knowledge";
 import { createServiceRoleClient, ServiceRoleUnavailableError } from "@/lib/supabase/service";
 import { logError as trackError, logEvent } from "@/lib/telemetry";
 
@@ -134,6 +136,23 @@ async function retrieveKnowledge(
   const apiKey = process.env.OPENROUTER_API_KEY ?? "";
   if (trimmed.length === 0 || apiKey.trim().length === 0) return [];
 
+  // Nenhuma reserva ou fence é adquirida se a entrada não cabe no envelope
+  // conservador. Isso impede que Unicode/bytes excedam o teto antes de o
+  // provider receber uma chamada.
+  let embeddingQuery: string;
+  try {
+    embeddingQuery = prepareEmbeddingQueryForReservedUsage(
+      trimmed,
+      AI_USAGE_LIMITS.knowledge_query_embedding.maxInputTokens,
+    );
+  } catch (error) {
+    if (error instanceof AiUsageEnvelopeError) {
+      logEvent("brain_knowledge_input_envelope_rejected", { agent_id: agentId });
+      return [];
+    }
+    throw error;
+  }
+
   const supabase = createServiceRoleClient();
   const begin = await beginAiUsage({
     client: supabase,
@@ -149,7 +168,11 @@ async function retrieveKnowledge(
   try {
     providerDispatched = await markAiUsageInFlight(supabase, reservation);
     if (!providerDispatched) return [];
-    const { embedding, inputTokens, reportedCostUsd } = await embedQuery(apiKey, trimmed);
+    const { embedding, inputTokens, reportedCostUsd } = await embedQuery(
+      apiKey,
+      embeddingQuery,
+      AI_USAGE_LIMITS.knowledge_query_embedding.maxInputTokens,
+    );
     const committed = await commitAiUsage(supabase, reservation, {
       inputTokens,
       outputTokens: 0,
@@ -339,6 +362,12 @@ export async function POST(
           if (!committed) {
             await markAiUsageUnknown(serviceClient, generationReservation, "usage_commit_failed");
             generationTerminalRecorded = true;
+            trackError("brain_ai_usage_commit_failed", new Error("generation reservation did not commit"), {
+              tenant_id: _tenantId,
+              agent_id: _agentId,
+              reservation_id: generationReservation.id,
+              operation: "brain_generation",
+            });
             throw new Error("AI usage commit failed after provider success");
           }
         },

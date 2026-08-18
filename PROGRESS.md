@@ -1,10 +1,10 @@
 # Progresso de implementação
 
-**Estado atual:** M0-M4 com código concluído; M5 aberto após auditoria multidisciplinar de produção, segurança, dados, custo, testes, arquitetura, UX e descoberta. M5-01 está em andamento para fechar riscos críticos antes de qualquer ampliação visual ou promoção de provider.
+**Estado atual:** M0-M5-01 com código concluído; M5-02 é a próxima dependência antes da experiência premium e da promoção de provider.
 
 **Marco atual:** M5 — Production Integrity, Trust and Discovery
-**Tarefa atual:** M5-01 — in_progress
-**Última evidência verde:** baseline de 2026-08-13 no HEAD `8c904c4`: `python3 scripts/validate_all.py` com 9/9 validadores verdes; auditoria read-only confirmou os write sets de M5-01 antes da edição
+**Tarefa atual:** M5-02 — pending
+**Última evidência verde:** 2026-08-18: `pnpm lint`, `pnpm typecheck`, `pnpm test` (1043 Node + 26 Python), `pnpm db:portal:test` (migrations 0001–0042), `pnpm build`, `python3 scripts/validate_all.py` (9/9) e `git diff --check` verdes; revisões independentes M5-01 sem P0/P1
 **Bloqueadores internos:** nenhum
 **Pendências externas:** consultar `PENDENCIAS_EXTERNAS.md`  
 
@@ -16,6 +16,11 @@
 > finalização/overage transacionais, rollout expand-contract e teste PostgreSQL
 > executável são agora critérios obrigatórios. Nenhuma migration 0040 foi
 > aplicada no Supabase hospedado.
+
+> M5-01 concluído (2026-08-18): os efeitos pagos e o ledger agora passam por
+> fences/receipts duráveis, os envelopes de IA são validados antes do provider
+> e o contrato do ledger está em v42. A promoção continua bloqueada até o
+> rollout expand-contract remoto de 0040→0042 e seus gates humanos.
 
 ## Regras de atualização
 
@@ -86,7 +91,7 @@
 | `M4-02` | M4 | done | Parse Tavus custom-LLM messages into brain input | `M4-01` | `tavus-request.ts`: system messages do Tavus descartadas da conversa mas varridas por tags de percepção antes; 13 testes novos (450 Node total) verdes |
 | `M4-03` | M4 | done | Add agent_brain_config migration | `M4-01` | `0018_agent_brain_config.sql` revisado, `secret.ts` com 7 testes novos (457 Node total); aplicada no Supabase real em 2026-07-27 (autorização explícita do Fernando) |
 | `M4-04` | M4 | done (código; sem persona real ligada) | Add Tavus-facing brain chat-completions HTTP route | `M4-01`, `M4-02`, `M4-03` | `/api/brain/[agentId]/chat/completions` (SSE), `handle-chat-request.ts` com 10 testes novos (467 Node total), `next build` real gera a rota; `0019_agent_brain_service_role_rpcs.sql` aplicada em 2026-07-27 (tabela + 5 funções + RLS forçada confirmadas via `execute_sql`, advisor de segurança revisado — só WARNs já aceitos). Falta só `SUPABASE_SERVICE_ROLE_KEY` no ambiente (nunca configurada) pro endpoint funcionar de ponta a ponta; RAG real é gap declarado (retorna vazio); nenhuma persona Tavus real aponta pra cá ainda |
-| `M5-01` | M5 | in_progress | Close production integrity and denial-of-wallet gaps | `M4-04` | Auditoria inicial concluída; implementação e testes em andamento |
+| `M5-01` | M5 | done | Close production integrity and denial-of-wallet gaps | `M4-04` | Fences Tavus/Recall, UUIDv7, envelopes IA, transcript/RLS, v42/readiness e PostgreSQL real validados; rollout remoto ainda human-gated |
 | `M5-02` | M5 | pending | Bridge portal channels to constitutional runtime boundaries | `M5-01` | Aguarda M5-01 verde e ADR prévio |
 | `M5-03` | M5 | pending | Ship premium public experience and advanced discovery surfaces | `M5-02` | Auditoria visual baseline e ativo premium inicial já capturados; implementação aguarda dependências |
 
@@ -1041,3 +1046,13 @@ bake-off credenciado de provider e piloto interno real de M3-10.
 - **1 achado que não dá pra corrigir com um commit**: o DMARC de `axtroai.com` está em `p=none` (só monitoramento) e os relatórios agregados vão pra um domínio de terceiro completamente sem relação com a Axtro (`dmarcreports@lovable.dev` — confirmei ao vivo com `dig TXT`, não inventei). Não é causa de spam hoje (o DKIM da Resend já alinha), mas é uma lacuna de visibilidade real que só o Fernando resolve no registrador do domínio. Documentei e segui em frente.
 - **A primeira auto-revisão desta sessão sem nenhum achado grave.** As três ondas anteriores (D-V2-114, 115, 116) me ensinaram, cada uma à sua vez, que a auto-revisão não é formalidade — sempre achava pelo menos 1 bug real que eu mesmo tinha introduzido. Desta vez: 8 achados, todos P2/P3, zero confirmado como P0/P1. Não sei se é porque a disciplina das ondas anteriores (pensar em idempotência desde o início, replicar guards de fake mode, checar limiares duas vezes) finalmente virou hábito, ou só sorte desta rodada — tratei como a primeira, não como garantia. Corrigi os 8 mesmo assim, por serem baratos: um off-by-one no truncamento novo (o "…" era somado DEPOIS de já ter usado o orçamento inteiro, não reservado dele — corrigido reservando o tamanho do marcador primeiro); uma citação vazia latente (se o nome da fonte sozinho já estourasse o orçamento do chunk, a linha saía só com `[Fonte]` sem nenhum conteúdo — não alcançável hoje pelos limites reais de `p_limit`, mas corrigi pulando o match em vez de arriscar); o retry novo de e-mail retentava em QUALQUER exceção, inclusive o próprio timeout do cliente, sem nenhuma chave de idempotência — se a Resend só estava lenta (não realmente falhando), eu podia estar mandando o mesmo convite duas vezes; adicionei o header `Idempotency-Key` que a Resend já suporta, fechando isso na raiz; 3 dos `trackError` novos disparavam mesmo em modo demo legítimo (`PORTAL_FAKE_PROVIDERS=1`), tratando um ambiente CORRETAMENTE configurado como quebrado — adicionei o guard de `fakeProvidersEnabled()` que uma das funções irmãs já usava certo; e o healthcheck tinha um limiar errado (`RAISSA_TOOLS_SECRET` só checava "não-vazio" quando o código real exige `>=16` chars) e faltavam 2 vars do Recall que o próprio comentário dizia estarem cobertas.
 - Pipeline: 680 Node (+12 novos: buildKnowledgeBlock ×3, verificação Svix ×7, retry condicional de e-mail ×2) + 26 Python + lint + typecheck (raiz + portal) + 9 validadores + `next build` — tudo verde, rodado 2x (antes e depois de aplicar os 8 achados P2/P3 da auto-revisão). Sem migration nesta onda.
+
+
+### 2026-08-18, M5-01 concluído — integridade de produção e denial-of-wallet
+
+- Fechados os efeitos pagos fora da reserva durável: auto-provisionamento real de persona Tavus e Checkout Stripe de prospect permanecem explicitamente bloqueados até receberem intents/receipts/reconciliação próprios. Toda criação de conversa Tavus usa a capability callback como fence atômico especializado; Recall usa seu fence de dispatch antes do provider.
+- Adicionados envelopes conservadores UTF-8 antes de qualquer dispatch OpenRouter, UUIDv7 distintos para reserva e evento de custo, e telemetria/estado `unknown` para commits de ledger ambíguos. Os testes cobrem Unicode adversarial sem chamada ao provider.
+- Migration `0042_cost_event_schema_and_legacy_writer_contract.sql` alinha `cost_events.schema_version` ao contrato 2.1.0 e revoga os quatro writers legados diretos, inclusive `portal_log_ai_usage_service`; readiness exige a capability v42 correspondente.
+- PostgreSQL real valida UUIDv4 rejeitado sem escrita, shape/limites de transcript, listagem bounded e determinística, isolamento cross-tenant de referência de provider e least privilege. Revisões independentes de segurança e testes encerraram sem P0/P1.
+- Gates locais verdes: `pnpm lint`, `pnpm typecheck`, `pnpm test` (1043 Node + 26 Python), `pnpm db:portal:test` (0001–0042), `pnpm build`, `python3 scripts/validate_all.py` (9/9) e `git diff --check`.
+- Nenhuma migration remota, mudança de secret/configuração ou deploy foi executado. A promoção exige a janela humana documentada em `docs/operations/M5_01_PRODUCTION_ROLLOUT.md`, aplicando 0040→0041→0042 e validando workers/readiness antes de tráfego.

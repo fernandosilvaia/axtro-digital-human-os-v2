@@ -11,7 +11,14 @@ import {
   stableAiUsageIdempotencyKey,
 } from "@/lib/ai-budget/reservations";
 import { sendAgentActivatedEmail } from "@/lib/email";
-import { chunkContent, contentSha256, embedChunks, fakeProvidersEnabled, MAX_CONTENT_CHARS } from "@/lib/knowledge";
+import {
+  assertEmbeddingInputsWithinReservedBudget,
+  chunkContent,
+  contentSha256,
+  embedChunks,
+  fakeProvidersEnabled,
+  MAX_CONTENT_CHARS,
+} from "@/lib/knowledge";
 import { fetchAgents, fetchTenantOverview } from "@/lib/portal-data";
 import { createServiceRoleClient } from "@/lib/supabase/service";
 import { createClient } from "@/lib/supabase/server";
@@ -128,6 +135,19 @@ async function ingestContentForSource(
   const contentHash = contentSha256(content);
   try {
     const texts = chunkContent(content);
+    // Esta validação é determinística e acontece antes de a reserva cruzar a
+    // fence de dispatch. Sem ela, um documento Unicode dentro do limite de
+    // caracteres poderia gastar acima dos 20k tokens e só falhar no commit.
+    if (!fakeMode) {
+      try {
+        assertEmbeddingInputsWithinReservedBudget(
+          texts,
+          AI_USAGE_LIMITS.knowledge_ingestion_embedding.maxInputTokens,
+        );
+      } catch {
+        return "o conteúdo excede o limite seguro de ingestão para esta conta; reduza-o antes de tentar novamente.";
+      }
+    }
     const embedded = fakeMode
       ? { outcome: "committed" as const, value: await embedChunks(process.env.OPENROUTER_API_KEY ?? "", texts) }
       : await (async () => {
@@ -285,7 +305,9 @@ export async function setAgentStatus(
       if (agent && overview.tenant) {
         const video = await provisionAgentVideoIfMissing(supabase, agent, overview.tenant.legal_name, overview.tenant.default_language);
         if (video.attempted && !video.provisioned) {
-          videoProvisioningWarning = "Agente ativado, mas o vídeo ainda não foi configurado — tente pausar e ativar de novo em alguns minutos.";
+          videoProvisioningWarning = video.blockedByGovernance
+            ? "Agente ativado. A persona de vídeo será concluída pelo fluxo governado de onboarding antes de liberar chamadas ao vivo."
+            : "Agente ativado, mas o vídeo ainda não foi configurado — confirme a configuração do provider com a equipe da plataforma.";
         }
       }
       const admins = (adminEmailsResult.data ?? []) as string[];
@@ -298,7 +320,7 @@ export async function setAgentStatus(
       }
     } catch (notifyError) {
       trackError("agent_activation_side_effects_failed", notifyError, { agent_id: agentId });
-      videoProvisioningWarning = "Agente ativado, mas o vídeo ainda não foi configurado — tente pausar e ativar de novo em alguns minutos.";
+      videoProvisioningWarning = "Agente ativado, mas o vídeo ainda não foi configurado — confirme a configuração do provider com a equipe da plataforma.";
     }
   }
 

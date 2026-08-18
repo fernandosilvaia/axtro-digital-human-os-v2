@@ -5,6 +5,9 @@ import { createHash } from "node:crypto";
 import { createUuidV7 } from "@axtro/domain";
 import { createOpenRouterEmbeddingPort } from "@axtro/provider-openrouter";
 
+import { AI_USAGE_LIMITS } from "./ai-budget/reservations.ts";
+import { assertEmbeddingFitsReservedInput } from "./ai-budget/envelope.ts";
+
 /**
  * Ingestão e recuperação de conhecimento real (RAG) do portal.
  * Embeddings via OpenRouter (endpoint OpenAI-compat) com a MESMA chave já
@@ -15,6 +18,7 @@ export const EMBEDDING_MODEL = "openai/text-embedding-3-small";
 export const EMBEDDING_DIMENSIONS = 1536;
 
 export const MAX_CONTENT_CHARS = 80_000;
+export const MAX_EMBEDDING_QUERY_CHARS = 4_000;
 const TARGET_CHUNK_CHARS = 1200;
 const EMBED_BATCH_SIZE = 32;
 
@@ -94,6 +98,28 @@ export function contentSha256(content: string): string {
   return createHash("sha256").update(content, "utf8").digest("hex");
 }
 
+/**
+ * Verifica todo o material ANTES de uma reserva cruzar a fence de dispatch.
+ * O teto usa bytes UTF-8 como limite conservador de tokens e evita que um
+ * lote Unicode faça o provider gastar acima do envelope já reservado.
+ */
+export function assertEmbeddingInputsWithinReservedBudget(
+  texts: readonly string[],
+  maxInputTokens: number,
+): void {
+  assertEmbeddingFitsReservedInput(texts, maxInputTokens);
+}
+
+/** Normaliza a query e prova o teto antes do caminho pago de busca. */
+export function prepareEmbeddingQueryForReservedUsage(
+  query: string,
+  maxInputTokens = AI_USAGE_LIMITS.knowledge_query_embedding.maxInputTokens,
+): string {
+  const bounded = query.slice(0, MAX_EMBEDDING_QUERY_CHARS);
+  assertEmbeddingInputsWithinReservedBudget([bounded], maxInputTokens);
+  return bounded;
+}
+
 export interface EmbeddedChunk {
   readonly i: number;
   readonly t: string;
@@ -111,16 +137,14 @@ export interface EmbeddingRunResult {
 /**
  * Gera embeddings em lotes e devolve o payload pronto para `portal_ingest_knowledge`.
  *
- * `maxInputTokens`, quando informado, é checado entre lotes (não antes do
- * primeiro): um documento perto do teto de `MAX_CONTENT_CHARS` pode levar
- * vários lotes reais ao provider antes que o total estoure a reserva, e sem
- * este corte intermediário o gasto real só seria percebido no commit da
- * reserva — depois de já ter sido feito por inteiro.
+ * Antes do primeiro batch, todo o documento precisa caber no envelope
+ * conservador reservado. A soma observada continua sendo checada após cada
+ * batch como defesa em profundidade, mas nunca é a primeira barreira.
  */
 export async function embedChunks(
   apiKey: string,
   texts: readonly string[],
-  maxInputTokens?: number,
+  maxInputTokens = AI_USAGE_LIMITS.knowledge_ingestion_embedding.maxInputTokens,
 ): Promise<EmbeddingRunResult> {
   if (fakeProvidersEnabled()) {
     return {
@@ -134,6 +158,7 @@ export async function embedChunks(
       inputTokens: 0,
     };
   }
+  assertEmbeddingInputsWithinReservedBudget(texts, maxInputTokens);
   const port = createOpenRouterEmbeddingPort({
     apiKey,
     appUrl: "https://portal-production-b43e.up.railway.app",
@@ -150,7 +175,7 @@ export async function embedChunks(
     inputTokens += result.usage.inputTokens;
     if (result.usage.reportedCostUsd === undefined) hasReportedCost = false;
     else reportedCostUsd += result.usage.reportedCostUsd;
-    if (maxInputTokens !== undefined && inputTokens > maxInputTokens) {
+    if (inputTokens > maxInputTokens) {
       throw new Error(`embedding input exceeded the reserved token budget (${inputTokens} > ${maxInputTokens})`);
     }
     for (const [offset, vector] of result.embeddings.entries()) {
@@ -180,16 +205,21 @@ export interface KnowledgeMatch {
 }
 
 /** Embeda a pergunta e devolve o embedding como array simples (payload do RPC de busca). */
-export async function embedQuery(apiKey: string, query: string): Promise<{ embedding: readonly number[]; inputTokens: number; reportedCostUsd?: number }> {
+export async function embedQuery(
+  apiKey: string,
+  query: string,
+  maxInputTokens = AI_USAGE_LIMITS.knowledge_query_embedding.maxInputTokens,
+): Promise<{ embedding: readonly number[]; inputTokens: number; reportedCostUsd?: number }> {
   if (fakeProvidersEnabled()) {
-    return { embedding: fakeEmbedding(query.slice(0, 4000)), inputTokens: 0 };
+    return { embedding: fakeEmbedding(query.slice(0, MAX_EMBEDDING_QUERY_CHARS)), inputTokens: 0 };
   }
+  const boundedQuery = prepareEmbeddingQueryForReservedUsage(query, maxInputTokens);
   const port = createOpenRouterEmbeddingPort({
     apiKey,
     appUrl: "https://portal-production-b43e.up.railway.app",
     appTitle: "Axtro Digital Human OS",
   });
-  const result = await port.embed({ model: EMBEDDING_MODEL, inputs: [query.slice(0, 4000)] });
+  const result = await port.embed({ model: EMBEDDING_MODEL, inputs: [boundedQuery] });
   const embedding = result.embeddings[0];
   if (!embedding) {
     throw new Error("embedding provider returned no vector for the query");

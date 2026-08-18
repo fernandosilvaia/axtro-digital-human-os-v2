@@ -77,8 +77,11 @@ try {
   const contractApplied = applySupabaseMigrations(databaseUrl, 41, 41);
   assert.deepEqual(contractApplied, ["0041"]);
   assertContractPhase(databaseUrl);
+  const ledgerContractApplied = applySupabaseMigrations(databaseUrl, 42, 42);
+  assert.deepEqual(ledgerContractApplied, ["0042"]);
+  assertLedgerContractPhase(databaseUrl);
   assertFailed(runFile(databaseUrl, join(supabaseMigrationDirectory, "0040_production_integrity_hardening.sql")), "non-idempotent 0040 cannot be replayed without a migration receipt gate");
-  assert.equal(queryScalar(databaseUrl, "SELECT count(*) FROM public.axtro_supabase_test_migrations;"), "41");
+  assert.equal(queryScalar(databaseUrl, "SELECT count(*) FROM public.axtro_supabase_test_migrations;"), "42");
 
   assertMigrationCapabilities(databaseUrl);
   assertLeastPrivilege(databaseUrl);
@@ -101,8 +104,9 @@ try {
   assertAiCommitPeriodBoundary(databaseUrl);
   await assertStaleReservedSweepFencing(databaseUrl);
   assertRecallDailyPaidAttemptBudget(databaseUrl);
+  assertCostEventSchemaVersion(databaseUrl);
 
-  console.log("SUPABASE PORTAL INTEGRATION PASSED: migrations 0001-0041, grants, RLS, transcripts, reservations and readiness capability");
+  console.log("SUPABASE PORTAL INTEGRATION PASSED: migrations 0001-0042, grants, RLS, transcripts, reservations and readiness capability");
 } catch (error) {
   primaryError = error;
   throw error;
@@ -118,7 +122,7 @@ function applySupabaseMigrations(databaseUrl, firstVersion, lastVersion) {
   const migrations = readdirSync(supabaseMigrationDirectory)
     .filter((name) => /^\d{4}_.+\.sql$/.test(name))
     .sort();
-  assert.equal(migrations.length, 41, "the harness must cover every Supabase-only migration through the 0041 contract phase");
+  assert.equal(migrations.length, 42, "the harness must cover every Supabase-only migration through the 0042 ledger contract phase");
   const applied = [];
   for (const migration of migrations) {
     const numericVersion = Number(migration.slice(0, 4));
@@ -197,10 +201,65 @@ function assertContractPhase(databaseUrl) {
     WHERE n.nspname='public' AND p.proname='portal_record_meeting_bot_session';`), "t");
 }
 
+function assertLedgerContractPhase(databaseUrl) {
+  const capabilities = queryJson(databaseUrl, asRoleSql("service_role", null, "SELECT public.portal_schema_capabilities_service();"));
+  assert.equal(capabilities.version, 42, "0042 closes the direct legacy cost-writer contract");
+  assert.equal(capabilities.costEventSchemaVersion, true);
+  assert.equal(capabilities.legacyCostWritersRevoked, true);
+  assert.equal(queryScalar(databaseUrl, `SELECT column_default IS NOT NULL AND is_nullable = 'NO'
+    FROM information_schema.columns
+    WHERE table_schema='public' AND table_name='cost_events' AND column_name='schema_version';`), "t");
+  assert.equal(queryScalar(databaseUrl, `SELECT exists(
+    SELECT 1 FROM pg_constraint
+    WHERE conrelid='public.cost_events'::regclass
+      AND conname='cost_events_schema_version_check'
+      AND contype='c'
+  );`), "t");
+
+  const legacyWriters = [
+    {
+      label: "legacy authenticated AI ledger writer",
+      signature: "public.portal_log_ai_usage(app.uuid_v7,text,integer,integer,numeric)",
+      invocation: "SELECT public.portal_log_ai_usage('019f0000-0000-7000-8000-000000009421','portal.legacy.ai',1,1,null);",
+      costEventId: "019f0000-0000-7000-8000-000000009421",
+    },
+    {
+      label: "legacy service AI ledger writer",
+      signature: "public.portal_log_ai_usage_service(app.uuid_v7,app.uuid_v7,integer,integer)",
+      invocation: `SELECT public.portal_log_ai_usage_service('${fixture.tenantAlpha}','019f0000-0000-7000-8000-000000009424',1,1);`,
+      costEventId: "019f0000-0000-7000-8000-000000009424",
+    },
+    {
+      label: "legacy authenticated video ledger writer",
+      signature: "public.portal_log_video_usage(app.uuid_v7)",
+      invocation: "SELECT public.portal_log_video_usage('019f0000-0000-7000-8000-000000009422');",
+      costEventId: "019f0000-0000-7000-8000-000000009422",
+    },
+    {
+      label: "legacy service video ledger writer",
+      signature: "public.portal_log_video_usage_service(app.uuid_v7,app.uuid_v7)",
+      invocation: `SELECT public.portal_log_video_usage_service('${fixture.tenantAlpha}','019f0000-0000-7000-8000-000000009423');`,
+      costEventId: "019f0000-0000-7000-8000-000000009423",
+    },
+  ];
+  for (const writer of legacyWriters) {
+    for (const role of ["anon", "authenticated", "service_role"]) {
+      assert.equal(queryScalar(databaseUrl, `SELECT has_function_privilege('${role}','${writer.signature}','EXECUTE');`), "f",
+        `${writer.label} is revoked for ${role}`);
+    }
+    assertFailed(runSql(databaseUrl, asRoleSql("authenticated", fixture.userAlpha, writer.invocation)),
+      `${writer.label} cannot write under authenticated`);
+    assertFailed(runSql(databaseUrl, asRoleSql("service_role", null, writer.invocation)),
+      `${writer.label} cannot write under service_role`);
+    assert.equal(queryScalar(databaseUrl, `SELECT count(*) FROM public.cost_events WHERE id='${writer.costEventId}';`), "0",
+      `${writer.label} failure writes no cost event`);
+  }
+}
+
 function assertMigrationCapabilities(databaseUrl) {
   assert.equal(queryScalar(databaseUrl, "SELECT to_regprocedure('public.portal_schema_capabilities_service()') IS NOT NULL;"), "t");
   const capabilities = queryJson(databaseUrl, asRoleSql("service_role", null, "SELECT public.portal_schema_capabilities_service();"));
-  assert.equal(capabilities.version, 41);
+  assert.equal(capabilities.version, 42);
   assert.equal(capabilities.providerEffectReservations, true);
   assert.equal(capabilities.billingUsageOutbox, true);
   assert.equal(capabilities.recallWebhookDedupe, true);
@@ -217,6 +276,8 @@ function assertMigrationCapabilities(databaseUrl) {
   assert.equal(capabilities.billingCheckoutIntents, true);
   assert.equal(capabilities.strictSubscriptionIdentity, true);
   assert.equal(capabilities.legacySubscriptionWriterRevoked, true);
+  assert.equal(capabilities.costEventSchemaVersion, true);
+  assert.equal(capabilities.legacyCostWritersRevoked, true);
   assert.equal(capabilities.authenticatedProviderTranscriptPreclaimBlocked, true);
   assert.equal(capabilities.authenticatedMeetingBotPreclaimBlocked, true);
   assert.equal(queryScalar(databaseUrl, "SELECT to_regclass('public.provider_effect_reservations') IS NOT NULL;"), "t");
@@ -242,6 +303,11 @@ function assertMigrationCapabilities(databaseUrl) {
 }
 
 function assertLeastPrivilege(databaseUrl) {
+  const revokedLegacyServiceFunctions = new Set([
+    "portal_upsert_tenant_subscription_service(",
+    "portal_log_ai_usage_service(",
+    "portal_log_video_usage_service(",
+  ]);
   const serviceFunctions = queryRows(databaseUrl, `
     SELECT p.oid::regprocedure::text
     FROM pg_proc p
@@ -253,7 +319,7 @@ function assertLeastPrivilege(databaseUrl) {
   `);
   assert.ok(serviceFunctions.length >= 40, "every SECURITY DEFINER service boundary is discovered from the catalog");
   for (const signature of serviceFunctions) {
-    if (signature.startsWith("portal_upsert_tenant_subscription_service(")) {
+    if ([...revokedLegacyServiceFunctions].some((prefix) => signature.startsWith(prefix))) {
       assert.equal(queryScalar(databaseUrl, `SELECT has_function_privilege('service_role', '${sqlLiteral(signature)}', 'EXECUTE');`), "f", `${signature} legacy service revoke`);
       continue;
     }
@@ -304,6 +370,24 @@ function assertLeastPrivilege(databaseUrl) {
   for (const table of m5Tables) {
     assert.equal(queryScalar(probeUrl, `SELECT count(*) FROM public.${table};`), "0", `forced RLS hides ${table} from a direct non-bypass role`);
   }
+}
+
+function assertCostEventSchemaVersion(databaseUrl) {
+  const m5CostEventId = "019f0000-0000-7000-8000-000000003892";
+  assert.equal(queryScalar(databaseUrl, `SELECT schema_version FROM public.cost_events WHERE id='${m5CostEventId}';`), "2.1.0",
+    "a reservation-backed M5 cost event receives the immutable contract version");
+
+  const legacyFixtureId = "019f0000-0000-7000-8000-000000009424";
+  assertSucceeded(runSql(databaseUrl, `INSERT INTO public.cost_events
+    (tenant_id,id,provider_id,service,unit_type,quantity,unit_cost_usd,amount_usd,source,occurred_at)
+    VALUES ('${fixture.tenantAlpha}','${legacyFixtureId}','legacy','legacy.fixture','flat',1,0,0,'estimated',now());`),
+  "historical ledger fixture receives the v2.1.0 default");
+  assert.equal(queryScalar(databaseUrl, `SELECT schema_version FROM public.cost_events WHERE id='${legacyFixtureId}';`), "2.1.0",
+    "a historical ledger fixture receives the immutable contract version");
+  assertFailed(runSql(databaseUrl, `INSERT INTO public.cost_events
+    (tenant_id,id,provider_id,service,unit_type,quantity,unit_cost_usd,amount_usd,source,occurred_at,schema_version)
+    VALUES ('${fixture.tenantAlpha}','019f0000-0000-7000-8000-000000009425','legacy','legacy.invalid-version','flat',1,0,0,'estimated',now(),'2.0.0');`),
+  "cost event contract version rejects an unsupported schema");
 }
 
 function assertWorkerHeartbeatLifecycle(databaseUrl) {
@@ -361,6 +445,9 @@ function assertWorkerHeartbeatLifecycle(databaseUrl) {
 function assertTranscriptValidation(databaseUrl) {
   assertSucceeded(runSql(databaseUrl, `SELECT app.validate_transcript_turns('[{"role":"user","content":"hello"}]'::jsonb);`), "strict transcript valid fixture");
   for (const [label, payload] of [
+    ["non-array object", "{}"],
+    ["json null", "null"],
+    ["null element", "[null]"],
     ["empty object", "[{}]"],
     ["missing content", '[{"role":"user"}]'],
     ["missing role", '[{"content":"hello"}]'],
@@ -370,6 +457,20 @@ function assertTranscriptValidation(databaseUrl) {
   ]) {
     assertFailed(runSql(databaseUrl, `SELECT app.validate_transcript_turns('${sqlLiteral(payload)}'::jsonb);`), `strict transcript rejects ${label}`);
   }
+  assertFailed(runSql(databaseUrl, `SELECT app.validate_transcript_turns((
+    SELECT jsonb_agg(jsonb_build_object('role','user','content','x') ORDER BY n)
+    FROM generate_series(1,1001) AS n
+  ));`), "strict transcript rejects 1001 turns");
+  assertFailed(runSql(databaseUrl, `SELECT app.validate_transcript_turns(jsonb_build_array(
+    jsonb_build_object('role','assistant','content',repeat('x',8001))
+  ));`), "strict transcript rejects 8001-character content");
+  assertSucceeded(runSql(databaseUrl, `SELECT app.validate_transcript_turns((
+    SELECT jsonb_agg(jsonb_build_object('role','user','content','x') ORDER BY n)
+    FROM generate_series(1,1000) AS n
+  ));`), "strict transcript accepts exactly 1000 turns");
+  assertSucceeded(runSql(databaseUrl, `SELECT app.validate_transcript_turns(jsonb_build_array(
+    jsonb_build_object('role','assistant','content',repeat('x',8000))
+  ));`), "strict transcript accepts exactly 8000-character content");
 }
 
 function assertTranscriptTenantBoundaryAndLimit(databaseUrl) {
@@ -386,6 +487,23 @@ function assertTranscriptTenantBoundaryAndLimit(databaseUrl) {
     );
   `)), "service role registers provider transcript");
   assert.equal(queryScalar(databaseUrl, `SELECT tenant_id::text FROM public.conversation_transcripts WHERE external_ref = 'provider-ref-owned';`), fixture.tenantAlpha);
+  const crossTenantProviderRef = "provider-ref-global-owner";
+  assertSucceeded(runSql(databaseUrl, asRoleSql("service_role", null, `
+    SELECT public.portal_register_provider_transcript_service(
+      '019f0000-0000-7000-8000-000000001112', '${fixture.tenantAlpha}', '${fixture.agentAlpha}', 'video', '${crossTenantProviderRef}'
+    );
+  `)), "service registration establishes the global provider transcript owner");
+  assertFailed(runSql(databaseUrl, asRoleSql("service_role", null, `
+    SELECT public.portal_register_provider_transcript_service(
+      '019f0000-0000-7000-8000-000000001113', '${fixture.tenantBeta}', '${fixture.agentBeta}', 'video', '${crossTenantProviderRef}'
+    );
+  `)), "same provider transcript reference cannot be claimed by another tenant");
+  assert.equal(queryScalar(databaseUrl, `SELECT tenant_id::text || ':' || agent_id::text
+    FROM public.conversation_transcripts WHERE surface='video' AND external_ref='${crossTenantProviderRef}';`),
+  `${fixture.tenantAlpha}:${fixture.agentAlpha}`, "cross-tenant provider-reference collision preserves the original owner");
+  assert.equal(queryScalar(databaseUrl, `SELECT count(*) FROM public.conversation_transcripts
+    WHERE surface='video' AND external_ref='${crossTenantProviderRef}';`), "1",
+  "cross-tenant provider-reference collision cannot add a second transcript row");
   assertFailed(runSql(databaseUrl, asRoleSql("service_role", null, `
     SELECT public.portal_register_provider_transcript_service(
       '019f0000-0000-7000-8000-000000001101', '${fixture.tenantBeta}', '${fixture.agentAlpha}', 'video', 'provider-ref-cross-tenant'
@@ -406,6 +524,33 @@ function assertTranscriptTenantBoundaryAndLimit(databaseUrl) {
   assert.equal(queryScalar(databaseUrl, `SELECT count(*) FROM public.user_tenant_memberships WHERE user_id='${fixture.userAlpha}';`), "1");
   const limited = queryJson(databaseUrl, asRoleSql("authenticated", fixture.userAlpha, "SELECT public.portal_list_conversation_transcripts(null, 2);"));
   assert.equal(limited.length, 2, "p_limit must be applied before json aggregation");
+  const listedAgentId = "019f0000-0000-7000-8000-000000001f01";
+  assertSucceeded(runSql(databaseUrl, `INSERT INTO public.agents (tenant_id,id,name,role_type,status,disclosure_profile_id)
+    VALUES ('${fixture.tenantAlpha}','${listedAgentId}','Transcript List Harness','sales','active','default');`),
+  "deterministic transcript-list agent fixture");
+  const orderedTranscriptIds = Array.from({ length: 205 }, (_, index) =>
+    `019f0000-0000-7000-8000-${(0x3000 + index).toString(16).padStart(12, "0")}`,
+  );
+  const boundedListInserts = orderedTranscriptIds.map((id, index) => `INSERT INTO public.conversation_transcripts
+    (id,tenant_id,agent_id,surface,external_ref,turns,started_at)
+    VALUES ('${id}','${fixture.tenantAlpha}','${listedAgentId}','chat','list-bound-${index}',
+      '[{"role":"user","content":"list fixture"}]'::jsonb,
+      timestamptz '2026-08-14T00:00:00Z'+make_interval(secs=>${index}));`).join("\n");
+  assertSucceeded(runSql(databaseUrl, boundedListInserts), "over-cap transcript list fixtures");
+  const maxLimited = queryJson(databaseUrl, asRoleSql("authenticated", fixture.userAlpha,
+    `SELECT public.portal_list_conversation_transcripts('${listedAgentId}',999);`));
+  assert.equal(maxLimited.length, 200, "transcript list clamps limits before aggregation at 200 rows");
+  assert.deepEqual(maxLimited.map((row) => row.id), orderedTranscriptIds.slice(-200).reverse(),
+    "transcript list returns the deterministic newest-first window before aggregation");
+  assert.ok(maxLimited.every((row) => row.turnCount === 1), "bounded transcript listing preserves per-row aggregate fields");
+  const minimumLimited = queryJson(databaseUrl, asRoleSql("authenticated", fixture.userAlpha,
+    `SELECT public.portal_list_conversation_transcripts('${listedAgentId}',0);`));
+  assert.deepEqual(minimumLimited.map((row) => row.id), [orderedTranscriptIds.at(-1)],
+    "transcript list clamps non-positive limits to a deterministic one-row window");
+  const defaultLimited = queryJson(databaseUrl, asRoleSql("authenticated", fixture.userAlpha,
+    `SELECT public.portal_list_conversation_transcripts('${listedAgentId}',null);`));
+  assert.deepEqual(defaultLimited.map((row) => row.id), orderedTranscriptIds.slice(-50).reverse(),
+    "transcript list applies the default limit before deterministic aggregation");
   const otherTenant = queryJson(databaseUrl, asRoleSql("authenticated", fixture.userBeta, "SELECT public.portal_list_conversation_transcripts(null, 200);"));
   assert.equal(otherTenant.length, 0, "tenant beta cannot list tenant alpha transcripts");
 }
@@ -896,6 +1041,21 @@ async function assertReservationContract(databaseUrl) {
     LIMIT 1;
   `);
   assert.notEqual(reserveFunction, "", "0040 must expose a reservation RPC");
+
+  const providerReservationsBeforeInvalidUuid = queryScalar(databaseUrl, "SELECT count(*) FROM public.provider_effect_reservations;");
+  const providerCostsBeforeInvalidUuid = queryScalar(databaseUrl, "SELECT count(*) FROM public.cost_events;");
+  for (const [label, reservationId, costEventId] of [
+    ["reservation id", "11111111-1111-4111-8111-111111111111", "019f0000-0000-7000-8000-000000003941"],
+    ["cost event id", "019f0000-0000-7000-8000-000000002941", "11111111-1111-4111-8111-111111111111"],
+  ]) {
+    assertFailed(runSql(databaseUrl, asRoleSql("service_role", null, reservationInvocationSql(
+      fixture.tenantGamma, fixture.agentGamma, `provider-invalid-uuid-${label}`, reservationId, costEventId,
+    ))), `provider reservation rejects UUIDv4 ${label}`);
+  }
+  assert.equal(queryScalar(databaseUrl, "SELECT count(*) FROM public.provider_effect_reservations;"), providerReservationsBeforeInvalidUuid,
+    "UUIDv4 provider reservation inputs write zero reservation rows");
+  assert.equal(queryScalar(databaseUrl, "SELECT count(*) FROM public.cost_events;"), providerCostsBeforeInvalidUuid,
+    "UUIDv4 provider reservation inputs write zero cost rows");
 
   // The exact application call is asserted once against the ADR-036 RPC
   // signature. Two independent psql connections start together so the
@@ -1989,6 +2149,22 @@ async function assertAiUsageConcurrencyCap(databaseUrl) {
     "denied authenticated AI mutation writes zero reservation rows");
   assert.equal(queryScalar(databaseUrl, "SELECT count(*) FROM public.cost_events WHERE provider_id='openrouter';"), costsBeforeAttack,
     "denied authenticated AI mutation writes zero cost rows");
+
+  const aiReservationsBeforeInvalidUuid = queryScalar(databaseUrl, "SELECT count(*) FROM public.ai_usage_reservations;");
+  const aiCostsBeforeInvalidUuid = queryScalar(databaseUrl, "SELECT count(*) FROM public.cost_events;");
+  for (const [label, reservationId, costEventId] of [
+    ["reservation id", "11111111-1111-4111-8111-111111111111", "019f0000-0000-7000-8000-000000003942"],
+    ["cost event id", "019f0000-0000-7000-8000-000000002942", "11111111-1111-4111-8111-111111111111"],
+  ]) {
+    assertFailed(runSql(databaseUrl, asRoleSql("service_role", null, `SELECT public.portal_begin_ai_usage_reservation_service(
+      '${reservationId}','${costEventId}','${fixture.tenantAlpha}','${fixture.agentAlpha}',null,
+      'ai-invalid-uuid-${label}','chat_generation',20000,512,0.05
+    );`)), `AI reservation rejects UUIDv4 ${label}`);
+  }
+  assert.equal(queryScalar(databaseUrl, "SELECT count(*) FROM public.ai_usage_reservations;"), aiReservationsBeforeInvalidUuid,
+    "UUIDv4 AI reservation inputs write zero reservation rows");
+  assert.equal(queryScalar(databaseUrl, "SELECT count(*) FROM public.cost_events;"), aiCostsBeforeInvalidUuid,
+    "UUIDv4 AI reservation inputs write zero cost rows");
 
   assertFailed(runSql(databaseUrl, asRoleSql("service_role", null, `SELECT public.portal_begin_ai_usage_reservation_service(
     '019f0000-0000-7000-8000-000000002891','019f0000-0000-7000-8000-000000003891','${fixture.tenantAlpha}','${fixture.agentBeta}',null,

@@ -53,7 +53,8 @@ Racional completo: D-V2-055, D-V2-056 e D-V2-058 em
 | `0039_revoke_default_grants_rls_no_policy_tables.sql` | sim (2026-08-12, via MCP `apply_migration`, autorizado explicitamente pelo Fernando) — fecha achado P2 (onda 7, D-V2-116): 6 tabelas com RLS habilitada e zero policies (agent_brain_config, agent_video_config, conversation_transcripts, meeting_bot_sessions, tenant_cost_alerts, tenant_subscriptions) nunca revogaram o GRANT ALL padrão do Supabase pra anon/authenticated (confirmado ao vivo via `information_schema.role_table_grants` + `pg_default_acl`) — só `tenant_invites`/`user_tenant_memberships` fizeram isso desde o início. Seguro antes e depois (RLS+zero policy já nega tudo), é defesa-em-profundidade contra uma policy futura mal escrita valer imediatamente pra INSERT/UPDATE/DELETE também. Mesmo padrão de `revoke all on table ... from authenticated, anon, public` já usado em 0002/0006. Confirmado via `execute_sql`: zero linhas em `information_schema.role_table_grants` pra `anon`/`authenticated` nas 6 tabelas; advisor de segurança revisado — mesmo baseline de WARN/INFO já conhecidos, nenhum achado novo; RPCs SECURITY DEFINER dessas tabelas confirmadas funcionando (rodam como dono da função, não dependem do grant do caller) |
 | `0038_checkbudget_service_aggregation.sql` | sim (2026-08-12, via MCP `apply_migration`, autorizado explicitamente pelo Fernando) — fecha achado P1 (onda 6, D-V2-115): `checkBudget` (rota `/api/brain/[agentId]/chat/completions`, chamada em TODO turno de vídeo) fazia scan sem índice de `cost_events` + soma em JS a cada requisição. Adiciona índice `cost_events_tenant_unit_type_occurred_at_idx (tenant_id, unit_type, occurred_at)` + RPC `portal_ai_tokens_today_service` (agregação SQL, service-role). Confirmado via `execute_sql`: índice presente em `pg_indexes`, RPC retorna `bigint` corretamente pra tenants reais; advisor de segurança revisado — a RPC NÃO aparece em `authenticated_security_definer_function_executable`, confirmando que não está exposta a `authenticated`, só a `service_role` |
 | `0040_production_integrity_hardening.sql` | **pendente** — fase expand de M5-01: reservations duráveis de Tavus/Recall e IA, unknown barrier, estimates conservadores datados, activation com receipt durável e snapshot de billing no instante da entrega, outbox Stripe, reconciler leased, capability hash Tavus, dedup Recall, ownership service de transcript e capability v40. Aplicar antes de iniciar o artefato M5-01. O artefato novo deve permanecer `unready` e sem tráfego enquanto o schema estiver em v40. |
-| `0041_provider_transcript_contract.sql` | **pendente** — fase contract de M5-01: bloqueia preclaim autenticado de refs de provider e eleva a capability final para v41. Aplicar com o artefato novo presente, porém ainda fora de tráfego; somente após o probe v41 responder corretamente `/api/ready` pode liberar tráfego. Depois de 0041, rollback para writer legado é proibido — corrija/repromova o app novo, nunca reabra a superfície insegura. |
+| `0041_provider_transcript_contract.sql` | **pendente** — fase contract de M5-01: bloqueia preclaim autenticado de refs de provider e eleva a capability intermediária para v41. Aplicar com o artefato novo presente, porém ainda fora de tráfego; siga imediatamente para 0042 antes de consultar `/api/ready` ou liberar tráfego. Depois de 0041, rollback para writer legado é proibido — corrija/repromova o app novo, nunca reabra a superfície insegura. |
+| `0042_cost_event_schema_and_legacy_writer_contract.sql` | **pendente** — fase final do ledger M5-01: alinha `cost_events.schema_version` ao contrato `2.1.0`, revoga os três writers diretos legados e eleva a capability exigida para v42. Aplicar imediatamente após 0041, ainda em maintenance e antes de iniciar o candidato; somente um artefato v42-aware pode responder `/api/ready` e receber tráfego. |
 | `0021_meeting_bot_sessions.sql` | sim (2026-07-30, via MCP `apply_migration`, autorizado explicitamente pelo Fernando) — tabela + 3 funções confirmadas via `execute_sql`, RLS forçada |
 | `0022_agent_video_config_rpc.sql` | sim (2026-07-31, via Management API `database/query`) — RPC testada ao vivo provisionando a persona da Marina |
 | `0023_cleanup_rpcs.sql` | sim (2026-07-31, via Management API `database/query`) — exclusão de rascunho de agente e de fonte revogada, testada no e2e |
@@ -68,7 +69,10 @@ Racional completo: D-V2-055, D-V2-056 e D-V2-058 em
   em PostgreSQL 17 efêmero/local. Isso é teste de compatibilidade, grants,
   RLS, concorrência e rollback; nunca substitui o apply remoto autorizado.
 - O harness prova separadamente a compatibilidade expand de v40 (turn de
-  transcript com extra-key legado ainda aceito) e o contrato estrito de v41;
+  transcript com extra-key legado ainda aceito), o contrato estrito de v41 e
+  o contrato final v42 do ledger; também verifica que linhas M5 e históricas
+  recebem `schema_version='2.1.0'` e que os três writers diretos revogados não
+  podem escrever sob `anon`, `authenticated` ou `service_role`.
   também injeta uma falha no meio da 0040 e prova rollback transacional, executa
   concorrência real de cap/reserva e registro idempotente de transcript, fence
   set-once do callback Tavus, claim Recall, ordinal de overage no instante de
@@ -83,6 +87,11 @@ Racional completo: D-V2-055, D-V2-056 e D-V2-058 em
 - A 0041 revoga os dois writers autenticados legados capazes de preclaim de
   referência de provider: transcript de vídeo/reunião e sessão de bot Recall.
   As respectivas capabilities precisam estar `true` antes de liberar tráfego.
+- A 0042 é a fronteira final do ledger: `portal_log_ai_usage`,
+  `portal_log_video_usage` e `portal_log_video_usage_service` permanecem
+  revogados para todas as roles expostas. Efeitos novos devem passar somente
+  pelos writers M5 reservation-backed, que recebem a versão `2.1.0` pelo
+  default imutável de `cost_events`.
 - `provider_effect_reservations.related_ref` aceita somente referência opaca e
   limitada; URLs de reunião permanecem no registro operacional tenant-scoped e
   nunca são copiadas para o recibo financeiro durável. O outbox reutiliza o

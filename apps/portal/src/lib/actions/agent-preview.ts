@@ -5,6 +5,7 @@ import { createOpenRouterTextGenerationPort, TextGenerationError } from "@axtro/
 
 import { BrainChatValidationError, runBrainChatCompletion } from "@/lib/brain/chat-completion-core";
 import {
+  AI_USAGE_LIMITS,
   beginAiUsage,
   commitAiUsage,
   configuredOpenRouterGenerationModel,
@@ -14,7 +15,13 @@ import {
   releaseAiUsageNotDispatched,
   stableAiUsageIdempotencyKey,
 } from "@/lib/ai-budget/reservations";
-import { embedQuery, fakeProvidersEnabled, type KnowledgeMatch } from "@/lib/knowledge";
+import { AiUsageEnvelopeError } from "@/lib/ai-budget/envelope";
+import {
+  embedQuery,
+  fakeProvidersEnabled,
+  prepareEmbeddingQueryForReservedUsage,
+  type KnowledgeMatch,
+} from "@/lib/knowledge";
 import { fetchAgents, fetchTenantOverview } from "@/lib/portal-data";
 import { createServiceRoleClient } from "@/lib/supabase/service";
 import { createClient } from "@/lib/supabase/server";
@@ -150,6 +157,18 @@ export async function sendAgentPreviewMessage(
   // degrada para o prompt sem fontes (o chat não pode morrer por isso),
   // mas fica visível no log do servidor.
   let knowledgeMatches: readonly KnowledgeMatch[] = [];
+  let embeddingQuery: string;
+  try {
+    embeddingQuery = prepareEmbeddingQueryForReservedUsage(
+      message,
+      AI_USAGE_LIMITS.knowledge_query_embedding.maxInputTokens,
+    );
+  } catch (error) {
+    if (error instanceof AiUsageEnvelopeError) {
+      return { reply: null, error: "A mensagem excede o limite seguro para busca de conhecimento. Resuma e tente novamente." };
+    }
+    throw error;
+  }
   const retrievalReservationResult = await beginAiUsage({
     client: budgetClient,
     tenantId: overview.tenant.id,
@@ -171,7 +190,11 @@ export async function sendAgentPreviewMessage(
     if (!retrievalDispatched) {
       return { reply: null, error: "Esta solicitação de IA já está em processamento. Aguarde antes de tentar novamente." };
     }
-    const { embedding, inputTokens, reportedCostUsd } = await embedQuery(apiKey, message);
+    const { embedding, inputTokens, reportedCostUsd } = await embedQuery(
+      apiKey,
+      embeddingQuery,
+      AI_USAGE_LIMITS.knowledge_query_embedding.maxInputTokens,
+    );
     const retrievalCommitted = await commitAiUsage(budgetClient, retrievalReservation, {
       inputTokens,
       outputTokens: 0,
@@ -287,6 +310,9 @@ export async function sendAgentPreviewMessage(
     }
     if (error instanceof BrainChatValidationError) {
       return { reply: null, error: "Não foi possível gerar a resposta agora." };
+    }
+    if (error instanceof AiUsageEnvelopeError) {
+      return { reply: null, error: "O contexto desta conversa excede o limite seguro de IA. Inicie uma nova conversa para continuar." };
     }
     if (error instanceof TextGenerationError) {
       if (error.code === "provider_timeout") {

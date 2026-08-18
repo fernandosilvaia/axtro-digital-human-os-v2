@@ -31,6 +31,9 @@ test("service boundary reserves the worst-case token and cost envelope before pr
   assert.equal(fake.calls[0].args.p_max_input_tokens, 20_000);
   assert.equal(fake.calls[0].args.p_max_output_tokens, 512);
   assert.equal(fake.calls[0].args.p_max_cost_usd, 0.05);
+  assert.match(fake.calls[0].args.p_id, /^[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/);
+  assert.match(fake.calls[0].args.p_cost_event_id, /^[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/);
+  assert.notEqual(fake.calls[0].args.p_id, fake.calls[0].args.p_cost_event_id, "reservation and ledger identifiers are distinct UUIDv7 values");
 });
 
 test("capped, unknown and DB failure never authorize provider execution", async () => {

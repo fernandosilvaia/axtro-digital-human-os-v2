@@ -13,6 +13,9 @@
  */
 import type { TextGenerationMessage, TextGenerationResult } from "@axtro/provider-openrouter";
 
+import { assertGenerationFitsReservedInput } from "../ai-budget/envelope.ts";
+import { AI_USAGE_LIMITS } from "../ai-budget/reservations.ts";
+
 import { buildCloserChatSystemMessages, buildCloserVideoSystemPrompt, type BrainLanguage } from "./metodo-silva.ts";
 
 export interface BrainTurn {
@@ -296,7 +299,22 @@ export async function runBrainChatCompletion(request: BrainChatRequest, deps: Br
     { role: "user", content: userMessage },
   ];
 
-  const result = await deps.generate(messages, request.maxOutputTokens ?? DEFAULT_MAX_OUTPUT_TOKENS);
+  const maxOutputTokens = request.maxOutputTokens ?? DEFAULT_MAX_OUTPUT_TOKENS;
+  if (
+    !Number.isSafeInteger(maxOutputTokens)
+    || maxOutputTokens < 1
+    || maxOutputTokens > AI_USAGE_LIMITS.brain_generation.maxOutputTokens
+  ) {
+    throw new BrainChatValidationError("maxOutputTokens exceeds the reserved output envelope");
+  }
+
+  // Este check acontece antes de `deps.generate`, que é exatamente onde as
+  // rotas cruzam a fence `reserved -> provider_in_flight`. Um contexto grande
+  // (sobretudo Unicode) portanto libera a reserva como `not_dispatched`, sem
+  // iniciar uma chamada OpenRouter que o ledger não pode aceitar no commit.
+  assertGenerationFitsReservedInput(messages, AI_USAGE_LIMITS.brain_generation.maxInputTokens);
+
+  const result = await deps.generate(messages, maxOutputTokens);
   await deps.logGenerationUsage(result.usage.inputTokens, result.usage.outputTokens, result.usage.reportedCostUsd);
   return { reply: result.text, usage: result.usage, guardrailFlags: detectGuardrailRisk(result.text) };
 }

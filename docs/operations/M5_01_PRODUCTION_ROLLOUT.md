@@ -7,7 +7,7 @@ executar migration remota, cobrança live, promoção pública ou mudança de
 credencial. Cada ação em Railway, Supabase, Stripe ou GitHub exige o gate humano
 já definido para produção.
 
-O resultado esperado é um artefato M5-01 compatível com schema v41, inicialmente
+O resultado esperado é um artefato M5-01 compatível com schema v42, inicialmente
 sem tráfego público, com `/api/ready` verde, efeitos pagos cercados por reservas
 duráveis e workers provados em Stripe test mode antes do canário. `/api/health`
 continua sendo liveness; nunca deve substituir `/api/ready` na decisão de rotear
@@ -17,11 +17,11 @@ Invariantes durante toda a janela:
 
 - nenhum novo caminho pago recebe tráfego enquanto writers antigo e novo
   poderiam concorrer;
-- migrations 0040 e 0041 são aplicadas, nessa ordem, durante maintenance e
+- migrations 0040, 0041 e 0042 são aplicadas, nessa ordem, durante maintenance e
   drain completo, antes do startup do candidato M5-01;
 - o artefato legado permanece parado depois de 0041; ele não é compatível com
   os writers service-owned do contract;
-- depois de 0041, somente um artefato v41-aware pode ser promovido ou restaurado;
+- depois de 0042, somente um artefato v42-aware pode ser promovido ou restaurado;
 - `provider_in_flight`, `unknown`, `cleanup_pending`, `held`, outbox e dead
   letter são evidência financeira: nunca apagar, expirar ou liberar por tempo;
 - schedules permanecem desligados até a prova Stripe test mode e as leituras de
@@ -45,7 +45,7 @@ O bootstrap `m5-01-v1` falha fechado e, nesta ordem:
    `RAILWAY_GIT_COMMIT_SHA`, Supabase HTTPS, service role e workers reais
    habilitados;
 2. lê por PostgREST service-role `portal_schema_capabilities_service` e exige
-   schema exatamente v41 com todas as capabilities M5-01 verdadeiras;
+   schema exatamente v42 com todas as capabilities M5-01 verdadeiras;
 3. exige zero nos estados críticos dos backlogs de billing, efeitos de
    provider e reconciliação de AI;
 4. consulta em modo somente leitura os seis Prices e o Meter Stripe do mesmo
@@ -81,15 +81,16 @@ node --test tests/operations/production-readiness-bootstrap.test.mjs
 Defina antes da janela:
 
 - `release owner`: conduz o checklist e decide parar;
-- `database operator`: único autorizado a aplicar 0040 e 0041;
+- `database operator`: único autorizado a aplicar 0040, 0041 e 0042;
 - `billing reviewer`: confere catálogo, Meter e eventos no Stripe test mode;
 - `observer`: guarda evidência e monitora circuit breakers;
 - SHA do artefato candidato e SHA-256 dos arquivos
   `0040_production_integrity_hardening.sql` e
-  `0041_provider_transcript_contract.sql`;
+  `0041_provider_transcript_contract.sql` e
+  `0042_cost_event_schema_and_legacy_writer_contract.sql`;
 - URL privada ou não promovida do candidato e URL pública atual;
 - link do incidente/janela, horário UTC de início e canal de coordenação;
-- último artefato v41-aware conhecido. Na primeira janela ele é o próprio
+- último artefato v42-aware conhecido. Na primeira janela ele é o próprio
   candidato; não existe rollback legado depois do contract.
 
 Não copie tokens, bearer secrets, customer IDs, provider refs, payloads de
@@ -111,7 +112,7 @@ python3 scripts/validate_all.py
 
 O primeiro comando é a prova PostgreSQL local de apply, grants, RLS,
 concorrência, falha intermediária com rollback transacional e transição v40 →
-v41. A suíte Node usa fakes determinísticos; nenhuma credencial real é
+v42. A suíte Node usa fakes determinísticos; nenhuma credencial real é
 necessária. Pare se qualquer comando falhar ou se o working tree alterar o
 conteúdo das migrations depois da captura dos checksums.
 
@@ -205,12 +206,16 @@ reservas, AI, outbox, webhooks, transcript e reconciliação. Para uma primeira
 instalação drenada, os backlogs devem começar em zero; qualquer valor não zero
 exige origem identificada e observação, sem mutação manual.
 
-## 4. Contract: aplicar 0041 ainda em maintenance
+## 4. Contract: aplicar 0041 e 0042 ainda em maintenance
 
 Sem reiniciar o artefato legado e mantendo tráfego zero, o database operator
-aplica `database/supabase-only/0041_provider_transcript_contract.sql`. Esse
-ponto revoga os writers autenticados legados de provider transcript/meeting
-bot e é a fronteira sem retorno ao writer legado.
+aplica `database/supabase-only/0041_provider_transcript_contract.sql` e, com o
+receipt de sucesso, aplica imediatamente
+`database/supabase-only/0042_cost_event_schema_and_legacy_writer_contract.sql`.
+A 0041 revoga writers autenticados de provider transcript/meeting bot; a 0042
+alinha todo `cost_events` ao contrato `2.1.0` e revoga os três writers diretos
+legados de custo. A sequência completa é a fronteira sem retorno aos writers
+legados.
 
 Confirme pelo console service-role:
 
@@ -218,17 +223,18 @@ Confirme pelo console service-role:
 select public.portal_schema_capabilities_service();
 ```
 
-O JSON deve ter `version: 41` e todas as capacidades listadas na seção seguinte
-verdadeiras. Se qualquer flag estiver falsa, mantenha maintenance e não inicie
-o candidato.
+O JSON deve ter `version: 42`, `costEventSchemaVersion=true`,
+`legacyCostWritersRevoked=true` e todas as capacidades listadas na seção
+seguinte verdadeiras. Se qualquer flag estiver falsa, mantenha maintenance e
+não inicie o candidato.
 
-## 5. Iniciar o candidato v41 com tráfego zero
+## 5. Iniciar o candidato v42 com tráfego zero
 
 Construa/inicie o candidato usando o SHA registrado, mas mantenha domínio
 público, ingress ou route promotion desligados. O healthcheck Railway continua
 apontando para `/api/ready`; não troque para `/api/health` para forçar uma
-promoção. Esta ordem é intencional: o candidato só inicia depois de 0041, já
-compatível com o schema v41, e o bootstrap bem-sucedido já persistiu os dois
+promoção. Esta ordem é intencional: o candidato só inicia depois de 0042, já
+compatível com o schema v42, e o bootstrap bem-sucedido já persistiu os dois
 heartbeats compatíveis. Se `/api/ready` retornar 503 no startup, pare: não use
 uma execução manual de worker para contornar divergência de identidade,
 fingerprint, schema ou configuração.
@@ -242,7 +248,7 @@ curl --fail-with-body --silent --show-error "${CANDIDATE_URL}/api/ready"
 
 Readiness deve retornar 200 imediatamente depois do bootstrap e do startup do
 processo. Isso confirma a admissão do artefato, mas não substitui a prova manual
-dos dois workers na seção 7. O schema v41 deve declarar todas estas capacidades
+dos dois workers na seção 7. O schema v42 deve declarar todas estas capacidades
 verdadeiras:
 
 - `providerEffectReservations`;
@@ -251,6 +257,8 @@ verdadeiras:
 - `billingCheckoutIntents`;
 - `strictSubscriptionIdentity`;
 - `legacySubscriptionWriterRevoked`;
+- `costEventSchemaVersion`;
+- `legacyCostWritersRevoked`;
 - `recallWebhookDedupe`;
 - `recallTenantBinding`;
 - `tavusWebhookCapabilities`;
@@ -382,7 +390,7 @@ um gate humano posterior e separado. Este runbook não a autoriza.
 Volte imediatamente a maintenance e impeça novas entradas pagas quando ocorrer
 qualquer um destes sinais:
 
-- `/api/ready` não 200, instável ou com schema diferente de v41;
+- `/api/ready` não 200, instável ou com schema diferente de v42;
 - novo `unknown`, `providerInFlight` envelhecendo ou `cleanupPending` crescente;
 - `deadLetterBacklog > 0`, `operatorRequired > 0` ou falha do worker;
 - `held` acima de 300 segundos, `oldestAgeSeconds` acima de 900 segundos ou
@@ -409,17 +417,25 @@ O artefato anterior só pode ser restaurado enquanto o schema ainda está em v40
 e não há `provider_in_flight`, `unknown`, `cleanup_pending`, `held` ou outbox
 pendente. A migration 0040 é aditiva e permanece como evidência; não a reverta.
 
-### Depois de 0041
+### Depois de 0041 e antes de 0042
+
+Mantenha maintenance e não inicie nem repromova um candidato. A revogação dos
+writers de provider já é efetiva, mas o bootstrap e a readiness desta release
+exigem o contrato completo v42. Aplique 0042 como forward-only, confirme a
+capability v42 e então siga para o candidato.
+
+### Depois de 0042
 
 Rollback para o writer legado é proibido. Mantenha maintenance e faça uma das
 duas ações:
 
-1. repromova o último artefato v41-aware conhecido; ou
-2. entregue um forward hotfix v41-aware, repetindo preflight, readiness e
+1. repromova o último artefato v42-aware conhecido; ou
+2. entregue um forward hotfix v42-aware, repetindo preflight, readiness e
    canário.
 
 Não restaure grants autenticados, não reabra preclaim de provider ref, não
-reverta 0041, não delete reservation/outbox/receipt/cost event e não trate lease
+reverta 0041 ou 0042, não restaure os writers diretos de custo, não delete
+reservation/outbox/receipt/cost event e não trate lease
 expirada como autorização de gasto. Um incidente ambíguo permanece bloqueado
 até existir evidência compatível com ADR-036.
 
@@ -440,9 +456,11 @@ migration_0040_sha256:
 migration_0040_receipt:
 migration_0041_sha256:
 migration_0041_receipt:
+migration_0042_sha256:
+migration_0042_receipt:
 v40_capability_observed_at_during_maintenance:
-v41_capability_observed_at:
-v41_ready_http_status: 200
+v42_capability_observed_at:
+v42_ready_http_status: 200
 local_gate_results:
 stripe_test_mode_catalog_receipt:
 stripe_test_meter_receipt:

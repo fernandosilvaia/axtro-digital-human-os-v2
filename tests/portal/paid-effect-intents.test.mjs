@@ -5,6 +5,7 @@ const effects = await import("../../apps/portal/src/lib/paid-effects/index.ts");
 
 const COMMAND_A = "0198a8b2-3c4d-7e5f-8a90-1234567890ab";
 const COMMAND_B = "0198a8b2-3c4d-7e5f-8a90-1234567890ac";
+const UUID_V7 = /^[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 
 function fakeRpc(responses) {
   const calls = [];
@@ -275,6 +276,26 @@ test("begin forwards server-owned max duration and preserves conservative estima
   assert.equal(calls[0].args.p_max_duration_seconds, 900);
   assert.equal(receipt.maxDurationSeconds, 900);
   assert.equal(receipt.estimatedCostUsd, "5.55000000");
+});
+
+test("provider-effect ledger IDs are distinct valid UUIDv7 values", async () => {
+  const { client, calls } = fakeRpc({
+    portal_begin_provider_effect_service: {
+      data: { outcome: "reserved", reservationId: COMMAND_A, state: "reserved", billableOverage: false, retryGeneration: 0, customerDeliveryState: "held" },
+      error: null,
+    },
+  });
+
+  await effects.beginProviderEffect({
+    tenantId: COMMAND_A,
+    agentId: COMMAND_B,
+    provider: "recall",
+    idempotencyKey: "effect:uuidv7-ledger-ids",
+  }, client);
+
+  assert.match(calls[0].args.p_reservation_id, UUID_V7);
+  assert.match(calls[0].args.p_cost_event_id, UUID_V7);
+  assert.notEqual(calls[0].args.p_reservation_id, calls[0].args.p_cost_event_id);
 });
 
 test("confirmed compensation records a strict durable reconciliation receipt", async () => {

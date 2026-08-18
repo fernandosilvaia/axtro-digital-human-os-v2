@@ -11,6 +11,12 @@ const tavusRoute = await readFile(new URL("apps/portal/src/app/api/tavus/webhook
 const transcriptRegister = await readFile(new URL("apps/portal/src/lib/transcripts/register.ts", root), "utf8");
 const videoActions = await readFile(new URL("apps/portal/src/lib/actions/video-conversation.ts", root), "utf8");
 const meetingActions = await readFile(new URL("apps/portal/src/lib/actions/meeting-bot.ts", root), "utf8");
+const agentVideo = await readFile(new URL("apps/portal/src/lib/agent-video.ts", root), "utf8");
+const proposalActions = await readFile(new URL("apps/portal/src/lib/actions/proposal.ts", root), "utf8");
+const resourceActions = await readFile(new URL("apps/portal/src/lib/actions/resources.ts", root), "utf8");
+const agentPreview = await readFile(new URL("apps/portal/src/lib/actions/agent-preview.ts", root), "utf8");
+const brainRoute = await readFile(new URL("apps/portal/src/app/api/brain/[agentId]/chat/completions/route.ts", root), "utf8");
+const brainCore = await readFile(new URL("apps/portal/src/lib/brain/chat-completion-core.ts", root), "utf8");
 const meetingReceiptSource = await readFile(new URL("apps/portal/src/lib/meetings/session-receipt.ts", root), "utf8");
 const paidEffectsSource = await readFile(new URL("apps/portal/src/lib/paid-effects/index.ts", root), "utf8");
 const videoClient = await readFile(new URL("apps/portal/src/app/(app)/agentes/[id]/testar/video-call.tsx", root), "utf8");
@@ -31,9 +37,45 @@ test("all Tavus and Recall creation surfaces use the durable reservation boundar
     assert.match(source, /prepareTavusWebhookCallback/);
   }
   assert.match(meetingActions, /provider:\s*"recall"[\s\S]*acquireProviderDispatch/);
+  // Tavus has a specialised atomic fence: callback capability binding moves
+  // reserved -> provider_in_flight and returns the sole bearer that reaches
+  // the provider. A generic provider fence before it would make binding fail.
+  assert.match(transcriptRegister, /Binding is itself the atomic provider dispatch fence/);
+  assert.match(migration, /portal_bind_tavus_webhook_capability_service[\s\S]*state='reserved'/);
+  assert.match(videoActions, /tavus:video"\)[\s\S]*prepareTavusWebhookCallback\(reservation\.reservationId\)[\s\S]*port\.createConversation/);
+  assert.match(videoActions, /tavus:presentation"\)[\s\S]*prepareTavusWebhookCallback\(reservation\.reservationId\)[\s\S]*port\.createConversation/);
+  assert.match(leadRoute, /tavus:institutional-lead-video"\)[\s\S]*prepareTavusWebhookCallback\(reservation\.reservationId\)[\s\S]*port\.createConversation/);
+  assert.match(meetingActions, /createVideoConversation:[\s\S]*prepareTavusWebhookCallback\(tavusReservation\.reservationId[\s\S]*tavusPort\.createConversation/);
+  assert.match(recallRoute, /prepareTavusWebhookCallback\(reservationId[\s\S]*tavusPort\.createConversation/);
+  assert.doesNotMatch(videoActions, /acquireProviderDispatch/);
+  assert.doesNotMatch(leadRoute, /acquireProviderDispatch/);
   assert.match(meetingActions, /provider:\s*"recall"/);
   assert.match(meetingActions, /provider:\s*"tavus"/);
   assert.doesNotMatch(leadRoute, /count:\s*"exact"/);
+});
+
+test("paid outliers are closed until they own a durable intent and AI validates before dispatch", () => {
+  assert.doesNotMatch(agentVideo, /createTavusVideoConversationPort|\.createPersona\(|attachToolsToPersona\(/);
+  assert.match(agentVideo, /durable_persona_intent_required/);
+  assert.doesNotMatch(proposalActions, /createProspectCheckoutSession/);
+  assert.match(proposalActions, /closing_proposal_checkout_blocked/);
+
+  const ingestPreflight = resourceActions.lastIndexOf("assertEmbeddingInputsWithinReservedBudget");
+  const ingestReservation = resourceActions.indexOf("executeReservedAiUsage({");
+  assert.equal(ingestPreflight >= 0 && ingestPreflight < ingestReservation, true,
+    "knowledge input must be bounded before its reservation can reach OpenRouter");
+  const previewPreflight = agentPreview.lastIndexOf("prepareEmbeddingQueryForReservedUsage");
+  const previewBegin = agentPreview.indexOf("const retrievalReservationResult = await beginAiUsage({");
+  assert.equal(previewPreflight >= 0 && previewPreflight < previewBegin, true,
+    "chat retrieval input must be bounded before the reservation fence");
+  const brainPreflight = brainRoute.lastIndexOf("prepareEmbeddingQueryForReservedUsage");
+  const brainBegin = brainRoute.indexOf("const begin = await beginAiUsage({");
+  assert.equal(brainPreflight >= 0 && brainPreflight < brainBegin, true,
+    "video retrieval input must be bounded before the reservation fence");
+  const corePreflight = brainCore.lastIndexOf("assertGenerationFitsReservedInput");
+  const generate = brainCore.lastIndexOf("deps.generate");
+  assert.equal(corePreflight >= 0 && corePreflight < generate, true,
+    "generation context must be bounded before the provider callback");
 });
 
 test("reservation schema is tenant-composite, service-only and has an unknown barrier without effect expiry", () => {
@@ -190,7 +232,7 @@ test("Recall webhook requires signed HMAC and boolean delivery receipts", () => 
   assert.match(recallRoute, /portal_release_recall_webhook_service[\s\S]{0,300}data !== true/);
 });
 
-test("liveness is independent and readiness requires schema 41 plus real-mode HMAC", () => {
+test("liveness is independent and readiness requires schema 42 plus real-mode HMAC", () => {
   assert.doesNotMatch(healthRoute, /process\.env|createServiceRoleClient/);
   assert.equal(railway.deploy.healthcheckPath, "/api/ready");
   const base = {

@@ -427,6 +427,43 @@ test("sentinel cap is a handled no-spend response; unknown is retryable with zer
   });
 });
 
+test("a claimed Recall delivery with a capped Tavus reservation completes without Tavus dispatch", { concurrency: false }, async () => {
+  const state = freshState();
+  state.reservationOutcome = "capped";
+
+  const response = await POST(request("delivery-capped-after-recall-claim"));
+
+  assert.equal(response.status, 200);
+  assert.deepEqual(await response.json(), { ok: true, handled: true });
+  assert.deepEqual(state.calls.beginProviderEffect, [{
+    tenantId: "0198a000-0000-7000-8000-000000000001",
+    agentId: "0198a000-0000-7000-8000-000000000002",
+    provider: "tavus",
+    idempotencyKey: "effect:sentinel-test",
+    relatedRef: BOT_ID,
+    maxDurationSeconds: 1800,
+  }]);
+  assert.equal(state.calls.createConversation.length, 0);
+  assert.equal(state.calls.commit.length, 0);
+  assert.equal(state.calls.billingActivate.length, 0, "the held Recall effect is not activated when Tavus is capped");
+  assert.equal(state.calls.rpc.some((call) => call.name === "portal_release_recall_webhook_service"), false);
+  assert.equal(state.calls.rpc.at(-1).name, "portal_complete_recall_webhook_service");
+});
+
+test("a claimed Recall delivery retries when the Tavus capability fence is already owned", { concurrency: false }, async () => {
+  const state = freshState();
+  state.capabilityFenceWon = true;
+
+  const response = await POST(request("delivery-capability-fence-lost"));
+
+  assert.equal(response.status, 503);
+  assert.deepEqual(await response.json(), { error: "sentinel_attach_pending" });
+  assert.deepEqual(state.calls.capabilityBind, ["0198a000-0000-7000-8000-000000000010"]);
+  assert.equal(state.calls.createConversation.length, 0);
+  assert.equal(state.calls.commit.length, 0);
+  assert.equal(state.calls.rpc.at(-1).name, "portal_release_recall_webhook_service");
+});
+
 test("concurrent sentinel deliveries have one capability fence winner and at most one Tavus create", { concurrency: false }, async () => {
   const state = freshState();
   const [first, second] = await Promise.all([

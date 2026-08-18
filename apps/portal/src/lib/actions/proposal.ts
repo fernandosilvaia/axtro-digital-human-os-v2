@@ -1,7 +1,5 @@
 "use server";
 
-import { createStripeBillingPort } from "@axtro/provider-stripe";
-
 import { fakeProvidersEnabled } from "@/lib/knowledge";
 import { isPlanId, PLAN_CATALOG } from "@/lib/billing/plans";
 import { sendProposalEmail } from "@/lib/email";
@@ -9,14 +7,14 @@ import { fetchAgents, fetchTenantOverview } from "@/lib/portal-data";
 import { portalPublicOrigin } from "@/lib/public-origin";
 import { isRateLimited } from "@/lib/rate-limit";
 import { createClient } from "@/lib/supabase/server";
-import { logError as trackError, logEvent } from "@/lib/telemetry";
+import { logEvent } from "@/lib/telemetry";
 
 /**
  * Fechamento ao vivo (D-V2-123): depois de um closer pedir a decisão numa
  * call, um admin revisa empresa/e-mail/plano e dispara a proposta — nunca
  * a própria IA, meio da call ("IA rascunha, humano manda",
- * docs/BRIEFING_RAISSA_CLOSER_VIDEO.md §6). Gera uma Checkout Session
- * avulsa (o prospect ainda não é tenant) e manda por e-mail.
+ * docs/BRIEFING_RAISSA_CLOSER_VIDEO.md §6). O checkout real de prospect fica
+ * deliberadamente fechado até ganhar intent durável e reconciliação próprios.
  */
 
 export interface ProposalActionState {
@@ -70,40 +68,19 @@ export async function sendClosingProposal(
     return { error: "Muitas propostas em pouco tempo — aguarde um minuto antes de tentar de novo.", done: false };
   }
 
-  const fakeProviders = fakeProvidersEnabled();
-  const apiKey = (process.env.STRIPE_SECRET_KEY ?? "").trim();
-  const basePriceId = (process.env[plan.basePriceEnvVar] ?? "").trim();
-  const overagePriceId = (process.env[plan.overagePriceEnvVar] ?? "").trim();
-  if (!fakeProviders && (apiKey.length === 0 || basePriceId.length === 0 || overagePriceId.length === 0)) {
-    trackError("closing_proposal_not_configured", new Error("Stripe billing is not configured"), { plan_id: plan.id });
-    return { error: "A cobrança ainda não está configurada neste ambiente.", done: false };
+  if (!fakeProvidersEnabled()) {
+    // ADR-036 exige intent persistida, fence e reconciliação também para uma
+    // assinatura iniciada por prospect. Esse fluxo ainda não possui a entidade
+    // service-owned; não criar a sessão é mais seguro do que cobrar duas vezes
+    // após timeout/retry do Server Action.
+    logEvent("closing_proposal_checkout_blocked", { plan_id: plan.id, agent_id: agentId });
+    return {
+      error: "O checkout de proposta está temporariamente indisponível enquanto finalizamos a proteção de cobrança. Use o fluxo comercial assistido.",
+      done: false,
+    };
   }
 
-  const origin = portalPublicOrigin();
-  let checkoutUrl: string;
-  try {
-    if (fakeProviders) {
-      checkoutUrl = `${origin}/precos?fake_checkout=1&plan=${plan.id}`;
-    } else {
-      const port = createStripeBillingPort({ apiKey });
-      // Stripe exige pelo menos 30 minutos de validade.
-      const expiresAtIso = new Date(Math.floor((Date.now() + 31 * 60_000) / 1000) * 1000).toISOString();
-      const session = await port.createProspectCheckoutSession({
-        basePriceId,
-        overagePriceId,
-        prospectEmail,
-        prospectCompanyName: companyName,
-        successUrl: `${origin}/precos?proposal_success=1`,
-        cancelUrl: `${origin}/precos?proposal_error=cancelado`,
-        expiresAtIso,
-        idempotencyKey: crypto.randomUUID(),
-      });
-      checkoutUrl = session.checkoutUrl;
-    }
-  } catch (error) {
-    trackError("closing_proposal_checkout_failed", error, { plan_id: plan.id, agent_id: agentId });
-    return { error: "Não foi possível gerar o link de checkout agora. Tente novamente.", done: false };
-  }
+  const checkoutUrl = `${portalPublicOrigin()}/precos?fake_checkout=1&plan=${plan.id}`;
 
   const emailResult = await sendProposalEmail({
     to: prospectEmail,

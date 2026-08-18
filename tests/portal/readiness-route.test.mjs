@@ -87,7 +87,7 @@ const ENV = Object.freeze({
 });
 
 const CAPABILITIES = Object.freeze({
-  version: 41,
+  version: 42,
   providerEffectReservations: true,
   billingUsageOutbox: true,
   recallWebhookDedupe: true,
@@ -106,6 +106,8 @@ const CAPABILITIES = Object.freeze({
   billingCheckoutIntents: true,
   strictSubscriptionIdentity: true,
   legacySubscriptionWriterRevoked: true,
+  costEventSchemaVersion: true,
+  legacyCostWritersRevoked: true,
 });
 
 const FRESH_WORKERS = Object.freeze({
@@ -139,7 +141,7 @@ async function assertNoStore(response) {
   return response.json();
 }
 
-test("readiness returns 200 only for schema 41 capabilities and never caches", async () => {
+test("readiness returns 200 only for schema 42 capabilities and never caches", async () => {
   const response = await handleReadiness({
     env: { ...ENV },
     createClient: () => clientWith({ data: CAPABILITIES, error: null }),
@@ -210,8 +212,8 @@ test("worker readiness RPC errors fail closed after schema validation", async ()
   assert.equal(body.checks.workers, false);
 });
 
-test("readiness requires schema version 41 exactly and never probes workers on mismatch", async () => {
-  for (const version of [40, 42, undefined]) {
+test("readiness requires schema version 42 exactly and never probes workers on mismatch", async () => {
+  for (const version of [40, 41, 43, undefined]) {
     const calls = [];
     const response = await handleReadiness({
       env: { ...ENV },
@@ -301,6 +303,22 @@ test("readiness fails closed when any durable Stripe Checkout contract is absent
       assert.equal(body.checks.schema, false);
       assert.equal(body.checks.workers, false);
       assert.deepEqual(calls, ["portal_schema_capabilities_service"]);
+    }
+  }
+});
+
+test("readiness fails closed while the v42 ledger contract is absent", async () => {
+  for (const capability of ["costEventSchemaVersion", "legacyCostWritersRevoked"]) {
+    for (const absentValue of [false, undefined]) {
+      const response = await handleReadiness({
+        env: { ...ENV },
+        createClient: () => clientWith({ data: { ...CAPABILITIES, [capability]: absentValue }, error: null }),
+        logError: () => {},
+      });
+      assert.equal(response.status, 503, `${capability}:${String(absentValue)}`);
+      const body = await assertNoStore(response);
+      assert.equal(body.checks.database, true);
+      assert.equal(body.checks.schema, false);
     }
   }
 });
