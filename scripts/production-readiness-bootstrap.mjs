@@ -86,15 +86,15 @@ const AI_BACKLOG_KEYS = Object.freeze([
 ]);
 
 export class ProductionReadinessBootstrapError extends Error {
-  constructor(code) {
-    super(code);
+  constructor(code, cause) {
+    super(code, cause instanceof Error ? { cause } : undefined);
     this.name = "ProductionReadinessBootstrapError";
     this.code = code;
   }
 }
 
-function fail(code) {
-  throw new ProductionReadinessBootstrapError(code);
+function fail(code, cause) {
+  throw new ProductionReadinessBootstrapError(code, cause);
 }
 
 function normalizedEnv(env, name) {
@@ -271,12 +271,12 @@ function createRpc(configuration, fetchImplementation) {
         },
         body: JSON.stringify(parameters),
       });
-    } catch {
+    } catch (error) {
       clearTimeout(timer);
-      fail("RPC_UNAVAILABLE");
+      fail("RPC_UNAVAILABLE", error);
     }
     try {
-      if (!response.ok) fail("RPC_UNAVAILABLE");
+      if (!response.ok) fail("RPC_UNAVAILABLE", new Error(`rpc ${name} responded ${response.status} ${response.statusText || ""}`.trim()));
       return await readBoundedJson(response);
     } finally {
       clearTimeout(timer);
@@ -455,7 +455,12 @@ async function main() {
     process.stdout.write(`[production-bootstrap] ready schema=v${result.schemaVersion} version=${result.bootstrapVersion} heartbeats=${result.heartbeats}\n`);
   } catch (error) {
     const code = error instanceof ProductionReadinessBootstrapError ? error.code : "UNEXPECTED_FAILURE";
-    process.stderr.write(`[production-bootstrap] failed code=${code}\n`);
+    const cause = error instanceof ProductionReadinessBootstrapError ? error.cause : undefined;
+    // Diagnostic only: cause is always a network/HTTP Error we constructed or
+    // caught ourselves, never request headers or body, so it cannot leak the
+    // service-role key or other secrets (audited 2026-08-18, D-V2-124).
+    const causeText = cause instanceof Error ? ` cause=${cause.name}:${cause.message}` : "";
+    process.stderr.write(`[production-bootstrap] failed code=${code}${causeText}\n`);
     process.exitCode = 1;
   }
 }
