@@ -63,7 +63,7 @@ test("runtime bridge admits, consumes per provider, binds and receipts an allowl
   assert.equal(scene.outcome, "executed");
   assert.equal(directorCalls.length, 1);
   assert.equal(calls.filter((call) => call.name === "portal_consume_runtime_channel_grant_service").length, 3);
-  assert.deepEqual(calls.find((call) => call.name === "portal_admit_runtime_channel_service").parameters.p_capability_set, ["scene_presentation", "recording", "visual_analysis"]);
+  assert.deepEqual(calls.find((call) => call.name === "portal_admit_runtime_channel_service").parameters.p_capabilities, ["scene_presentation", "recording", "visual_analysis"]);
   assert.equal(calls.at(-1).name, "portal_execute_runtime_scene_service");
 });
 

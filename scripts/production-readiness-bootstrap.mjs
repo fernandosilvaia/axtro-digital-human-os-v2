@@ -390,7 +390,7 @@ export async function runProductionReadinessBootstrap(dependencies = {}) {
     catalogReceipt = await stripe.verifyBillingCatalog(stripeCatalog);
   } catch (error) {
     if (error instanceof ProductionReadinessBootstrapError) throw error;
-    fail("STRIPE_CATALOG_MISMATCH");
+    fail("STRIPE_CATALOG_MISMATCH", error);
   }
   if (
     catalogReceipt?.verified !== true

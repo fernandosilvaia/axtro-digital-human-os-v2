@@ -226,6 +226,7 @@ begin
        is distinct from row(p_actor_id,p_agent_id,p_session_id,p_presenter_id,p_channel_kind,p_capabilities,p_command_fingerprint,p_generation,p_disclosure_id,(p_essential_consent->>'id')::app.uuid_v7) then raise exception 'runtime admission replay conflict' using errcode='23505'; end if;
     return jsonb_build_object('outcome',case when v_binding.expires_at<=now() then 'expired' else 'replayed' end,'grantId',v_binding.id,'sessionId',v_binding.session_id,'generation',v_binding.generation,'expiresAt',v_binding.expires_at);
   end if;
+  perform pg_advisory_xact_lock(hashtextextended('runtime-admission-session:'||p_session_id::text,0));
   if app.portal_runtime_switch_disabled(p_tenant_id,p_agent_id,p_channel_kind,'channel_admission') then return jsonb_build_object('outcome','blocked_kill_switch'); end if;
   select * into v_agent from public.agents where tenant_id=p_tenant_id and id=p_agent_id; if not found then raise exception 'agent not found for tenant' using errcode='42501'; end if;
   if v_agent.status<>'active' then return jsonb_build_object('outcome','blocked_agent_inactive'); end if;
@@ -240,7 +241,7 @@ begin
   elsif not exists(select 1 from public.session_participants where tenant_id=p_tenant_id and session_id=p_session_id and id=p_presenter_id and participant_type='digital_presenter') then
     raise exception 'runtime presenter mismatch' using errcode='42501';
   end if;
-  if exists(select 1 from public.sessions where tenant_id=p_tenant_id and id=p_session_id and active_presenter_id is not null and active_presenter_id<>p_presenter_id) then raise exception 'one mouth presenter conflict' using errcode='23505'; end if;
+  if exists(select 1 from public.sessions where tenant_id=p_tenant_id and id=p_session_id and active_presenter_id is not null and active_presenter_id<>p_presenter_id) then return jsonb_build_object('outcome','one_mouth_conflict'); end if;
   if (p_essential_consent->>'id') !~ '^[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$' or p_essential_consent->>'subjectRef' is null or char_length(p_essential_consent->>'subjectRef') not between 1 and 300 or p_essential_consent->>'jurisdiction' is null or char_length(p_essential_consent->>'jurisdiction') not between 2 and 120 or p_essential_consent->>'evidenceHash' !~ '^[0-9a-f]{64}$' or p_essential_consent->>'method' not in ('spoken','click','written','signed','system_import') then raise exception 'invalid essential consent evidence' using errcode='22023'; end if;
   if exists(select 1 from jsonb_array_elements(p_optional_consents) x where jsonb_typeof(x)<>'object' or (select count(*) from jsonb_object_keys(x))<>6 or not(x ?& array['id','capability','subjectRef','jurisdiction','evidenceHash','method'])) then raise exception 'invalid optional consent evidence' using errcode='22023'; end if;
   if exists(select 1 from jsonb_array_elements(p_optional_consents) x where x->>'capability' not in ('recording','persistent_transcription','behavioral_analysis','visual_analysis') or not (x->>'capability'=any(p_capabilities)) or x->>'id' !~ '^[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$' or x->>'subjectRef' is null or char_length(x->>'subjectRef') not between 1 and 300 or x->>'jurisdiction' is null or char_length(x->>'jurisdiction') not between 2 and 120 or x->>'evidenceHash' !~ '^[0-9a-f]{64}$' or x->>'method' not in ('spoken','click','written','signed','system_import')) then raise exception 'optional consent does not authorize requested capability' using errcode='42501'; end if;
@@ -387,8 +388,18 @@ returns jsonb language sql stable security definer set search_path='public' as $
     'billingCheckoutIntents',to_regclass('public.billing_checkout_intents') is not null and to_regclass('public.billing_stripe_event_receipts') is not null,
     'strictSubscriptionIdentity',to_regclass('public.billing_checkout_intents_subscription_uidx') is not null,
     'legacySubscriptionWriterRevoked',not has_function_privilege('service_role','public.portal_upsert_tenant_subscription_service(app.uuid_v7,app.uuid_v7,text,text,text,text,timestamp with time zone,timestamp with time zone,timestamp with time zone)','EXECUTE'),
-    'costEventSchemaVersion',exists(select 1 from information_schema.columns where table_schema='public' and table_name='cost_events' and column_name='schema_version'),
-    'legacyCostWritersRevoked',not has_function_privilege('service_role','public.portal_log_ai_usage(app.uuid_v7,text,integer,integer,numeric)','EXECUTE'),
+    'costEventSchemaVersion',
+      exists(select 1 from information_schema.columns where table_schema='public' and table_name='cost_events' and column_name='schema_version' and data_type='text' and is_nullable='NO' and column_default is not null)
+      and exists(select 1 from pg_constraint where conrelid='public.cost_events'::regclass and conname='cost_events_schema_version_check' and contype='c'),
+    'legacyCostWritersRevoked',
+      not has_function_privilege('service_role','public.portal_log_ai_usage(app.uuid_v7,text,integer,integer,numeric)','EXECUTE')
+      and not has_function_privilege('authenticated','public.portal_log_ai_usage(app.uuid_v7,text,integer,integer,numeric)','EXECUTE')
+      and not has_function_privilege('service_role','public.portal_log_video_usage(app.uuid_v7)','EXECUTE')
+      and not has_function_privilege('authenticated','public.portal_log_video_usage(app.uuid_v7)','EXECUTE')
+      and not has_function_privilege('service_role','public.portal_log_video_usage_service(app.uuid_v7,app.uuid_v7)','EXECUTE')
+      and not has_function_privilege('authenticated','public.portal_log_video_usage_service(app.uuid_v7,app.uuid_v7)','EXECUTE')
+      and not has_function_privilege('service_role','public.portal_log_ai_usage_service(app.uuid_v7,app.uuid_v7,integer,integer)','EXECUTE')
+      and not has_function_privilege('authenticated','public.portal_log_ai_usage_service(app.uuid_v7,app.uuid_v7,integer,integer)','EXECUTE'),
     'runtimeChannelAdmission',to_regclass('public.portal_runtime_channel_bindings') is not null and to_regprocedure('public.portal_admit_runtime_channel_service(app.uuid_v7,app.uuid_v7,app.uuid_v7,app.uuid_v7,app.uuid_v7,app.uuid_v7,text,text[],text,integer,app.uuid_v7,text,text,text,text,jsonb,jsonb)') is not null,
     'runtimeChannelGrantFences',to_regclass('public.portal_runtime_channel_dispatches') is not null and to_regprocedure('public.portal_consume_runtime_channel_grant_service(app.uuid_v7,text,text)') is not null,
     'runtimeProviderBindingReceipts',to_regclass('public.portal_runtime_provider_channel_receipts') is not null and to_regprocedure('public.portal_bind_runtime_provider_channel_service(app.uuid_v7,app.uuid_v7,app.uuid_v7,text,text,text)') is not null,

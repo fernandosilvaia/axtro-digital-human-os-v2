@@ -440,7 +440,7 @@ export function createPortalChannelRuntimeBridge(dependencies: PortalChannelRunt
         p_session_id: assertUuidV7(evidence.sessionId, "sessionId"),
         p_presenter_id: presenterId,
         p_channel_kind: channel,
-        p_capability_set: capabilitySet(purposes),
+        p_capabilities: capabilitySet(purposes),
         p_command_fingerprint: commandFingerprint,
         p_generation: generation,
         p_disclosure_id: assertUuidV7(evidence.disclosureId, "disclosureId"),
