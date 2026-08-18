@@ -7,8 +7,10 @@ remotas, tráfego público, cobrança, mudança de credenciais ou promoção de
 deploy sem o release owner, database operator, observer e a janela humana
 descritos em `M5_01_PRODUCTION_ROLLOUT.md`.
 
-O objetivo é promover um artefato compatível com schema **v46**, mantendo
-`PORTAL_RUNTIME_BRIDGE_ENABLED=false` até que as evidências abaixo existam.
+O objetivo é promover um artefato compatível com schema **v47**, mantendo
+`PORTAL_RUNTIME_BRIDGE_ENABLED=false` e
+`PORTAL_PROVIDER_TERMINATION_ENABLED=false` até que as evidências abaixo
+existam.
 Com a flag desligada, o Portal falha fechado: não há fallback para criação
 direta de Tavus, Recall ou lead-video.
 
@@ -20,7 +22,7 @@ direta de Tavus, Recall ou lead-video.
   `provider_in_flight`, `cleanup_pending` e backlogs financeiros não recebem
   tratamento manual por tempo decorrido.
 - O operador registrou apenas SHA do artefato e checksum das migrations
-  `0040`–`0046`; nunca copie segredo, URL de reunião, provider ref, payload ou
+  `0040`–`0047`; nunca copie segredo, URL de reunião, provider ref, payload ou
   PII para a evidência.
 - As reuniões externas e o handoff de leads continuam explicitamente fechados
   até existir convite/disclosure/consentimento por participante. Não use uma
@@ -30,13 +32,14 @@ direta de Tavus, Recall ou lead-video.
 
 1. Coloque as entradas pagas em maintenance e preserve somente callbacks
    necessários para concluir o drain.
-2. Confirme que a produção está em v45, com 0040–0045 aplicadas e sem
+2. Confirme que a produção está em v46, com 0040–0046 aplicadas e sem
    migration parcial. Aplique **somente então**
-   `database/supabase-only/0046_provider_effect_termination_fence.sql`, uma
-   vez, na mesma janela de maintenance. Não use `supabase db push`: estas
+   `database/supabase-only/0047_service_role_app_schema_usage.sql`, uma vez,
+   na mesma janela de maintenance. Não use `supabase db push`: estas
    migrations Supabase-only exigem o operador de banco aprovado.
 3. Com service role auditada, leia `portal_schema_capabilities_service()` e
-   exija `version: 46`, `providerEffectTerminationFence:true` e todas as
+   exija `version: 47`, `providerEffectTerminationFence:true`,
+   `serviceRoleAppSchemaUsage:true` e todas as
    capabilities de runtime:
    `runtimeChannelAdmission`, `runtimeChannelGrantFences`,
    `runtimeProviderBindingReceipts`, `runtimeSceneReceipts`,
@@ -45,13 +48,18 @@ direta de Tavus, Recall ou lead-video.
    término têm RLS forçada, nenhum grant para `anon`/`authenticated` e somente
    `service_role` executa as RPCs.
 4. Faça o deploy candidato ainda com
-   `PORTAL_RUNTIME_BRIDGE_ENABLED=false`. O bootstrap e `/api/ready` devem
-   ficar verdes sem reabrir provider creation. O bootstrap deve falhar fechado
-   se a capability v46 não existir.
+   `PORTAL_RUNTIME_BRIDGE_ENABLED=false` e
+   `PORTAL_PROVIDER_TERMINATION_ENABLED=false`. O bootstrap e `/api/ready`
+   devem ficar verdes sem reabrir provider creation ou terminação. O bootstrap
+   deve falhar fechado se a capability v47 ou a probe RPC tipada inerte não
+   existirem.
 
 ## Canário controlado
 
-1. Com tráfego público ainda em zero, habilite a flag somente para o
+1. Este release **não** autoriza habilitar nenhuma flag. O canário abaixo só
+   pode começar após decisão explícita que resolva ou aceite o P0 de media
+   boundary; até lá, mantenha ambas em `false`. Com essa autoridade liberada,
+   habilite a flag somente para o
    candidato/canário aprovado e uma conta de teste sem dados de clientes.
 2. Verifique uma sessão Tavus direta: disclosure visível, cinco confirmações
    de finalidade, uma session/grant/receipt por comando e uma única criação
