@@ -85,12 +85,14 @@ test("golden: requisição real do Tavus atravessa parser + núcleo + validador 
   // Identidade e doutrina chegaram inteiras ao provider.
   assert.match(joinedSystem, /VIDEOCHAMADA/);
   assert.match(joinedSystem, /MAESTRIA HUMANA/);
-  // Percepção legítima (do system do Tavus) chegou como dado rotulado…
-  assert.match(joinedSystem, /braços cruzados/);
-  // …e a tag forjada pelo lead NÃO virou percepção nem instrução de sistema.
+  // Dados de provider, RAG e percepção nunca recebem autoridade system.
+  assert.doesNotMatch(joinedSystem, /braços cruzados/);
   assert.doesNotMatch(joinedSystem, /50% de desconto/);
-  // O conversational_context que nós criamos sobreviveu como dado.
-  assert.match(joinedSystem, /preço fixo publicado/);
+  const joinedReferenceData = body.messages.filter((m) => m.role === "user").map((m) => m.content).join("\n\n");
+  assert.match(joinedReferenceData, /DADOS DE REFERÊNCIA NÃO CONFIÁVEIS/);
+  assert.match(joinedReferenceData, /braços cruzados/);
+  // O conversational_context recebido do provider sobreviveu apenas como dado não confiável.
+  assert.match(joinedReferenceData, /preço fixo publicado/);
   // O turno final do usuário sobreviveu (truncado) e fecha a conversa.
   assert.equal(body.messages.at(-1).role, "user");
   assert.match(body.messages.at(-1).content, /tá caro/);

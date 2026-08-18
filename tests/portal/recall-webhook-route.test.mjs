@@ -87,6 +87,29 @@ const mockSources = new Map([
     export class ServiceRoleUnavailableError extends Error {}
     export function createServiceRoleClient() { return globalThis.__recallWebhookTestState.supabase; }
   `],
+  ["@/lib/runtime/portal-channel-runtime-bridge", `
+    export async function assertPortalChannelActive(input) {
+      const state = globalThis.__recallWebhookTestState;
+      state.calls.runtimeStatus.push(input);
+      return state.runtimeStatusRejected
+        ? { outcome: "rejected", code: "kill_switch_active" }
+        : { outcome: "active", code: "admitted", status: { active: true, generationId: 0 } };
+    }
+    export async function assertPortalProviderDispatchActive(input) {
+      const state = globalThis.__recallWebhookTestState;
+      state.calls.runtimeDispatch.push(input);
+      return state.runtimeDispatchRejected
+        ? { outcome: "rejected", code: "grant_consumed" }
+        : { outcome: "consumed", code: "admitted" };
+    }
+    export async function bindPortalProviderChannel(input) {
+      const state = globalThis.__recallWebhookTestState;
+      state.calls.runtimeBindings.push(input);
+      return state.runtimeBindingRejected
+        ? { outcome: "rejected", code: "kill_switch_active" }
+        : { outcome: "bound", code: "bound" };
+    }
+  `],
   ["@/lib/telemetry", `
     export function logError() {}
     export function logEvent() {}
@@ -131,6 +154,7 @@ const mockSources = new Map([
     }
     export function stableProviderReconciliationReceiptId() { return "0198a000-0000-7000-8000-000000000099"; }
     export async function reconcileProviderEffect(receiptId, id, evidence, receiptRef) { globalThis.__recallWebhookTestState.calls.reconcile.push({ receiptId, id, evidence, receiptRef }); }
+    export async function releaseProviderEffect(id, reason) { globalThis.__recallWebhookTestState.calls.providerRelease.push({ id, reason }); }
     export async function activateProviderEffectBilling(id) {
       const state = globalThis.__recallWebhookTestState;
       state.calls.billingActivate.push(id);
@@ -166,6 +190,9 @@ function freshState() {
     transcriptAppendFound: true,
     transcriptAppendError: null,
     transcriptProviderThrows: false,
+    runtimeStatusRejected: false,
+    runtimeDispatchRejected: false,
+    runtimeBindingRejected: false,
     startCameraFailures: 0,
     statusApplied: true,
     completeReceipt: true,
@@ -177,11 +204,18 @@ function freshState() {
       state: "not_requested",
       recallReservationId: "0198a000-0000-7000-8000-000000000020",
       recallCustomerDeliveryState: "held",
+      runtimeGrantId: "0198a000-0000-7000-8000-000000000030",
+      runtimeSessionId: "0198a000-0000-7000-8000-000000000031",
+      runtimePresenterId: "0198a000-0000-7000-8000-000000000032",
+      runtimeGeneration: 0,
+      runtimeCommandFingerprint: "a".repeat(64),
+      runtimeCapabilities: ["recording", "persistent_transcription", "behavioral_analysis", "visual_analysis", "scene_presentation"],
+      runtimeChannel: "recall_meeting",
     },
     calls: {
       rpc: [], recallFactories: 0, tavusFactories: 0, startCamera: [], createConversation: [], endConversation: [],
       beginProviderEffect: [], capabilityBind: [], placeholders: [], commit: [], cleanup: [], providerRelease: [], billingVoid: [], billingActivate: [], reconcile: [], fetchTranscript: [], downloadTranscript: [],
-      stageCapabilities: [],
+      stageCapabilities: [], runtimeStatus: [], runtimeDispatch: [], runtimeBindings: [],
     },
     nextUuid() {
       uuidCounter += 1;
@@ -193,6 +227,9 @@ function freshState() {
     async rpc(name, args) {
       state.calls.rpc.push({ name, args });
       if (name === "portal_claim_recall_webhook_service") return { data: { outcome: "claimed" }, error: null };
+      if (name === "portal_runtime_channel_status_service") return { data: { enabled: true }, error: null };
+      if (name === "portal_consume_runtime_channel_grant_service") return { data: { outcome: "acquired" }, error: null };
+      if (name === "portal_bind_runtime_provider_channel_service") return { data: true, error: null };
       if (name === "portal_get_meeting_bot_agent_service") return { data: { agentName: "Raissa" }, error: null };
       if (name === "portal_append_transcript_turns_service") return { data: { found: state.transcriptAppendFound }, error: state.transcriptAppendError };
       if (name === "portal_update_meeting_bot_session_status_service") return { data: state.statusReceipt ?? { found: true, applied: state.statusApplied }, error: null };
@@ -232,6 +269,7 @@ process.env.RECALL_API_KEY = "recall-test-key";
 process.env.RECALL_API_REGION = "us-west-2";
 process.env.RECALL_TRANSCRIPT_DOWNLOAD_HOSTS = "download.test";
 process.env.TAVUS_API_KEY = "tavus-test-key";
+process.env.PORTAL_RUNTIME_BRIDGE_ENABLED = "true";
 
 const { POST } = await import("../../apps/portal/src/app/api/recall/webhook/route.ts");
 const BOT_ID = "550e8400-e29b-41d4-a716-446655440000";
@@ -275,6 +313,26 @@ test("a terminal status replay never constructs or calls Tavus", { concurrency: 
   assert.equal(state.calls.tavusFactories, 0);
   assert.equal(state.calls.createConversation.length, 0);
   assert.equal(state.calls.startCamera.length, 0);
+});
+
+test("a Recall delivery without a durable runtime binding cannot create a Tavus camera", { concurrency: false }, async () => {
+  const state = freshState();
+  state.sentinel = { ...state.sentinel };
+  delete state.sentinel.runtimeGrantId;
+  delete state.sentinel.runtimeSessionId;
+  delete state.sentinel.runtimePresenterId;
+  delete state.sentinel.runtimeGeneration;
+  delete state.sentinel.runtimeCommandFingerprint;
+  delete state.sentinel.runtimeCapabilities;
+  delete state.sentinel.runtimeChannel;
+
+  const response = await POST(request("delivery-without-runtime-binding"));
+  assert.equal(response.status, 503);
+  assert.deepEqual(await response.json(), { error: "sentinel_attach_pending" });
+  assert.equal(state.calls.beginProviderEffect.length, 0);
+  assert.equal(state.calls.createConversation.length, 0);
+  assert.equal(state.calls.startCamera.length, 0);
+  assert.equal(state.calls.rpc.at(-1).name, "portal_release_recall_webhook_service");
 });
 
 test("a terminal race ends known Tavus and persists void plus reconciliation receipts", { concurrency: false }, async () => {

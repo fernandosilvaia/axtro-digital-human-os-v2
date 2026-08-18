@@ -1,0 +1,27 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://schemas.axtro.ai/v2/runtime_channel_admission.schema.json",
+  "title": "Runtime Channel Admission",
+  "description": "Server-derived constitutional admission for one Portal provider channel.",
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "schema_version": { "type": "string", "const": "2.0.0" },
+    "admission_id": { "$ref": "https://schemas.axtro.ai/v2/tool_execution_receipt.schema.json#/properties/execution_id" },
+    "tenant_id": { "$ref": "https://schemas.axtro.ai/v2/tool_execution_receipt.schema.json#/properties/tenant_id" },
+    "actor_id": { "$ref": "https://schemas.axtro.ai/v2/tool_execution_receipt.schema.json#/properties/intent_id" },
+    "agent_id": { "$ref": "https://schemas.axtro.ai/v2/tool_execution_receipt.schema.json#/properties/intent_id" },
+    "session_id": { "$ref": "https://schemas.axtro.ai/v2/tool_execution_receipt.schema.json#/properties/intent_id" },
+    "presenter_id": { "$ref": "https://schemas.axtro.ai/v2/tool_execution_receipt.schema.json#/properties/intent_id" },
+    "channel_kind": { "type": "string", "enum": ["tavus_video", "recall_meeting"] },
+    "capabilities": { "type": "array", "uniqueItems": true, "maxItems": 5, "items": { "type": "string", "enum": ["recording", "persistent_transcription", "behavioral_analysis", "visual_analysis", "scene_presentation"] } },
+    "command_fingerprint": { "type": "string", "pattern": "^[0-9a-f]{64}$" },
+    "generation": { "type": "integer", "minimum": 0, "maximum": 10000000 },
+    "disclosure_id": { "$ref": "https://schemas.axtro.ai/v2/tool_execution_receipt.schema.json#/properties/execution_id" },
+    "essential_consent_id": { "$ref": "https://schemas.axtro.ai/v2/tool_execution_receipt.schema.json#/properties/execution_id" },
+    "status": { "type": "string", "enum": ["issued", "blocked", "expired"] },
+    "issued_at": { "type": "string", "format": "date-time" },
+    "expires_at": { "type": "string", "format": "date-time" }
+  },
+  "required": ["schema_version", "admission_id", "tenant_id", "actor_id", "agent_id", "session_id", "presenter_id", "channel_kind", "capabilities", "command_fingerprint", "generation", "disclosure_id", "essential_consent_id", "status", "issued_at", "expires_at"]
+}

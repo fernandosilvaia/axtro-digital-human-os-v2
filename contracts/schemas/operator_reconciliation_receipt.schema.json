@@ -1,0 +1,19 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://schemas.axtro.ai/v2/operator_reconciliation_receipt.schema.json",
+  "title": "Operator Reconciliation Receipt",
+  "description": "Append-only dual-operator evidence for a blocked unknown provider effect.",
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "schema_version": { "type": "string", "const": "2.0.0" },
+    "receipt_id": { "$ref": "https://schemas.axtro.ai/v2/tool_execution_receipt.schema.json#/properties/execution_id" },
+    "tenant_id": { "$ref": "https://schemas.axtro.ai/v2/tool_execution_receipt.schema.json#/properties/tenant_id" },
+    "reservation_id": { "$ref": "https://schemas.axtro.ai/v2/tool_execution_receipt.schema.json#/properties/execution_id" },
+    "evidence_fingerprint": { "type": "string", "pattern": "^[0-9a-f]{64}$" },
+    "operator_ids": { "type": "array", "minItems": 2, "maxItems": 2, "uniqueItems": true, "items": { "$ref": "https://schemas.axtro.ai/v2/tool_execution_receipt.schema.json#/properties/intent_id" } },
+    "outcome": { "type": "string", "enum": ["released_after_reconciliation", "compensation_confirmed"] },
+    "recorded_at": { "type": "string", "format": "date-time" }
+  },
+  "required": ["schema_version", "receipt_id", "tenant_id", "reservation_id", "evidence_fingerprint", "operator_ids", "outcome", "recorded_at"]
+}

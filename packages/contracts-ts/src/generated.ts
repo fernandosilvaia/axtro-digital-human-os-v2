@@ -1,7 +1,7 @@
 /*
  * GENERATED FILE. DO NOT EDIT.
  * generator: scripts/generate_contract_types.py@1.0.0
- * source: 48 JSON Schema Draft 2020-12 documents under contracts/schemas/
+ * source: 52 JSON Schema Draft 2020-12 documents under contracts/schemas/
  */
 
 export const CONTRACT_GENERATOR_VERSION = "1.0.0" as const;
@@ -114,7 +114,7 @@ export interface ConsentEvidence {
   session_id: string;
   tenant_id: string;
   subject_ref: string;
-  consent_type: "essential_processing" | "recording" | "behavioral_analysis" | "emotion_inference" | "biometric_identity" | "marketing_contact" | "data_retention";
+  consent_type: "essential_processing" | "recording" | "persistent_transcription" | "behavioral_analysis" | "emotion_inference" | "biometric_identity" | "marketing_contact" | "data_retention";
   purpose: string;
   status: "granted" | "denied" | "revoked" | "expired";
   method: "spoken" | "click" | "written" | "signed" | "system_import";
@@ -409,6 +409,18 @@ export interface InteractionSessionState {
   updated_at: string;
 }
 
+/** Source: contracts/schemas/operator_reconciliation_receipt.schema.json; schema: https://schemas.axtro.ai/v2/operator_reconciliation_receipt.schema.json; version: 2.0.0. */
+export interface OperatorReconciliationReceipt {
+  schema_version: "2.0.0";
+  receipt_id: string;
+  tenant_id: string;
+  reservation_id: string;
+  evidence_fingerprint: string;
+  operator_ids: Array<string>;
+  outcome: "released_after_reconciliation" | "compensation_confirmed";
+  recorded_at: string;
+}
+
 /** Source: contracts/schemas/perception_signal.schema.json; schema: https://schemas.axtro.ai/v2/perception_signal.schema.json; version: 2.0.0. */
 export interface PerceptionSignal {
   schema_version: "2.0.0";
@@ -630,6 +642,42 @@ export interface RoleState {
   updated_at: string;
 }
 
+/** Source: contracts/schemas/runtime_channel_admission.schema.json; schema: https://schemas.axtro.ai/v2/runtime_channel_admission.schema.json; version: 2.0.0. */
+export interface RuntimeChannelAdmission {
+  schema_version: "2.0.0";
+  admission_id: string;
+  tenant_id: string;
+  actor_id: string;
+  agent_id: string;
+  session_id: string;
+  presenter_id: string;
+  channel_kind: "tavus_video" | "recall_meeting";
+  capabilities: Array<"recording" | "persistent_transcription" | "behavioral_analysis" | "visual_analysis" | "scene_presentation">;
+  command_fingerprint: string;
+  generation: number;
+  disclosure_id: string;
+  essential_consent_id: string;
+  status: "issued" | "blocked" | "expired";
+  issued_at: string;
+  expires_at: string;
+}
+
+/** Source: contracts/schemas/runtime_channel_grant.schema.json; schema: https://schemas.axtro.ai/v2/runtime_channel_grant.schema.json; version: 2.0.0. */
+export interface RuntimeChannelGrant {
+  schema_version: "2.0.0";
+  grant_id: string;
+  admission_id: string;
+  tenant_id: string;
+  session_id: string;
+  command_fingerprint: string;
+  consumer_kind: "tavus" | "recall" | "scene";
+  state: "issued" | "consumed" | "rejected" | "expired";
+  generation: number;
+  issued_at: string;
+  expires_at: string;
+  consumed_at: string | null;
+}
+
 /** Source: contracts/schemas/runtime_configuration.schema.json; schema: https://schemas.axtro.ai/v2/runtime_configuration.schema.json; version: 2.0.0. */
 export interface RuntimeConfiguration {
   schema_version: "2.0.0";
@@ -682,6 +730,21 @@ export interface SceneDirective {
   priority: number;
   issued_at: string;
   expires_at: string;
+}
+
+/** Source: contracts/schemas/scene_execution_receipt.schema.json; schema: https://schemas.axtro.ai/v2/scene_execution_receipt.schema.json; version: 2.0.0. */
+export interface SceneExecutionReceipt {
+  schema_version: "2.0.0";
+  receipt_id: string;
+  tenant_id: string;
+  session_id: string;
+  grant_id: string;
+  scene_id: string;
+  manifest_id: string;
+  generation: number;
+  outcome: "succeeded" | "rejected_stale_generation" | "rejected_policy" | "failed";
+  effect_hash: string | null;
+  recorded_at: string;
 }
 
 /** Source: contracts/schemas/scene_manifest.schema.json; schema: https://schemas.axtro.ai/v2/scene_manifest.schema.json; version: 2.0.0. */
@@ -983,7 +1046,7 @@ export const CONTRACT_METADATA = {
   "ConsentEvidence": {
     "schema_id": "https://schemas.axtro.ai/v2/consent_evidence.schema.json",
     "schema_version": "2.0.0",
-    "source_hash": "5d5fb9efb2451d34c774ef614ec6a0e499a288bc1e4d9c56de6574111f3b90a7",
+    "source_hash": "e32abed9a45aa9a83d90e4e66b114f2d1907ea1968e5076ca93674593ff59c4a",
     "source_schema": "contracts/schemas/consent_evidence.schema.json"
   },
   "ContextComposition": {
@@ -1076,6 +1139,12 @@ export const CONTRACT_METADATA = {
     "source_hash": "641554550db45bed0f891b726e5b92344d23be5d51308183b136dbb36090bac8",
     "source_schema": "contracts/schemas/interaction_session_state.schema.json"
   },
+  "OperatorReconciliationReceipt": {
+    "schema_id": "https://schemas.axtro.ai/v2/operator_reconciliation_receipt.schema.json",
+    "schema_version": "2.0.0",
+    "source_hash": "067ab4e15b9317440f7d671f5334952935cc4378e5d870e2dcde4ac269b44422",
+    "source_schema": "contracts/schemas/operator_reconciliation_receipt.schema.json"
+  },
   "PerceptionSignal": {
     "schema_id": "https://schemas.axtro.ai/v2/perception_signal.schema.json",
     "schema_version": "2.0.0",
@@ -1136,6 +1205,18 @@ export const CONTRACT_METADATA = {
     "source_hash": "67f83b4138742728d88cdef4db3ef851175ae1ebd0ab7a2bfa2181346b3a65ba",
     "source_schema": "contracts/schemas/role_state.schema.json"
   },
+  "RuntimeChannelAdmission": {
+    "schema_id": "https://schemas.axtro.ai/v2/runtime_channel_admission.schema.json",
+    "schema_version": "2.0.0",
+    "source_hash": "2d8798f23a9487f65c3ef7d2ed4639a9a70b45d701e47a1fe628762b2918b75c",
+    "source_schema": "contracts/schemas/runtime_channel_admission.schema.json"
+  },
+  "RuntimeChannelGrant": {
+    "schema_id": "https://schemas.axtro.ai/v2/runtime_channel_grant.schema.json",
+    "schema_version": "2.0.0",
+    "source_hash": "ea37079e1707131cee7750b3bd387a08bfc01defd05752409274f660645f2e84",
+    "source_schema": "contracts/schemas/runtime_channel_grant.schema.json"
+  },
   "RuntimeConfiguration": {
     "schema_id": "https://schemas.axtro.ai/v2/runtime_configuration.schema.json",
     "schema_version": "2.0.0",
@@ -1153,6 +1234,12 @@ export const CONTRACT_METADATA = {
     "schema_version": "2.0.0",
     "source_hash": "afcdef82160e8df27fc4266e44c5c00a159225ec370c3edcacc1525ff8cf57ab",
     "source_schema": "contracts/schemas/scene_directive.schema.json"
+  },
+  "SceneExecutionReceipt": {
+    "schema_id": "https://schemas.axtro.ai/v2/scene_execution_receipt.schema.json",
+    "schema_version": "2.0.0",
+    "source_hash": "cfafb1dbee4a1f01666d011ffd4eb01f5d34ba5b4dc1aa13ea244350c20b7425",
+    "source_schema": "contracts/schemas/scene_execution_receipt.schema.json"
   },
   "SceneManifest": {
     "schema_id": "https://schemas.axtro.ai/v2/scene_manifest.schema.json",

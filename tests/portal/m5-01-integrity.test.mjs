@@ -232,7 +232,7 @@ test("Recall webhook requires signed HMAC and boolean delivery receipts", () => 
   assert.match(recallRoute, /portal_release_recall_webhook_service[\s\S]{0,300}data !== true/);
 });
 
-test("liveness is independent and readiness requires schema 42 plus real-mode HMAC", () => {
+test("liveness is independent and readiness requires schema 43 plus real-mode HMAC", () => {
   assert.doesNotMatch(healthRoute, /process\.env|createServiceRoleClient/);
   assert.equal(railway.deploy.healthcheckPath, "/api/ready");
   const base = {

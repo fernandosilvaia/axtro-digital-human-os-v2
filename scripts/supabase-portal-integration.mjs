@@ -80,8 +80,11 @@ try {
   const ledgerContractApplied = applySupabaseMigrations(databaseUrl, 42, 42);
   assert.deepEqual(ledgerContractApplied, ["0042"]);
   assertLedgerContractPhase(databaseUrl);
+  const runtimeBridgeApplied = applySupabaseMigrations(databaseUrl, 43, 43);
+  assert.deepEqual(runtimeBridgeApplied, ["0043"]);
+  assertRuntimeBridgeContractPhase(databaseUrl);
   assertFailed(runFile(databaseUrl, join(supabaseMigrationDirectory, "0040_production_integrity_hardening.sql")), "non-idempotent 0040 cannot be replayed without a migration receipt gate");
-  assert.equal(queryScalar(databaseUrl, "SELECT count(*) FROM public.axtro_supabase_test_migrations;"), "42");
+  assert.equal(queryScalar(databaseUrl, "SELECT count(*) FROM public.axtro_supabase_test_migrations;"), "43");
 
   assertMigrationCapabilities(databaseUrl);
   assertLeastPrivilege(databaseUrl);
@@ -105,8 +108,9 @@ try {
   await assertStaleReservedSweepFencing(databaseUrl);
   assertRecallDailyPaidAttemptBudget(databaseUrl);
   assertCostEventSchemaVersion(databaseUrl);
+  assertRuntimeChannelBridge(databaseUrl);
 
-  console.log("SUPABASE PORTAL INTEGRATION PASSED: migrations 0001-0042, grants, RLS, transcripts, reservations and readiness capability");
+  console.log("SUPABASE PORTAL INTEGRATION PASSED: migrations 0001-0043, grants, RLS, transcripts, reservations and readiness capability");
 } catch (error) {
   primaryError = error;
   throw error;
@@ -122,7 +126,7 @@ function applySupabaseMigrations(databaseUrl, firstVersion, lastVersion) {
   const migrations = readdirSync(supabaseMigrationDirectory)
     .filter((name) => /^\d{4}_.+\.sql$/.test(name))
     .sort();
-  assert.equal(migrations.length, 42, "the harness must cover every Supabase-only migration through the 0042 ledger contract phase");
+  assert.equal(migrations.length, 43, "the harness must cover every Supabase-only migration through the 0043 runtime bridge phase");
   const applied = [];
   for (const migration of migrations) {
     const numericVersion = Number(migration.slice(0, 4));
@@ -256,10 +260,18 @@ function assertLedgerContractPhase(databaseUrl) {
   }
 }
 
+function assertRuntimeBridgeContractPhase(databaseUrl) {
+  const capabilities = queryJson(databaseUrl, asRoleSql("service_role", null, "SELECT public.portal_schema_capabilities_service();"));
+  assert.equal(capabilities.version, 43, "0043 enables the runtime bridge contract");
+  for (const capability of ["runtimeChannelAdmission", "runtimeChannelGrantFences", "runtimeProviderBindingReceipts", "runtimeSceneReceipts", "runtimeKillSwitches", "runtimeDualOperatorReconciliation"]) {
+    assert.equal(capabilities[capability], true, capability);
+  }
+}
+
 function assertMigrationCapabilities(databaseUrl) {
   assert.equal(queryScalar(databaseUrl, "SELECT to_regprocedure('public.portal_schema_capabilities_service()') IS NOT NULL;"), "t");
   const capabilities = queryJson(databaseUrl, asRoleSql("service_role", null, "SELECT public.portal_schema_capabilities_service();"));
-  assert.equal(capabilities.version, 42);
+  assert.equal(capabilities.version, 43);
   assert.equal(capabilities.providerEffectReservations, true);
   assert.equal(capabilities.billingUsageOutbox, true);
   assert.equal(capabilities.recallWebhookDedupe, true);
@@ -280,6 +292,12 @@ function assertMigrationCapabilities(databaseUrl) {
   assert.equal(capabilities.legacyCostWritersRevoked, true);
   assert.equal(capabilities.authenticatedProviderTranscriptPreclaimBlocked, true);
   assert.equal(capabilities.authenticatedMeetingBotPreclaimBlocked, true);
+  assert.equal(capabilities.runtimeChannelAdmission, true);
+  assert.equal(capabilities.runtimeChannelGrantFences, true);
+  assert.equal(capabilities.runtimeProviderBindingReceipts, true);
+  assert.equal(capabilities.runtimeSceneReceipts, true);
+  assert.equal(capabilities.runtimeKillSwitches, true);
+  assert.equal(capabilities.runtimeDualOperatorReconciliation, true);
   assert.equal(queryScalar(databaseUrl, "SELECT to_regclass('public.provider_effect_reservations') IS NOT NULL;"), "t");
   assert.equal(queryScalar(databaseUrl, "SELECT to_regclass('public.billing_usage_outbox') IS NOT NULL;"), "t");
   for (const signature of [
@@ -342,6 +360,14 @@ function assertLeastPrivilege(databaseUrl) {
     "billing_checkout_intents",
     "billing_stripe_event_receipts",
     "tenant_subscriptions",
+    "portal_runtime_kill_switches",
+    "portal_runtime_kill_switch_events",
+    "portal_runtime_channel_bindings",
+    "portal_runtime_channel_dispatches",
+    "portal_runtime_provider_channel_receipts",
+    "portal_runtime_scene_execution_receipts",
+    "portal_runtime_operator_approvals",
+    "portal_runtime_operator_reconciliation_receipts",
   ];
   for (const table of [...m5Tables, "conversation_transcripts", "meeting_bot_sessions"]) {
     assert.equal(queryScalar(databaseUrl, `SELECT relrowsecurity AND relforcerowsecurity FROM pg_class WHERE oid = 'public.${table}'::regclass;`), "t");
@@ -388,6 +414,64 @@ function assertCostEventSchemaVersion(databaseUrl) {
     (tenant_id,id,provider_id,service,unit_type,quantity,unit_cost_usd,amount_usd,source,occurred_at,schema_version)
     VALUES ('${fixture.tenantAlpha}','019f0000-0000-7000-8000-000000009425','legacy','legacy.invalid-version','flat',1,0,0,'estimated',now(),'2.0.0');`),
   "cost event contract version rejects an unsupported schema");
+}
+
+function assertRuntimeChannelBridge(databaseUrl) {
+  const bindingId = "019f0000-0000-7000-8000-000000008001";
+  const sessionId = "019f0000-0000-7000-8000-000000008002";
+  const presenterId = "019f0000-0000-7000-8000-000000008003";
+  const disclosureId = "019f0000-0000-7000-8000-000000008004";
+  const consentId = "019f0000-0000-7000-8000-000000008005";
+  const commandFingerprint = "a".repeat(64);
+  const evidenceHash = "b".repeat(64);
+  const disclosureHash = "c".repeat(64);
+  const essential = JSON.stringify({
+    id: consentId,
+    subjectRef: "runtime-operator-confirmation",
+    jurisdiction: "BR",
+    evidenceHash,
+    method: "click",
+  });
+  const admission = () => queryJson(databaseUrl, asRoleSql("service_role", null, `
+    SELECT public.portal_admit_runtime_channel_service(
+      '${bindingId}','${fixture.tenantAlpha}','${fixture.actorAlpha}','${fixture.agentAlpha}',
+      '${sessionId}','${presenterId}','recall_meeting',array['scene_presentation'],'${commandFingerprint}',0,
+      '${disclosureId}','runtime-v1','${disclosureHash}','visual','pt-BR','${sqlLiteral(essential)}'::jsonb,'[]'::jsonb
+    );
+  `));
+  assertFailed(runSql(databaseUrl, asRoleSql("authenticated", fixture.userAlpha, `SELECT public.portal_admit_runtime_channel_service(
+    '${bindingId}','${fixture.tenantAlpha}','${fixture.actorAlpha}','${fixture.agentAlpha}','${sessionId}','${presenterId}',
+    'recall_meeting',array['scene_presentation'],'${commandFingerprint}',0,'${disclosureId}','runtime-v1','${disclosureHash}','visual','pt-BR','${sqlLiteral(essential)}'::jsonb,'[]'::jsonb
+  );`)), "authenticated callers cannot directly admit a runtime channel");
+  const issued = admission();
+  assert.equal(issued.outcome, "issued");
+  assert.equal(issued.grantId, bindingId);
+  assert.equal(queryScalar(databaseUrl, `SELECT active_presenter_id::text||':'||disclosure_status||':'||consent_status FROM public.sessions WHERE tenant_id='${fixture.tenantAlpha}' AND id='${sessionId}';`), `${presenterId}:delivered:granted`);
+  assert.equal(admission().outcome, "replayed", "same server-derived admission is idempotent");
+  const consume = (kind) => queryJson(databaseUrl, asRoleSql("service_role", null,
+    `SELECT public.portal_consume_runtime_channel_grant_service('${bindingId}','${commandFingerprint}','${kind}');`));
+  assert.equal(consume("tavus").outcome, "acquired");
+  assert.equal(consume("recall").outcome, "acquired", "one bridge grant permits the second paid provider fence");
+  assert.equal(consume("scene").outcome, "acquired", "scene has its own constrained consume fence");
+  assert.equal(consume("tavus").outcome, "replayed", "same provider cannot consume a grant twice");
+  assert.equal(queryScalar(databaseUrl, `SELECT count(*) FROM public.portal_runtime_channel_dispatches WHERE tenant_id='${fixture.tenantAlpha}' AND binding_id='${bindingId}';`), "3");
+  assert.equal(queryScalar(databaseUrl, asRoleSql("service_role", null, `SELECT public.portal_set_runtime_kill_switch_service(
+    '019f0000-0000-7000-8000-000000008006','${fixture.tenantAlpha}','${fixture.actorAlpha}','${fixture.agentAlpha}','recall_meeting','provider_dispatch',false,'incident_hold'
+  );`)), "t");
+  assert.equal(queryScalar(databaseUrl, `SELECT count(*) FROM public.portal_runtime_kill_switch_events WHERE tenant_id='${fixture.tenantAlpha}' AND reason_code='incident_hold';`), "1", "kill switch state transition leaves durable audit evidence");
+  assert.equal(queryJson(databaseUrl, asRoleSql("service_role", null,
+    `SELECT public.portal_runtime_channel_status_service('${fixture.tenantAlpha}','${fixture.agentAlpha}','recall_meeting','provider_dispatch');`)).enabled, false);
+  const blockedId = "019f0000-0000-7000-8000-000000008007";
+  const blockedSession = "019f0000-0000-7000-8000-000000008008";
+  const blockedPresenter = "019f0000-0000-7000-8000-000000008009";
+  const blockedDisclosure = "019f0000-0000-7000-8000-000000008010";
+  const blockedConsent = "019f0000-0000-7000-8000-000000008011";
+  const noPurpose = JSON.stringify({ id: blockedConsent, subjectRef: "runtime-operator-confirmation", jurisdiction: "BR", evidenceHash, method: "click" });
+  assertFailed(runSql(databaseUrl, asRoleSql("service_role", null, `SELECT public.portal_admit_runtime_channel_service(
+    '${blockedId}','${fixture.tenantAlpha}','${fixture.actorAlpha}','${fixture.agentAlpha}','${blockedSession}','${blockedPresenter}',
+    'tavus_video',array['recording'],'${"d".repeat(64)}',0,'${blockedDisclosure}','runtime-v1','${disclosureHash}','spoken','pt-BR','${sqlLiteral(noPurpose)}'::jsonb,'[]'::jsonb
+  );`)), "an optional capability without purpose evidence fails before disclosure/session persistence");
+  assert.equal(queryScalar(databaseUrl, `SELECT count(*) FROM public.portal_runtime_channel_bindings WHERE id='${blockedId}';`), "0");
 }
 
 function assertWorkerHeartbeatLifecycle(databaseUrl) {

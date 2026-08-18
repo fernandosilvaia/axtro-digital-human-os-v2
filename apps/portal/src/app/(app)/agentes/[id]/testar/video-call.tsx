@@ -4,19 +4,33 @@ import { useState, useTransition } from "react";
 
 import { isTrustedTavusConversationUrl } from "@axtro/provider-tavus";
 
-import { startVideoConversation } from "@/lib/actions/video-conversation";
+import { startVideoConversation, type VideoChannelConsent } from "@/lib/actions/video-conversation";
+
+const INITIAL_CONSENT: VideoChannelConsent = {
+  disclosure: false,
+  essentialProcessing: false,
+  recording: false,
+  transcription: false,
+  behavioralAnalysis: false,
+  visualAnalysis: false,
+};
+
+function allConsentConfirmed(consent: VideoChannelConsent): boolean {
+  return Object.values(consent).every(Boolean);
+}
 
 export function VideoCall({ agentId, agentName }: { agentId: string; agentName: string }) {
   const [url, setUrl] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [copied, setCopied] = useState(false);
+  const [consent, setConsent] = useState<VideoChannelConsent>(INITIAL_CONSENT);
   const [pending, startTransition] = useTransition();
 
   function start() {
     setError(null);
     const commandId = crypto.randomUUID();
     startTransition(async () => {
-      const result = await startVideoConversation(agentId, commandId);
+      const result = await startVideoConversation(agentId, commandId, consent);
       if (isTrustedTavusConversationUrl(result.url)) setUrl(result.url);
       else setError(result.url ? "A sala de vídeo retornou um endereço não confiável." : (result.error ?? "Erro inesperado."));
     });
@@ -73,8 +87,40 @@ export function VideoCall({ agentId, agentName }: { agentId: string; agentName: 
           {agentName} aparece em vídeo, te escuta e conduz a venda por voz — como numa reunião real.
         </p>
       </div>
+      <fieldset style={{ width: "100%", border: 0, padding: 0, margin: 0, display: "grid", gap: 8 }}>
+        <legend style={{ fontSize: "0.82rem", fontWeight: 700, color: "var(--text)", padding: 0 }}>
+          Consentimento para esta demonstração
+        </legend>
+        <p style={{ color: "var(--text-muted)", fontSize: "0.78rem", margin: 0 }}>
+          Você falará com uma assistente virtual de IA. As confirmações abaixo são registradas para esta sessão e podem ser revogadas antes de uma nova chamada.
+        </p>
+        {[
+          ["disclosure", "Li a identificação da IA e autorizo o processamento essencial para conduzir esta demonstração."],
+          ["recording", "Autorizo a gravação de áudio e vídeo desta demonstração."],
+          ["transcription", "Autorizo a transcrição persistente da conversa para histórico e acompanhamento."],
+          ["behavioralAnalysis", "Autorizo a análise comportamental declarada para melhorar a condução da conversa."],
+          ["visualAnalysis", "Autorizo a análise visual declarada durante a demonstração."],
+        ].map(([key, label]) => {
+          const consentKey = key as keyof VideoChannelConsent;
+          const checked = consentKey === "disclosure"
+            ? consent.disclosure && consent.essentialProcessing
+            : consent[consentKey];
+          return (
+            <label key={key} style={{ display: "flex", alignItems: "flex-start", gap: 8, color: "var(--text-muted)", fontSize: "0.8rem", lineHeight: 1.4 }}>
+              <input
+                type="checkbox"
+                checked={checked}
+                onChange={(event) => setConsent((current) => consentKey === "disclosure"
+                  ? { ...current, disclosure: event.target.checked, essentialProcessing: event.target.checked }
+                  : { ...current, [consentKey]: event.target.checked })}
+              />
+              {label}
+            </label>
+          );
+        })}
+      </fieldset>
       {error && <p className="form-error" role="alert" style={{ margin: 0, width: "100%" }}>{error}</p>}
-      <button type="button" className="btn btn-primary" onClick={start} disabled={pending} style={{ padding: "11px 20px" }}>
+      <button type="button" className="btn btn-primary" onClick={start} disabled={pending || !allConsentConfirmed(consent)} style={{ padding: "11px 20px" }}>
         {pending ? "Preparando a sala…" : "Iniciar conversa em vídeo"}
       </button>
     </section>

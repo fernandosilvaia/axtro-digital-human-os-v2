@@ -1,0 +1,18 @@
+{
+  "schema_version": "2.0.0",
+  "admission_id": "not-a-uuid",
+  "tenant_id": "019f0000-0000-7000-8000-000000000001",
+  "actor_id": "019f0000-0000-7000-8000-000000000201",
+  "agent_id": "019f0000-0000-7000-8000-000000000101",
+  "session_id": "019f0000-0000-7000-8000-000000000401",
+  "presenter_id": "019f0000-0000-7000-8000-000000000402",
+  "channel_kind": "browser",
+  "capabilities": ["arbitrary_browser"],
+  "command_fingerprint": "not-a-digest",
+  "generation": -1,
+  "disclosure_id": "019f0000-0000-7000-8000-000000000403",
+  "essential_consent_id": "019f0000-0000-7000-8000-000000000404",
+  "status": "allowed",
+  "issued_at": "yesterday",
+  "expires_at": "tomorrow"
+}

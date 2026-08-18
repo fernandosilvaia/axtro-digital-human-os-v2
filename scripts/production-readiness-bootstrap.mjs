@@ -3,8 +3,8 @@
 import { createHash, randomBytes } from "node:crypto";
 import { pathToFileURL } from "node:url";
 
-export const PRODUCTION_BOOTSTRAP_VERSION = "m5-01-v1";
-export const REQUIRED_SCHEMA_VERSION = 42;
+export const PRODUCTION_BOOTSTRAP_VERSION = "m5-02-v1";
+export const REQUIRED_SCHEMA_VERSION = 43;
 
 const REQUEST_TIMEOUT_MS = 20_000;
 const MAX_RPC_RESPONSE_BYTES = 64 * 1024;
@@ -36,6 +36,12 @@ const REQUIRED_CAPABILITIES = Object.freeze([
   "legacySubscriptionWriterRevoked",
   "costEventSchemaVersion",
   "legacyCostWritersRevoked",
+  "runtimeChannelAdmission",
+  "runtimeChannelGrantFences",
+  "runtimeProviderBindingReceipts",
+  "runtimeSceneReceipts",
+  "runtimeKillSwitches",
+  "runtimeDualOperatorReconciliation",
 ]);
 
 const PRICE_CATALOG = Object.freeze([

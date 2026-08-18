@@ -11,7 +11,8 @@ import { readBoundedTextBody } from "@/lib/http/read-bounded-body";
 import { createServiceRoleClient, ServiceRoleUnavailableError } from "@/lib/supabase/service";
 import { logError as trackError, logEvent } from "@/lib/telemetry";
 import { sendMeetingEndedEmail } from "@/lib/email";
-import { activateProviderEffectBilling, beginProviderEffect, commitProviderEffect, fenceProviderFailure, markCleanupPending, reconcileProviderEffect, retryReleasedProviderEffect, stableEffectKey, stableProviderReconciliationReceiptId, voidUnleasedBillingUsage } from "@/lib/paid-effects";
+import { activateProviderEffectBilling, beginProviderEffect, commitProviderEffect, fenceProviderFailure, markCleanupPending, reconcileProviderEffect, releaseProviderEffect, retryReleasedProviderEffect, stableEffectKey, stableProviderReconciliationReceiptId, voidUnleasedBillingUsage } from "@/lib/paid-effects";
+import { assertPortalChannelActive, assertPortalProviderDispatchActive, bindPortalProviderChannel, type PortalChannelGrant } from "@/lib/runtime/portal-channel-runtime-bridge";
 import { prepareTavusWebhookCallback, registerTranscriptPlaceholder } from "@/lib/transcripts/register";
 
 /**
@@ -53,6 +54,13 @@ interface SentinelAttachContext {
   readonly customerDeliveryState?: string;
   readonly recallReservationId?: string;
   readonly recallCustomerDeliveryState?: string;
+  readonly runtimeGrantId?: string;
+  readonly runtimeSessionId?: string;
+  readonly runtimePresenterId?: string;
+  readonly runtimeGeneration?: number;
+  readonly runtimeCommandFingerprint?: string;
+  readonly runtimeCapabilities?: readonly string[];
+  readonly runtimeChannel?: string;
 }
 
 interface MeetingStatusReceipt {
@@ -70,6 +78,32 @@ interface MeetingStatusReceipt {
  * o teto diário. Só o vencedor pode tocar a API paga da Tavus.
  */
 type SentinelAttachOutcome = "attached" | "noop" | "capped" | "transient_failure";
+
+function runtimeGrantFromSentinelContext(context: SentinelAttachContext): PortalChannelGrant | null {
+  if (
+    typeof context.tenantId !== "string"
+    || typeof context.agentId !== "string"
+    || typeof context.runtimeGrantId !== "string"
+    || typeof context.runtimeSessionId !== "string"
+    || typeof context.runtimePresenterId !== "string"
+    || typeof context.runtimeGeneration !== "number"
+    || typeof context.runtimeCommandFingerprint !== "string"
+    || typeof context.runtimeChannel !== "string"
+    || !Array.isArray(context.runtimeCapabilities)
+    || context.runtimeCapabilities.some((capability) => typeof capability !== "string")
+  ) return null;
+  return {
+    tenantId: context.tenantId,
+    agentId: context.agentId,
+    channel: context.runtimeChannel,
+    sessionId: context.runtimeSessionId,
+    grantId: context.runtimeGrantId,
+    presenterId: context.runtimePresenterId,
+    generationId: context.runtimeGeneration,
+    commandFingerprint: context.runtimeCommandFingerprint,
+    capabilitySet: context.runtimeCapabilities,
+  };
+}
 
 async function compensateSentinelConversation(
   tavusPort: ReturnType<typeof createTavusVideoConversationPort>,
@@ -150,6 +184,21 @@ async function attachSentinelCamera(botId: string): Promise<SentinelAttachOutcom
   const context = (contextData ?? {}) as SentinelAttachContext;
   if (context.outcome === "terminal" || context.outcome === "not_found") return "noop";
   if (context.outcome !== "ready" || typeof context.tenantId !== "string" || typeof context.agentId !== "string") return "transient_failure";
+  const runtimeGrant = runtimeGrantFromSentinelContext(context);
+  if (!runtimeGrant) {
+    // Meetings created before ADR-038 have no durable participant/session
+    // binding. A signed provider delivery alone must never upgrade them into
+    // a new paid Tavus camera resource.
+    logEvent("recall_sentinel_runtime_admission_required", { bot_id: botId, agent_id: context.agentId });
+    return "transient_failure";
+  }
+  const runtimeStatus = await assertPortalChannelActive({
+    tenantId: context.tenantId,
+    agentId: context.agentId,
+    channel: runtimeGrant.channel,
+    capability: "provider_dispatch",
+  });
+  if (runtimeStatus.outcome === "rejected") return "transient_failure";
 
   if (context.state === "camera_started") {
     if (!context.reservationId || !context.recallReservationId) return "transient_failure";
@@ -205,7 +254,26 @@ async function attachSentinelCamera(botId: string): Promise<SentinelAttachOutcom
     if (reservation.state === "committed") {
       conversationId = reservation.providerRef ?? undefined;
       conversationUrl = reservation.providerUrl ?? undefined;
+      if (!conversationId || !conversationUrl) return "transient_failure";
+      const dispatch = await assertPortalProviderDispatchActive({ grant: runtimeGrant, consumerKind: "tavus" });
+      if (dispatch.outcome === "rejected") return "transient_failure";
+      const binding = await bindPortalProviderChannel({
+        grant: runtimeGrant,
+        reservationId,
+        provider: "tavus",
+        providerRef: conversationId,
+        providerUrl: conversationUrl,
+      });
+      if (binding.outcome === "rejected") {
+        await compensateSentinelConversation(tavusPort, reservationId, conversationId, "runtime_binding_failed");
+        return "transient_failure";
+      }
     } else {
+      const dispatch = await assertPortalProviderDispatchActive({ grant: runtimeGrant, consumerKind: "tavus" });
+      if (dispatch.outcome === "rejected") {
+        await releaseProviderEffect(reservationId, "runtime_dispatch_denied").catch(() => undefined);
+        return "transient_failure";
+      }
       let callbackUrl: string;
       try {
         callbackUrl = (await prepareTavusWebhookCallback(reservationId, supabase)).callbackUrl;
@@ -229,6 +297,17 @@ async function attachSentinelCamera(botId: string): Promise<SentinelAttachOutcom
         await commitProviderEffect(reservationId, conversation.conversationId, conversation.conversationUrl, botId);
       } catch {
         await compensateSentinelConversation(tavusPort, reservationId, conversation.conversationId, "commit_receipt_unknown");
+        return "transient_failure";
+      }
+      const binding = await bindPortalProviderChannel({
+        grant: runtimeGrant,
+        reservationId,
+        provider: "tavus",
+        providerRef: conversation.conversationId,
+        providerUrl: conversation.conversationUrl,
+      });
+      if (binding.outcome === "rejected") {
+        await compensateSentinelConversation(tavusPort, reservationId, conversation.conversationId, "runtime_binding_failed");
         return "transient_failure";
       }
       conversationId = conversation.conversationId;

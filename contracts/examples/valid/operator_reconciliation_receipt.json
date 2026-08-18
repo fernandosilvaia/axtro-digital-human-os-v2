@@ -1,0 +1,10 @@
+{
+  "schema_version": "2.0.0",
+  "receipt_id": "019f0000-0000-7000-8000-000000000601",
+  "tenant_id": "019f0000-0000-7000-8000-000000000001",
+  "reservation_id": "019f0000-0000-7000-8000-000000000602",
+  "evidence_fingerprint": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+  "operator_ids": ["019f0000-0000-7000-8000-000000000201", "019f0000-0000-7000-8000-000000000202"],
+  "outcome": "released_after_reconciliation",
+  "recorded_at": "2026-08-18T02:10:00Z"
+}

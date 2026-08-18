@@ -80,6 +80,17 @@ function opaqueMeetingReference(commandId: string): string {
   return `meeting:${createHash("sha256").update(`${commandId.toLowerCase()}\u001fmeeting:correlation`).digest("hex")}`;
 }
 
+/**
+ * ADR-038 intentionally keeps this false until the portal has a participant
+ * admission flow: an authenticated tenant operator cannot consent on behalf
+ * of every person in a Zoom/Meet/Teams call. Keeping the legacy provider
+ * branch below unreachable is safer than treating an operator click as
+ * recording/transcription consent for unknown attendees.
+ */
+function participantScopedMeetingAdmissionReady(): boolean {
+  return false;
+}
+
 export async function joinExternalMeeting(
   agentId: string,
   meetingUrl: string,
@@ -91,6 +102,13 @@ export async function joinExternalMeeting(
   commandId: string,
 ): Promise<JoinExternalMeetingResult> {
   if (!isPaidEffectCommandId(commandId)) return { conversationUrl: null, scheduled: false, error: "A intenção da reunião é inválida. Tente novamente." };
+  if (!participantScopedMeetingAdmissionReady()) {
+    return {
+      conversationUrl: null,
+      scheduled: false,
+      error: "Reuniões externas estão temporariamente indisponíveis enquanto concluímos o fluxo de disclosure e consentimento individual dos participantes.",
+    };
+  }
   const tavusApiKey = requiredEnv("TAVUS_API_KEY");
   const recallApiKey = requiredEnv("RECALL_API_KEY");
   const recallRegion = requiredEnv("RECALL_API_REGION");

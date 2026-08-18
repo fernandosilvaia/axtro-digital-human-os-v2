@@ -25,7 +25,7 @@ const mockSources = new Map([
   `],
   ["@/lib/telemetry", `export function logError() {}`],
   ["@/lib/workers/heartbeat", `
-    export const PORTAL_FINANCIAL_WORKER_VERSION = "m5-01-v1";
+    export const PORTAL_FINANCIAL_WORKER_VERSION = "m5-02-v1";
     export function portalDeploymentId(env) {
       if ((env.PORTAL_FAKE_PROVIDERS ?? "").trim() === "1") return "fake-mode";
       const value = (env.RAILWAY_GIT_COMMIT_SHA || env.AXTRO_DEPLOYMENT_ID || "").trim();
@@ -87,7 +87,7 @@ const ENV = Object.freeze({
 });
 
 const CAPABILITIES = Object.freeze({
-  version: 42,
+  version: 43,
   providerEffectReservations: true,
   billingUsageOutbox: true,
   recallWebhookDedupe: true,
@@ -108,20 +108,26 @@ const CAPABILITIES = Object.freeze({
   legacySubscriptionWriterRevoked: true,
   costEventSchemaVersion: true,
   legacyCostWritersRevoked: true,
+  runtimeChannelAdmission: true,
+  runtimeChannelGrantFences: true,
+  runtimeProviderBindingReceipts: true,
+  runtimeSceneReceipts: true,
+  runtimeKillSwitches: true,
+  runtimeDualOperatorReconciliation: true,
 });
 
 const FRESH_WORKERS = Object.freeze({
   billingUsage: Object.freeze({
     lastSucceededAt: "2026-08-13T12:00:00.000Z",
     ageSeconds: 30,
-    version: "m5-01-v1",
+    version: "m5-02-v1",
     deploymentId: ENV.AXTRO_DEPLOYMENT_ID,
     configFingerprint: `sha256:${"1".repeat(64)}`,
   }),
   providerEffectReconciler: Object.freeze({
     lastSucceededAt: "2026-08-13T12:00:15.000Z",
     ageSeconds: 15,
-    version: "m5-01-v1",
+    version: "m5-02-v1",
     deploymentId: ENV.AXTRO_DEPLOYMENT_ID,
     configFingerprint: `sha256:${"2".repeat(64)}`,
   }),
@@ -141,7 +147,7 @@ async function assertNoStore(response) {
   return response.json();
 }
 
-test("readiness returns 200 only for schema 42 capabilities and never caches", async () => {
+test("readiness returns 200 only for schema 43 capabilities and never caches", async () => {
   const response = await handleReadiness({
     env: { ...ENV },
     createClient: () => clientWith({ data: CAPABILITIES, error: null }),
@@ -212,8 +218,8 @@ test("worker readiness RPC errors fail closed after schema validation", async ()
   assert.equal(body.checks.workers, false);
 });
 
-test("readiness requires schema version 42 exactly and never probes workers on mismatch", async () => {
-  for (const version of [40, 41, 43, undefined]) {
+test("readiness requires schema version 43 exactly and never probes workers on mismatch", async () => {
+  for (const version of [40, 41, 42, undefined]) {
     const calls = [];
     const response = await handleReadiness({
       env: { ...ENV },
@@ -264,6 +270,26 @@ test("readiness fails closed while AI reservation capability is absent", async (
   assert.equal(response.status, 503);
   const body = await assertNoStore(response);
   assert.equal(body.checks.schema, false);
+});
+
+test("readiness fails closed while any runtime bridge capability is absent", async () => {
+  for (const capability of [
+    "runtimeChannelAdmission",
+    "runtimeChannelGrantFences",
+    "runtimeProviderBindingReceipts",
+    "runtimeSceneReceipts",
+    "runtimeKillSwitches",
+    "runtimeDualOperatorReconciliation",
+  ]) {
+    const response = await handleReadiness({
+      env: { ...ENV },
+      createClient: () => clientWith({ data: { ...CAPABILITIES, [capability]: false }, error: null }),
+      logError: () => {},
+    });
+    assert.equal(response.status, 503, capability);
+    const body = await assertNoStore(response);
+    assert.equal(body.checks.schema, false, capability);
+  }
 });
 
 test("readiness fails closed while legacy meeting-bot preclaim remains callable", async () => {

@@ -1,0 +1,23 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://schemas.axtro.ai/v2/runtime_channel_grant.schema.json",
+  "title": "Runtime Channel Grant",
+  "description": "Short-lived durable grant with an independent one-time fence for every permitted consumer.",
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "schema_version": { "type": "string", "const": "2.0.0" },
+    "grant_id": { "$ref": "https://schemas.axtro.ai/v2/tool_execution_receipt.schema.json#/properties/execution_id" },
+    "admission_id": { "$ref": "https://schemas.axtro.ai/v2/tool_execution_receipt.schema.json#/properties/execution_id" },
+    "tenant_id": { "$ref": "https://schemas.axtro.ai/v2/tool_execution_receipt.schema.json#/properties/tenant_id" },
+    "session_id": { "$ref": "https://schemas.axtro.ai/v2/tool_execution_receipt.schema.json#/properties/intent_id" },
+    "command_fingerprint": { "type": "string", "pattern": "^[0-9a-f]{64}$" },
+    "consumer_kind": { "type": "string", "enum": ["tavus", "recall", "scene"] },
+    "state": { "type": "string", "enum": ["issued", "consumed", "rejected", "expired"] },
+    "generation": { "type": "integer", "minimum": 0, "maximum": 10000000 },
+    "issued_at": { "type": "string", "format": "date-time" },
+    "expires_at": { "type": "string", "format": "date-time" },
+    "consumed_at": { "type": ["string", "null"], "format": "date-time" }
+  },
+  "required": ["schema_version", "grant_id", "admission_id", "tenant_id", "session_id", "command_fingerprint", "consumer_kind", "state", "generation", "issued_at", "expires_at", "consumed_at"]
+}

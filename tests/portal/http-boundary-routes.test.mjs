@@ -153,24 +153,24 @@ test("lead route rejects invalid bearer before body, limiter, database or Tavus"
   assert.equal(state.providerFactories, 0);
 });
 
-test("lead route bounds a chunked body before database or Tavus and uses one non-spoofable limiter key", { concurrency: false }, async () => {
+test("lead route stays closed before body, limiter, database or Tavus until a participant runtime admission exists", { concurrency: false }, async () => {
   const state = freshState();
-  const response = await postLeadVideoSession(requestWithBody(
-    chunkedBody(8 * 1024, 8 * 1024 + 1),
-    {
-      authorization: `Bearer ${RAISSA_SECRET}`,
-      "x-forwarded-for": "203.0.113.1, 198.51.100.2",
-    },
-  ));
+  let bodyTouched = false;
+  const request = {
+    headers: new Headers({ authorization: `Bearer ${RAISSA_SECRET}` }),
+    get body() { bodyTouched = true; throw new Error("runtime admission must block before lead context is acquired"); },
+  };
+  const response = await postLeadVideoSession(request);
 
-  assert.equal(response.status, 413);
-  assert.deepEqual(await response.json(), { error: "payload_too_large" });
-  assert.deepEqual(state.rateLimitKeys, ["video-session:raissa-tools"]);
+  assert.equal(response.status, 503);
+  assert.deepEqual(await response.json(), { error: "runtime_admission_required" });
+  assert.equal(bodyTouched, false);
+  assert.deepEqual(state.rateLimitKeys, []);
   assert.equal(state.serviceRoleFactories, 0);
   assert.equal(state.providerFactories, 0);
 });
 
-test("lead route rejects malformed or non-object JSON instead of coercing it to an empty request", { concurrency: false }, async (t) => {
+test("lead route does not parse malformed or non-object lead payloads while the paid channel is closed", { concurrency: false }, async (t) => {
   for (const body of ["{", "null", "[]"]) {
     await t.test(body, async () => {
       const state = freshState();
@@ -178,8 +178,8 @@ test("lead route rejects malformed or non-object JSON instead of coercing it to 
         new Response(body).body,
         { authorization: `Bearer ${RAISSA_SECRET}` },
       ));
-      assert.equal(response.status, 400);
-      assert.deepEqual(await response.json(), { error: "invalid_json_body" });
+      assert.equal(response.status, 503);
+      assert.deepEqual(await response.json(), { error: "runtime_admission_required" });
       assert.equal(state.serviceRoleFactories, 0);
       assert.equal(state.providerFactories, 0);
     });

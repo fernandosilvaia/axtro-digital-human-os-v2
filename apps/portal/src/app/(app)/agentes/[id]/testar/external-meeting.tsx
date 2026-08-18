@@ -6,6 +6,10 @@ import { isTrustedTavusConversationUrl } from "@axtro/provider-tavus";
 
 import { joinExternalMeeting } from "@/lib/actions/meeting-bot";
 
+// ADR-038: the control plane must collect disclosure and purpose-specific
+// consent from each participant before this can create a recording bot.
+const EXTERNAL_MEETING_AVAILABLE = false;
+
 /**
  * Leva o agente para uma reunião externa de verdade (Google Meet, Zoom,
  * Teams): o bot do Recall.ai entra na reunião e a sala de vídeo do agente
@@ -66,10 +70,13 @@ export function ExternalMeeting({ agentId, agentName, timeZone }: { agentId: str
         Levar para uma reunião externa 🎥
       </h3>
       <p style={{ color: "var(--text-muted)", fontSize: "0.84rem", margin: "0 0 14px" }}>
-        Cole o link de um Google Meet, Zoom ou Teams e {agentName} entra na reunião como
-        participante — com rosto, voz e o cérebro de vendas completo. Funciona numa call que já
-        está rolando: cole o link e ela entra em segundos, com a câmera já ligada.
+        O fluxo de reuniões externas está em atualização para registrar disclosure e consentimento individual de cada participante antes de criar gravação, transcrição ou câmera de IA.
       </p>
+      {!EXTERNAL_MEETING_AVAILABLE && (
+        <p role="status" style={{ margin: "0 0 14px", padding: "10px 12px", borderRadius: 8, background: "rgba(255,195,107,0.10)", border: "1px solid rgba(255,195,107,0.28)", color: "var(--text-muted)", fontSize: "0.82rem" }}>
+          Em breve: convite de participantes, confirmação por finalidade e recibo de sessão antes da entrada do agente.
+        </p>
+      )}
 
       <form onSubmit={submit}>
         <div className="field" style={{ marginBottom: 12 }}>
@@ -78,6 +85,7 @@ export function ExternalMeeting({ agentId, agentName, timeZone }: { agentId: str
             id="meeting-url"
             type="url"
             required
+            disabled={!EXTERNAL_MEETING_AVAILABLE}
             value={meetingUrl}
             onChange={(event) => setMeetingUrl(event.target.value)}
             placeholder="https://meet.google.com/abc-defg-hij"
@@ -100,6 +108,7 @@ export function ExternalMeeting({ agentId, agentName, timeZone }: { agentId: str
             <input
               type="checkbox"
               checked={scheduling}
+              disabled={!EXTERNAL_MEETING_AVAILABLE}
               style={{ width: 20, height: 20, flexShrink: 0 }}
               onChange={(event) => {
                 setScheduling(event.target.checked);
@@ -117,6 +126,7 @@ export function ExternalMeeting({ agentId, agentName, timeZone }: { agentId: str
                 id="meeting-schedule"
                 type="datetime-local"
                 required={scheduling}
+                disabled={!EXTERNAL_MEETING_AVAILABLE}
                 min={new Intl.DateTimeFormat("sv-SE", { timeZone, year: "numeric", month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit", hour12: false }).format(new Date()).replace(" ", "T")}
                 value={scheduleAt}
                 onChange={(event) => setScheduleAt(event.target.value)}
@@ -160,10 +170,10 @@ export function ExternalMeeting({ agentId, agentName, timeZone }: { agentId: str
         <button
           type="submit"
           className="btn btn-primary"
-          disabled={pending || meetingUrl.trim().length === 0 || (scheduling && scheduleAt.trim().length === 0)}
+          disabled={!EXTERNAL_MEETING_AVAILABLE || pending || meetingUrl.trim().length === 0 || (scheduling && scheduleAt.trim().length === 0)}
           style={{ padding: "11px 20px" }}
         >
-          {pending ? "Entrando…" : scheduling ? "Agendar entrada" : `Entrar na reunião agora`}
+          {EXTERNAL_MEETING_AVAILABLE ? (pending ? "Entrando…" : scheduling ? "Agendar entrada" : "Entrar na reunião agora") : "Reuniões externas em atualização"}
         </button>
       </form>
     </section>

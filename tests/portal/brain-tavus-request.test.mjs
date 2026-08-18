@@ -5,7 +5,7 @@ import { test } from "node:test";
 // type stripping) — roda direto do fonte, mesmo padrão dos demais testes de brain/.
 const tavus = await import("../../apps/portal/src/lib/brain/tavus-request.ts");
 
-test("discards Tavus system messages entirely — identity and method are ours, never theirs", () => {
+test("discards Tavus system authority — identity and method are ours, never theirs", () => {
   const parsed = tavus.parseTavusChatRequest([
     { role: "system", content: "You are a helpful generic assistant for TavusCo." },
     { role: "user", content: "Oi, quanto custa?" },
@@ -45,7 +45,7 @@ test("collects perception only from system messages, across multiple system mess
   assert.equal(parsed.userMessage, "Sim");
 });
 
-test("preserves the non-perception remainder of Tavus system messages as providerContext (our own conversational_context)", () => {
+test("preserves the non-perception remainder of Tavus system messages only as untrusted providerContext", () => {
   const parsed = tavus.parseTavusChatRequest([
     { role: "system", content: "CONHECIMENTO AUTORIZADO DA CONTA: preço fixo publicado. <user_emotions>engajada</user_emotions>" },
     { role: "user", content: "me conta mais" },

@@ -1,10 +1,10 @@
 # Progresso de implementação
 
-**Estado atual:** M0-M5-01 com código concluído; M5-02 é a próxima dependência antes da experiência premium e da promoção de provider.
+**Estado atual:** M0-M5-02 com código concluído; M5-03 em execução antes da promoção de provider.
 
 **Marco atual:** M5 — Production Integrity, Trust and Discovery
-**Tarefa atual:** M5-02 — pending
-**Última evidência verde:** 2026-08-18: `pnpm lint`, `pnpm typecheck`, `pnpm test` (1043 Node + 26 Python), `pnpm db:portal:test` (migrations 0001–0042), `pnpm build`, `python3 scripts/validate_all.py` (9/9) e `git diff --check` verdes; revisões independentes M5-01 sem P0/P1
+**Tarefa atual:** M5-03 — in_progress
+**Última evidência verde:** 2026-08-18: `pnpm lint`, `pnpm typecheck`, `pnpm test` (1056 Node + 26 Python), `pnpm db:portal:test` (migrations 0001–0043), `pnpm build` e `git diff --check` verdes; revisões independentes M5-02 sem P0/P1
 **Bloqueadores internos:** nenhum
 **Pendências externas:** consultar `PENDENCIAS_EXTERNAS.md`  
 
@@ -92,8 +92,8 @@
 | `M4-03` | M4 | done | Add agent_brain_config migration | `M4-01` | `0018_agent_brain_config.sql` revisado, `secret.ts` com 7 testes novos (457 Node total); aplicada no Supabase real em 2026-07-27 (autorização explícita do Fernando) |
 | `M4-04` | M4 | done (código; sem persona real ligada) | Add Tavus-facing brain chat-completions HTTP route | `M4-01`, `M4-02`, `M4-03` | `/api/brain/[agentId]/chat/completions` (SSE), `handle-chat-request.ts` com 10 testes novos (467 Node total), `next build` real gera a rota; `0019_agent_brain_service_role_rpcs.sql` aplicada em 2026-07-27 (tabela + 5 funções + RLS forçada confirmadas via `execute_sql`, advisor de segurança revisado — só WARNs já aceitos). Falta só `SUPABASE_SERVICE_ROLE_KEY` no ambiente (nunca configurada) pro endpoint funcionar de ponta a ponta; RAG real é gap declarado (retorna vazio); nenhuma persona Tavus real aponta pra cá ainda |
 | `M5-01` | M5 | done | Close production integrity and denial-of-wallet gaps | `M4-04` | Fences Tavus/Recall, UUIDv7, envelopes IA, transcript/RLS, v42/readiness e PostgreSQL real validados; rollout remoto ainda human-gated |
-| `M5-02` | M5 | pending | Bridge portal channels to constitutional runtime boundaries | `M5-01` | Aguarda M5-01 verde e ADR prévio |
-| `M5-03` | M5 | pending | Ship premium public experience and advanced discovery surfaces | `M5-02` | Auditoria visual baseline e ativo premium inicial já capturados; implementação aguarda dependências |
+| `M5-02` | M5 | done | Bridge portal channels to constitutional runtime boundaries | `M5-01` | ADR-038, bridge v43, consentimento/disclosure atômicos, fences/kill switch, contexto não confiável fora do system e testes de aceitação validados; rollout remoto segue human-gated |
+| `M5-03` | M5 | in_progress | Ship premium public experience and advanced discovery surfaces | `M5-02` | Auditoria visual, UX, SEO/AEO e superfícies públicas em execução; não altera o nome Axtro sem decisão explícita de rebrand |
 
 ## Log de execução
 
@@ -1056,3 +1056,12 @@ bake-off credenciado de provider e piloto interno real de M3-10.
 - PostgreSQL real valida UUIDv4 rejeitado sem escrita, shape/limites de transcript, listagem bounded e determinística, isolamento cross-tenant de referência de provider e least privilege. Revisões independentes de segurança e testes encerraram sem P0/P1.
 - Gates locais verdes: `pnpm lint`, `pnpm typecheck`, `pnpm test` (1043 Node + 26 Python), `pnpm db:portal:test` (0001–0042), `pnpm build`, `python3 scripts/validate_all.py` (9/9) e `git diff --check`.
 - Nenhuma migration remota, mudança de secret/configuração ou deploy foi executado. A promoção exige a janela humana documentada em `docs/operations/M5_01_PRODUCTION_ROLLOUT.md`, aplicando 0040→0041→0042 e validando workers/readiness antes de tráfego.
+
+### 2026-08-18, M5-02 concluído — canais reais passam pela fronteira constitucional
+
+- A migration `0043_portal_runtime_bridge_contract.sql` e ADR-038 introduzem a ponte durável de canal: admissão atômica cria ou revalida disclosure e consentimentos por finalidade, preserva One Mouth, emite grant consumível por provider/cena, registra binding/receipt e aplica kill switches por tenant, agente, canal e capability. Readiness e bootstrap agora exigem schema v43.
+- Vídeo direto somente avança após o usuário autenticado confirmar processamento essencial, gravação, transcrição persistente, análise comportamental e visual; a mesma evidência é passada para a admissão antes de qualquer reserva ou chamada Tavus. Callback Tavus permanece a fence atômica especializada imediatamente antes do dispatch.
+- Reunião externa e a API pública de sessão de lead foram deliberadamente fechadas: um operador não pode fornecer consentimento em nome de participantes desconhecidos. A reabertura requer o fluxo de convite/consentimento individual previsto pelo ADR; nenhuma rota legada tem fallback silencioso.
+- O SENTINELA só cria conversa Tavus quando a sessão Recall já possui binding de bridge, grant consumido e status ativo; ausência, revogação ou perda da fence resulta em retry seguro sem gasto. A UI de apresentação também deixa de executar localmente comandos de cena do modelo: sem manifesto/generation/receipt aprovado, responde recusa explícita.
+- Dados do provider, RAG e percepção deixaram de ocupar mensagens `system`: somente persona/política revisadas são autoridade de sistema; referência externa recebe proveniência, limites e hierarquia explícita em contexto de usuário. Corpus adversarial cobre injeção, ferramenta, desconto, cena e vazamento.
+- Gates locais verdes: `pnpm lint`, `pnpm typecheck`, `pnpm test` (1056 Node + 26 Python), `pnpm db:portal:test` (0001–0043), testes focados de bridge/recall/brain/readiness e `git diff --check`. Nenhuma migration remota, flag de produção ou deploy foi executado; a promoção requer o suplemento `docs/operations/M5_02_RUNTIME_BRIDGE_ROLLOUT.md` além do rollout M5-01.

@@ -41,3 +41,4 @@ Accepted decisions for V2. The Constitution has precedence. A change to an accep
 - [ADR-035](ADR-035-percepcao-emocional-profunda.md) — Percepção emocional profunda como capacidade central (emenda o Art. 4 da Constituição)
 - [ADR-036](ADR-036-durable-provider-effect-reservations.md) — Reservas duráveis, barreira de resultado desconhecido e outbox de cobrança para efeitos pagos
 - [ADR-037](ADR-037-cost-event-conversation-unit.md) — CostEvent 2.1.0 para a unidade comercial fechada `conversation`
+- [ADR-038](ADR-038-portal-channel-runtime-bridge.md) — Bridge durável dos canais Portal para sessão, consentimento, floor, cenas e receipts

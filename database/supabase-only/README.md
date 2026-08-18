@@ -55,6 +55,7 @@ Racional completo: D-V2-055, D-V2-056 e D-V2-058 em
 | `0040_production_integrity_hardening.sql` | **pendente** — fase expand de M5-01: reservations duráveis de Tavus/Recall e IA, unknown barrier, estimates conservadores datados, activation com receipt durável e snapshot de billing no instante da entrega, outbox Stripe, reconciler leased, capability hash Tavus, dedup Recall, ownership service de transcript e capability v40. Aplicar antes de iniciar o artefato M5-01. O artefato novo deve permanecer `unready` e sem tráfego enquanto o schema estiver em v40. |
 | `0041_provider_transcript_contract.sql` | **pendente** — fase contract de M5-01: bloqueia preclaim autenticado de refs de provider e eleva a capability intermediária para v41. Aplicar com o artefato novo presente, porém ainda fora de tráfego; siga imediatamente para 0042 antes de consultar `/api/ready` ou liberar tráfego. Depois de 0041, rollback para writer legado é proibido — corrija/repromova o app novo, nunca reabra a superfície insegura. |
 | `0042_cost_event_schema_and_legacy_writer_contract.sql` | **pendente** — fase final do ledger M5-01: alinha `cost_events.schema_version` ao contrato `2.1.0`, revoga os três writers diretos legados e eleva a capability exigida para v42. Aplicar imediatamente após 0041, ainda em maintenance e antes de iniciar o candidato; somente um artefato v42-aware pode responder `/api/ready` e receber tráfego. |
+| `0043_portal_runtime_bridge_contract.sql` | **pendente** — fase M5-02: cria a admissão durável de canais, grants separados por consumidor Tavus/Recall/cena, recibos, kill switches auditados e reconciliação por dois operadores. Aplicar após 0042, ainda em maintenance; somente artefato v43-aware, com `PORTAL_RUNTIME_BRIDGE_ENABLED=false` até o canário aprovado, pode responder `/api/ready`. |
 | `0021_meeting_bot_sessions.sql` | sim (2026-07-30, via MCP `apply_migration`, autorizado explicitamente pelo Fernando) — tabela + 3 funções confirmadas via `execute_sql`, RLS forçada |
 | `0022_agent_video_config_rpc.sql` | sim (2026-07-31, via Management API `database/query`) — RPC testada ao vivo provisionando a persona da Marina |
 | `0023_cleanup_rpcs.sql` | sim (2026-07-31, via Management API `database/query`) — exclusão de rascunho de agente e de fonte revogada, testada no e2e |
@@ -87,7 +88,7 @@ Racional completo: D-V2-055, D-V2-056 e D-V2-058 em
 - A 0041 revoga os dois writers autenticados legados capazes de preclaim de
   referência de provider: transcript de vídeo/reunião e sessão de bot Recall.
   As respectivas capabilities precisam estar `true` antes de liberar tráfego.
-- A 0042 é a fronteira final do ledger: `portal_log_ai_usage`,
+- A 0042 preserva a fronteira final do ledger: `portal_log_ai_usage`,
   `portal_log_video_usage` e `portal_log_video_usage_service` permanecem
   revogados para todas as roles expostas. Efeitos novos devem passar somente
   pelos writers M5 reservation-backed, que recebem a versão `2.1.0` pelo

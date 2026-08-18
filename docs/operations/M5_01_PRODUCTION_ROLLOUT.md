@@ -1,5 +1,12 @@
 # Runbook — rollout de produção M5-01
 
+> **Suplemento obrigatório para o candidato atual:** M5-02 acrescenta a
+> migration `0043_portal_runtime_bridge_contract.sql`, readiness v43 e o
+> bridge de consentimento/canais. Para qualquer promoção posterior a M5-02,
+> siga também [M5_02_RUNTIME_BRIDGE_ROLLOUT.md](M5_02_RUNTIME_BRIDGE_ROLLOUT.md).
+> Este documento preserva a sequência histórica 0040→0042; ele não autoriza
+> promover um artefato v43 contra schema v42.
+
 ## Escopo, autoridade e resultado esperado
 
 Este runbook operacionaliza o expand-contract do ADR-036 sem autorizar nem

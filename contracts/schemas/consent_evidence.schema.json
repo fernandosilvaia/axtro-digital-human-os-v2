@@ -32,6 +32,7 @@
       "enum": [
         "essential_processing",
         "recording",
+        "persistent_transcription",
         "behavioral_analysis",
         "emotion_inference",
         "biometric_identity",

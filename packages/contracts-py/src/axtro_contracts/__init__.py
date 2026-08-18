@@ -102,7 +102,7 @@ class ConsentEvidence(TypedDict):
     session_id: str
     tenant_id: str
     subject_ref: str
-    consent_type: Literal['essential_processing', 'recording', 'behavioral_analysis', 'emotion_inference', 'biometric_identity', 'marketing_contact', 'data_retention']
+    consent_type: Literal['essential_processing', 'recording', 'persistent_transcription', 'behavioral_analysis', 'emotion_inference', 'biometric_identity', 'marketing_contact', 'data_retention']
     purpose: str
     status: Literal['granted', 'denied', 'revoked', 'expired']
     method: Literal['spoken', 'click', 'written', 'signed', 'system_import']
@@ -335,6 +335,17 @@ class InteractionSessionState(TypedDict):
     started_at: str | None
     updated_at: str
 
+# Source: contracts/schemas/operator_reconciliation_receipt.schema.json; schema: https://schemas.axtro.ai/v2/operator_reconciliation_receipt.schema.json; version: 2.0.0.
+class OperatorReconciliationReceipt(TypedDict):
+    schema_version: Literal['2.0.0']
+    receipt_id: str
+    tenant_id: str
+    reservation_id: str
+    evidence_fingerprint: str
+    operator_ids: list[str]
+    outcome: Literal['released_after_reconciliation', 'compensation_confirmed']
+    recorded_at: str
+
 # Source: contracts/schemas/perception_signal.schema.json; schema: https://schemas.axtro.ai/v2/perception_signal.schema.json; version: 2.0.0.
 class PerceptionSignal(TypedDict):
     schema_version: Literal['2.0.0']
@@ -513,6 +524,40 @@ class RoleState(TypedDict):
     next_best_action: dict[str, object]
     updated_at: str
 
+# Source: contracts/schemas/runtime_channel_admission.schema.json; schema: https://schemas.axtro.ai/v2/runtime_channel_admission.schema.json; version: 2.0.0.
+class RuntimeChannelAdmission(TypedDict):
+    schema_version: Literal['2.0.0']
+    admission_id: str
+    tenant_id: str
+    actor_id: str
+    agent_id: str
+    session_id: str
+    presenter_id: str
+    channel_kind: Literal['tavus_video', 'recall_meeting']
+    capabilities: list[Literal['recording', 'persistent_transcription', 'behavioral_analysis', 'visual_analysis', 'scene_presentation']]
+    command_fingerprint: str
+    generation: int
+    disclosure_id: str
+    essential_consent_id: str
+    status: Literal['issued', 'blocked', 'expired']
+    issued_at: str
+    expires_at: str
+
+# Source: contracts/schemas/runtime_channel_grant.schema.json; schema: https://schemas.axtro.ai/v2/runtime_channel_grant.schema.json; version: 2.0.0.
+class RuntimeChannelGrant(TypedDict):
+    schema_version: Literal['2.0.0']
+    grant_id: str
+    admission_id: str
+    tenant_id: str
+    session_id: str
+    command_fingerprint: str
+    consumer_kind: Literal['tavus', 'recall', 'scene']
+    state: Literal['issued', 'consumed', 'rejected', 'expired']
+    generation: int
+    issued_at: str
+    expires_at: str
+    consumed_at: str | None
+
 # Source: contracts/schemas/runtime_configuration.schema.json; schema: https://schemas.axtro.ai/v2/runtime_configuration.schema.json; version: 2.0.0.
 class RuntimeConfiguration(TypedDict):
     schema_version: Literal['2.0.0']
@@ -552,6 +597,20 @@ class SceneDirective(TypedDict):
     priority: int
     issued_at: str
     expires_at: str
+
+# Source: contracts/schemas/scene_execution_receipt.schema.json; schema: https://schemas.axtro.ai/v2/scene_execution_receipt.schema.json; version: 2.0.0.
+class SceneExecutionReceipt(TypedDict):
+    schema_version: Literal['2.0.0']
+    receipt_id: str
+    tenant_id: str
+    session_id: str
+    grant_id: str
+    scene_id: str
+    manifest_id: str
+    generation: int
+    outcome: Literal['succeeded', 'rejected_stale_generation', 'rejected_policy', 'failed']
+    effect_hash: str | None
+    recorded_at: str
 
 # Source: contracts/schemas/scene_manifest.schema.json; schema: https://schemas.axtro.ai/v2/scene_manifest.schema.json; version: 2.0.0.
 class SceneManifest(TypedDict):
@@ -789,7 +848,7 @@ CONTRACT_METADATA: dict[str, dict[str, str]] = {
   "ConsentEvidence": {
     "schema_id": "https://schemas.axtro.ai/v2/consent_evidence.schema.json",
     "schema_version": "2.0.0",
-    "source_hash": "5d5fb9efb2451d34c774ef614ec6a0e499a288bc1e4d9c56de6574111f3b90a7",
+    "source_hash": "e32abed9a45aa9a83d90e4e66b114f2d1907ea1968e5076ca93674593ff59c4a",
     "source_schema": "contracts/schemas/consent_evidence.schema.json"
   },
   "ContextComposition": {
@@ -882,6 +941,12 @@ CONTRACT_METADATA: dict[str, dict[str, str]] = {
     "source_hash": "641554550db45bed0f891b726e5b92344d23be5d51308183b136dbb36090bac8",
     "source_schema": "contracts/schemas/interaction_session_state.schema.json"
   },
+  "OperatorReconciliationReceipt": {
+    "schema_id": "https://schemas.axtro.ai/v2/operator_reconciliation_receipt.schema.json",
+    "schema_version": "2.0.0",
+    "source_hash": "067ab4e15b9317440f7d671f5334952935cc4378e5d870e2dcde4ac269b44422",
+    "source_schema": "contracts/schemas/operator_reconciliation_receipt.schema.json"
+  },
   "PerceptionSignal": {
     "schema_id": "https://schemas.axtro.ai/v2/perception_signal.schema.json",
     "schema_version": "2.0.0",
@@ -942,6 +1007,18 @@ CONTRACT_METADATA: dict[str, dict[str, str]] = {
     "source_hash": "67f83b4138742728d88cdef4db3ef851175ae1ebd0ab7a2bfa2181346b3a65ba",
     "source_schema": "contracts/schemas/role_state.schema.json"
   },
+  "RuntimeChannelAdmission": {
+    "schema_id": "https://schemas.axtro.ai/v2/runtime_channel_admission.schema.json",
+    "schema_version": "2.0.0",
+    "source_hash": "2d8798f23a9487f65c3ef7d2ed4639a9a70b45d701e47a1fe628762b2918b75c",
+    "source_schema": "contracts/schemas/runtime_channel_admission.schema.json"
+  },
+  "RuntimeChannelGrant": {
+    "schema_id": "https://schemas.axtro.ai/v2/runtime_channel_grant.schema.json",
+    "schema_version": "2.0.0",
+    "source_hash": "ea37079e1707131cee7750b3bd387a08bfc01defd05752409274f660645f2e84",
+    "source_schema": "contracts/schemas/runtime_channel_grant.schema.json"
+  },
   "RuntimeConfiguration": {
     "schema_id": "https://schemas.axtro.ai/v2/runtime_configuration.schema.json",
     "schema_version": "2.0.0",
@@ -959,6 +1036,12 @@ CONTRACT_METADATA: dict[str, dict[str, str]] = {
     "schema_version": "2.0.0",
     "source_hash": "afcdef82160e8df27fc4266e44c5c00a159225ec370c3edcacc1525ff8cf57ab",
     "source_schema": "contracts/schemas/scene_directive.schema.json"
+  },
+  "SceneExecutionReceipt": {
+    "schema_id": "https://schemas.axtro.ai/v2/scene_execution_receipt.schema.json",
+    "schema_version": "2.0.0",
+    "source_hash": "cfafb1dbee4a1f01666d011ffd4eb01f5d34ba5b4dc1aa13ea244350c20b7425",
+    "source_schema": "contracts/schemas/scene_execution_receipt.schema.json"
   },
   "SceneManifest": {
     "schema_id": "https://schemas.axtro.ai/v2/scene_manifest.schema.json",
@@ -1070,6 +1153,7 @@ __all__ = [
     'HandoffPacket',
     'InteractionQualityState',
     'InteractionSessionState',
+    'OperatorReconciliationReceipt',
     'PerceptionSignal',
     'PolicyDecision',
     'PostCallWorkflowCommand',
@@ -1080,9 +1164,12 @@ __all__ = [
     'ProviderRegistryEntry',
     'RolePackManifest',
     'RoleState',
+    'RuntimeChannelAdmission',
+    'RuntimeChannelGrant',
     'RuntimeConfiguration',
     'SalesState',
     'SceneDirective',
+    'SceneExecutionReceipt',
     'SceneManifest',
     'SessionHealthState',
     'SessionStateSnapshot',

@@ -1,0 +1,13 @@
+{
+  "schema_version": "2.0.0",
+  "receipt_id": "019f0000-0000-7000-8000-000000000501",
+  "tenant_id": "019f0000-0000-7000-8000-000000000001",
+  "session_id": "019f0000-0000-7000-8000-000000000401",
+  "grant_id": "019f0000-0000-7000-8000-000000000301",
+  "scene_id": "../unbounded",
+  "manifest_id": "all-scenes",
+  "generation": -1,
+  "outcome": "browser_success",
+  "effect_hash": "not-a-digest",
+  "recorded_at": "never"
+}

@@ -5,9 +5,10 @@ import { createTavusVideoConversationPort, VideoProviderError } from "@axtro/pro
 import { fakeProvidersEnabled } from "@/lib/knowledge";
 import { isRateLimited } from "@/lib/rate-limit";
 import { VIDEO_CAP_MESSAGE } from "@/lib/video-cap";
-import { beginProviderEffect, commitProviderEffectOrCompensate, compensateCommittedProviderEffect, fenceProviderFailure, isPaidEffectCommandId, paidEffectIntentKey, providerCorrelationLabel, retryReleasedProviderEffect } from "@/lib/paid-effects";
+import { beginProviderEffect, commitProviderEffectOrCompensate, compensateCommittedProviderEffect, fenceProviderFailure, isPaidEffectCommandId, paidEffectIntentKey, providerCorrelationLabel, releaseProviderEffect, retryReleasedProviderEffect } from "@/lib/paid-effects";
 import { fetchAgents, fetchTenantOverview } from "@/lib/portal-data";
 import { buildDeckContext, buildPlatformDeck, buildSalesDeck, type Deck } from "@/lib/presentation/deck";
+import { admitPortalChannel, assertPortalProviderDispatchActive, bindPortalProviderChannel, type PortalChannelConsentConfirmation, type PortalChannelGrant, type PortalRuntimeOutcomeCode } from "@/lib/runtime/portal-channel-runtime-bridge";
 import { createClient } from "@/lib/supabase/server";
 import { logError as trackError } from "@/lib/telemetry";
 import { prepareTavusWebhookCallback, registerTranscriptPlaceholder } from "@/lib/transcripts/register";
@@ -17,6 +18,13 @@ export interface VideoConversationResult {
   readonly url: string | null;
   readonly error: string | null;
 }
+
+/**
+ * Explicit, purpose-scoped confirmation supplied by the signed portal action.
+ * The server turns this into immutable disclosure/consent evidence in the
+ * same transaction as the channel grant; it is never browser-only authority.
+ */
+export type VideoChannelConsent = PortalChannelConsentConfirmation;
 
 export interface PresentationConversationResult {
   readonly url: string | null;
@@ -50,12 +58,84 @@ export interface PresentationConversationResult {
  * falha genuína não-relacionada.
  */
 const VIDEO_CONVERSATION_DEDUP_WINDOW_MS = 30_000;
+const VIDEO_RUNTIME_PURPOSES = ["recording", "persistent_transcription", "behavioral_analysis", "visual_analysis"] as const;
+
+function runtimeAdmissionError(code: PortalRuntimeOutcomeCode): string {
+  switch (code) {
+    case "denied_disclosure":
+      return "Leia e confirme a identificação da IA antes de iniciar a sessão.";
+    case "denied_essential_consent":
+      return "O processamento essencial precisa ser autorizado para iniciar a sessão.";
+    case "denied_optional_consent":
+      return "Esta sessão exige confirmação separada para gravação, transcrição e análises declaradas.";
+    case "one_mouth_conflict":
+      return "Já existe uma apresentação ativa deste agente. Encerre-a antes de iniciar outra.";
+    case "kill_switch_active":
+      return "Este canal foi pausado pela equipe responsável. Tente novamente mais tarde.";
+    case "bridge_disabled":
+    case "channel_inactive":
+      return "O canal de vídeo protegido ainda não está disponível neste ambiente.";
+    default:
+      return "A sessão não pôde ser autorizada com segurança. Tente novamente.";
+  }
+}
+
+async function admitAuthenticatedTavusChannel(
+  supabase: Awaited<ReturnType<typeof createClient>>,
+  input: {
+    readonly tenantId: string;
+    readonly agentId: string;
+    readonly commandId: string;
+    readonly consent: VideoChannelConsent;
+  },
+) {
+  const { data: { user } } = await supabase.auth.getUser();
+  const actorId = typeof user?.app_metadata?.actor_id === "string" ? user.app_metadata.actor_id : undefined;
+  return admitPortalChannel({
+    tenantId: input.tenantId,
+    agentId: input.agentId,
+    commandId: input.commandId,
+    actorId,
+    channel: "tavus_video",
+    requestedPurposes: VIDEO_RUNTIME_PURPOSES,
+    confirmation: input.consent,
+    disclosure: {
+      deliveredBy: "authenticated_portal",
+      version: "portal-video-v43",
+      channel: "visual",
+      language: "pt-BR",
+    },
+  });
+}
+
+async function claimTavusRuntimeDispatch(grant: PortalChannelGrant): Promise<PortalRuntimeOutcomeCode | null> {
+  const result = await assertPortalProviderDispatchActive({ grant, consumerKind: "tavus" });
+  return result.outcome === "consumed" ? null : result.code;
+}
+
+async function bindCommittedTavusRuntimeChannel(
+  grant: PortalChannelGrant,
+  reservationId: string,
+  conversationId: string,
+  conversationUrl: string,
+): Promise<PortalRuntimeOutcomeCode | null> {
+  const dispatchFailure = await claimTavusRuntimeDispatch(grant);
+  if (dispatchFailure) return dispatchFailure;
+  const binding = await bindPortalProviderChannel({
+    grant,
+    reservationId,
+    provider: "tavus",
+    providerRef: conversationId,
+    providerUrl: conversationUrl,
+  });
+  return binding.outcome === "bound" || binding.outcome === "replayed" ? null : binding.code;
+}
 
 function videoConversationDedupKey(tenantId: string, commandId: string, mode: "video" | "presentation"): string {
   return `video-conversation:${tenantId}:${commandId}:${mode}`;
 }
 
-export async function startVideoConversation(agentId: string, commandId: string): Promise<VideoConversationResult> {
+export async function startVideoConversation(agentId: string, commandId: string, consent: VideoChannelConsent): Promise<VideoConversationResult> {
   if (!isPaidEffectCommandId(commandId)) return { url: null, error: "A intenção da chamada é inválida. Tente novamente." };
   const apiKey = process.env.TAVUS_API_KEY ?? "";
   const defaultReplicaId = process.env.TAVUS_REPLICA_ID ?? "";
@@ -101,6 +181,17 @@ export async function startVideoConversation(agentId: string, commandId: string)
   }
   const language = config.language ?? "portuguese";
 
+  const runtimeAdmission = await admitAuthenticatedTavusChannel(supabase, {
+    tenantId: overview.tenant.id,
+    agentId,
+    commandId,
+    consent,
+  });
+  if (runtimeAdmission.outcome === "rejected") {
+    return { url: null, error: runtimeAdmissionError(runtimeAdmission.code) };
+  }
+  const runtimeGrant = runtimeAdmission.grant;
+
   // createTavusVideoConversationPort é validação local síncrona (chave
   // presente mas curta demais lança aqui) — roda ANTES do guard de dedup,
   // não depois, senão uma falha de config pura já teria consumido o slot
@@ -121,6 +212,11 @@ export async function startVideoConversation(agentId: string, commandId: string)
     return { url: null, error: "Uma tentativa anterior ainda está em reconciliação. Aguarde antes de tentar novamente." };
   }
   if (reservation.state === "committed" && reservation.providerUrl && reservation.providerRef) {
+    const bindingFailure = await bindCommittedTavusRuntimeChannel(runtimeGrant, reservation.reservationId, reservation.providerRef, reservation.providerUrl);
+    if (bindingFailure) {
+      await compensateVideoConversation(port, reservation.reservationId, reservation.providerRef, "runtime_binding_failed").catch(() => undefined);
+      return { url: null, error: runtimeAdmissionError(bindingFailure) };
+    }
     if (reservation.customerDeliveryState === "activated") return { url: reservation.providerUrl, error: null };
     const persisted = await registerTranscriptPlaceholder(overview.tenant.id, agentId, "video", reservation.providerRef);
     if (persisted) return { url: reservation.providerUrl, error: null };
@@ -129,6 +225,11 @@ export async function startVideoConversation(agentId: string, commandId: string)
   }
   if (isRateLimited(videoConversationDedupKey(overview.tenant.id, commandId, "video"), VIDEO_CONVERSATION_DEDUP_WINDOW_MS, 1)) {
     return { url: null, error: "Uma chamada já está sendo aberta para este agente — aguarde alguns segundos antes de tentar de novo." };
+  }
+  const dispatchFailure = await claimTavusRuntimeDispatch(runtimeGrant);
+  if (dispatchFailure) {
+    await releaseProviderEffect(reservation.reservationId, "runtime_dispatch_denied").catch(() => undefined);
+    return { url: null, error: runtimeAdmissionError(dispatchFailure) };
   }
   let callbackUrl: string;
   try {
@@ -169,6 +270,17 @@ export async function startVideoConversation(agentId: string, commandId: string)
       reservation.reservationId, "tavus", conversation.conversationId,
       () => port.endConversation(conversation.conversationId), conversation.conversationUrl,
     );
+    const bindingFailure = await bindPortalProviderChannel({
+      grant: runtimeGrant,
+      reservationId: reservation.reservationId,
+      provider: "tavus",
+      providerRef: conversation.conversationId,
+      providerUrl: conversation.conversationUrl,
+    });
+    if (bindingFailure.outcome === "rejected") {
+      await compensateVideoConversation(port, reservation.reservationId, conversation.conversationId, "runtime_binding_failed").catch(() => undefined);
+      return { url: null, error: runtimeAdmissionError(bindingFailure.code) };
+    }
     // Placeholder do histórico (D-V2-106) — o webhook da Tavus preenche
     // `turns` quando a call terminar (application.transcription_ready).
     if (!(await registerTranscriptPlaceholder(overview.tenant.id, agentId, "video", conversation.conversationId))) {
@@ -200,7 +312,7 @@ export async function startVideoConversation(agentId: string, commandId: string)
  * tools. O digest de conhecimento divide o teto de 6000 chars do contexto
  * com o roteiro do deck.
  */
-export async function startPresentationConversation(agentId: string, commandId: string): Promise<PresentationConversationResult> {
+export async function startPresentationConversation(agentId: string, commandId: string, consent: VideoChannelConsent): Promise<PresentationConversationResult> {
   if (!isPaidEffectCommandId(commandId)) return { url: null, conversationId: null, deck: null, error: "A intenção da apresentação é inválida. Tente novamente." };
   const apiKey = process.env.TAVUS_API_KEY ?? "";
   const fakeMode = fakeProvidersEnabled();
@@ -241,6 +353,17 @@ export async function startPresentationConversation(agentId: string, commandId: 
     return { url: null, conversationId: null, deck: null, error: "Este agente ainda não tem persona de vídeo configurada — o modo apresentação exige uma." };
   }
 
+  const runtimeAdmission = await admitAuthenticatedTavusChannel(supabase, {
+    tenantId: overview.tenant.id,
+    agentId,
+    commandId,
+    consent,
+  });
+  if (runtimeAdmission.outcome === "rejected") {
+    return { url: null, conversationId: null, deck: null, error: runtimeAdmissionError(runtimeAdmission.code) };
+  }
+  const runtimeGrant = runtimeAdmission.grant;
+
   // Digest menor que no modo livre: o roteiro do deck divide o mesmo teto de
   // 6000 chars do conversational_context do adapter.
   const knowledgeDigest = await fetchKnowledgeDigest(supabase, agentId, "presentation", 2400);
@@ -264,6 +387,11 @@ export async function startPresentationConversation(agentId: string, commandId: 
   if (reservation.outcome === "capped") return { url: null, conversationId: null, deck: null, error: VIDEO_CAP_MESSAGE };
   if (reservation.outcome === "blocked_unknown" || reservation.reservationId === null) return { url: null, conversationId: null, deck: null, error: "Uma tentativa anterior ainda está em reconciliação." };
   if (reservation.state === "committed" && reservation.providerUrl && reservation.providerRef) {
+    const bindingFailure = await bindCommittedTavusRuntimeChannel(runtimeGrant, reservation.reservationId, reservation.providerRef, reservation.providerUrl);
+    if (bindingFailure) {
+      await compensateVideoConversation(port, reservation.reservationId, reservation.providerRef, "runtime_binding_failed").catch(() => undefined);
+      return { url: null, conversationId: null, deck: null, error: runtimeAdmissionError(bindingFailure) };
+    }
     if (reservation.customerDeliveryState === "activated") return { url: reservation.providerUrl, conversationId: reservation.providerRef, deck, error: null };
     const persisted = await registerTranscriptPlaceholder(overview.tenant.id, agentId, "video", reservation.providerRef);
     if (persisted) return { url: reservation.providerUrl, conversationId: reservation.providerRef, deck, error: null };
@@ -272,6 +400,11 @@ export async function startPresentationConversation(agentId: string, commandId: 
   }
   if (isRateLimited(videoConversationDedupKey(overview.tenant.id, commandId, "presentation"), VIDEO_CONVERSATION_DEDUP_WINDOW_MS, 1)) {
     return { url: null, conversationId: null, deck: null, error: "Uma apresentação já está sendo aberta para este agente — aguarde alguns segundos antes de tentar de novo." };
+  }
+  const dispatchFailure = await claimTavusRuntimeDispatch(runtimeGrant);
+  if (dispatchFailure) {
+    await releaseProviderEffect(reservation.reservationId, "runtime_dispatch_denied").catch(() => undefined);
+    return { url: null, conversationId: null, deck: null, error: runtimeAdmissionError(dispatchFailure) };
   }
   let callbackUrl: string;
   try {
@@ -293,6 +426,17 @@ export async function startPresentationConversation(agentId: string, commandId: 
       reservation.reservationId, "tavus", conversation.conversationId,
       () => port.endConversation(conversation.conversationId), conversation.conversationUrl,
     );
+    const bindingFailure = await bindPortalProviderChannel({
+      grant: runtimeGrant,
+      reservationId: reservation.reservationId,
+      provider: "tavus",
+      providerRef: conversation.conversationId,
+      providerUrl: conversation.conversationUrl,
+    });
+    if (bindingFailure.outcome === "rejected") {
+      await compensateVideoConversation(port, reservation.reservationId, conversation.conversationId, "runtime_binding_failed").catch(() => undefined);
+      return { url: null, conversationId: null, deck: null, error: runtimeAdmissionError(bindingFailure.code) };
+    }
     if (!(await registerTranscriptPlaceholder(overview.tenant.id, agentId, "video", conversation.conversationId))) {
       try {
         await compensateVideoConversation(port, reservation.reservationId, conversation.conversationId, "transcript_persistence_failed");

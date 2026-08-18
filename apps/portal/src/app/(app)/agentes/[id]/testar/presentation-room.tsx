@@ -1,11 +1,10 @@
 "use client";
 
 /**
- * Sala de apresentação ao vivo: a agente aparece em vídeo e comanda o palco
- * de slides via tool calls do protocolo de interações Tavus (app-messages no
- * data channel Daily). O cliente escuta `conversation.tool_call`, aplica a
- * navegação e devolve `conversation.tool_result` com o `tool_call_id` — sem
- * isso a persona não sabe que o slide mudou.
+ * Sala de apresentação ao vivo. Mensagens de tool do provider são tratadas
+ * como não confiáveis no navegador: esta tela nunca altera o palco a partir
+ * delas. Uma integração futura só poderá habilitar cena automática pelo
+ * bridge ADR-038 (manifesto fechado, geração, fence e recibo durável).
  */
 
 import { useCallback, useEffect, useRef, useState } from "react";
@@ -13,7 +12,20 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { isTrustedTavusConversationUrl } from "@axtro/provider-tavus";
 
 import type { Deck, DeckSlide, DeckSlideKind } from "@/lib/presentation/deck";
-import { startPresentationConversation } from "@/lib/actions/video-conversation";
+import { startPresentationConversation, type VideoChannelConsent } from "@/lib/actions/video-conversation";
+
+const INITIAL_CONSENT: VideoChannelConsent = {
+  disclosure: false,
+  essentialProcessing: false,
+  recording: false,
+  transcription: false,
+  behavioralAnalysis: false,
+  visualAnalysis: false,
+};
+
+function allConsentConfirmed(consent: VideoChannelConsent): boolean {
+  return Object.values(consent).every(Boolean);
+}
 
 /**
  * Ícones e cor de destaque por tipo de slide. Puramente decorativos/
@@ -175,6 +187,7 @@ export function PresentationRoom({ agentId, agentName }: { agentId: string; agen
   const [slideIndex, setSlideIndex] = useState(0);
   const [muted, setMuted] = useState(false);
   const [simulated, setSimulated] = useState(false);
+  const [consent, setConsent] = useState<VideoChannelConsent>(INITIAL_CONSENT);
 
   const callRef = useRef<DailyCall | null>(null);
   const conversationIdRef = useRef<string | null>(null);
@@ -198,30 +211,12 @@ export function PresentationRoom({ agentId, agentName }: { agentId: string; agen
     const call = callRef.current;
     if (!currentDeck || !call) return;
     const name = message.properties?.name ?? "";
-    const rawArguments = message.properties?.arguments;
-    let parsedArguments: Record<string, unknown> = {};
-    if (typeof rawArguments === "string") {
-      try {
-        parsedArguments = JSON.parse(rawArguments) as Record<string, unknown>;
-      } catch {
-        parsedArguments = {};
-      }
-    } else if (rawArguments && typeof rawArguments === "object") {
-      parsedArguments = rawArguments;
-    }
-
-    let landed: number | null = null;
-    if (name === "next_slide") landed = goTo(slideIndexRef.current + 1);
-    else if (name === "previous_slide") landed = goTo(slideIndexRef.current - 1);
-    else if (name === "go_to_slide") {
-      const requested = Number(parsedArguments.slide_number);
-      if (Number.isFinite(requested)) landed = goTo(Math.round(requested) - 1);
-    }
-    if (landed === null) return;
-
     const toolCallId = message.properties?.tool_call_id;
-    if (!toolCallId) return;
-    const landedSlide = currentDeck.slides[landed];
+    if (!toolCallId || !["next_slide", "previous_slide", "go_to_slide"].includes(name)) return;
+
+    // A mensagem vem do provider e pode conter instruções ou argumentos
+    // adversariais. Não há grant/manifest/receipt verificável no browser,
+    // logo ela não possui autoridade para modificar a cena local.
     call.sendAppMessage(
       {
         message_type: "conversation",
@@ -229,13 +224,13 @@ export function PresentationRoom({ agentId, agentName }: { agentId: string; agen
         conversation_id: conversationIdRef.current ?? message.conversation_id ?? "",
         properties: {
           tool_call_id: toolCallId,
-          output: `Slide ${landed + 1} de ${currentDeck.slides.length} em exibição: ${landedSlide?.title ?? ""}`,
-          status: "success",
+          output: `Comando de cena recusado: a apresentação requer o bridge de cenas aprovado pelo servidor. Slide atual: ${slideIndexRef.current + 1} de ${currentDeck.slides.length}.`,
+          status: "error",
         },
       },
       "*",
     );
-  }, [goTo]);
+  }, []);
 
   const attachTrack = useCallback((track: MediaStreamTrack, isLocal: boolean) => {
     if (track.kind === "video") {
@@ -251,7 +246,7 @@ export function PresentationRoom({ agentId, agentName }: { agentId: string; agen
     setPhase("starting");
     const commandId = crypto.randomUUID();
     void (async () => {
-      const result = await startPresentationConversation(agentId, commandId);
+      const result = await startPresentationConversation(agentId, commandId, consent);
       if (result.simulated && result.deck) {
         // Modo demonstração: deck navegável manualmente, sem sala de vídeo.
         deckRef.current = result.deck;
@@ -299,7 +294,7 @@ export function PresentationRoom({ agentId, agentName }: { agentId: string; agen
         setPhase("idle");
       }
     })();
-  }, [agentId, attachTrack, handleToolCall]);
+  }, [agentId, attachTrack, consent, handleToolCall]);
 
   const leave = useCallback(() => {
     const call = callRef.current;
@@ -333,8 +328,40 @@ export function PresentationRoom({ agentId, agentName }: { agentId: string; agen
             {agentName} conduz a reunião com slides na tela — ela mesma avança a apresentação enquanto conversa com você, como numa sala de conferência real.
           </p>
         </div>
+        <fieldset style={{ width: "100%", border: 0, padding: 0, margin: 0, display: "grid", gap: 8 }}>
+          <legend style={{ fontSize: "0.82rem", fontWeight: 700, color: "var(--text)", padding: 0 }}>
+            Consentimento para esta apresentação
+          </legend>
+          <p style={{ color: "var(--text-muted)", fontSize: "0.78rem", margin: 0 }}>
+            Você falará com uma assistente virtual de IA. As confirmações são registradas por finalidade antes de uma sala de vídeo ser criada.
+          </p>
+          {[
+            ["disclosure", "Li a identificação da IA e autorizo o processamento essencial desta apresentação."],
+            ["recording", "Autorizo a gravação de áudio e vídeo desta apresentação."],
+            ["transcription", "Autorizo a transcrição persistente da apresentação."],
+            ["behavioralAnalysis", "Autorizo a análise comportamental declarada."],
+            ["visualAnalysis", "Autorizo a análise visual declarada."],
+          ].map(([key, label]) => {
+            const consentKey = key as keyof VideoChannelConsent;
+            const checked = consentKey === "disclosure"
+              ? consent.disclosure && consent.essentialProcessing
+              : consent[consentKey];
+            return (
+              <label key={key} style={{ display: "flex", alignItems: "flex-start", gap: 8, color: "var(--text-muted)", fontSize: "0.8rem", lineHeight: 1.4 }}>
+                <input
+                  type="checkbox"
+                  checked={checked}
+                  onChange={(event) => setConsent((current) => consentKey === "disclosure"
+                    ? { ...current, disclosure: event.target.checked, essentialProcessing: event.target.checked }
+                    : { ...current, [consentKey]: event.target.checked })}
+                />
+                {label}
+              </label>
+            );
+          })}
+        </fieldset>
         {error && <p className="form-error" role="alert" style={{ margin: 0, width: "100%" }}>{error}</p>}
-        <button type="button" className="btn btn-primary" onClick={start} disabled={phase === "starting"} style={{ padding: "11px 20px" }}>
+        <button type="button" className="btn btn-primary" onClick={start} disabled={phase === "starting" || !allConsentConfirmed(consent)} style={{ padding: "11px 20px" }}>
           {phase === "starting" ? "Montando a sala…" : "Iniciar apresentação"}
         </button>
       </section>
@@ -447,17 +474,14 @@ export function PresentationRoom({ agentId, agentName }: { agentId: string; agen
               />
             </>
           )}
-          <div style={{ display: "flex", gap: 8 }}>
-            {simulated ? (
-              <>
-                <button type="button" className="btn" onClick={() => goTo(slideIndexRef.current - 1)} disabled={slideIndex === 0} style={{ flex: 1 }}>
-                  ← Anterior
-                </button>
-                <button type="button" className="btn btn-primary" onClick={() => goTo(slideIndexRef.current + 1)} disabled={deck !== null && slideIndex >= deck.slides.length - 1} style={{ flex: 1 }}>
-                  Próximo →
-                </button>
-              </>
-            ) : (
+          <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+            <button type="button" className="btn" onClick={() => goTo(slideIndexRef.current - 1)} disabled={slideIndex === 0} style={{ flex: 1 }}>
+              ← Anterior
+            </button>
+            <button type="button" className="btn btn-primary" onClick={() => goTo(slideIndexRef.current + 1)} disabled={deck !== null && slideIndex >= deck.slides.length - 1} style={{ flex: 1 }}>
+              Próximo →
+            </button>
+            {!simulated && (
               <button type="button" className="btn" onClick={toggleMute} style={{ flex: 1 }}>
                 {muted ? "Ativar microfone" : "Silenciar"}
               </button>
@@ -468,8 +492,8 @@ export function PresentationRoom({ agentId, agentName }: { agentId: string; agen
           </div>
           <p style={{ fontSize: "0.74rem", color: "var(--text-faint)", margin: 0 }}>
             {simulated
-              ? "Com o provider de vídeo conectado, é a própria agente quem avança os slides enquanto conversa com o cliente."
-              : `${agentName} controla os slides sozinha durante a conversa. Libere câmera e microfone quando o navegador pedir; a sala encerra em 15 minutos.`}
+              ? "Modo demonstração — navegue o deck manualmente para revisar a apresentação."
+              : `Navegue os slides manualmente. Comandos de cena originados pelo modelo permanecem bloqueados até receberem manifesto, geração e recibo validados pelo servidor. Libere câmera e microfone quando o navegador pedir; a sala encerra em 15 minutos.`}
           </p>
         </div>
       </div>

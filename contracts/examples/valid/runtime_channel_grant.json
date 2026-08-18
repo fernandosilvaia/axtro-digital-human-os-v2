@@ -1,0 +1,14 @@
+{
+  "schema_version": "2.0.0",
+  "grant_id": "019f0000-0000-7000-8000-000000000301",
+  "admission_id": "019f0000-0000-7000-8000-000000000300",
+  "tenant_id": "019f0000-0000-7000-8000-000000000001",
+  "session_id": "019f0000-0000-7000-8000-000000000401",
+  "command_fingerprint": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+  "consumer_kind": "tavus",
+  "state": "consumed",
+  "generation": 0,
+  "issued_at": "2026-08-18T02:00:00Z",
+  "expires_at": "2026-08-18T02:05:00Z",
+  "consumed_at": "2026-08-18T02:00:01Z"
+}

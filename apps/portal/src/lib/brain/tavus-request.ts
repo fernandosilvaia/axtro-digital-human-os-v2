@@ -6,10 +6,10 @@
  * instrução), endurecidas pela auditoria de 2026-08-02:
  * 1. Toda mensagem role="system" enviada pelo Tavus é DESCARTADA como
  *    instrução — identidade, método e regras são nossas. O conteúdo útil
- *    dela é resgatado como DADO: tags de percepção viram perceptionContext,
- *    e o restante (o conversational_context que NÓS mesmos passamos ao criar
- *    a conversa — digest de conhecimento, roteiro de deck, resumo da ligação
- *    de voz) vira providerContext rotulado, senão o RAG de vídeo se perdia.
+ *    dela é resgatado exclusivamente como DADO EXTERNO NÃO CONFIÁVEL: tags
+ *    de percepção viram perceptionContext, e o restante vira providerContext
+ *    delimitado e sem autoridade. Mesmo um contexto que o Portal tenha criado
+ *    originalmente deve atravessar a fronteira de provider como não confiável.
  * 2. Tags de percepção só são COLETADAS de mensagens system — o raven-1
  *    anexa a leitura ambiente via system. Tag aparecendo num turno user/
  *    assistant é texto controlável pelo interlocutor tentando se passar por
@@ -29,7 +29,7 @@ export interface ParsedTavusChatRequest {
   readonly history: readonly BrainTurn[];
   readonly userMessage: string;
   readonly perceptionContext: string | null;
-  /** Conteúdo não-instrucional do system do Tavus (conversational_context que nós mesmos criamos) — dado rotulado, nunca identidade. */
+  /** Conteúdo não-instrucional recebido do Tavus — referência não confiável, nunca identidade ou política. */
   readonly providerContext: string | null;
 }
 
@@ -68,7 +68,9 @@ export function parseTavusChatRequest(rawMessages: unknown): ParsedTavusChatRequ
     }
 
     if (role === "system") {
-      // Percepção do raven-1 chega via system — único papel confiável pra isso.
+      // Percepção do raven-1 chega via system do provider. O papel não lhe dá
+      // autoridade: o conteúdo inteiro será emitido depois como referência
+      // não confiável, nunca como system prompt do nosso modelo.
       const perceptionMatches = content.match(PERCEPTION_TAG_PATTERN);
       if (perceptionMatches) perceptionPieces.push(...perceptionMatches);
       const remainder = content.replace(PERCEPTION_TAG_PATTERN, "").trim();

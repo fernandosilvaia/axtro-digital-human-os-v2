@@ -1,0 +1,22 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://schemas.axtro.ai/v2/scene_execution_receipt.schema.json",
+  "title": "Scene Execution Receipt",
+  "description": "Append-only receipt for a scene manifest decision at one generation fence.",
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "schema_version": { "type": "string", "const": "2.0.0" },
+    "receipt_id": { "$ref": "https://schemas.axtro.ai/v2/tool_execution_receipt.schema.json#/properties/execution_id" },
+    "tenant_id": { "$ref": "https://schemas.axtro.ai/v2/tool_execution_receipt.schema.json#/properties/tenant_id" },
+    "session_id": { "$ref": "https://schemas.axtro.ai/v2/tool_execution_receipt.schema.json#/properties/intent_id" },
+    "grant_id": { "$ref": "https://schemas.axtro.ai/v2/tool_execution_receipt.schema.json#/properties/execution_id" },
+    "scene_id": { "type": "string", "pattern": "^[a-z][a-z0-9._-]{2,119}$" },
+    "manifest_id": { "type": "string", "pattern": "^[a-z][a-z0-9._-]{2,119}$" },
+    "generation": { "type": "integer", "minimum": 0, "maximum": 10000000 },
+    "outcome": { "type": "string", "enum": ["succeeded", "rejected_stale_generation", "rejected_policy", "failed"] },
+    "effect_hash": { "type": ["string", "null"], "pattern": "^[0-9a-f]{64}$" },
+    "recorded_at": { "type": "string", "format": "date-time" }
+  },
+  "required": ["schema_version", "receipt_id", "tenant_id", "session_id", "grant_id", "scene_id", "manifest_id", "generation", "outcome", "effect_hash", "recorded_at"]
+}

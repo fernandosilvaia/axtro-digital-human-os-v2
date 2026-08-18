@@ -49,6 +49,16 @@ const VIDEO_SESSION_RATE_LIMIT_MAX = 30;
 const VIDEO_SESSION_MAX_BODY_BYTES = 16 * 1024;
 const VIDEO_SESSION_RATE_LIMIT_KEY = "video-session:raissa-tools";
 
+/**
+ * The static bearer identifies only the control-tower service. It does not
+ * carry a subject-bound disclosure/consent receipt for the lead who will be
+ * recorded, transcribed and visually analysed. ADR-038 therefore keeps this
+ * paid channel closed until its server-issued participant admission exists.
+ */
+function controlTowerParticipantAdmissionReady(): boolean {
+  return false;
+}
+
 interface ResolvedPlatformAgent extends PlatformAgentPersona {
   readonly tenantId: string;
   readonly agentId: string;
@@ -123,6 +133,13 @@ export async function POST(request: NextRequest): Promise<Response> {
       return NextResponse.json({ error: error.code }, { status: error.status });
     }
     throw error;
+  }
+
+  // Deliberately before body acquisition, limiter state, database and Tavus:
+  // do not even accept lead context until it can be bound to the lead's
+  // disclosure and purpose-scoped consent through the runtime bridge.
+  if (!controlTowerParticipantAdmissionReady()) {
+    return NextResponse.json({ error: "runtime_admission_required" }, { status: 503 });
   }
 
   if (isRateLimited(VIDEO_SESSION_RATE_LIMIT_KEY, VIDEO_SESSION_RATE_LIMIT_WINDOW_MS, VIDEO_SESSION_RATE_LIMIT_MAX)) {
