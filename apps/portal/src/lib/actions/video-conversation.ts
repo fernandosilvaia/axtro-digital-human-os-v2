@@ -95,7 +95,7 @@ async function admitAuthenticatedTavusChannel(
     tenantId: input.tenantId,
     agentId: input.agentId,
     commandId: input.commandId,
-    actorId,
+    ...(actorId === undefined ? {} : { actorId }),
     channel: "tavus_video",
     requestedPurposes: VIDEO_RUNTIME_PURPOSES,
     confirmation: input.consent,
@@ -228,7 +228,7 @@ export async function startVideoConversation(agentId: string, commandId: string,
   }
   const dispatchFailure = await claimTavusRuntimeDispatch(runtimeGrant);
   if (dispatchFailure) {
-    await releaseProviderEffect(reservation.reservationId, "runtime_dispatch_denied").catch(() => undefined);
+    await releaseProviderEffect(reservation.reservationId, "not_dispatched").catch(() => undefined);
     return { url: null, error: runtimeAdmissionError(dispatchFailure) };
   }
   let callbackUrl: string;
@@ -403,7 +403,7 @@ export async function startPresentationConversation(agentId: string, commandId: 
   }
   const dispatchFailure = await claimTavusRuntimeDispatch(runtimeGrant);
   if (dispatchFailure) {
-    await releaseProviderEffect(reservation.reservationId, "runtime_dispatch_denied").catch(() => undefined);
+    await releaseProviderEffect(reservation.reservationId, "not_dispatched").catch(() => undefined);
     return { url: null, conversationId: null, deck: null, error: runtimeAdmissionError(dispatchFailure) };
   }
   let callbackUrl: string;

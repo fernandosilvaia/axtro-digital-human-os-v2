@@ -84,9 +84,9 @@ test("login do usuário demo leva ao dashboard com métricas", async ({ page }) 
   await page.click('button[type="submit"]');
   await page.waitForURL(/\/dashboard/, { timeout: 30_000 });
   await expect(page.locator("h1").first()).toBeVisible();
-  // T8: painel de custo estimado (rate card com preço público de tabela).
-  await expect(page.getByText("Custo estimado hoje")).toBeVisible();
-  await expect(page.getByText("Preço público de tabela — não é a fatura real")).toBeVisible();
+  // T8: painel de custo (ledger de efeitos pagos, M5-01 renomeou de "estimado" para "atribuído").
+  await expect(page.getByText("Custo atribuído hoje")).toBeVisible();
+  await expect(page.getByText("Ledger estimado/reportado — não é a fatura conciliada")).toBeVisible();
 });
 
 test("agentes: lista carrega e admin ativa e pausa um rascunho", async ({ page }) => {
@@ -117,7 +117,10 @@ test("chat de teste responde em modo demonstração", async ({ page }) => {
   await login(page);
   await page.goto(`/agentes/${RAFAELA_ID}/testar`);
   await page.fill("#preview-message", "Quero entender como funciona a energia solar para minha casa.");
-  await page.getByRole("button", { name: "Enviar" }).click();
+  // exact:true — a página de teste também renderiza o botão "Enviar proposta"
+  // (ClosingProposal, D-V2-123) pra TODO agente; sem exact:true o match por
+  // substring quebra em "strict mode violation" (2 botões contêm "Enviar").
+  await page.getByRole("button", { name: "Enviar", exact: true }).click();
   await expect(page.getByText("modo demonstração", { exact: false }).first()).toBeVisible({ timeout: 30_000 });
 });
 
@@ -132,7 +135,8 @@ test("conversas: histórico de chat aparece na lista e no detalhe (D-V2-107 — 
   const marker = `E2E histórico ${Date.now().toString(36)}`;
   await page.goto(`/agentes/${RAFAELA_ID}/testar`);
   await page.fill("#preview-message", marker);
-  await page.getByRole("button", { name: "Enviar" }).click();
+  // exact:true — mesma razão do teste "chat de teste responde em modo demonstração" acima.
+  await page.getByRole("button", { name: "Enviar", exact: true }).click();
   await expect(page.getByText("modo demonstração", { exact: false }).first()).toBeVisible({ timeout: 30_000 });
 
   await page.goto("/conversas");
@@ -153,6 +157,17 @@ test("conversas: histórico de chat aparece na lista e no detalhe (D-V2-107 — 
 test("apresentação simulada abre o deck e navega slides", async ({ page }) => {
   await login(page);
   await page.goto(`/agentes/${RAFAELA_ID}/testar`);
+  // Bridge de runtime (M5-02) exige as 5 confirmações de consentimento antes
+  // de habilitar "Iniciar apresentação" — sem isto o botão fica desabilitado
+  // pra sempre e o teste estoura o timeout. Escopado ao fieldset da
+  // apresentação: a página também renderiza consentimento pro vídeo/reunião
+  // externa com texto parecido, e um getByLabel solto bate nos dois.
+  const presentationConsent = page.getByRole("group", { name: "Consentimento para esta apresentação" });
+  await presentationConsent.getByLabel(/processamento essencial/).check();
+  await presentationConsent.getByLabel(/gravação de áudio/).check();
+  await presentationConsent.getByLabel(/transcrição persistente/).check();
+  await presentationConsent.getByLabel(/análise comportamental/).check();
+  await presentationConsent.getByLabel(/análise visual/).check();
   await page.getByRole("button", { name: "Iniciar apresentação" }).click();
   await expect(page.getByText("Modo demonstração — sem provider de vídeo")).toBeVisible({ timeout: 30_000 });
   await expect(page.getByText("1/7")).toBeVisible();

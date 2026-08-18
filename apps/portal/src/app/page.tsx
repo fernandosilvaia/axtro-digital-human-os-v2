@@ -108,8 +108,7 @@ const STRUCTURED_DATA = [
 ];
 
 export default async function LandingPage() {
-  const supabase = await createClient();
-  const { data: { user } } = await supabase.auth.getUser();
+  const user = await getPublicSessionUser();
 
   return (
     <div className="landing">
@@ -318,6 +317,29 @@ export default async function LandingPage() {
       <script type="application/ld+json" dangerouslySetInnerHTML={{ __html: JSON.stringify(STRUCTURED_DATA) }} />
     </div>
   );
+}
+
+/**
+ * A página pública continua útil quando a infraestrutura de autenticação está
+ * indisponível: a única consequência é mostrar os CTAs de visitante. Rotas
+ * protegidas preservam a sua verificação de sessão e nunca usam este fallback.
+ */
+async function getPublicSessionUser() {
+  try {
+    const supabase = await createClient();
+    const user = supabase.auth.getUser()
+      .then(({ data, error }) => (error ? null : data.user))
+      .catch(() => null);
+    // Uma indisponibilidade de Auth não pode reter uma página de marketing.
+    // O request que excede o limite é tratado como visitante; as rotas
+    // protegidas mantêm a sua própria verificação de sessão sem este timeout.
+    return await Promise.race([
+      user,
+      new Promise<null>((resolve) => setTimeout(resolve, 1_000)),
+    ]);
+  } catch {
+    return null;
+  }
 }
 
 function ArrowIcon() {

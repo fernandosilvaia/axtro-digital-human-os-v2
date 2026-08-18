@@ -1,9 +1,10 @@
-import type { Metadata } from "next";
+import { createPageMetadata } from "@/lib/site";
 
-export const metadata: Metadata = {
+export const metadata = createPageMetadata({
   title: "Termos de Uso — Axtro Digital Human OS",
   description: "Condições de uso do Axtro Digital Human OS.",
-};
+  path: "/termos",
+});
 
 /** Termos v1 — honestos e mínimos; sujeitos a revisão jurídica formal. */
 export default function TermsPage() {

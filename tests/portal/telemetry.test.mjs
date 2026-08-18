@@ -34,6 +34,51 @@ test("logEvent redacts email addresses inside string values", () => {
   assert.match(parsed.note, /\[redacted-email\]/);
 });
 
+test("logEvent recursively redacts nested PII and secrets in objects and arrays", () => {
+  const line = captureConsole("info", () => {
+    telemetry.logEvent("nested_context", {
+      request: {
+        recipient: "fernando@axtroai.com",
+        credentials: { authorization: "Bearer very-secret-token-value" },
+      },
+      deliveries: [{ contact: { email: "leak@example.com" } }, { provider: { api_key: "sk_test_51ABCdefGhijKLM" } }],
+    });
+  });
+  const parsed = JSON.parse(line);
+  assert.equal(parsed.request.recipient, "[redacted-email]");
+  assert.equal(parsed.request.credentials.authorization, "[redacted]");
+  assert.equal(parsed.deliveries[0].contact.email, "[redacted]");
+  assert.equal(parsed.deliveries[1].provider.api_key, "[redacted]");
+  assert.ok(!line.includes("fernando@axtroai.com"));
+  assert.ok(!line.includes("very-secret-token-value"));
+});
+
+test("logEvent safely bounds hostile, cyclic, accessor and oversized context values", () => {
+  const cyclic = {};
+  cyclic.self = cyclic;
+  const accessor = {};
+  Object.defineProperty(accessor, "explode", { enumerable: true, get() { throw new Error("must not execute"); } });
+  const hostile = new Proxy({}, { ownKeys() { throw new Error("must not enumerate"); } });
+  const line = captureConsole("info", () => {
+    telemetry.logEvent("hostile_context", {
+      cyclic,
+      accessor,
+      hostile,
+      unsupported: 42n,
+      huge: "x".repeat(100_000),
+      too_deep: { a: { b: { c: { d: { e: { f: { g: { h: { token: "nested-secret" } } } } } } } } },
+    });
+  });
+  const parsed = JSON.parse(line);
+  assert.equal(parsed.cyclic.self, "[redacted-unsafe]");
+  assert.equal(parsed.accessor.explode, "[redacted-unsafe]");
+  assert.equal(parsed.hostile, "[redacted-unsafe]");
+  assert.equal(parsed.unsupported, "[redacted-unsafe]");
+  assert.match(parsed.huge, /\[redacted-truncated\]$/);
+  assert.equal(parsed.too_deep.a.b.c.d.e.f.g, "[redacted-truncated]");
+  assert.ok(line.length < 20_000, "telemetry output must remain bounded");
+});
+
 test("logError captures error name and message without leaking context PII", () => {
   const line = captureConsole("error", () => {
     telemetry.logError("rpc_failed", new Error("boom"), { email: "leak@example.com", source_id: "xyz" });
@@ -44,6 +89,22 @@ test("logError captures error name and message without leaking context PII", () 
   assert.equal(parsed.error_message, "boom");
   assert.equal(parsed.email, "[redacted]");
   assert.equal(parsed.source_id, "xyz");
+});
+
+test("logError preserves reserved audit fields when context contains colliding keys", () => {
+  const line = captureConsole("error", () => {
+    telemetry.logError("rpc_failed", new Error("trusted message"), {
+      level: "info",
+      event: "forged_event",
+      error_name: "forged_name",
+      error_message: "forged message",
+    });
+  });
+  const parsed = JSON.parse(line);
+  assert.equal(parsed.level, "error");
+  assert.equal(parsed.event, "rpc_failed");
+  assert.equal(parsed.error_name, "Error");
+  assert.equal(parsed.error_message, "trusted message");
 });
 
 test("logError redacts Stripe-shaped secret/restricted keys embedded in error.message (achado D-V2-107)", () => {

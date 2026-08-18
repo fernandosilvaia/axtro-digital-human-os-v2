@@ -48,6 +48,10 @@ export type PortalRuntimeOutcomeCode =
   | "scene_rejected"
   | "service_unavailable";
 
+type PortalRuntimeRejectionCode = Exclude<PortalRuntimeOutcomeCode, "admitted" | "replayed" | "bound" | "scene_executed">;
+type PortalConsentRejectionCode = "denied_disclosure" | "denied_essential_consent" | "denied_optional_consent";
+type PortalRuntimeBridgeEnv = Readonly<{ readonly PORTAL_RUNTIME_BRIDGE_ENABLED?: string }>;
+
 export interface PortalChannelConsentConfirmation {
   readonly disclosure: boolean;
   readonly essentialProcessing: boolean;
@@ -78,7 +82,7 @@ export interface PortalChannelAdmissionEvidence {
 export interface AdmitPortalChannelInput {
   readonly tenantId: string;
   readonly agentId: string;
-  /** A server-derived command ID. A browser must never choose this value. */
+  /** An external UUID command ID. It is fingerprinted, never used as an authoritative resource ID. */
   readonly commandId: string;
   readonly channel: string;
   /**
@@ -185,7 +189,7 @@ export interface PortalRuntimeRpcClient {
 
 export interface PortalChannelRuntimeBridgeDependencies {
   readonly rpc?: PortalRuntimeRpcClient;
-  readonly env?: Pick<NodeJS.ProcessEnv, "PORTAL_RUNTIME_BRIDGE_ENABLED">;
+  readonly env?: PortalRuntimeBridgeEnv;
   readonly idGenerator?: () => string;
   readonly sceneDirector?: PortalSceneDirector;
 }
@@ -273,7 +277,7 @@ function checkedConfirmation(value: PortalChannelConsentConfirmation): PortalCha
   });
 }
 
-function consentFailure(confirmation: PortalChannelConsentConfirmation, purposes: readonly PortalChannelPurpose[]): PortalRuntimeOutcomeCode | null {
+function consentFailure(confirmation: PortalChannelConsentConfirmation, purposes: readonly PortalChannelPurpose[]): PortalConsentRejectionCode | null {
   if (!confirmation.disclosure) return "denied_disclosure";
   if (!confirmation.essentialProcessing) return "denied_essential_consent";
   const enabled: Readonly<Record<PortalChannelPurpose, boolean>> = {
@@ -289,7 +293,7 @@ function capabilitySet(purposes: readonly PortalChannelPurpose[]): readonly stri
   return Object.freeze(["scene_presentation", ...purposes]);
 }
 
-function processEnabled(env: Pick<NodeJS.ProcessEnv, "PORTAL_RUNTIME_BRIDGE_ENABLED">): boolean {
+function processEnabled(env: NodeJS.ProcessEnv | PortalRuntimeBridgeEnv): boolean {
   return env.PORTAL_RUNTIME_BRIDGE_ENABLED === "true";
 }
 
@@ -306,7 +310,7 @@ async function rpc(client: PortalRuntimeRpcClient, name: string, parameters: Rea
   return result;
 }
 
-function rejection(code: Exclude<PortalRuntimeOutcomeCode, "admitted" | "replayed" | "bound" | "scene_executed">): Readonly<{ readonly outcome: "rejected"; readonly code: Exclude<PortalRuntimeOutcomeCode, "admitted" | "replayed" | "bound" | "scene_executed"> }> {
+function rejection<TCode extends PortalRuntimeRejectionCode>(code: TCode): Readonly<{ readonly outcome: "rejected"; readonly code: TCode }> {
   return Object.freeze({ outcome: "rejected", code });
 }
 
@@ -330,7 +334,7 @@ export function createPortalChannelAdmissionEvidence(
   idGenerator: () => string = createUuidV7,
 ): PortalChannelAdmissionEvidence {
   const purposes = canonicalPurposes(requestedPurposes);
-  const next = (name: string): string => assertUuid(idGenerator(), name);
+  const next = (name: string): string => assertUuidV7(idGenerator(), name);
   const optionalConsentIds: Record<PortalChannelPurpose, string | null> = {
     recording: null,
     persistent_transcription: null,
@@ -378,7 +382,10 @@ export function createPortalChannelRuntimeBridge(dependencies: PortalChannelRunt
     if (!processEnabled(env)) return rejection("bridge_disabled");
     const tenantId = assertUuidV7(input.tenantId, "tenantId");
     const agentId = assertUuidV7(input.agentId, "agentId");
-    const commandId = assertUuidV7(input.commandId, "commandId");
+    // commandId can originate from an interoperating caller (for example a
+    // Supabase auth UUIDv4). It remains an opaque idempotency input; every
+    // authoritative identifier created or persisted by this bridge is v7.
+    const commandId = assertUuid(input.commandId, "commandId");
     const channel = assertChannel(input.channel);
     const purposes = canonicalPurposes(input.requestedPurposes);
     const confirmation = checkedConfirmation(input.confirmation);
@@ -542,7 +549,7 @@ export function createPortalChannelRuntimeBridge(dependencies: PortalChannelRunt
     if (preflight.outcome === "rejected") return rejection(preflight.code);
     if (generationId !== grant.generationId) return rejection("stale_generation");
     const consumed = await consumePortalChannelGrant({ grant, consumerKind: "scene" });
-    if (consumed.outcome === "rejected") return rejection(consumed.code);
+    if (consumed.outcome === "rejected") return rejection(consumed.code === "grant_consumed" ? "scene_rejected" : consumed.code);
     const selected = requiredSceneDirector(sceneDirector).selectScene(input.sceneIntent, grant.capabilitySet);
     if (selected.outcome !== "accepted") return rejection("scene_rejected");
     if (selected.directive.generationId !== generationId) return rejection("stale_generation");

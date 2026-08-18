@@ -8,7 +8,8 @@
     "build": "next build",
     "start": "next start",
     "typecheck": "tsc --noEmit",
-    "e2e": "playwright test"
+    "e2e": "playwright test",
+    "e2e:public": "playwright test -c playwright.public.config.ts"
   },
   "dependencies": {
     "@axtro/domain": "workspace:*",

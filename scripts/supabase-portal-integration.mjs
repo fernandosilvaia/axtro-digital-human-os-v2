@@ -83,8 +83,11 @@ try {
   const runtimeBridgeApplied = applySupabaseMigrations(databaseUrl, 43, 43);
   assert.deepEqual(runtimeBridgeApplied, ["0043"]);
   assertRuntimeBridgeContractPhase(databaseUrl);
+  const runtimeBridgeIntegrityApplied = applySupabaseMigrations(databaseUrl, 44, 44);
+  assert.deepEqual(runtimeBridgeIntegrityApplied, ["0044"]);
+  assertRuntimeBridgeIntegrityRepairPhase(databaseUrl);
   assertFailed(runFile(databaseUrl, join(supabaseMigrationDirectory, "0040_production_integrity_hardening.sql")), "non-idempotent 0040 cannot be replayed without a migration receipt gate");
-  assert.equal(queryScalar(databaseUrl, "SELECT count(*) FROM public.axtro_supabase_test_migrations;"), "43");
+  assert.equal(queryScalar(databaseUrl, "SELECT count(*) FROM public.axtro_supabase_test_migrations;"), "44");
 
   assertMigrationCapabilities(databaseUrl);
   assertLeastPrivilege(databaseUrl);
@@ -108,9 +111,9 @@ try {
   await assertStaleReservedSweepFencing(databaseUrl);
   assertRecallDailyPaidAttemptBudget(databaseUrl);
   assertCostEventSchemaVersion(databaseUrl);
-  assertRuntimeChannelBridge(databaseUrl);
+  await assertRuntimeChannelBridge(databaseUrl);
 
-  console.log("SUPABASE PORTAL INTEGRATION PASSED: migrations 0001-0043, grants, RLS, transcripts, reservations and readiness capability");
+  console.log("SUPABASE PORTAL INTEGRATION PASSED: migrations 0001-0044, grants, RLS, transcripts, reservations and readiness capability");
 } catch (error) {
   primaryError = error;
   throw error;
@@ -126,7 +129,7 @@ function applySupabaseMigrations(databaseUrl, firstVersion, lastVersion) {
   const migrations = readdirSync(supabaseMigrationDirectory)
     .filter((name) => /^\d{4}_.+\.sql$/.test(name))
     .sort();
-  assert.equal(migrations.length, 43, "the harness must cover every Supabase-only migration through the 0043 runtime bridge phase");
+  assert.equal(migrations.length, 44, "the harness must cover every Supabase-only migration through the 0044 runtime bridge integrity phase");
   const applied = [];
   for (const migration of migrations) {
     const numericVersion = Number(migration.slice(0, 4));
@@ -268,10 +271,16 @@ function assertRuntimeBridgeContractPhase(databaseUrl) {
   }
 }
 
+function assertRuntimeBridgeIntegrityRepairPhase(databaseUrl) {
+  const capabilities = queryJson(databaseUrl, asRoleSql("service_role", null, "SELECT public.portal_schema_capabilities_service();"));
+  assert.equal(capabilities.version, 44, "0044 enables the runtime bridge receipt-integrity contract");
+  assert.equal(capabilities.runtimeBridgeReceiptIntegrity, true);
+}
+
 function assertMigrationCapabilities(databaseUrl) {
   assert.equal(queryScalar(databaseUrl, "SELECT to_regprocedure('public.portal_schema_capabilities_service()') IS NOT NULL;"), "t");
   const capabilities = queryJson(databaseUrl, asRoleSql("service_role", null, "SELECT public.portal_schema_capabilities_service();"));
-  assert.equal(capabilities.version, 43);
+  assert.equal(capabilities.version, 44);
   assert.equal(capabilities.providerEffectReservations, true);
   assert.equal(capabilities.billingUsageOutbox, true);
   assert.equal(capabilities.recallWebhookDedupe, true);
@@ -298,6 +307,7 @@ function assertMigrationCapabilities(databaseUrl) {
   assert.equal(capabilities.runtimeSceneReceipts, true);
   assert.equal(capabilities.runtimeKillSwitches, true);
   assert.equal(capabilities.runtimeDualOperatorReconciliation, true);
+  assert.equal(capabilities.runtimeBridgeReceiptIntegrity, true);
   assert.equal(queryScalar(databaseUrl, "SELECT to_regclass('public.provider_effect_reservations') IS NOT NULL;"), "t");
   assert.equal(queryScalar(databaseUrl, "SELECT to_regclass('public.billing_usage_outbox') IS NOT NULL;"), "t");
   for (const signature of [
@@ -416,7 +426,7 @@ function assertCostEventSchemaVersion(databaseUrl) {
   "cost event contract version rejects an unsupported schema");
 }
 
-function assertRuntimeChannelBridge(databaseUrl) {
+async function assertRuntimeChannelBridge(databaseUrl) {
   const bindingId = "019f0000-0000-7000-8000-000000008001";
   const sessionId = "019f0000-0000-7000-8000-000000008002";
   const presenterId = "019f0000-0000-7000-8000-000000008003";
@@ -439,6 +449,67 @@ function assertRuntimeChannelBridge(databaseUrl) {
       '${disclosureId}','runtime-v1','${disclosureHash}','visual','pt-BR','${sqlLiteral(essential)}'::jsonb,'[]'::jsonb
     );
   `));
+  const raceSessionId = "019f0000-0000-7000-8000-000000008050";
+  const raceInputs = [
+    {
+      bindingId: "019f0000-0000-7000-8000-000000008051",
+      presenterId: "019f0000-0000-7000-8000-000000008052",
+      disclosureId: "019f0000-0000-7000-8000-000000008053",
+      consentId: "019f0000-0000-7000-8000-000000008054",
+      fingerprint: "2".repeat(64),
+    },
+    {
+      bindingId: "019f0000-0000-7000-8000-000000008055",
+      presenterId: "019f0000-0000-7000-8000-000000008056",
+      disclosureId: "019f0000-0000-7000-8000-000000008057",
+      consentId: "019f0000-0000-7000-8000-000000008058",
+      fingerprint: "3".repeat(64),
+    },
+  ];
+  const raceAdmissionSql = (input) => asRoleSql("service_role", null, `
+    SELECT public.portal_admit_runtime_channel_service(
+      '${input.bindingId}','${fixture.tenantAlpha}','${fixture.actorAlpha}','${fixture.agentAlpha}',
+      '${raceSessionId}','${input.presenterId}','recall_meeting',array['scene_presentation'],'${input.fingerprint}',0,
+      '${input.disclosureId}','runtime-v1','${disclosureHash}','visual','pt-BR','${sqlLiteral(JSON.stringify({ id: input.consentId, subjectRef: "runtime-race-operator", jurisdiction: "BR", evidenceHash, method: "click" }))}'::jsonb,'[]'::jsonb
+    );
+  `);
+  const raceResults = await Promise.all(raceInputs.map((input) => runSqlAsync(databaseUrl, raceAdmissionSql(input))));
+  for (const result of raceResults) assertSucceeded(result, "parallel runtime admission contender");
+  const raceOutcomes = raceResults.map((result) => parseLastJson(result.stdout));
+  assert.deepEqual(raceOutcomes.map((outcome) => outcome.outcome).sort(), ["issued", "one_mouth_conflict"],
+    "two real database connections serialize distinct presenters to one issued admission and one one-mouth conflict");
+  const raceWinner = raceOutcomes.find((outcome) => outcome.outcome === "issued");
+  assert.ok(raceWinner, "parallel admission has exactly one winner");
+  assert.equal(queryScalar(databaseUrl, `SELECT count(*) FROM public.sessions WHERE tenant_id='${fixture.tenantAlpha}' AND id='${raceSessionId}';`), "1",
+    "parallel admission creates one durable session");
+  assert.equal(queryScalar(databaseUrl, `SELECT count(*) FROM public.portal_runtime_channel_bindings WHERE tenant_id='${fixture.tenantAlpha}' AND session_id='${raceSessionId}';`), "1",
+    "parallel admission creates only the winner binding");
+  assert.equal(queryScalar(databaseUrl, `SELECT active_presenter_id::text FROM public.sessions WHERE tenant_id='${fixture.tenantAlpha}' AND id='${raceSessionId}';`), raceWinner.grantId === raceInputs[0].bindingId ? raceInputs[0].presenterId : raceInputs[1].presenterId,
+    "the session floor belongs to the issued presenter");
+  const raceLoser = raceInputs.find((input) => input.bindingId !== raceWinner.grantId);
+  assert.ok(raceLoser, "parallel admission identifies the losing presenter");
+  assert.equal(queryScalar(databaseUrl, `SELECT count(*) FROM public.portal_runtime_channel_dispatches WHERE tenant_id='${fixture.tenantAlpha}' AND binding_id='${raceLoser.bindingId}';`), "0",
+    "the losing presenter has no provider or scene dispatch");
+  assert.equal(queryScalar(databaseUrl, `SELECT count(*) FROM public.portal_runtime_provider_channel_receipts WHERE tenant_id='${fixture.tenantAlpha}' AND binding_id='${raceLoser.bindingId}';`), "0",
+    "the losing presenter has no provider receipt");
+  const crossTenantActorAdmission = runSql(databaseUrl, asRoleSql("service_role", null, `
+    SELECT public.portal_admit_runtime_channel_service(
+      '019f0000-0000-7000-8000-000000008012','${fixture.tenantAlpha}','${fixture.actorBeta}','${fixture.agentAlpha}',
+      '019f0000-0000-7000-8000-000000008013','019f0000-0000-7000-8000-000000008014','recall_meeting',array['scene_presentation'],'${"e".repeat(64)}',0,
+      '019f0000-0000-7000-8000-000000008015','runtime-v1','${disclosureHash}','visual','pt-BR','${sqlLiteral(JSON.stringify({ id: "019f0000-0000-7000-8000-000000008016", subjectRef: "runtime-operator-confirmation", jurisdiction: "BR", evidenceHash, method: "click" }))}'::jsonb,'[]'::jsonb
+    );
+  `));
+  assertFailed(crossTenantActorAdmission, "runtime admission rejects a beta actor for tenant alpha (42501)");
+  assert.equal(queryScalar(databaseUrl, "SELECT count(*) FROM public.portal_runtime_channel_bindings WHERE id='019f0000-0000-7000-8000-000000008012';"), "0");
+  const crossTenantAgentAdmission = runSql(databaseUrl, asRoleSql("service_role", null, `
+    SELECT public.portal_admit_runtime_channel_service(
+      '019f0000-0000-7000-8000-000000008017','${fixture.tenantAlpha}','${fixture.actorAlpha}','${fixture.agentBeta}',
+      '019f0000-0000-7000-8000-000000008018','019f0000-0000-7000-8000-000000008019','recall_meeting',array['scene_presentation'],'${"f".repeat(64)}',0,
+      '019f0000-0000-7000-8000-000000008020','runtime-v1','${disclosureHash}','visual','pt-BR','${sqlLiteral(JSON.stringify({ id: "019f0000-0000-7000-8000-000000008021", subjectRef: "runtime-operator-confirmation", jurisdiction: "BR", evidenceHash, method: "click" }))}'::jsonb,'[]'::jsonb
+    );
+  `));
+  assertFailed(crossTenantAgentAdmission, "runtime admission rejects a beta agent for tenant alpha (42501)");
+  assert.equal(queryScalar(databaseUrl, "SELECT count(*) FROM public.portal_runtime_channel_bindings WHERE id='019f0000-0000-7000-8000-000000008017';"), "0");
   assertFailed(runSql(databaseUrl, asRoleSql("authenticated", fixture.userAlpha, `SELECT public.portal_admit_runtime_channel_service(
     '${bindingId}','${fixture.tenantAlpha}','${fixture.actorAlpha}','${fixture.agentAlpha}','${sessionId}','${presenterId}',
     'recall_meeting',array['scene_presentation'],'${commandFingerprint}',0,'${disclosureId}','runtime-v1','${disclosureHash}','visual','pt-BR','${sqlLiteral(essential)}'::jsonb,'[]'::jsonb
@@ -448,6 +519,16 @@ function assertRuntimeChannelBridge(databaseUrl) {
   assert.equal(issued.grantId, bindingId);
   assert.equal(queryScalar(databaseUrl, `SELECT active_presenter_id::text||':'||disclosure_status||':'||consent_status FROM public.sessions WHERE tenant_id='${fixture.tenantAlpha}' AND id='${sessionId}';`), `${presenterId}:delivered:granted`);
   assert.equal(admission().outcome, "replayed", "same server-derived admission is idempotent");
+  const secondPresenter = queryJson(databaseUrl, asRoleSql("service_role", null, `
+    SELECT public.portal_admit_runtime_channel_service(
+      '019f0000-0000-7000-8000-000000008022','${fixture.tenantAlpha}','${fixture.actorAlpha}','${fixture.agentAlpha}',
+      '${sessionId}','019f0000-0000-7000-8000-000000008023','recall_meeting',array['scene_presentation'],'${"1".repeat(64)}',0,
+      '019f0000-0000-7000-8000-000000008024','runtime-v1','${disclosureHash}','visual','pt-BR','${sqlLiteral(JSON.stringify({ id: "019f0000-0000-7000-8000-000000008025", subjectRef: "runtime-operator-confirmation", jurisdiction: "BR", evidenceHash, method: "click" }))}'::jsonb,'[]'::jsonb
+    );
+  `));
+  assert.equal(secondPresenter.outcome, "one_mouth_conflict", "a second presenter cannot acquire the same session floor");
+  assert.equal(queryScalar(databaseUrl, "SELECT count(*) FROM public.portal_runtime_channel_bindings WHERE id='019f0000-0000-7000-8000-000000008022';"), "0", "one-mouth conflict writes no runtime binding");
+  assert.equal(queryScalar(databaseUrl, "SELECT count(*) FROM public.portal_runtime_provider_channel_receipts WHERE binding_id='019f0000-0000-7000-8000-000000008022';"), "0", "one-mouth conflict writes no provider receipt");
   const consume = (kind) => queryJson(databaseUrl, asRoleSql("service_role", null,
     `SELECT public.portal_consume_runtime_channel_grant_service('${bindingId}','${commandFingerprint}','${kind}');`));
   assert.equal(consume("tavus").outcome, "acquired");
@@ -455,10 +536,53 @@ function assertRuntimeChannelBridge(databaseUrl) {
   assert.equal(consume("scene").outcome, "acquired", "scene has its own constrained consume fence");
   assert.equal(consume("tavus").outcome, "replayed", "same provider cannot consume a grant twice");
   assert.equal(queryScalar(databaseUrl, `SELECT count(*) FROM public.portal_runtime_channel_dispatches WHERE tenant_id='${fixture.tenantAlpha}' AND binding_id='${bindingId}';`), "3");
+  const reservationId = "019f0000-0000-7000-8000-000000008026";
+  const costEventId = "019f0000-0000-7000-8000-000000008027";
+  assert.equal(queryJson(databaseUrl, asRoleSql("service_role", null,
+    reservationInvocationSql(fixture.tenantAlpha, fixture.agentAlpha, "runtime-bridge-receipt", reservationId, costEventId, "recall"))).outcome, "reserved");
+  assert.equal(queryJson(databaseUrl, asRoleSql("service_role", null,
+    `SELECT public.portal_mark_provider_effect_in_flight_service('${reservationId}');`)).acquired, true);
+  assert.equal(queryJson(databaseUrl, asRoleSql("service_role", null,
+    `SELECT public.portal_commit_provider_effect_service('${reservationId}','runtime-recall-actual','https://recall.example.test/runtime-bridge');`)).committed, true);
+  assert.equal(queryScalar(databaseUrl, asRoleSql("service_role", null,
+    `SELECT public.portal_bind_runtime_provider_channel_service('019f0000-0000-7000-8000-000000008028','${bindingId}','${reservationId}','recall','runtime-recall-wrong','https://recall.example.test/runtime-bridge');`)), "f",
+  "a mismatched provider reference cannot bind a receipt");
+  assert.equal(queryScalar(databaseUrl, `SELECT count(*) FROM public.portal_runtime_provider_channel_receipts WHERE reservation_id='${reservationId}';`), "0", "mismatched provider reference writes zero receipts");
+  assert.equal(queryScalar(databaseUrl, asRoleSql("service_role", null,
+    `SELECT public.portal_bind_runtime_provider_channel_service('019f0000-0000-7000-8000-000000008029','${bindingId}','${reservationId}','recall','runtime-recall-actual','https://recall.example.test/wrong-url');`)), "f",
+  "a mismatched provider URL cannot bind a receipt");
+  assert.equal(queryScalar(databaseUrl, `SELECT count(*) FROM public.portal_runtime_provider_channel_receipts WHERE reservation_id='${reservationId}';`), "0", "mismatched provider URL writes zero receipts");
+  assert.equal(queryScalar(databaseUrl, asRoleSql("service_role", null,
+    `SELECT public.portal_bind_runtime_provider_channel_service('019f0000-0000-7000-8000-000000008030','${bindingId}','${reservationId}','recall','runtime-recall-actual','https://recall.example.test/runtime-bridge');`)), "t",
+  "the exact committed provider resource receives one durable receipt");
+  assert.equal(queryScalar(databaseUrl, `SELECT count(*) FROM public.portal_runtime_provider_channel_receipts WHERE reservation_id='${reservationId}';`), "1");
+  const betaReservationId = "019f0000-0000-7000-8000-000000008032";
+  const betaCostEventId = "019f0000-0000-7000-8000-000000008033";
+  assert.equal(queryJson(databaseUrl, asRoleSql("service_role", null,
+    reservationInvocationSql(fixture.tenantBeta, fixture.agentBeta, "runtime-bridge-beta-receipt", betaReservationId, betaCostEventId, "recall"))).outcome, "reserved");
+  assert.equal(queryJson(databaseUrl, asRoleSql("service_role", null,
+    `SELECT public.portal_mark_provider_effect_in_flight_service('${betaReservationId}');`)).acquired, true);
+  assert.equal(queryJson(databaseUrl, asRoleSql("service_role", null,
+    `SELECT public.portal_commit_provider_effect_service('${betaReservationId}','runtime-recall-beta','https://recall.example.test/beta-bridge');`)).committed, true);
+  assert.equal(queryScalar(databaseUrl, asRoleSql("service_role", null,
+    `SELECT public.portal_bind_runtime_provider_channel_service('019f0000-0000-7000-8000-000000008034','${bindingId}','${betaReservationId}','recall','runtime-recall-beta','https://recall.example.test/beta-bridge');`)), "f",
+  "a beta reservation cannot bind to an alpha runtime grant");
+  assert.equal(queryScalar(databaseUrl, `SELECT count(*) FROM public.portal_runtime_provider_channel_receipts WHERE reservation_id='${betaReservationId}';`), "0",
+    "cross-tenant reservation attempt writes no receipt");
+  assert.equal(queryScalar(databaseUrl, asRoleSql("service_role", null,
+    `SELECT public.portal_bind_runtime_provider_channel_service('019f0000-0000-7000-8000-000000008035','${bindingId}','${reservationId}','recall','runtime-recall-actual','https://recall.example.test/runtime-bridge');`)), "t",
+  "an exact alpha receipt replays true after a rejected cross-tenant attempt");
+  assert.equal(queryScalar(databaseUrl, `SELECT count(*) FROM public.portal_runtime_provider_channel_receipts WHERE reservation_id='${reservationId}';`), "1",
+    "exact receipt replay never creates a second alpha row");
   assert.equal(queryScalar(databaseUrl, asRoleSql("service_role", null, `SELECT public.portal_set_runtime_kill_switch_service(
     '019f0000-0000-7000-8000-000000008006','${fixture.tenantAlpha}','${fixture.actorAlpha}','${fixture.agentAlpha}','recall_meeting','provider_dispatch',false,'incident_hold'
   );`)), "t");
   assert.equal(queryScalar(databaseUrl, `SELECT count(*) FROM public.portal_runtime_kill_switch_events WHERE tenant_id='${fixture.tenantAlpha}' AND reason_code='incident_hold';`), "1", "kill switch state transition leaves durable audit evidence");
+  assertFailed(runSql(databaseUrl, `INSERT INTO public.portal_runtime_kill_switch_events
+    (id,tenant_id,kill_switch_id,actor_id,enabled,reason_code)
+    VALUES ('019f0000-0000-7000-8000-000000008031','${fixture.tenantBeta}','019f0000-0000-7000-8000-000000008006','${fixture.actorBeta}',false,'cross_tenant_switch');`),
+  "composite kill-switch FK rejects a cross-tenant event");
+  assert.equal(queryScalar(databaseUrl, "SELECT count(*) FROM public.portal_runtime_kill_switch_events WHERE id='019f0000-0000-7000-8000-000000008031';"), "0");
   assert.equal(queryJson(databaseUrl, asRoleSql("service_role", null,
     `SELECT public.portal_runtime_channel_status_service('${fixture.tenantAlpha}','${fixture.agentAlpha}','recall_meeting','provider_dispatch');`)).enabled, false);
   const blockedId = "019f0000-0000-7000-8000-000000008007";

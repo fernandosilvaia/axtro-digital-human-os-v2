@@ -55,7 +55,8 @@ Racional completo: D-V2-055, D-V2-056 e D-V2-058 em
 | `0040_production_integrity_hardening.sql` | **pendente** — fase expand de M5-01: reservations duráveis de Tavus/Recall e IA, unknown barrier, estimates conservadores datados, activation com receipt durável e snapshot de billing no instante da entrega, outbox Stripe, reconciler leased, capability hash Tavus, dedup Recall, ownership service de transcript e capability v40. Aplicar antes de iniciar o artefato M5-01. O artefato novo deve permanecer `unready` e sem tráfego enquanto o schema estiver em v40. |
 | `0041_provider_transcript_contract.sql` | **pendente** — fase contract de M5-01: bloqueia preclaim autenticado de refs de provider e eleva a capability intermediária para v41. Aplicar com o artefato novo presente, porém ainda fora de tráfego; siga imediatamente para 0042 antes de consultar `/api/ready` ou liberar tráfego. Depois de 0041, rollback para writer legado é proibido — corrija/repromova o app novo, nunca reabra a superfície insegura. |
 | `0042_cost_event_schema_and_legacy_writer_contract.sql` | **pendente** — fase final do ledger M5-01: alinha `cost_events.schema_version` ao contrato `2.1.0`, revoga os três writers diretos legados e eleva a capability exigida para v42. Aplicar imediatamente após 0041, ainda em maintenance e antes de iniciar o candidato; somente um artefato v42-aware pode responder `/api/ready` e receber tráfego. |
-| `0043_portal_runtime_bridge_contract.sql` | **pendente** — fase M5-02: cria a admissão durável de canais, grants separados por consumidor Tavus/Recall/cena, recibos, kill switches auditados e reconciliação por dois operadores. Aplicar após 0042, ainda em maintenance; somente artefato v43-aware, com `PORTAL_RUNTIME_BRIDGE_ENABLED=false` até o canário aprovado, pode responder `/api/ready`. |
+| `0043_portal_runtime_bridge_contract.sql` | sim (2026-08-18, aplicação humana autorizada) — cria a admissão durável de canais, grants separados por consumidor Tavus/Recall/cena, recibos, kill switches auditados e reconciliação por dois operadores. `portal_schema_capabilities_service()` confirmou v43 antes deste reparo; a bridge segue desligada até o canário aprovado. |
+| `0044_runtime_bridge_integrity_repair.sql` | **pendente de aplicação humana** — reparo forward-only da bridge: o receipt deve reproduzir exatamente `provider_ref` e `provider_url` da reservation já committed, e o audit event de kill switch recebe FK composta `(tenant_id,kill_switch_id)`. Aplicar imediatamente após 0043, ainda em maintenance; somente artefato v44-aware, com `PORTAL_RUNTIME_BRIDGE_ENABLED=false` até canário aprovado, pode responder `/api/ready`. |
 | `0021_meeting_bot_sessions.sql` | sim (2026-07-30, via MCP `apply_migration`, autorizado explicitamente pelo Fernando) — tabela + 3 funções confirmadas via `execute_sql`, RLS forçada |
 | `0022_agent_video_config_rpc.sql` | sim (2026-07-31, via Management API `database/query`) — RPC testada ao vivo provisionando a persona da Marina |
 | `0023_cleanup_rpcs.sql` | sim (2026-07-31, via Management API `database/query`) — exclusão de rascunho de agente e de fonte revogada, testada no e2e |
@@ -70,8 +71,9 @@ Racional completo: D-V2-055, D-V2-056 e D-V2-058 em
   em PostgreSQL 17 efêmero/local. Isso é teste de compatibilidade, grants,
   RLS, concorrência e rollback; nunca substitui o apply remoto autorizado.
 - O harness prova separadamente a compatibilidade expand de v40 (turn de
-  transcript com extra-key legado ainda aceito), o contrato estrito de v41 e
-  o contrato final v42 do ledger; também verifica que linhas M5 e históricas
+  transcript com extra-key legado ainda aceito), o contrato estrito de v41,
+  o contrato final v42 do ledger, a bridge v43 e o reparo de integridade v44;
+  também verifica que linhas M5 e históricas
   recebem `schema_version='2.1.0'` e que os três writers diretos revogados não
   podem escrever sob `anon`, `authenticated` ou `service_role`.
   também injeta uma falha no meio da 0040 e prova rollback transacional, executa
@@ -80,6 +82,11 @@ Racional completo: D-V2-055, D-V2-056 e D-V2-058 em
   activation, rollback cost+provider-ref, exclusão de fonte sem reter seu ID no
   recibo de IA e leases de billing/reconciliação. Nenhum lease libera um efeito
   externo ambíguo.
+- A 0044 mantém todas as grants e revokes de v43, mas exige a identidade exata
+  do recurso de provider antes de gravar um receipt e impede, por FK composta,
+  que evidência de kill switch atravesse tenants. O harness prova actor/agente
+  cross-tenant, conflito One Mouth, referência/URL incompatível sem receipt e
+  rejeição da FK; a migration local nunca constitui aplicação hospedada.
 - Os RPCs M5-01 de provider, webhook, billing e reconciliação são somente
   `service_role`. As tabelas de controle/recibo também revogam DML direto da
   própria `service_role`; o acesso é exclusivamente pelas RPCs SECURITY DEFINER.

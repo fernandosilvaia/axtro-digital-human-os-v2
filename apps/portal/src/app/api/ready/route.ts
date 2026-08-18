@@ -153,7 +153,7 @@ export async function handleReadiness(dependencies: ReadinessRouteDependencies =
       if (schema.error) throw new Error("portal schema capability RPC failed");
       const capabilities = ownRecord(schema.data);
       schemaReady = capabilities !== null
-        && capabilities.version === 43
+        && capabilities.version === 44
         && capabilities.providerEffectReservations === true
         && capabilities.billingUsageOutbox === true
         && capabilities.recallWebhookDedupe === true
@@ -179,6 +179,7 @@ export async function handleReadiness(dependencies: ReadinessRouteDependencies =
         && capabilities.runtimeSceneReceipts === true
         && capabilities.runtimeKillSwitches === true
         && capabilities.runtimeDualOperatorReconciliation === true
+        && capabilities.runtimeBridgeReceiptIntegrity === true
         && (!readinessRequiresProviderEffectReconciliation(env)
           || capabilities.providerEffectReconciliation === true);
       if (!schemaReady) return { workersReady: false };

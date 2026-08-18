@@ -33,10 +33,9 @@ export default function PricingPage() {
           Um preço que carrega o que uma conversa em vídeo realmente custa
         </h1>
         <p style={{ color: "var(--text-muted)", fontSize: "1rem", lineHeight: 1.6 }}>
-          Cada plano inclui um número de conversas de vídeo por mês (sala sob demanda,
-          apresentação com slides ou reunião externa) — passou do incluído, a conversa acontece
-          normalmente e o excedente entra na fatura seguinte, sem bloquear ninguém no meio de uma
-          venda.
+          Cada plano inclui um número de conversas de vídeo na sala Axtro e apresentações com
+          slides por mês. O uso adicional é registrado conforme o plano e permanece sujeito às
+          políticas operacionais e de cobrança da conta.
         </p>
       </header>
 
@@ -73,7 +72,8 @@ export default function PricingPage() {
               <ul style={{ margin: 0, paddingLeft: 18, fontSize: "0.88rem", color: "var(--text)", display: "grid", gap: 6 }}>
                 <li><strong>{plan.includedConversationsPerMonth} conversas de vídeo</strong> incluídas por mês</li>
                 <li>Excedente: {formatUsdCents(plan.overageUsdCentsPerConversation)} por conversa extra</li>
-                <li>Agentes, fontes de conhecimento e reunião externa (Zoom/Meet/Teams) inclusos</li>
+                <li>Agentes e fontes de conhecimento incluídos</li>
+                <li>Reuniões externas (Zoom/Meet/Teams) aguardam rollout com consentimento individual por participante</li>
                 <li>Painel de uso e custo em tempo real</li>
               </ul>
 

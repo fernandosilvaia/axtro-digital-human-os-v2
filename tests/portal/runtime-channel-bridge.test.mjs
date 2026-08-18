@@ -26,7 +26,7 @@ function admissionInput(overrides = {}) {
   };
 }
 
-function fakeBridge({ status = { enabled: true }, admission = null, scene = null } = {}) {
+function fakeBridge({ status = { enabled: true }, admission = null, scene = null, idGenerator = null } = {}) {
   const calls = [];
   let index = 4;
   const rpc = {
@@ -45,7 +45,7 @@ function fakeBridge({ status = { enabled: true }, admission = null, scene = null
   const directorCalls = [];
   const bridge = createPortalChannelRuntimeBridge({
     rpc, env: { PORTAL_RUNTIME_BRIDGE_ENABLED: "true" },
-    idGenerator: () => IDS[index++],
+    idGenerator: idGenerator ?? (() => IDS[index++]),
     sceneDirector: { selectScene(intent, capabilities) { directorCalls.push({ intent, capabilities }); return { outcome: "accepted", directive: { manifestId: "premium_deck", generationId: intent.generationId } }; } },
   });
   return { bridge, calls, directorCalls };
@@ -70,6 +70,33 @@ test("runtime bridge admits, consumes per provider, binds and receipts an allowl
 test("runtime bridge refuses admission before RPC when disclosure is not confirmed", async () => {
   const { bridge, calls } = fakeBridge();
   assert.deepEqual(await bridge.admitPortalChannel(admissionInput({ confirmation: enabledConfirmation({ disclosure: false }) })), { outcome: "rejected", code: "denied_disclosure" });
+  assert.equal(calls.length, 0);
+});
+
+test("runtime bridge accepts RFC 4122 UUIDv4 and UUIDv7 external command IDs", async () => {
+  for (const commandId of ["550e8400-e29b-41d4-a716-446655440000", IDS[2]]) {
+    const { bridge, calls } = fakeBridge();
+    const result = await bridge.admitPortalChannel(admissionInput({ commandId }));
+    assert.equal(result.outcome, "admitted");
+    assert.equal(calls.find((call) => call.name === "portal_admit_runtime_channel_service").parameters.p_command_fingerprint.length, 64);
+  }
+});
+
+test("runtime bridge rejects external command IDs with an invalid RFC 4122 shape", async () => {
+  const { bridge, calls } = fakeBridge();
+  await assert.rejects(
+    bridge.admitPortalChannel(admissionInput({ commandId: "550e8400-e29b-01d4-c716-446655440000" })),
+    /commandId must be a UUID/,
+  );
+  assert.equal(calls.length, 0);
+});
+
+test("runtime bridge rejects UUIDv4 evidence generation before any RPC", async () => {
+  const { bridge, calls } = fakeBridge({ idGenerator: () => "550e8400-e29b-41d4-a716-446655440000" });
+  await assert.rejects(
+    bridge.admitPortalChannel(admissionInput()),
+    /recording consent id must be a UUIDv7/,
+  );
   assert.equal(calls.length, 0);
 });
 

@@ -1,9 +1,10 @@
-import type { Metadata } from "next";
+import { createPageMetadata } from "@/lib/site";
 
-export const metadata: Metadata = {
+export const metadata = createPageMetadata({
   title: "Privacidade — Axtro Digital Human OS",
   description: "Como o Axtro Digital Human OS trata dados pessoais.",
-};
+  path: "/privacidade",
+});
 
 /**
  * Aviso de privacidade v1 — descreve APENAS o que o produto realmente faz
@@ -25,30 +26,31 @@ export default function PrivacyPage() {
         conversas de vendas.</p>
         <p><strong>O que coletamos.</strong> Dados de conta (e-mail, senha protegida por hash),
         dados do workspace que você cadastra (nome da empresa, agentes, fontes de conhecimento),
-        o histórico completo das conversas conduzidas pelas agentes (texto de cada turno — chat de
-        teste, vídeo e reunião externa, ver abaixo) e registros de uso (tokens de IA, conversas de
-        vídeo) para medição e limites do plano.</p>
+        transcrições persistentes somente quando essa finalidade for consentida especificamente e
+        registros de uso (tokens de IA, conversas de vídeo) para medição e limites do plano.</p>
         <p><strong>Conversas com as agentes.</strong> As agentes se identificam sempre como IA.
-        Conversas de vídeo processam voz e imagem em tempo real, incluindo leitura de expressões e
-        comportamento para adaptar a conversa — essa leitura é declarada, usada apenas durante a
-        própria conversa e não é usada para identificação biométrica.</p>
-        <p><strong>Histórico de conversa.</strong> Toda conversa conduzida por uma agente — no chat
-        de teste, numa sala de vídeo ou numa reunião externa (Zoom/Meet/Teams via Recall.ai) — é
-        transcrita e armazenada na íntegra para o dono do workspace revisar depois (tela
-        &quot;Conversas&quot; do portal). Esse histórico fica visível para qualquer pessoa com acesso
-        ao workspace, não só para o administrador que iniciou a conversa.</p>
+        A conversa essencial pode operar sem finalidades opcionais quando a política aplicável
+        permitir. Voz e imagem podem ser processadas em tempo real para realizar a conversa; análise
+        visual ou comportamental requer a finalidade e o consentimento aplicáveis, é declarada e
+        não é usada para identificação biométrica.</p>
+        <p><strong>Histórico de conversa.</strong> Quando a finalidade de transcrição persistente é
+        consentida, a plataforma retém a transcrição da interação habilitada para revisão no
+        workspace. Sem esse consentimento, a conversa essencial não autoriza por si só a criação
+        desse histórico persistente. O acesso segue as permissões do workspace.</p>
         <p><strong>Com quem compartilhamos.</strong> Provedores de infraestrutura sob contrato:
         Supabase (banco e autenticação), Railway (hospedagem), OpenRouter (modelos de linguagem),
-        Tavus (vídeo conversacional, inclui a transcrição da conversa), ElevenLabs (voz), Recall.ai
-        (participação em reuniões e transcrição, quando você usa esse recurso) e Resend (e-mails
-        transacionais). Não vendemos dados pessoais.</p>
+        Tavus (vídeo conversacional; transcrição persistente somente para a finalidade consentida), ElevenLabs (voz), Recall.ai
+        (somente se uma integração de reunião externa for habilitada após rollout e houver
+        consentimento individual aplicável) e Resend (e-mails transacionais). Não vendemos dados
+        pessoais.</p>
         <p><strong>Seus direitos (LGPD).</strong> Você pode solicitar acesso, correção ou exclusão
         dos seus dados — incluindo o histórico de conversas — a qualquer momento pelo e-mail
         fernando@axtroai.com. Fontes de conhecimento podem ser revogadas e excluídas diretamente no
         portal, com efeito imediato.</p>
-        <p><strong>Retenção.</strong> Dados da conta e o histórico de conversas permanecem enquanto
-        a conta existir (sem exclusão automática por tempo ainda); registros de uso são mantidos
-        para auditoria e cobrança.</p>
+        <p><strong>Retenção.</strong> Dados da conta permanecem enquanto a conta existir. Quando
+        houver consentimento para transcrição persistente, o histórico segue a finalidade consentida
+        (sem exclusão automática por tempo ainda); registros de uso são mantidos para auditoria e
+        cobrança.</p>
       </section>
       <p style={{ marginTop: 32, fontSize: "0.85rem" }}>
         <a href="/" style={{ color: "var(--accent)" }}>← Voltar ao início</a>

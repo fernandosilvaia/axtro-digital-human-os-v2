@@ -45,6 +45,21 @@ its session mapping and its immutable channel receipt are persisted before it
 is exposed to a client. A persistence ambiguity compensates the known provider
 resource or remains `unknown`; it never falls back to the legacy direct path.
 
+### External correlation and receipt integrity
+
+A browser-generated `commandId` is an opaque, RFC 4122 UUID correlation value
+only. It may be UUIDv1 through UUIDv8 because browser `crypto.randomUUID()`
+generates UUIDv4; it is hashed before it participates in idempotency and never
+selects tenant, actor, session, presenter, grant, evidence, or a persisted
+server-owned identifier. Those authoritative identifiers remain UUIDv7.
+
+The durable provider-channel receipt binds the exact provider reference (and
+the provider URL when present) already committed by the matching reservation;
+it cannot combine a valid grant/reservation with another resource from the
+same provider or tenant. Kill-switch audit rows use composite tenant/switch
+references so a cross-tenant receipt is structurally impossible. These checks
+are forward-only database hardening and do not re-enable any legacy path.
+
 The production storage adapter is additive and durable. Its rows use composite
 tenant/session references, forced RLS, service-only mutation RPCs and
 append-only receipts. It materializes the existing `InteractionSessionState`
@@ -115,13 +130,15 @@ conditions exist, unknown paid effects remain blocked.
 
 ### Rollout and rollback
 
-The schema change is expand-contract and raises the Portal readiness capability
-to v43. The bridge is disabled by default and there is no direct-provider
-fallback. During rollout, apply v43 after v40–v42, validate the capability and
-its grants/RLS, start at zero public traffic, run fake and real-provider
-canaries, then explicitly enable the bridge for an approved tenant. Rollback
-uses the durable kill switch or a forward fix; it never removes receipts,
-re-opens the legacy channel path, or relaxes M5-01 unknown barriers.
+The schema change is expand-contract. The initial contract is v43; the
+forward-only integrity repair `0044_runtime_bridge_integrity_repair.sql` raises
+the Portal readiness capability to v44 and is mandatory before the bridge can
+become ready. The bridge is disabled by default and there is no direct-provider
+fallback. During rollout, apply v43 and then v44 after v40–v42, validate the
+capability and its grants/RLS, start at zero public traffic, run fake and
+real-provider canaries, then explicitly enable the bridge for an approved
+tenant. Rollback uses the durable kill switch or a forward fix; it never removes
+receipts, re-opens the legacy channel path, or relaxes M5-01 unknown barriers.
 
 ## Alternatives considered
 

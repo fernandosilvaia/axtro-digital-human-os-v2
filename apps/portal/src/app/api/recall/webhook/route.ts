@@ -271,7 +271,7 @@ async function attachSentinelCamera(botId: string): Promise<SentinelAttachOutcom
     } else {
       const dispatch = await assertPortalProviderDispatchActive({ grant: runtimeGrant, consumerKind: "tavus" });
       if (dispatch.outcome === "rejected") {
-        await releaseProviderEffect(reservationId, "runtime_dispatch_denied").catch(() => undefined);
+        await releaseProviderEffect(reservationId, "not_dispatched").catch(() => undefined);
         return "transient_failure";
       }
       let callbackUrl: string;

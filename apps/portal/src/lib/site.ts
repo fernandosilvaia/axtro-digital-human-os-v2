@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 
-export const SITE_URL = (process.env.NEXT_PUBLIC_SITE_URL ?? "https://portal-production-b43e.up.railway.app").replace(/\/$/, "");
+/** Public canonical origin. Deploy hosts must be supplied explicitly when they differ. */
+export const SITE_URL = (process.env.NEXT_PUBLIC_SITE_URL ?? "https://closer.axtroai.com").replace(/\/$/, "");
 export const SITE_NAME = "Axtro Digital Human OS";
 export const OG_IMAGE_PATH = "/opengraph-image";
 

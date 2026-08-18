@@ -76,6 +76,38 @@ jobs:
           NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY: sb_publishable_placeholder
         run: pnpm --filter @axtro/portal run build
 
+  e2e-public-discovery:
+    # Não usa sessão, conta demo ou segredo: PRs de fork recebem o mesmo gate
+    # de descoberta que qualquer outro PR, contra o build de produção.
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 11.9.0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+          cache: pnpm
+      - name: Install workspace dependencies
+        run: pnpm install --frozen-lockfile
+      - name: Build workspace packages (@axtro/domain, provider adapters, ...)
+        run: pnpm typecheck
+      - name: Install Playwright Chromium
+        run: pnpm --filter @axtro/portal exec playwright install --with-deps chromium
+      - name: E2E — descoberta pública no build de produção (sem credenciais)
+        working-directory: apps/portal
+        run: pnpm run e2e:public
+      - name: Upload relatório público do Playwright em caso de falha
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: playwright-public-report
+          path: apps/portal/test-results/
+          retention-days: 7
+          if-no-files-found: ignore
+
   check-e2e-secrets:
     # jobs.<job_id>.if só aceita os contextos github/needs/vars/inputs — não
     # secrets (achado real 2026-08-01: um `if: ${{ secrets... }}` direto no

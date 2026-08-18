@@ -4,9 +4,9 @@
 
 ## Fonte oficial
 
-- Site: https://portal-production-b43e.up.railway.app/
-- Contexto completo do produto: https://portal-production-b43e.up.railway.app/llms-full.txt
-- Demonstração: https://portal-production-b43e.up.railway.app/
+- Site: https://closer.axtroai.com/
+- Contexto completo do produto: https://closer.axtroai.com/llms-full.txt
+- Demonstração: https://closer.axtroai.com/
 
 ## O que é
 
@@ -33,3 +33,10 @@ O Axtro Digital Human OS não afirma que o agente é humano. A demonstração p�
 ## Segurança e privacidade
 
 Dados de tenants são isolados. A plataforma não permite identificação biométrica oculta, inferência de atributos protegidos, alegação de detecção de mentira ou diagnóstico médico e psicológico.
+
+## Política para sistemas de IA
+
+Descoberta e resposta sobre as páginas públicas são permitidas para os crawlers explicitamente
+autorizados em `robots.txt`. Treinamento de modelos, formação de corpus e coleta por crawlers de
+treinamento não são autorizados. Áreas autenticadas e rotas privadas não fazem parte desta
+superfície pública.

@@ -7,6 +7,7 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 MIGRATIONS = ROOT / "database" / "migrations"
+SUPABASE_MIGRATIONS = ROOT / "database" / "supabase-only"
 EXPECTED = [
     "0001_extensions_and_domains.sql",
     "0002_control_plane.sql",
@@ -49,6 +50,26 @@ def main() -> int:
         errors.append("UUIDv7 RFC variant constraint is missing")
     if "FORCE ROW LEVEL SECURITY" not in all_sql:
         errors.append("Forced RLS is missing")
+
+    runtime_bridge_repair = SUPABASE_MIGRATIONS / "0044_runtime_bridge_integrity_repair.sql"
+    if not runtime_bridge_repair.exists():
+        errors.append("Missing Supabase-only runtime bridge integrity repair 0044")
+    else:
+        repair_sql = runtime_bridge_repair.read_text(encoding="utf-8")
+        if "BEGIN;" not in repair_sql or "COMMIT;" not in repair_sql:
+            errors.append("0044 runtime bridge repair must have explicit transaction boundaries")
+        for invariant in (
+            "portal_runtime_kill_switches_tenant_id_id_key",
+            "portal_runtime_kill_switch_events_tenant_kill_switch_fkey",
+            "foreign key (tenant_id,kill_switch_id)",
+            "references public.portal_runtime_kill_switches(tenant_id,id)",
+            "provider_ref=p_provider_ref",
+            "provider_url is not distinct from p_provider_url",
+            "'version',44",
+            "'runtimeBridgeReceiptIntegrity'",
+        ):
+            if invariant not in repair_sql:
+                errors.append(f"0044 runtime bridge integrity invariant is missing: {invariant}")
     if "tenant_isolation" not in all_sql:
         errors.append("Tenant isolation policy is missing")
     if "event_document ->> 'tenant_id' IS DISTINCT FROM tenant_id::text" not in all_sql:

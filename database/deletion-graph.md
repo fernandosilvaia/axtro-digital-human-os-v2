@@ -51,3 +51,15 @@ minutes, are revoked when the provider effect terminates, and must be purged
 before tenant closure completes. Worker heartbeats contain only versioned,
 low-cardinality counters and may be replaced or purged after the operational
 audit window; they must never carry tenant IDs, provider references or PII.
+
+## Runtime bridge evidence
+
+Runtime-channel bindings, provider-channel receipts, scene receipts and
+kill-switch events are tenant-scoped operational integrity evidence. Retain
+only for the applicable audit, billing-dispute or legal-hold period; never
+copy provider credentials, transcript content or meeting URLs into a deletion
+receipt. Closure first blocks new runtime admissions and provider dispatch,
+then reconciles or preserves any `unknown`/`cleanup_pending` reservation. A
+provider receipt is inseparable from its reservation's exact provider reference
+and URL, while kill-switch event retention follows the same tenant as the
+switch; neither relationship may be reassigned during erasure.

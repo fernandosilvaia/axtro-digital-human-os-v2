@@ -87,7 +87,7 @@ const ENV = Object.freeze({
 });
 
 const CAPABILITIES = Object.freeze({
-  version: 43,
+  version: 44,
   providerEffectReservations: true,
   billingUsageOutbox: true,
   recallWebhookDedupe: true,
@@ -114,6 +114,7 @@ const CAPABILITIES = Object.freeze({
   runtimeSceneReceipts: true,
   runtimeKillSwitches: true,
   runtimeDualOperatorReconciliation: true,
+  runtimeBridgeReceiptIntegrity: true,
 });
 
 const FRESH_WORKERS = Object.freeze({
@@ -147,7 +148,7 @@ async function assertNoStore(response) {
   return response.json();
 }
 
-test("readiness returns 200 only for schema 43 capabilities and never caches", async () => {
+test("readiness returns 200 only for schema 44 capabilities and never caches", async () => {
   const response = await handleReadiness({
     env: { ...ENV },
     createClient: () => clientWith({ data: CAPABILITIES, error: null }),
@@ -218,8 +219,8 @@ test("worker readiness RPC errors fail closed after schema validation", async ()
   assert.equal(body.checks.workers, false);
 });
 
-test("readiness requires schema version 43 exactly and never probes workers on mismatch", async () => {
-  for (const version of [40, 41, 42, undefined]) {
+test("readiness requires schema version 44 exactly and never probes workers on mismatch", async () => {
+  for (const version of [40, 41, 42, 43, undefined]) {
     const calls = [];
     const response = await handleReadiness({
       env: { ...ENV },
@@ -280,6 +281,7 @@ test("readiness fails closed while any runtime bridge capability is absent", asy
     "runtimeSceneReceipts",
     "runtimeKillSwitches",
     "runtimeDualOperatorReconciliation",
+    "runtimeBridgeReceiptIntegrity",
   ]) {
     const response = await handleReadiness({
       env: { ...ENV },

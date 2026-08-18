@@ -25,6 +25,13 @@ Empresas que vendem, implantam ou acompanham clientes por conversas repetíveis.
 
 O agente se identifica como inteligência artificial no início da interação. A plataforma separa fato confirmado, hipótese e sugestão, preserva o tenant como fronteira de segurança e não anuncia uma ação como concluída sem um receipt de sucesso. O handoff humano é controlado pela troca atômica de Presenter e entrega contexto para a pessoa que assume.
 
+## Política para sistemas de IA
+
+Sistemas de busca e resposta podem descobrir e descrever somente o conteúdo público quando o
+respectivo crawler estiver autorizado em `robots.txt`. Treinamento de modelos, formação de corpus e
+coleta por crawlers de treinamento não são autorizados. Áreas autenticadas, dados de workspace e
+rotas privadas ficam fora desta superfície.
+
 ## Recursos confirmados
 
 - Landing pública com acesso à demonstração.
@@ -45,8 +52,8 @@ A demonstração pública usa uma conta compartilhada e dados fictícios. Ela se
 
 ## Páginas oficiais
 
-- Home: https://portal-production-b43e.up.railway.app/
-- Login: https://portal-production-b43e.up.railway.app/login
-- Criação de conta: https://portal-production-b43e.up.railway.app/signup
-- Política de indexação: https://portal-production-b43e.up.railway.app/robots.txt
-- Sitemap: https://portal-production-b43e.up.railway.app/sitemap.xml
+- Home: https://closer.axtroai.com/
+- Login: https://closer.axtroai.com/login
+- Criação de conta: https://closer.axtroai.com/signup
+- Política de indexação: https://closer.axtroai.com/robots.txt
+- Sitemap: https://closer.axtroai.com/sitemap.xml

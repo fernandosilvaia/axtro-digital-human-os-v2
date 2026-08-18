@@ -7,7 +7,7 @@ remotas, tráfego público, cobrança, mudança de credenciais ou promoção de
 deploy sem o release owner, database operator, observer e a janela humana
 descritos em `M5_01_PRODUCTION_ROLLOUT.md`.
 
-O objetivo é promover um artefato compatível com schema **v43**, mantendo
+O objetivo é promover um artefato compatível com schema **v44**, mantendo
 `PORTAL_RUNTIME_BRIDGE_ENABLED=false` até que as evidências abaixo existam.
 Com a flag desligada, o Portal falha fechado: não há fallback para criação
 direta de Tavus, Recall ou lead-video.
@@ -20,7 +20,7 @@ direta de Tavus, Recall ou lead-video.
   `provider_in_flight`, `cleanup_pending` e backlogs financeiros não recebem
   tratamento manual por tempo decorrido.
 - O operador registrou apenas SHA do artefato e checksum das migrations
-  `0040`–`0043`; nunca copie segredo, URL de reunião, provider ref, payload ou
+  `0040`–`0044`; nunca copie segredo, URL de reunião, provider ref, payload ou
   PII para a evidência.
 - As reuniões externas e o handoff de leads continuam explicitamente fechados
   até existir convite/disclosure/consentimento por participante. Não use uma
@@ -31,12 +31,14 @@ direta de Tavus, Recall ou lead-video.
 1. Coloque as entradas pagas em maintenance e preserve somente callbacks
    necessários para concluir o drain.
 2. Confirme 0040, 0041 e 0042 aplicadas com receipts. Aplique **somente
-   então** `database/supabase-only/0043_portal_runtime_bridge_contract.sql`.
+   então**, nesta ordem, `database/supabase-only/0043_portal_runtime_bridge_contract.sql`
+   e `database/supabase-only/0044_runtime_bridge_integrity_repair.sql`.
 3. Com service role auditada, leia `portal_schema_capabilities_service()` e
-   exija `version: 43` e todas as capabilities de runtime:
+   exija `version: 44` e todas as capabilities de runtime:
    `runtimeChannelAdmission`, `runtimeChannelGrantFences`,
    `runtimeProviderBindingReceipts`, `runtimeSceneReceipts`,
-   `runtimeKillSwitches` e `runtimeDualOperatorReconciliation`.
+   `runtimeKillSwitches`, `runtimeDualOperatorReconciliation` e
+   `runtimeBridgeReceiptIntegrity`.
 4. Faça o deploy candidato ainda com
    `PORTAL_RUNTIME_BRIDGE_ENABLED=false`. O bootstrap e `/api/ready` devem
    ficar verdes sem reabrir provider creation.
@@ -57,6 +59,10 @@ direta de Tavus, Recall ou lead-video.
 5. Faça dois operadores distintos aprovarem uma reconciliação de efeito
    `unknown` de teste; confirme recibo imutável. Uma aprovação só não pode
    reconciliar.
+6. Antes de abrir tráfego, prove no canário que um receipt com provider ref ou
+   URL diferente da reservation retorna falso sem gravar evidência, e que uma
+   tentativa de evento de kill switch com tenant divergente é rejeitada pelo
+   banco. Registre somente hashes/IDs permitidos, nunca URL de reunião.
 
 ## Promoção, rollback e observação
 

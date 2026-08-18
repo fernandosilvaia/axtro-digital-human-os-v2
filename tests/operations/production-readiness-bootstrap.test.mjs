@@ -33,7 +33,7 @@ const ENV = Object.freeze({
 });
 
 const SCHEMA = Object.freeze({
-  version: 43,
+  version: 44,
   providerEffectReservations: true,
   providerEffectReconciliation: true,
   billingUsageOutbox: true,
@@ -60,6 +60,7 @@ const SCHEMA = Object.freeze({
   runtimeSceneReceipts: true,
   runtimeKillSwitches: true,
   runtimeDualOperatorReconciliation: true,
+  runtimeBridgeReceiptIntegrity: true,
 });
 
 const BILLING_BACKLOG = Object.freeze({
@@ -186,7 +187,7 @@ function isCode(code) {
   return (error) => error instanceof ProductionReadinessBootstrapError && error.code === code;
 }
 
-test("schema v43 capability mismatch fails before backlog, Stripe or heartbeat calls", async () => {
+test("schema v44 capability mismatch fails before backlog, Stripe or heartbeat calls", async () => {
   for (const capability of [
     "workerHeartbeats",
     "billingCheckoutIntents",
@@ -200,6 +201,7 @@ test("schema v43 capability mismatch fails before backlog, Stripe or heartbeat c
     "runtimeSceneReceipts",
     "runtimeKillSwitches",
     "runtimeDualOperatorReconciliation",
+    "runtimeBridgeReceiptIntegrity",
   ]) {
     for (const absentValue of [false, undefined]) {
       const { calls, promise } = run({ schema: { ...SCHEMA, [capability]: absentValue } });
@@ -210,8 +212,8 @@ test("schema v43 capability mismatch fails before backlog, Stripe or heartbeat c
   }
 });
 
-test("bootstrap requires schema version 43 exactly before any downstream probe", async () => {
-  for (const version of [40, 41, 42, undefined]) {
+test("bootstrap requires schema version 44 exactly before any downstream probe", async () => {
+  for (const version of [40, 41, 42, 43, undefined]) {
     const { calls, promise } = run({ schema: { ...SCHEMA, version } });
     await assert.rejects(promise, isCode("SCHEMA_CAPABILITY_MISMATCH"));
     assert.equal(calls.length, 1, `version:${String(version)}`);
@@ -273,7 +275,7 @@ test("happy path validates all read-only probes then persists exact versioned he
   const { calls, promise } = run();
   assert.deepEqual(await promise, {
     ok: true,
-    schemaVersion: 43,
+    schemaVersion: 44,
     bootstrapVersion: PRODUCTION_BOOTSTRAP_VERSION,
     deploymentId: ENV.RAILWAY_GIT_COMMIT_SHA,
     stripeMode: "test",

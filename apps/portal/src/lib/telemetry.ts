@@ -15,34 +15,157 @@ const EMAIL_PATTERN = /[^\s@]+@[^\s@]+\.[^\s@]+/g;
 // whsec_, re_...) ou hex/base64 longos. Achado D-V2-107: a chave secreta da
 // Stripe usa "_" depois de sk/rk (não "-" como o formato da OpenRouter), e
 // não batia em nenhuma alternativa — adicionada explicitamente.
-const SECRET_PATTERN = /\b(?:sk-[A-Za-z0-9_-]{8,}|(?:sk|rk)_(?:test|live)_[A-Za-z0-9]{8,}|whsec_[A-Za-z0-9+/=]{8,}|re_[A-Za-z0-9_-]{8,}|[A-Fa-f0-9]{32,})\b/g;
+const SECRET_PATTERN = /\b(?:Bearer\s+[A-Za-z0-9._~+/-]{8,}|sk-[A-Za-z0-9_-]{8,}|(?:sk|rk)_(?:test|live)_[A-Za-z0-9]{8,}|whsec_[A-Za-z0-9+/=]{8,}|re_[A-Za-z0-9_-]{8,}|[A-Fa-f0-9]{32,})\b/g;
+const REDACTED = "[redacted]";
+const UNSAFE_VALUE = "[redacted-unsafe]";
+const TRUNCATED_VALUE = "[redacted-truncated]";
+const REDACTED_KEY = "[redacted-key]";
+const MAX_REDACTION_DEPTH = 8;
+const MAX_REDACTION_ENTRIES = 100;
+const MAX_ARRAY_ITEMS = 50;
+const MAX_KEY_LENGTH = 128;
+const MAX_STRING_LENGTH = 2_048;
+const MAX_TOTAL_STRING_LENGTH = 16_384;
+const MAX_EVENT_LENGTH = 200;
+
+interface RedactionState {
+  readonly seen: WeakSet<object>;
+  remainingEntries: number;
+  remainingStringLength: number;
+}
+
+function createSafeRecord(): Record<string, unknown> {
+  return Object.create(null) as Record<string, unknown>;
+}
+
+function setSafeValue(record: Record<string, unknown>, key: string, value: unknown): void {
+  Object.defineProperty(record, key, { configurable: true, enumerable: true, value, writable: true });
+}
+
+function redactString(value: string, state: RedactionState, maximumLength = MAX_STRING_LENGTH): string {
+  // Never run unbounded regular expressions over caller-controlled payloads.
+  // Large values are omitted wholesale so a partial email/token cannot leak at
+  // a truncation boundary.
+  if (value.length > maximumLength || value.length > state.remainingStringLength) return TRUNCATED_VALUE;
+  const redacted = value.replace(EMAIL_PATTERN, "[redacted-email]").replace(SECRET_PATTERN, "[redacted-secret]");
+  if (redacted.length > state.remainingStringLength) return TRUNCATED_VALUE;
+  state.remainingStringLength -= redacted.length;
+  return redacted;
+}
+
+function redactKey(key: string, state: RedactionState): string {
+  if (key.length > MAX_KEY_LENGTH) return REDACTED_KEY;
+  const sanitized = redactString(key, state, MAX_KEY_LENGTH);
+  return sanitized === key ? key : REDACTED_KEY;
+}
+
+function redactArray(value: readonly unknown[], state: RedactionState, depth: number): unknown[] | string {
+  if (state.seen.has(value)) return UNSAFE_VALUE;
+  state.seen.add(value);
+  try {
+    const length = value.length;
+    if (!Number.isSafeInteger(length) || length < 0) return UNSAFE_VALUE;
+    const safe: unknown[] = [];
+    const count = Math.min(length, MAX_ARRAY_ITEMS);
+    // Descriptors are read one index at a time, bounded by MAX_ARRAY_ITEMS —
+    // Object.getOwnPropertyDescriptors(value) would materialize every element
+    // up front, costing O(length) even for a multi-million-element payload
+    // before the per-item cap below ever kicks in.
+    for (let index = 0; index < count; index += 1) {
+      if (state.remainingEntries <= 0) {
+        safe.push(TRUNCATED_VALUE);
+        break;
+      }
+      state.remainingEntries -= 1;
+      const descriptor = Object.getOwnPropertyDescriptor(value, index);
+      safe.push(descriptor && "value" in descriptor ? redactValue(descriptor.value, state, depth + 1) : descriptor ? UNSAFE_VALUE : null);
+    }
+    if (length > count) safe.push(TRUNCATED_VALUE);
+    return safe;
+  } catch {
+    return UNSAFE_VALUE;
+  }
+}
+
+function redactRecord(value: object, state: RedactionState, depth: number): Record<string, unknown> | string {
+  if (state.seen.has(value)) return UNSAFE_VALUE;
+  state.seen.add(value);
+  try {
+    const prototype = Object.getPrototypeOf(value);
+    if (prototype !== Object.prototype && prototype !== null) return UNSAFE_VALUE;
+    const safe = createSafeRecord();
+    // for...in + hasOwnProperty walks own-enumerable keys lazily, one at a
+    // time, so the loop can stop as soon as the entry budget is spent —
+    // Object.getOwnPropertyDescriptors(value) would enumerate every key up
+    // front, costing O(keyCount) even for an object with millions of keys.
+    for (const key in value) {
+      if (!Object.prototype.hasOwnProperty.call(value, key)) continue;
+      if (state.remainingEntries <= 0) {
+        setSafeValue(safe, TRUNCATED_VALUE, TRUNCATED_VALUE);
+        break;
+      }
+      state.remainingEntries -= 1;
+      const descriptor = Object.getOwnPropertyDescriptor(value, key);
+      const safeKey = redactKey(key, state);
+      setSafeValue(safe, safeKey, REDACT_KEY_PATTERN.test(key) ? REDACTED : descriptor && "value" in descriptor ? redactValue(descriptor.value, state, depth + 1) : UNSAFE_VALUE);
+    }
+    return safe;
+  } catch {
+    return UNSAFE_VALUE;
+  }
+}
+
+function redactValue(value: unknown, state: RedactionState, depth: number): unknown {
+  if (typeof value === "string") return redactString(value, state);
+  if (value === null || typeof value === "boolean") return value;
+  if (typeof value === "number") return Number.isFinite(value) ? value : UNSAFE_VALUE;
+  if (depth >= MAX_REDACTION_DEPTH) return TRUNCATED_VALUE;
+  if (typeof value !== "object") return UNSAFE_VALUE;
+  try {
+    return Array.isArray(value) ? redactArray(value, state, depth) : redactRecord(value, state, depth);
+  } catch {
+    return UNSAFE_VALUE;
+  }
+}
 
 function redact(context?: Readonly<Record<string, unknown>>): Record<string, unknown> | undefined {
-  if (!context) return undefined;
-  const safe: Record<string, unknown> = {};
-  for (const [key, value] of Object.entries(context)) {
-    if (REDACT_KEY_PATTERN.test(key)) {
-      safe[key] = "[redacted]";
-      continue;
-    }
-    safe[key] = typeof value === "string" ? value.replace(EMAIL_PATTERN, "[redacted-email]") : value;
-  }
+  if (context === undefined || context === null) return undefined;
+  const state: RedactionState = { seen: new WeakSet<object>(), remainingEntries: MAX_REDACTION_ENTRIES, remainingStringLength: MAX_TOTAL_STRING_LENGTH };
+  const result = redactRecord(context, state, 0);
+  if (typeof result !== "string") return result;
+  const safe = createSafeRecord();
+  setSafeValue(safe, "context", result);
   return safe;
 }
 
+function safeEvent(event: unknown): string {
+  if (typeof event !== "string") return "invalid_event";
+  return redactString(event, { seen: new WeakSet<object>(), remainingEntries: 0, remainingStringLength: MAX_EVENT_LENGTH }, MAX_EVENT_LENGTH);
+}
+
+function errorInfo(error: unknown): Record<string, string> {
+  if (!(error instanceof Error)) return { error_name: "unknown" };
+  const state: RedactionState = { seen: new WeakSet<object>(), remainingEntries: 0, remainingStringLength: MAX_STRING_LENGTH };
+  try {
+    return {
+      error_name: typeof error.name === "string" ? redactString(error.name, state, 100) : UNSAFE_VALUE,
+      // Mensagens de terceiros podem embutir e-mail ou credencial; aplicam a
+      // mesma redação e os mesmos limites do contexto estruturado.
+      error_message: typeof error.message === "string" ? redactString(error.message, state) : UNSAFE_VALUE,
+    };
+  } catch {
+    return { error_name: UNSAFE_VALUE, error_message: UNSAFE_VALUE };
+  }
+}
+
 export function logEvent(event: string, context?: Readonly<Record<string, unknown>>): void {
-  console.info(JSON.stringify({ level: "info", event, ...redact(context) }));
+  console.info(JSON.stringify({ ...redact(context), level: "info", event: safeEvent(event) }));
 }
 
 export function logError(event: string, error: unknown, context?: Readonly<Record<string, unknown>>): void {
-  const errorInfo = error instanceof Error
-    ? // Mensagens de erro de terceiros (Supabase, Resend, Tavus...) podem
-      // embutir e-mail de destinatário ou trecho de credencial — passam pela
-      // mesma redação do context (auditoria 2026-08-02).
-      { error_name: error.name, error_message: error.message.replace(EMAIL_PATTERN, "[redacted-email]").replace(SECRET_PATTERN, "[redacted-secret]") }
-    : { error_name: "unknown" };
-  console.error(JSON.stringify({ level: "error", event, ...errorInfo, ...redact(context) }));
-  maybeAlertErrorRate(event);
+  const safeEventName = safeEvent(event);
+  console.error(JSON.stringify({ ...redact(context), level: "error", event: safeEventName, ...errorInfo(error) }));
+  maybeAlertErrorRate(safeEventName);
 }
 
 // --- Alerta de taxa de erro operacional (achado P1, auditoria 2026-08-12) ---
