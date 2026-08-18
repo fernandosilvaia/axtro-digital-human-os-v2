@@ -121,6 +121,28 @@ def main() -> int:
         ):
             if invariant not in schema_usage_sql:
                 errors.append(f"0047 service-role app schema usage invariant is missing: {invariant}")
+    tavus_stage_settlement_timestamp = SUPABASE_MIGRATIONS / "0048_tavus_stage_settlement_timestamp.sql"
+    if not tavus_stage_settlement_timestamp.exists():
+        errors.append("Missing Supabase-only Tavus stage settlement timestamp repair 0048")
+    else:
+        timestamp_sql = tavus_stage_settlement_timestamp.read_text(encoding="utf-8")
+        if "BEGIN;" not in timestamp_sql or "COMMIT;" not in timestamp_sql:
+            errors.append("0048 Tavus stage settlement timestamp repair must have explicit transaction boundaries")
+        for invariant in (
+            "portal_settle_provider_effect_termination_service",
+            "portal_resolve_tavus_stage_capability_service",
+            "portal_revoke_tavus_stage_capability_service",
+            "v_stage_mutation_at timestamptz;",
+            "v_stage_mutation_at:=clock_timestamp();",
+            "c.expires_at<=v_stage_mutation_at",
+            "position('c.expires_at<=v_stage_mutation_at' in regexp_replace(pg_get_functiondef('public.portal_resolve_tavus_stage_capability_service(text)'::regprocedure)",
+            "updated_at=greatest(updated_at,v_stage_mutation_at,expires_at-interval '45 minutes')",
+            "tavus_stage_expiry_chk",
+            "'version',48",
+            "'tavusStageExpiryConcurrencyFence'",
+        ):
+            if invariant not in timestamp_sql:
+                errors.append(f"0048 Tavus stage settlement timestamp invariant is missing: {invariant}")
     if "tenant_isolation" not in all_sql:
         errors.append("Tenant isolation policy is missing")
     if "event_document ->> 'tenant_id' IS DISTINCT FROM tenant_id::text" not in all_sql:

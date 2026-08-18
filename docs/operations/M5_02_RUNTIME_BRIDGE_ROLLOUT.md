@@ -7,7 +7,7 @@ remotas, tráfego público, cobrança, mudança de credenciais ou promoção de
 deploy sem o release owner, database operator, observer e a janela humana
 descritos em `M5_01_PRODUCTION_ROLLOUT.md`.
 
-O objetivo é promover um artefato compatível com schema **v47**, mantendo
+O objetivo é promover um artefato compatível com schema **v48**, mantendo
 `PORTAL_RUNTIME_BRIDGE_ENABLED=false` e
 `PORTAL_PROVIDER_TERMINATION_ENABLED=false` até que as evidências abaixo
 existam.
@@ -22,7 +22,7 @@ direta de Tavus, Recall ou lead-video.
   `provider_in_flight`, `cleanup_pending` e backlogs financeiros não recebem
   tratamento manual por tempo decorrido.
 - O operador registrou apenas SHA do artefato e checksum das migrations
-  `0040`–`0047`; nunca copie segredo, URL de reunião, provider ref, payload ou
+  `0040`–`0048`; nunca copie segredo, URL de reunião, provider ref, payload ou
   PII para a evidência.
 - As reuniões externas e o handoff de leads continuam explicitamente fechados
   até existir convite/disclosure/consentimento por participante. Não use uma
@@ -32,14 +32,14 @@ direta de Tavus, Recall ou lead-video.
 
 1. Coloque as entradas pagas em maintenance e preserve somente callbacks
    necessários para concluir o drain.
-2. Confirme que a produção está em v46, com 0040–0046 aplicadas e sem
+2. Confirme que a produção está em v47, com 0040–0047 aplicadas e sem
    migration parcial. Aplique **somente então**
-   `database/supabase-only/0047_service_role_app_schema_usage.sql`, uma vez,
+   `database/supabase-only/0048_tavus_stage_settlement_timestamp.sql`, uma vez,
    na mesma janela de maintenance. Não use `supabase db push`: estas
    migrations Supabase-only exigem o operador de banco aprovado.
 3. Com service role auditada, leia `portal_schema_capabilities_service()` e
-   exija `version: 47`, `providerEffectTerminationFence:true`,
-   `serviceRoleAppSchemaUsage:true` e todas as
+   exija `version: 48`, `providerEffectTerminationFence:true`,
+   `serviceRoleAppSchemaUsage:true`, `tavusStageExpiryConcurrencyFence:true` e todas as
    capabilities de runtime:
    `runtimeChannelAdmission`, `runtimeChannelGrantFences`,
    `runtimeProviderBindingReceipts`, `runtimeSceneReceipts`,
@@ -51,7 +51,7 @@ direta de Tavus, Recall ou lead-video.
    `PORTAL_RUNTIME_BRIDGE_ENABLED=false` e
    `PORTAL_PROVIDER_TERMINATION_ENABLED=false`. O bootstrap e `/api/ready`
    devem ficar verdes sem reabrir provider creation ou terminação. O bootstrap
-   deve falhar fechado se a capability v47 ou a probe RPC tipada inerte não
+   deve falhar fechado se a capability v48, a fence de expiração ou a probe RPC tipada inerte não
    existirem.
 
 ## Canário controlado

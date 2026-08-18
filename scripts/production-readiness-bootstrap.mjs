@@ -4,7 +4,7 @@ import { createHash, randomBytes } from "node:crypto";
 import { pathToFileURL } from "node:url";
 
 export const PRODUCTION_BOOTSTRAP_VERSION = "m5-02-v1";
-export const REQUIRED_SCHEMA_VERSION = 47;
+export const REQUIRED_SCHEMA_VERSION = 48;
 
 const REQUEST_TIMEOUT_MS = 20_000;
 const MAX_RPC_RESPONSE_BYTES = 64 * 1024;
@@ -18,6 +18,7 @@ const RECALL_REGIONS = new Set(["us-east-1", "us-west-2", "eu-central-1", "ap-no
 const REQUIRED_CAPABILITIES = Object.freeze([
   "providerEffectReservations",
   "providerEffectTerminationFence",
+  "tavusStageExpiryConcurrencyFence",
   "serviceRoleAppSchemaUsage",
   "providerEffectReconciliation",
   "billingUsageOutbox",

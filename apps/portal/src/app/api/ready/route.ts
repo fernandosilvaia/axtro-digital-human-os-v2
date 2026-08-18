@@ -153,9 +153,10 @@ export async function handleReadiness(dependencies: ReadinessRouteDependencies =
       if (schema.error) throw new Error("portal schema capability RPC failed");
       const capabilities = ownRecord(schema.data);
       schemaReady = capabilities !== null
-        && capabilities.version === 47
+        && capabilities.version === 48
         && capabilities.providerEffectReservations === true
         && capabilities.providerEffectTerminationFence === true
+        && capabilities.tavusStageExpiryConcurrencyFence === true
         && capabilities.serviceRoleAppSchemaUsage === true
         && capabilities.billingUsageOutbox === true
         && capabilities.recallWebhookDedupe === true

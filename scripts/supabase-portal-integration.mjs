@@ -91,7 +91,6 @@ try {
   assertMeetingStatusOverloadRepairPhase(databaseUrl);
   const terminationFenceApplied = applySupabaseMigrations(databaseUrl, 46, 46);
   assert.deepEqual(terminationFenceApplied, ["0046"]);
-  await assertTerminationFencePhase(databaseUrl);
   const appSchemaPrivilegesBefore = appSchemaPrivilegeSnapshot(databaseUrl);
   assert.equal(queryScalar(databaseUrl, "SELECT has_schema_privilege('service_role','app','USAGE');"), "f",
     "the harness must not mask the production service-role app-schema ACL gap before 0047");
@@ -103,8 +102,13 @@ try {
   const serviceRoleSchemaUsageApplied = applySupabaseMigrations(databaseUrl, 47, 47);
   assert.deepEqual(serviceRoleSchemaUsageApplied, ["0047"]);
   assertServiceRoleAppSchemaUsagePhase(databaseUrl, appSchemaPrivilegesBefore);
+  await assertPreV48TavusStageTimestampRegression(databaseUrl);
+  const tavusStageTimestampApplied = applySupabaseMigrations(databaseUrl, 48, 48);
+  assert.deepEqual(tavusStageTimestampApplied, ["0048"]);
+  assertTavusStageSettlementTimestampPhase(databaseUrl);
+  await assertTerminationFencePhase(databaseUrl, { expectedSchemaVersion: 48, expectTimestampFence: true });
   assertFailed(runFile(databaseUrl, join(supabaseMigrationDirectory, "0040_production_integrity_hardening.sql")), "non-idempotent 0040 cannot be replayed without a migration receipt gate");
-  assert.equal(queryScalar(databaseUrl, "SELECT count(*) FROM public.axtro_supabase_test_migrations;"), "47");
+  assert.equal(queryScalar(databaseUrl, "SELECT count(*) FROM public.axtro_supabase_test_migrations;"), "48");
 
   assertMigrationCapabilities(databaseUrl);
   assertLeastPrivilege(databaseUrl);
@@ -130,7 +134,7 @@ try {
   assertCostEventSchemaVersion(databaseUrl);
   await assertRuntimeChannelBridge(databaseUrl);
 
-  console.log("SUPABASE PORTAL INTEGRATION PASSED: migrations 0001-0047, grants, RLS, transcripts, reservations and readiness capability");
+  console.log("SUPABASE PORTAL INTEGRATION PASSED: migrations 0001-0048, grants, RLS, transcripts, reservations and readiness capability");
 } catch (error) {
   primaryError = error;
   throw error;
@@ -146,7 +150,7 @@ function applySupabaseMigrations(databaseUrl, firstVersion, lastVersion) {
   const migrations = readdirSync(supabaseMigrationDirectory)
     .filter((name) => /^\d{4}_.+\.sql$/.test(name))
     .sort();
-  assert.equal(migrations.length, 47, "the harness must cover every Supabase-only migration through the 0047 service-role schema usage phase");
+  assert.equal(migrations.length, 48, "the harness must cover every Supabase-only migration through the 0048 Tavus settlement timestamp phase");
   const applied = [];
   for (const migration of migrations) {
     const numericVersion = Number(migration.slice(0, 4));
@@ -313,9 +317,73 @@ function assertMeetingStatusOverloadRepairPhase(databaseUrl) {
   );
 }
 
-async function assertTerminationFencePhase(databaseUrl) {
+async function assertPreV48TavusStageTimestampRegression(databaseUrl) {
   const capabilities = queryJson(databaseUrl, asRoleSql("service_role", null, "SELECT public.portal_schema_capabilities_service();"));
-  assert.equal(capabilities.version, 46, "0046 adds a durable provider-effect termination fence");
+  assert.equal(capabilities.version, 47, "the pre-v48 fixture must execute the legacy settlement function");
+  const tenantId = "019f0000-0000-7000-8000-000000000009";
+  const agentId = "019f0000-0000-7000-8000-000000000109";
+  const userId = "10000000-0000-4000-8000-000000000007";
+  const actorId = "019f0000-0000-7000-8000-000000000210";
+  const reservationId = "019f0000-0000-7000-8000-000000004800";
+  const costEventId = "019f0000-0000-7000-8000-000000004801";
+  const subscriptionId = "019f0000-0000-7000-8000-000000004802";
+  const receiptId = "019f0000-0000-7000-8000-000000004803";
+  const leaseToken = "019f0000-0000-7000-8000-000000004804";
+  const stageTokenHash = "d".repeat(64);
+  const raceBarrierLockId = 48_047;
+
+  assertSucceeded(runSql(databaseUrl, `
+    INSERT INTO auth.users(id,email) VALUES ('${userId}','v48-pre-race@example.test');
+    INSERT INTO public.tenants(id,slug,legal_name,status,home_region,default_language,default_timezone)
+      VALUES ('${tenantId}','v48-pre-race','V48 Pre Race','active','local','en','UTC');
+    INSERT INTO public.agents(tenant_id,id,name,role_type,status,disclosure_profile_id)
+      VALUES ('${tenantId}','${agentId}','V48 Pre Race Agent','sales','active','default');
+    INSERT INTO public.user_tenant_memberships(user_id,tenant_id,actor_id,role)
+      VALUES ('${userId}','${tenantId}','${actorId}','tenant_admin');
+    INSERT INTO public.tenant_subscriptions(
+    id,tenant_id,stripe_customer_id,stripe_subscription_id,plan_id,status,current_period_start,current_period_end
+  ) VALUES ('${subscriptionId}','${tenantId}','cus_V48PreRace','sub_V48PreRace','piloto','active',date_trunc('month',now()),date_trunc('month',now())+interval '1 month');`),
+  "pre-v48 Tavus stage race subscription");
+  assert.equal(queryJson(databaseUrl, asRoleSql("service_role", null, reservationInvocationSql(
+    tenantId, agentId, "v48-pre-stage-race", reservationId, costEventId, "tavus",
+  ))).outcome, "reserved");
+  assert.equal(queryJson(databaseUrl, asRoleSql("service_role", null,
+    `SELECT public.portal_mark_provider_effect_in_flight_service('${reservationId}');`)).acquired, true);
+  assert.equal(queryJson(databaseUrl, asRoleSql("service_role", null,
+    `SELECT public.portal_commit_provider_effect_service('${reservationId}','tavus-v48-pre-race-ref','https://tavus.daily.co/v48-pre-race',null);`)).committed, true);
+  assert.equal(queryJson(databaseUrl, asRoleSql("service_role", null, `
+    SELECT public.portal_begin_provider_effect_termination_service(
+      '${receiptId}','${leaseToken}','${tenantId}','${userId}','${actorId}','${agentId}',
+      'v48-pre-stage-race','tavus',60
+    );
+  `)).outcome, "dispatch_granted");
+
+  const legacySettle = runSqlAsync(databaseUrl, asRoleSql("service_role", null, `
+    BEGIN;
+    SELECT pg_advisory_xact_lock(${raceBarrierLockId});
+    SELECT pg_sleep(0.2);
+    SELECT public.portal_settle_provider_effect_termination_service('${tenantId}','${receiptId}','${leaseToken}','provider_accepted');
+    COMMIT;
+  `));
+  await waitForAdvisoryLockHolder(databaseUrl, raceBarrierLockId);
+  const creator = await runSqlAsync(databaseUrl, asRoleSql("service_role", null,
+    `SELECT public.portal_create_tavus_stage_capability_service('${tenantId}','${agentId}','${reservationId}','${stageTokenHash}','https://tavus.daily.co/v48-pre-race');`));
+  assertSucceeded(creator, "pre-v48 stage creator after the settle transaction has started");
+  assert.equal(parseLastJson(creator.stdout).created, true);
+  assertFailed(await legacySettle, "pre-v48 settle must fail the expiry constraint under the observed transaction ordering", /tavus_stage_expiry_chk/);
+  assert.equal(queryScalar(databaseUrl, `SELECT expires_at<=updated_at+interval '45 minutes' FROM public.tavus_stage_capabilities WHERE reservation_id='${reservationId}';`), "t",
+    "the legacy failure preserves the existing constraint instead of weakening it");
+  assertSucceeded(runSql(databaseUrl, `
+    DELETE FROM public.tavus_stage_capabilities WHERE reservation_id='${reservationId}';
+    DELETE FROM public.provider_effect_termination_receipts WHERE reservation_id='${reservationId}';
+    DELETE FROM public.provider_effect_reservations WHERE id='${reservationId}';
+    DELETE FROM public.tenant_subscriptions WHERE id='${subscriptionId}';
+  `), "isolate the pre-v48 regression fixture without deleting append-only cost evidence");
+}
+
+async function assertTerminationFencePhase(databaseUrl, { expectedSchemaVersion, expectTimestampFence }) {
+  const capabilities = queryJson(databaseUrl, asRoleSql("service_role", null, "SELECT public.portal_schema_capabilities_service();"));
+  assert.equal(capabilities.version, expectedSchemaVersion, "the termination fence phase must observe its explicit migration version");
   assert.equal(capabilities.providerEffectTerminationFence, true);
   assert.equal(queryScalar(databaseUrl, "SELECT relrowsecurity AND relforcerowsecurity FROM pg_class WHERE oid='public.provider_effect_termination_receipts'::regclass;"), "t");
   assert.equal(queryScalar(databaseUrl, "SELECT has_function_privilege('authenticated','public.portal_begin_provider_effect_termination_service(app.uuid_v7,app.uuid_v7,app.uuid_v7,uuid,app.uuid_v7,app.uuid_v7,text,text,integer)','EXECUTE');"), "f");
@@ -459,14 +527,24 @@ async function assertTerminationFencePhase(databaseUrl) {
 
   const tavusReservationId = "019f0000-0000-7000-8000-000000004632";
   const tavusTokenHash = "a".repeat(64);
-  const tavusTenantId = "019f0000-0000-7000-8000-000000000007";
-  const tavusAgentId = "019f0000-0000-7000-8000-000000000107";
-  const tavusUserId = "10000000-0000-4000-8000-000000000005";
-  const tavusActorId = "019f0000-0000-7000-8000-000000000208";
+  const tavusTenantId = expectTimestampFence
+    ? "019f0000-0000-7000-8000-000000000008"
+    : "019f0000-0000-7000-8000-000000000007";
+  const tavusAgentId = expectTimestampFence
+    ? "019f0000-0000-7000-8000-000000000108"
+    : "019f0000-0000-7000-8000-000000000107";
+  const tavusUserId = expectTimestampFence
+    ? "10000000-0000-4000-8000-000000000006"
+    : "10000000-0000-4000-8000-000000000005";
+  const tavusActorId = expectTimestampFence
+    ? "019f0000-0000-7000-8000-000000000209"
+    : "019f0000-0000-7000-8000-000000000208";
+  const tavusSlug = expectTimestampFence ? "termination-stage-v48" : "termination-stage-v47";
+  const tavusEmail = expectTimestampFence ? "termination-stage-v48@example.test" : "termination-stage-v47@example.test";
   assertSucceeded(runSql(databaseUrl, `
-    INSERT INTO auth.users(id,email) VALUES ('${tavusUserId}','termination-stage@example.test');
+    INSERT INTO auth.users(id,email) VALUES ('${tavusUserId}','${tavusEmail}');
     INSERT INTO public.tenants(id,slug,legal_name,status,home_region,default_language,default_timezone)
-      VALUES ('${tavusTenantId}','termination-stage-harness','Termination Stage Harness','active','local','en','UTC');
+      VALUES ('${tavusTenantId}','${tavusSlug}','Termination Stage Harness','active','local','en','UTC');
     INSERT INTO public.agents(tenant_id,id,name,role_type,status,disclosure_profile_id)
       VALUES ('${tavusTenantId}','${tavusAgentId}','Termination Stage Agent','sales','active','default');
     INSERT INTO public.user_tenant_memberships(user_id,tenant_id,actor_id,role) VALUES ('${tavusUserId}','${tavusTenantId}','${tavusActorId}','tenant_admin');
@@ -484,6 +562,26 @@ async function assertTerminationFencePhase(databaseUrl) {
     `SELECT public.portal_create_tavus_stage_capability_service('${tavusTenantId}','${tavusAgentId}','${tavusReservationId}','${tavusTokenHash}','https://tavus.daily.co/termination-stage');`)).created, true);
   assert.equal(queryJson(databaseUrl, asRoleSql("service_role", null,
     `SELECT public.portal_resolve_tavus_stage_capability_service('${tavusTokenHash}');`)).found, true);
+  if (expectTimestampFence) {
+    const resolverExpiryLockId = 48_049;
+    assertSucceeded(runSql(databaseUrl, `UPDATE public.tavus_stage_capabilities
+      SET expires_at=clock_timestamp()+interval '120 milliseconds',updated_at=clock_timestamp()
+      WHERE reservation_id='${tavusReservationId}';`), "make a live stage capability expire while its row is locked");
+    const resolverLocker = runSqlAsync(databaseUrl, `
+      BEGIN;
+      SELECT 1 FROM public.tavus_stage_capabilities WHERE reservation_id='${tavusReservationId}' FOR UPDATE;
+      SELECT pg_advisory_xact_lock(${resolverExpiryLockId});
+      SELECT pg_sleep(0.3);
+      COMMIT;
+    `);
+    await waitForAdvisoryLockHolder(databaseUrl, resolverExpiryLockId);
+    const delayedResolver = runSqlAsync(databaseUrl, asRoleSql("service_role", null,
+      `SELECT public.portal_resolve_tavus_stage_capability_service('${tavusTokenHash}');`));
+    assertSucceeded(await resolverLocker, "release the stage row after its wall-clock expiry");
+    assertSucceeded(await delayedResolver, "resolver waits safely for the expired stage row");
+    assert.deepEqual(parseLastJson((await delayedResolver).stdout), { found: false },
+      "a resolver that waited past expiry never returns a room URL based on transaction-start now()");
+  }
   const tavusTermination = beginTermination("019f0000-0000-7000-8000-000000004634", "019f0000-0000-7000-8000-000000004635", { tenantId: tavusTenantId, userId: tavusUserId, actorId: tavusActorId, agentId: tavusAgentId, idempotencyKey: "termination-tavus-stage", provider: "tavus" });
   assert.equal(tavusTermination.outcome, "dispatch_granted");
   assert.equal(queryJson(databaseUrl, asRoleSql("service_role", null,
@@ -517,14 +615,30 @@ async function assertTerminationFencePhase(databaseUrl) {
   const raceReceiptId = "019f0000-0000-7000-8000-000000004643";
   const raceLeaseToken = "019f0000-0000-7000-8000-000000004644";
   assert.equal(beginTermination(raceReceiptId, raceLeaseToken, { tenantId: tavusTenantId, userId: tavusUserId, actorId: tavusActorId, agentId: tavusAgentId, idempotencyKey: "termination-stage-race", provider: "tavus" }).outcome, "dispatch_granted");
-  const [raceCreate, raceSettle] = await Promise.all([
-    runSqlAsync(databaseUrl, asRoleSql("service_role", null, `SELECT public.portal_create_tavus_stage_capability_service('${tavusTenantId}','${tavusAgentId}','${raceReservationId}','${raceTokenHash}','https://tavus.daily.co/stage-race');`)),
-    runSqlAsync(databaseUrl, asRoleSql("service_role", null, `SELECT public.portal_settle_provider_effect_termination_service('${tavusTenantId}','${raceReceiptId}','${raceLeaseToken}','provider_accepted');`)),
-  ]);
-  assertSucceeded(raceSettle, "Tavus stage/termination concurrent settle");
-  if (raceCreate.status === 0) assert.equal(parseLastJson(raceCreate.stdout).created, true, "creator may win only before settlement revokes it");
-  else assert.match([raceCreate.stderr, raceCreate.stdout].filter(Boolean).join("\n"), /committed Tavus reservation required/, "creator loses only after the committed reservation becomes terminal");
-  assert.deepEqual(queryJson(databaseUrl, asRoleSql("service_role", null, `SELECT public.portal_resolve_tavus_stage_capability_service('${raceTokenHash}');`)), { found: false }, "the create/settle race cannot leave a live stage URL");
+  const raceBarrierLockId = 48_048;
+  const raceSettlePromise = runSqlAsync(databaseUrl, asRoleSql("service_role", null, `
+    BEGIN;
+    SELECT pg_advisory_xact_lock(${raceBarrierLockId});
+    SELECT pg_sleep(0.2);
+    SELECT public.portal_settle_provider_effect_termination_service('${tavusTenantId}','${raceReceiptId}','${raceLeaseToken}','provider_accepted');
+    COMMIT;
+  `));
+  await waitForAdvisoryLockHolder(databaseUrl, raceBarrierLockId);
+  const raceCreate = await runSqlAsync(databaseUrl, asRoleSql("service_role", null,
+    `SELECT public.portal_create_tavus_stage_capability_service('${tavusTenantId}','${tavusAgentId}','${raceReservationId}','${raceTokenHash}','https://tavus.daily.co/stage-race');`));
+  const raceSettle = await raceSettlePromise;
+  assertSucceeded(raceCreate, "Tavus stage creator after the settle transaction has started");
+  assert.equal(parseLastJson(raceCreate.stdout).created, true);
+  if (!expectTimestampFence) {
+    assertFailed(raceSettle, "pre-v48 Tavus stage/termination race must expose the expiry constraint failure", /tavus_stage_expiry_chk/);
+  } else {
+    assertSucceeded(raceSettle, "Tavus stage/termination settle with a transaction-start timestamp older than the stage");
+    assert.equal(parseLastJson(raceSettle.stdout).outcome, "accepted");
+    assert.equal(queryScalar(databaseUrl, `SELECT expires_at<=updated_at+interval '45 minutes' FROM public.tavus_stage_capabilities WHERE reservation_id='${raceReservationId}';`), "t",
+      "the deterministic older-settle/newer-stage ordering preserves tavus_stage_expiry_chk without extending expiry");
+    assert.equal(queryScalar(databaseUrl, `SELECT revoked_at is not null FROM public.tavus_stage_capabilities WHERE reservation_id='${raceReservationId}';`), "t");
+    assert.deepEqual(queryJson(databaseUrl, asRoleSql("service_role", null, `SELECT public.portal_resolve_tavus_stage_capability_service('${raceTokenHash}');`)), { found: false }, "the create/settle race cannot leave a live stage URL");
+  }
 
   assertSucceeded(runSql(databaseUrl, `
     DELETE FROM public.provider_effect_termination_receipts WHERE reservation_id='${reservationId}';
@@ -587,10 +701,31 @@ function assertServiceRoleAppSchemaUsagePhase(databaseUrl, before) {
     "0047 grants no service-role function privilege in app");
 }
 
+function assertTavusStageSettlementTimestampPhase(databaseUrl) {
+  const capabilities = queryJson(databaseUrl, asRoleSql("service_role", null, "SELECT public.portal_schema_capabilities_service();"));
+  assert.equal(capabilities.version, 48, "0048 makes the Tavus settle timestamp fence an explicit capability");
+  assert.equal(capabilities.tavusStageExpiryConcurrencyFence, true);
+  for (const signature of [
+    "public.portal_settle_provider_effect_termination_service(app.uuid_v7,app.uuid_v7,app.uuid_v7,text,text)",
+    "public.portal_resolve_tavus_stage_capability_service(text)",
+    "public.portal_revoke_tavus_stage_capability_service(app.uuid_v7)",
+  ]) {
+    const definition = queryRows(databaseUrl, "SELECT regexp_replace(pg_get_functiondef('" + signature + "'::regprocedure), '\\s+', '', 'g');").join("");
+    assert.match(definition, /v_stage_mutation_at:=clock_timestamp\(\)/,
+      `${signature} captures a wall-clock timestamp after its locks`);
+    assert.match(definition, /updated_at=greatest\(updated_at,v_stage_mutation_at,expires_at-interval'45minutes'\)/,
+      `${signature} retains the 45-minute expiry bound while preventing a stale transaction timestamp from moving updated_at backwards`);
+    if (signature === "public.portal_resolve_tavus_stage_capability_service(text)") {
+      assert.match(definition, /c\.expires_at<=v_stage_mutation_at/,
+        "the resolver compares expiry to wall time captured after acquiring its row lock");
+    }
+  }
+}
+
 function assertMigrationCapabilities(databaseUrl) {
   assert.equal(queryScalar(databaseUrl, "SELECT to_regprocedure('public.portal_schema_capabilities_service()') IS NOT NULL;"), "t");
   const capabilities = queryJson(databaseUrl, asRoleSql("service_role", null, "SELECT public.portal_schema_capabilities_service();"));
-  assert.equal(capabilities.version, 47);
+  assert.equal(capabilities.version, 48);
   assert.equal(capabilities.providerEffectReservations, true);
   assert.equal(capabilities.billingUsageOutbox, true);
   assert.equal(capabilities.recallWebhookDedupe, true);
@@ -621,6 +756,7 @@ function assertMigrationCapabilities(databaseUrl) {
   assert.equal(capabilities.meetingBotStatusUpdateUnambiguous, true);
   assert.equal(capabilities.providerEffectTerminationFence, true);
   assert.equal(capabilities.serviceRoleAppSchemaUsage, true);
+  assert.equal(capabilities.tavusStageExpiryConcurrencyFence, true);
   assert.equal(queryScalar(databaseUrl, "SELECT to_regclass('public.provider_effect_reservations') IS NOT NULL;"), "t");
   assert.equal(queryScalar(databaseUrl, "SELECT to_regclass('public.billing_usage_outbox') IS NOT NULL;"), "t");
   for (const signature of [
@@ -2919,6 +3055,21 @@ function runSqlAsync(databaseUrl, sql) {
     child.once("error", reject);
     child.once("close", (status) => resolve({ status, stdout, stderr }));
   });
+}
+
+function waitForMilliseconds(milliseconds) {
+  return new Promise((resolve) => setTimeout(resolve, milliseconds));
+}
+
+async function waitForAdvisoryLockHolder(databaseUrl, lockId) {
+  const deadline = Date.now() + 3_000;
+  while (Date.now() < deadline) {
+    const acquired = queryScalar(databaseUrl, `SELECT pg_try_advisory_lock(${lockId});`);
+    if (acquired === "f") return;
+    assert.equal(acquired, "t", `unexpected advisory lock probe result for ${lockId}`);
+    await waitForMilliseconds(10);
+  }
+  throw new Error(`timed out waiting for advisory lock ${lockId}`);
 }
 
 function psqlArgs(databaseUrl, tail) {

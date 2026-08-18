@@ -1,12 +1,12 @@
 # Progresso de implementação
 
-**Estado atual:** M0-M5-03 com código e validação local concluídos; a contenção durável v46 já está no Supabase de produção. Um reparo v47 de ACL PostgREST está pronto e validado antes da nova tentativa de deploy escuro. A promoção realtime continua bloqueada por uma fronteira de mídia P0 não comprovada.
+**Estado atual:** M0-M5-03 com código e validação local concluídos; as migrations v46 e v47 já estão no Supabase de produção. O reparo v48 de concorrência de capability Tavus está pronto e validado antes da nova tentativa de deploy escuro. A promoção realtime continua bloqueada por uma fronteira de mídia P0 não comprovada.
 
 **Marco atual:** M5 — Production Integrity, Trust and Discovery
-**Tarefa atual:** D-V2-137 — in_progress (reparo mínimo de ACL para RPCs tipadas `service_role`; rollout escuro autorizado, condicionado ao schema v47 e ao healthcheck)
-**Última evidência verde:** 2026-08-18: `pnpm test` (1066 Node + 26 Python), `pnpm db:portal:test` (migrations 0001–0047), `pnpm --filter @axtro/portal run e2e:public` (3/3), build de produção, `pnpm lint`, `pnpm contracts:check`, `python3 scripts/validate_all.py` e `git diff --check` verdes.
+**Tarefa atual:** D-V2-138 — in_progress (reparo forward-only da corrida de timestamp entre criação, resolução e término Tavus; rollout escuro autorizado, condicionado ao schema v48 e ao healthcheck)
+**Última evidência verde:** 2026-08-18: `pnpm test` (1066 Node + 26 Python), `pnpm db:portal:test` (migrations 0001–0048), `pnpm lint`, `pnpm typecheck`, `pnpm contracts:check`, `python3 scripts/validate_all.py` e `git diff --check` verdes. O harness prova v47 falhando na corrida histórica e v48 preservando a constraint, revogação e não-resolução de URL.
 **Bloqueadores internos:** P0 para promoção realtime — falta prova end-to-end de mídia controlada, cancelamento e descarte de saída tardia de Tavus/Recall.
-**Pendências externas:** produção confirmou v46/`providerEffectTerminationFence:true`. O primeiro deploy escuro falhou fechado antes de qualquer heartbeat: a `service_role` não tinha `USAGE` em `app` para resolver `app.uuid_v7` no PostgREST. Aplicar 0047/v47, confirmar a probe RPC tipada inerte e então repetir o deploy Railway. `PORTAL_RUNTIME_BRIDGE_ENABLED` e `PORTAL_PROVIDER_TERMINATION_ENABLED` permanecem desligadas.
+**Pendências externas:** produção confirmou v47/`serviceRoleAppSchemaUsage:true`; a probe RPC tipada e inerte retornou 200. O primeiro retry Railway não chegou a executar build ou código porque a plataforma falhou ao criar o snapshot do repositório. Aplicar 0048/v48, confirmar a capability de concorrência e então repetir uma única vez o deploy escuro. `PORTAL_RUNTIME_BRIDGE_ENABLED` e `PORTAL_PROVIDER_TERMINATION_ENABLED` permanecem desligadas.
 
 **Auditoria 360 concluída (2026-08-18):** baseline reproduzida antes de qualquer patch: `python3 scripts/validate_all.py` (9/9), `pnpm lint`, `pnpm contracts:check`, `pnpm typecheck`, `pnpm test` (1056 Node + 26 Python; os testes de loopback exigiram execução fora do sandbox), e `UV_CACHE_DIR="$PWD/.uv-cache" uv run pytest` (26) verdes. Correções em integridade da bridge, telemetria e descoberta pública foram revalidadas depois do patch; o risco realtime de mídia/turnos reais permanece um bloqueio explícito de promoção, não um falso sinal de cobertura.
 
@@ -38,6 +38,13 @@
 > schema/domínio à `service_role`, torna o fato uma capability v47 e prova a
 > resolução por uma RPC tipada, inerte e sem escrita antes de qualquer efeito
 > financeiro do bootstrap.
+
+> D-V2-138 iniciado (2026-08-18): o CI reproduziu uma corrida real de
+> microssegundos na revogação de stage capability Tavus: uma transação iniciada
+> antes da criação concorrente podia gravar `updated_at` no passado e violar a
+> janela original de 45 minutos. A migration forward-only 0048 preserva a
+> constraint, RLS e grants; usa relógio de parede depois dos locks para settle,
+> resolve e revoke, e o harness prova tanto a falha v47 quanto o reparo v48.
 
 ## Regras de atualização
 

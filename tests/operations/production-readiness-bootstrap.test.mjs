@@ -33,9 +33,10 @@ const ENV = Object.freeze({
 });
 
 const SCHEMA = Object.freeze({
-  version: 47,
+  version: 48,
   providerEffectReservations: true,
   providerEffectTerminationFence: true,
+  tavusStageExpiryConcurrencyFence: true,
   serviceRoleAppSchemaUsage: true,
   providerEffectReconciliation: true,
   billingUsageOutbox: true,
@@ -193,7 +194,7 @@ function isCode(code) {
   return (error) => error instanceof ProductionReadinessBootstrapError && error.code === code;
 }
 
-test("schema v47 capability mismatch fails before the typed RPC probe, backlog, Stripe or heartbeat calls", async () => {
+test("schema v48 capability mismatch fails before the typed RPC probe, backlog, Stripe or heartbeat calls", async () => {
   for (const capability of [
     "workerHeartbeats",
     "billingCheckoutIntents",
@@ -202,6 +203,7 @@ test("schema v47 capability mismatch fails before the typed RPC probe, backlog, 
     "costEventSchemaVersion",
     "legacyCostWritersRevoked",
     "providerEffectTerminationFence",
+    "tavusStageExpiryConcurrencyFence",
     "serviceRoleAppSchemaUsage",
     "runtimeChannelAdmission",
     "runtimeChannelGrantFences",
@@ -220,8 +222,8 @@ test("schema v47 capability mismatch fails before the typed RPC probe, backlog, 
   }
 });
 
-test("bootstrap requires schema version 47 exactly before any downstream probe", async () => {
-  for (const version of [42, 43, 44, 45, 46, undefined]) {
+test("bootstrap requires schema version 48 exactly before any downstream probe", async () => {
+  for (const version of [42, 43, 44, 45, 46, 47, undefined]) {
     const { calls, promise } = run({ schema: { ...SCHEMA, version } });
     await assert.rejects(promise, isCode("SCHEMA_CAPABILITY_MISMATCH"));
     assert.equal(calls.length, 1, `version:${String(version)}`);
@@ -300,7 +302,7 @@ test("happy path validates all read-only probes then persists exact versioned he
   const { calls, promise } = run();
   assert.deepEqual(await promise, {
     ok: true,
-    schemaVersion: 47,
+    schemaVersion: 48,
     bootstrapVersion: PRODUCTION_BOOTSTRAP_VERSION,
     deploymentId: ENV.RAILWAY_GIT_COMMIT_SHA,
     stripeMode: "test",

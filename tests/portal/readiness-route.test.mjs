@@ -87,9 +87,10 @@ const ENV = Object.freeze({
 });
 
 const CAPABILITIES = Object.freeze({
-  version: 47,
+  version: 48,
   providerEffectReservations: true,
   providerEffectTerminationFence: true,
+  tavusStageExpiryConcurrencyFence: true,
   serviceRoleAppSchemaUsage: true,
   billingUsageOutbox: true,
   recallWebhookDedupe: true,
@@ -150,7 +151,7 @@ async function assertNoStore(response) {
   return response.json();
 }
 
-test("readiness returns 200 only for schema 47 capabilities and never caches", async () => {
+test("readiness returns 200 only for schema 48 capabilities and never caches", async () => {
   const response = await handleReadiness({
     env: { ...ENV },
     createClient: () => clientWith({ data: CAPABILITIES, error: null }),
@@ -221,8 +222,8 @@ test("worker readiness RPC errors fail closed after schema validation", async ()
   assert.equal(body.checks.workers, false);
 });
 
-test("readiness requires schema version 47 exactly and never probes workers on mismatch", async () => {
-  for (const version of [42, 43, 44, 45, 46, undefined]) {
+test("readiness requires schema version 48 exactly and never probes workers on mismatch", async () => {
+  for (const version of [42, 43, 44, 45, 46, 47, undefined]) {
     const calls = [];
     const response = await handleReadiness({
       env: { ...ENV },
@@ -278,6 +279,7 @@ test("readiness fails closed while AI reservation capability is absent", async (
 test("readiness fails closed while any runtime bridge capability is absent", async () => {
   for (const capability of [
     "providerEffectTerminationFence",
+    "tavusStageExpiryConcurrencyFence",
     "serviceRoleAppSchemaUsage",
     "runtimeChannelAdmission",
     "runtimeChannelGrantFences",
@@ -287,14 +289,18 @@ test("readiness fails closed while any runtime bridge capability is absent", asy
     "runtimeDualOperatorReconciliation",
     "runtimeBridgeReceiptIntegrity",
   ]) {
-    const response = await handleReadiness({
-      env: { ...ENV },
-      createClient: () => clientWith({ data: { ...CAPABILITIES, [capability]: false }, error: null }),
-      logError: () => {},
-    });
-    assert.equal(response.status, 503, capability);
-    const body = await assertNoStore(response);
-    assert.equal(body.checks.schema, false, capability);
+    for (const absentValue of [false, undefined]) {
+      const calls = [];
+      const response = await handleReadiness({
+        env: { ...ENV },
+        createClient: () => clientWith({ data: { ...CAPABILITIES, [capability]: absentValue }, error: null }, { data: FRESH_WORKERS, error: null }, calls),
+        logError: () => {},
+      });
+      assert.equal(response.status, 503, `${capability}:${String(absentValue)}`);
+      const body = await assertNoStore(response);
+      assert.equal(body.checks.schema, false, `${capability}:${String(absentValue)}`);
+      assert.deepEqual(calls, ["portal_schema_capabilities_service"], `${capability}:${String(absentValue)}`);
+    }
   }
 });
 
