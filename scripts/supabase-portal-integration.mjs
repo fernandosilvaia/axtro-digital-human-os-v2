@@ -86,8 +86,11 @@ try {
   const runtimeBridgeIntegrityApplied = applySupabaseMigrations(databaseUrl, 44, 44);
   assert.deepEqual(runtimeBridgeIntegrityApplied, ["0044"]);
   assertRuntimeBridgeIntegrityRepairPhase(databaseUrl);
+  const meetingStatusOverloadApplied = applySupabaseMigrations(databaseUrl, 45, 45);
+  assert.deepEqual(meetingStatusOverloadApplied, ["0045"]);
+  assertMeetingStatusOverloadRepairPhase(databaseUrl);
   assertFailed(runFile(databaseUrl, join(supabaseMigrationDirectory, "0040_production_integrity_hardening.sql")), "non-idempotent 0040 cannot be replayed without a migration receipt gate");
-  assert.equal(queryScalar(databaseUrl, "SELECT count(*) FROM public.axtro_supabase_test_migrations;"), "44");
+  assert.equal(queryScalar(databaseUrl, "SELECT count(*) FROM public.axtro_supabase_test_migrations;"), "45");
 
   assertMigrationCapabilities(databaseUrl);
   assertLeastPrivilege(databaseUrl);
@@ -113,7 +116,7 @@ try {
   assertCostEventSchemaVersion(databaseUrl);
   await assertRuntimeChannelBridge(databaseUrl);
 
-  console.log("SUPABASE PORTAL INTEGRATION PASSED: migrations 0001-0044, grants, RLS, transcripts, reservations and readiness capability");
+  console.log("SUPABASE PORTAL INTEGRATION PASSED: migrations 0001-0045, grants, RLS, transcripts, reservations and readiness capability");
 } catch (error) {
   primaryError = error;
   throw error;
@@ -129,7 +132,7 @@ function applySupabaseMigrations(databaseUrl, firstVersion, lastVersion) {
   const migrations = readdirSync(supabaseMigrationDirectory)
     .filter((name) => /^\d{4}_.+\.sql$/.test(name))
     .sort();
-  assert.equal(migrations.length, 44, "the harness must cover every Supabase-only migration through the 0044 runtime bridge integrity phase");
+  assert.equal(migrations.length, 45, "the harness must cover every Supabase-only migration through the 0045 meeting status overload repair phase");
   const applied = [];
   for (const migration of migrations) {
     const numericVersion = Number(migration.slice(0, 4));
@@ -277,10 +280,29 @@ function assertRuntimeBridgeIntegrityRepairPhase(databaseUrl) {
   assert.equal(capabilities.runtimeBridgeReceiptIntegrity, true);
 }
 
+function assertMeetingStatusOverloadRepairPhase(databaseUrl) {
+  const capabilities = queryJson(databaseUrl, asRoleSql("service_role", null, "SELECT public.portal_schema_capabilities_service();"));
+  assert.equal(capabilities.version, 45, "0045 drops the ambiguous 2-arg meeting status overload");
+  assert.equal(capabilities.meetingBotStatusUpdateUnambiguous, true);
+  // Reproduces the exact production failure (42725: function ... is not
+  // unique) found 2026-08-18 while investigating the media-boundary P0: the
+  // PostgREST calling convention for a non-terminal status omits
+  // p_delivery_id/p_claim_token entirely, which was ambiguous between the
+  // 0021 2-arg overload and the 0040 4-arg-with-defaults overload before
+  // 0045. Asserting the call now succeeds (not just that the capability flag
+  // says so) is the only way this regression would be caught again.
+  assert.equal(
+    queryJson(databaseUrl, asRoleSql("service_role", null,
+      "SELECT public.portal_update_meeting_bot_session_status_service(p_recall_bot_id => 'nonexistent-diagnostic-probe', p_status => 'joining');")).found,
+    false,
+    "the 2-arg calling convention must resolve unambiguously to the surviving 4-arg overload",
+  );
+}
+
 function assertMigrationCapabilities(databaseUrl) {
   assert.equal(queryScalar(databaseUrl, "SELECT to_regprocedure('public.portal_schema_capabilities_service()') IS NOT NULL;"), "t");
   const capabilities = queryJson(databaseUrl, asRoleSql("service_role", null, "SELECT public.portal_schema_capabilities_service();"));
-  assert.equal(capabilities.version, 44);
+  assert.equal(capabilities.version, 45);
   assert.equal(capabilities.providerEffectReservations, true);
   assert.equal(capabilities.billingUsageOutbox, true);
   assert.equal(capabilities.recallWebhookDedupe, true);
@@ -308,6 +330,7 @@ function assertMigrationCapabilities(databaseUrl) {
   assert.equal(capabilities.runtimeKillSwitches, true);
   assert.equal(capabilities.runtimeDualOperatorReconciliation, true);
   assert.equal(capabilities.runtimeBridgeReceiptIntegrity, true);
+  assert.equal(capabilities.meetingBotStatusUpdateUnambiguous, true);
   assert.equal(queryScalar(databaseUrl, "SELECT to_regclass('public.provider_effect_reservations') IS NOT NULL;"), "t");
   assert.equal(queryScalar(databaseUrl, "SELECT to_regclass('public.billing_usage_outbox') IS NOT NULL;"), "t");
   for (const signature of [

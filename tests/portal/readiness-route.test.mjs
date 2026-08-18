@@ -87,7 +87,7 @@ const ENV = Object.freeze({
 });
 
 const CAPABILITIES = Object.freeze({
-  version: 44,
+  version: 45,
   providerEffectReservations: true,
   billingUsageOutbox: true,
   recallWebhookDedupe: true,
@@ -219,8 +219,8 @@ test("worker readiness RPC errors fail closed after schema validation", async ()
   assert.equal(body.checks.workers, false);
 });
 
-test("readiness requires schema version 44 exactly and never probes workers on mismatch", async () => {
-  for (const version of [40, 41, 42, 43, undefined]) {
+test("readiness requires schema version 45 exactly and never probes workers on mismatch", async () => {
+  for (const version of [41, 42, 43, 44, undefined]) {
     const calls = [];
     const response = await handleReadiness({
       env: { ...ENV },

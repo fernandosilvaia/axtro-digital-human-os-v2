@@ -70,6 +70,21 @@ def main() -> int:
         ):
             if invariant not in repair_sql:
                 errors.append(f"0044 runtime bridge integrity invariant is missing: {invariant}")
+
+    meeting_status_repair = SUPABASE_MIGRATIONS / "0045_drop_ambiguous_meeting_status_overload.sql"
+    if not meeting_status_repair.exists():
+        errors.append("Missing Supabase-only meeting status overload repair 0045")
+    else:
+        repair_sql = meeting_status_repair.read_text(encoding="utf-8")
+        if "BEGIN;" not in repair_sql or "COMMIT;" not in repair_sql:
+            errors.append("0045 meeting status overload repair must have explicit transaction boundaries")
+        for invariant in (
+            "drop function if exists public.portal_update_meeting_bot_session_status_service(text, text);",
+            "'version',45",
+            "'meetingBotStatusUpdateUnambiguous'",
+        ):
+            if invariant not in repair_sql:
+                errors.append(f"0045 meeting status overload repair invariant is missing: {invariant}")
     if "tenant_isolation" not in all_sql:
         errors.append("Tenant isolation policy is missing")
     if "event_document ->> 'tenant_id' IS DISTINCT FROM tenant_id::text" not in all_sql:
