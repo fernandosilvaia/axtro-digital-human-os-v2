@@ -103,7 +103,8 @@ test("portal sitemap, legal metadata and AI discovery policy remain internally c
   assert.match(pricing, /aguardam rollout com consentimento individual por participante/);
   assert.doesNotMatch(pricing, /reunião externa \(Zoom\/Meet\/Teams\) inclusos/);
   assert.match(privacy, /finalidade for consentida especificamente/);
-  assert.match(privacy, /conversa essencial pode operar sem finalidades opcionais/);
+  assert.match(privacy, /conversa em texto opera sem exigir nenhuma finalidade opcional/);
+  assert.match(privacy, /exige consentimento\s+simultâneo a todas as finalidades opcionais/);
   assert.match(landing, /"@type": "FAQPage"/);
   assert.match(landing, /<details className="faq-item" key=\{item\.question\} open>/);
   assert.doesNotMatch(landing, /AggregateRating|"@type": "Review"|Guarantee/);

@@ -29,14 +29,15 @@ export default function PrivacyPage() {
         transcrições persistentes somente quando essa finalidade for consentida especificamente e
         registros de uso (tokens de IA, conversas de vídeo) para medição e limites do plano.</p>
         <p><strong>Conversas com as agentes.</strong> As agentes se identificam sempre como IA.
-        A conversa essencial pode operar sem finalidades opcionais quando a política aplicável
-        permitir. Voz e imagem podem ser processadas em tempo real para realizar a conversa; análise
-        visual ou comportamental requer a finalidade e o consentimento aplicáveis, é declarada e
-        não é usada para identificação biométrica.</p>
-        <p><strong>Histórico de conversa.</strong> Quando a finalidade de transcrição persistente é
-        consentida, a plataforma retém a transcrição da interação habilitada para revisão no
-        workspace. Sem esse consentimento, a conversa essencial não autoriza por si só a criação
-        desse histórico persistente. O acesso segue as permissões do workspace.</p>
+        A conversa em texto opera sem exigir nenhuma finalidade opcional. A conversa em vídeo (voz
+        e imagem processadas em tempo real para realizar a conversa) hoje exige consentimento
+        simultâneo a todas as finalidades opcionais abaixo — não é possível iniciar uma conversa em
+        vídeo consentindo só parte delas; a análise visual ou comportamental é declarada nesse
+        consentimento e não é usada para identificação biométrica.</p>
+        <p><strong>Histórico de conversa.</strong> Quando você consente a transcrição persistente —
+        hoje, sempre junto das demais finalidades opcionais de vídeo — a plataforma retém a
+        transcrição da interação para revisão no workspace. A conversa em texto nunca cria esse
+        histórico. O acesso ao histórico segue as permissões do workspace.</p>
         <p><strong>Com quem compartilhamos.</strong> Provedores de infraestrutura sob contrato:
         Supabase (banco e autenticação), Railway (hospedagem), OpenRouter (modelos de linguagem),
         Tavus (vídeo conversacional; transcrição persistente somente para a finalidade consentida), ElevenLabs (voz), Recall.ai
