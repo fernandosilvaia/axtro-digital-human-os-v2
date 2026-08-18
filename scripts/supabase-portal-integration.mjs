@@ -2718,7 +2718,10 @@ function reserveLocalPort() {
 
 function run(executable, args, phase) {
   const result = spawnSync(executable, args, { encoding: "utf8", env: childEnvironment() });
-  if (result.status !== 0) throw new Error(`Local PostgreSQL ${phase} failed`);
+  if (result.status !== 0) {
+    const detail = [result.stderr, result.stdout].filter(Boolean).join("\n").trim();
+    throw new Error(`Local PostgreSQL ${phase} failed${detail === "" ? "" : `: ${detail}`}`);
+  }
 }
 
 function cleanupResources() {
