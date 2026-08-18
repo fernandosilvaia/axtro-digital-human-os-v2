@@ -92,8 +92,19 @@ try {
   const terminationFenceApplied = applySupabaseMigrations(databaseUrl, 46, 46);
   assert.deepEqual(terminationFenceApplied, ["0046"]);
   await assertTerminationFencePhase(databaseUrl);
+  const appSchemaPrivilegesBefore = appSchemaPrivilegeSnapshot(databaseUrl);
+  assert.equal(queryScalar(databaseUrl, "SELECT has_schema_privilege('service_role','app','USAGE');"), "f",
+    "the harness must not mask the production service-role app-schema ACL gap before 0047");
+  assertFailed(runSql(databaseUrl, asRoleSql("service_role", null, `
+    SELECT public.portal_runtime_channel_status_service(
+      '${fixture.tenantAlpha}'::app.uuid_v7,'${fixture.agentAlpha}'::app.uuid_v7,'bootstrap_probe','bootstrap_probe'
+    );
+  `)), "service role cannot invoke an explicitly typed app.uuid_v7 service RPC before the schema/type grant", /permission denied for schema app/);
+  const serviceRoleSchemaUsageApplied = applySupabaseMigrations(databaseUrl, 47, 47);
+  assert.deepEqual(serviceRoleSchemaUsageApplied, ["0047"]);
+  assertServiceRoleAppSchemaUsagePhase(databaseUrl, appSchemaPrivilegesBefore);
   assertFailed(runFile(databaseUrl, join(supabaseMigrationDirectory, "0040_production_integrity_hardening.sql")), "non-idempotent 0040 cannot be replayed without a migration receipt gate");
-  assert.equal(queryScalar(databaseUrl, "SELECT count(*) FROM public.axtro_supabase_test_migrations;"), "46");
+  assert.equal(queryScalar(databaseUrl, "SELECT count(*) FROM public.axtro_supabase_test_migrations;"), "47");
 
   assertMigrationCapabilities(databaseUrl);
   assertLeastPrivilege(databaseUrl);
@@ -119,7 +130,7 @@ try {
   assertCostEventSchemaVersion(databaseUrl);
   await assertRuntimeChannelBridge(databaseUrl);
 
-  console.log("SUPABASE PORTAL INTEGRATION PASSED: migrations 0001-0046, grants, RLS, transcripts, reservations and readiness capability");
+  console.log("SUPABASE PORTAL INTEGRATION PASSED: migrations 0001-0047, grants, RLS, transcripts, reservations and readiness capability");
 } catch (error) {
   primaryError = error;
   throw error;
@@ -135,7 +146,7 @@ function applySupabaseMigrations(databaseUrl, firstVersion, lastVersion) {
   const migrations = readdirSync(supabaseMigrationDirectory)
     .filter((name) => /^\d{4}_.+\.sql$/.test(name))
     .sort();
-  assert.equal(migrations.length, 46, "the harness must cover every Supabase-only migration through the 0046 termination fence phase");
+  assert.equal(migrations.length, 47, "the harness must cover every Supabase-only migration through the 0047 service-role schema usage phase");
   const applied = [];
   for (const migration of migrations) {
     const numericVersion = Number(migration.slice(0, 4));
@@ -532,10 +543,54 @@ async function assertTerminationFencePhase(databaseUrl) {
   `), "isolate termination-fence fixtures from later provider-budget scenarios");
 }
 
+function appSchemaPrivilegeSnapshot(databaseUrl) {
+  const roles = ["anon", "authenticated", "service_role"];
+  return Object.fromEntries(roles.map((role) => [role, Object.freeze({
+    schemaUsage: queryScalar(databaseUrl, `SELECT has_schema_privilege('${role}','app','USAGE');`),
+    uuidV7Usage: queryScalar(databaseUrl, `SELECT has_type_privilege('${role}','app.uuid_v7','USAGE');`),
+    tableGrants: queryRows(databaseUrl, `
+      SELECT grantee || ':' || table_name || ':' || privilege_type
+      FROM information_schema.role_table_grants
+      WHERE grantee='${role}' AND table_schema='app'
+      ORDER BY 1;
+    `),
+    functionGrants: queryRows(databaseUrl, `
+      SELECT grantee || ':' || routine_name || ':' || privilege_type
+      FROM information_schema.role_routine_grants
+      WHERE grantee='${role}' AND routine_schema='app'
+      ORDER BY 1;
+    `),
+  })]));
+}
+
+function assertServiceRoleAppSchemaUsagePhase(databaseUrl, before) {
+  const capabilities = queryJson(databaseUrl, asRoleSql("service_role", null, "SELECT public.portal_schema_capabilities_service();"));
+  assert.equal(capabilities.version, 47, "0047 makes the service-role app schema/type grant an explicit capability");
+  assert.equal(capabilities.serviceRoleAppSchemaUsage, true);
+  assert.equal(queryScalar(databaseUrl, "SELECT has_schema_privilege('service_role','app','USAGE');"), "t");
+  assert.equal(queryScalar(databaseUrl, "SELECT has_type_privilege('service_role','app.uuid_v7','USAGE');"), "t");
+  assert.deepEqual(queryJson(databaseUrl, asRoleSql("service_role", null, `
+    SELECT public.portal_runtime_channel_status_service(
+      '${fixture.tenantAlpha}'::app.uuid_v7,'${fixture.agentAlpha}'::app.uuid_v7,'bootstrap_probe','bootstrap_probe'
+    );
+  `)), { enabled: false }, "the typed, inert service RPC becomes callable after only the schema/type grant");
+  assert.equal(queryScalar(databaseUrl, "SELECT has_function_privilege('service_role','public.portal_record_worker_heartbeat_service(text,app.uuid_v7,text,text,text,text,jsonb)','EXECUTE');"), "t",
+    "service_role retains the heartbeat RPC boundary without a direct table grant");
+
+  const after = appSchemaPrivilegeSnapshot(databaseUrl);
+  for (const role of ["anon", "authenticated"]) {
+    assert.deepEqual(after[role], before[role], `0047 does not alter app schema, type, table, or function privileges for ${role}`);
+  }
+  assert.deepEqual(after.service_role.tableGrants, before.service_role.tableGrants,
+    "0047 grants no service-role table privilege in app");
+  assert.deepEqual(after.service_role.functionGrants, before.service_role.functionGrants,
+    "0047 grants no service-role function privilege in app");
+}
+
 function assertMigrationCapabilities(databaseUrl) {
   assert.equal(queryScalar(databaseUrl, "SELECT to_regprocedure('public.portal_schema_capabilities_service()') IS NOT NULL;"), "t");
   const capabilities = queryJson(databaseUrl, asRoleSql("service_role", null, "SELECT public.portal_schema_capabilities_service();"));
-  assert.equal(capabilities.version, 46);
+  assert.equal(capabilities.version, 47);
   assert.equal(capabilities.providerEffectReservations, true);
   assert.equal(capabilities.billingUsageOutbox, true);
   assert.equal(capabilities.recallWebhookDedupe, true);
@@ -565,6 +620,7 @@ function assertMigrationCapabilities(databaseUrl) {
   assert.equal(capabilities.runtimeBridgeReceiptIntegrity, true);
   assert.equal(capabilities.meetingBotStatusUpdateUnambiguous, true);
   assert.equal(capabilities.providerEffectTerminationFence, true);
+  assert.equal(capabilities.serviceRoleAppSchemaUsage, true);
   assert.equal(queryScalar(databaseUrl, "SELECT to_regclass('public.provider_effect_reservations') IS NOT NULL;"), "t");
   assert.equal(queryScalar(databaseUrl, "SELECT to_regclass('public.billing_usage_outbox') IS NOT NULL;"), "t");
   for (const signature of [
@@ -2784,8 +2840,8 @@ function authPreludeSql() {
 
 function postPortablePreludeSql() {
   return `
-    GRANT USAGE ON SCHEMA public, app TO anon, authenticated, service_role, supabase_auth_admin;
-    GRANT USAGE ON TYPE app.uuid_v7 TO anon, authenticated, service_role, supabase_auth_admin;
+    GRANT USAGE ON SCHEMA public, app TO anon, authenticated, supabase_auth_admin;
+    GRANT USAGE ON TYPE app.uuid_v7 TO anon, authenticated, supabase_auth_admin;
     INSERT INTO auth.users (id, email) VALUES
       ('${fixture.userAlpha}', 'alpha@example.test'),
       ('${fixture.userBeta}', 'beta@example.test'),

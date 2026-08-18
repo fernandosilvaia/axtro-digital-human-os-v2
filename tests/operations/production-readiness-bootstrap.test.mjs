@@ -33,9 +33,10 @@ const ENV = Object.freeze({
 });
 
 const SCHEMA = Object.freeze({
-  version: 46,
+  version: 47,
   providerEffectReservations: true,
   providerEffectTerminationFence: true,
+  serviceRoleAppSchemaUsage: true,
   providerEffectReconciliation: true,
   billingUsageOutbox: true,
   recallWebhookDedupe: true,
@@ -123,6 +124,10 @@ function fakeFetch(options = {}) {
       const rpc = url.pathname.split("/").at(-1);
       const parameters = JSON.parse(init.body);
       if (rpc === "portal_schema_capabilities_service") return json(options.schema ?? SCHEMA);
+      if (rpc === "portal_runtime_channel_status_service") {
+        if (options.runtimeProbeStatus !== undefined) return json({ error: "runtime probe denied" }, options.runtimeProbeStatus);
+        return json(Object.hasOwn(options, "runtimeProbe") ? options.runtimeProbe : { enabled: false });
+      }
       if (rpc === "portal_billing_usage_backlog_service") return json(options.billingBacklog ?? BILLING_BACKLOG);
       if (rpc === "portal_provider_effect_reconciliation_backlog_service") return json(options.providerBacklog ?? PROVIDER_BACKLOG);
       if (rpc === "portal_ai_usage_reconciliation_backlog_service") return json(options.aiBacklog ?? AI_BACKLOG);
@@ -188,7 +193,7 @@ function isCode(code) {
   return (error) => error instanceof ProductionReadinessBootstrapError && error.code === code;
 }
 
-test("schema v44 capability mismatch fails before backlog, Stripe or heartbeat calls", async () => {
+test("schema v47 capability mismatch fails before the typed RPC probe, backlog, Stripe or heartbeat calls", async () => {
   for (const capability of [
     "workerHeartbeats",
     "billingCheckoutIntents",
@@ -197,6 +202,7 @@ test("schema v44 capability mismatch fails before backlog, Stripe or heartbeat c
     "costEventSchemaVersion",
     "legacyCostWritersRevoked",
     "providerEffectTerminationFence",
+    "serviceRoleAppSchemaUsage",
     "runtimeChannelAdmission",
     "runtimeChannelGrantFences",
     "runtimeProviderBindingReceipts",
@@ -214,12 +220,29 @@ test("schema v44 capability mismatch fails before backlog, Stripe or heartbeat c
   }
 });
 
-test("bootstrap requires schema version 46 exactly before any downstream probe", async () => {
-  for (const version of [42, 43, 44, 45, undefined]) {
+test("bootstrap requires schema version 47 exactly before any downstream probe", async () => {
+  for (const version of [42, 43, 44, 45, 46, undefined]) {
     const { calls, promise } = run({ schema: { ...SCHEMA, version } });
     await assert.rejects(promise, isCode("SCHEMA_CAPABILITY_MISMATCH"));
     assert.equal(calls.length, 1, `version:${String(version)}`);
     assert.match(calls[0].url, /portal_schema_capabilities_service$/);
+  }
+});
+
+test("typed service-role RPC probe fails closed on PostgREST denial before any side effect", async () => {
+  const { calls, promise } = run({ runtimeProbeStatus: 403 });
+  await assert.rejects(promise, isCode("RPC_UNAVAILABLE"));
+  assert.deepEqual(calls.map((call) => new URL(call.url).pathname), [
+    "/rest/v1/rpc/portal_schema_capabilities_service",
+    "/rest/v1/rpc/portal_runtime_channel_status_service",
+  ]);
+});
+
+test("typed service-role RPC probe requires the exact inert response shape", async () => {
+  for (const runtimeProbe of [{ enabled: true }, {}, { enabled: false, capability: "bootstrap_probe" }, null]) {
+    const { calls, promise } = run({ runtimeProbe });
+    await assert.rejects(promise, isCode("SERVICE_ROLE_RPC_PROBE_INVALID"));
+    assert.equal(calls.length, 2);
   }
 });
 
@@ -277,7 +300,7 @@ test("happy path validates all read-only probes then persists exact versioned he
   const { calls, promise } = run();
   assert.deepEqual(await promise, {
     ok: true,
-    schemaVersion: 46,
+    schemaVersion: 47,
     bootstrapVersion: PRODUCTION_BOOTSTRAP_VERSION,
     deploymentId: ENV.RAILWAY_GIT_COMMIT_SHA,
     stripeMode: "test",
@@ -288,6 +311,13 @@ test("happy path validates all read-only probes then persists exact versioned he
   const stripeCalls = calls.filter((call) => call.url.includes("api.stripe.com"));
   assert.equal(stripeCalls.length, 7);
   assert.ok(stripeCalls.every((call) => call.method === "GET" && call.body === undefined));
+  const typedProbe = calls.find((call) => call.url.endsWith("portal_runtime_channel_status_service"));
+  assert.deepEqual(JSON.parse(typedProbe.body), {
+    p_tenant_id: "019f0000-0000-7000-8000-000000004701",
+    p_agent_id: "019f0000-0000-7000-8000-000000004702",
+    p_channel_kind: "bootstrap_probe",
+    p_capability: "bootstrap_probe",
+  });
   const heartbeatCalls = calls
     .filter((call) => call.url.endsWith("portal_record_worker_heartbeat_service"))
     .map((call) => JSON.parse(call.body));

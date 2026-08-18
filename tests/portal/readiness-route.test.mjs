@@ -87,9 +87,10 @@ const ENV = Object.freeze({
 });
 
 const CAPABILITIES = Object.freeze({
-  version: 46,
+  version: 47,
   providerEffectReservations: true,
   providerEffectTerminationFence: true,
+  serviceRoleAppSchemaUsage: true,
   billingUsageOutbox: true,
   recallWebhookDedupe: true,
   recallTenantBinding: true,
@@ -149,7 +150,7 @@ async function assertNoStore(response) {
   return response.json();
 }
 
-test("readiness returns 200 only for schema 44 capabilities and never caches", async () => {
+test("readiness returns 200 only for schema 47 capabilities and never caches", async () => {
   const response = await handleReadiness({
     env: { ...ENV },
     createClient: () => clientWith({ data: CAPABILITIES, error: null }),
@@ -220,8 +221,8 @@ test("worker readiness RPC errors fail closed after schema validation", async ()
   assert.equal(body.checks.workers, false);
 });
 
-test("readiness requires schema version 46 exactly and never probes workers on mismatch", async () => {
-  for (const version of [42, 43, 44, 45, undefined]) {
+test("readiness requires schema version 47 exactly and never probes workers on mismatch", async () => {
+  for (const version of [42, 43, 44, 45, 46, undefined]) {
     const calls = [];
     const response = await handleReadiness({
       env: { ...ENV },
@@ -277,6 +278,7 @@ test("readiness fails closed while AI reservation capability is absent", async (
 test("readiness fails closed while any runtime bridge capability is absent", async () => {
   for (const capability of [
     "providerEffectTerminationFence",
+    "serviceRoleAppSchemaUsage",
     "runtimeChannelAdmission",
     "runtimeChannelGrantFences",
     "runtimeProviderBindingReceipts",

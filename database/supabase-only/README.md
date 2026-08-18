@@ -59,6 +59,7 @@ Racional completo: D-V2-055, D-V2-056 e D-V2-058 em
 | `0044_runtime_bridge_integrity_repair.sql` | sim (2026-08-18, aplicação humana autorizada) — reparo forward-only da bridge: o receipt deve reproduzir exatamente `provider_ref` e `provider_url` da reservation já committed, e o audit event de kill switch recebe FK composta `(tenant_id,kill_switch_id)`. `PORTAL_RUNTIME_BRIDGE_ENABLED` segue desligada até o canário aprovado. |
 | `0045_drop_ambiguous_meeting_status_overload.sql` | sim (2026-08-18, aplicação humana autorizada) — corrige um bug real encontrado ao vivo em produção (investigação do P0 de media boundary): `portal_update_meeting_bot_session_status_service` existia em 2 overloads (2 args de 0021/0024, 4 args com defaults de 0040) — nunca deveria coexistir, e a chamada RPC de status não-terminal (sem `p_delivery_id`/`p_claim_token`) vinha ambígua desde que 0040 foi aplicada hoje: `ERROR 42725: function ... is not unique`, reproduzido diretamente contra produção. Todo webhook de status não-terminal do Recall (joining/in_call/waiting_room) estava falhando e caindo em retry, e a câmera Sentinel (Tavus relayado pro Recall) nunca anexava porque dependia do mesmo RPC. Removeu só o overload de 2 args — o de 4 args já é um superset comportamental exato pra chamada sem evidência de entrega. `portal_schema_capabilities_service()` confirmou v45 e `meetingBotStatusUpdateUnambiguous:true` logo depois. |
 | `0046_provider_effect_termination_fence.sql` | **pendente de aplicação humana** — cria lease/receipt durável para término autorizado por `tenant_admin`, mantendo referência do provider só no servidor. Aceitação Tavus revoga atomicamente a stage capability vinculada antes de concluir a reservation; a capability não pode ser recriada nem resolver URL depois do término. |
+| `0047_service_role_app_schema_usage.sql` | **pendente de aplicação humana** — corrige a ACL que impedia o PostgREST de resolver parâmetros `app.uuid_v7` em RPCs `service_role`. Concede somente `USAGE` no schema `app` e no tipo `app.uuid_v7` à `service_role`; não concede tabela, função, nem privilégio novo a `anon`/`authenticated`. A capability v47 é exigida pelo bootstrap e readiness. |
 | `0021_meeting_bot_sessions.sql` | sim (2026-07-30, via MCP `apply_migration`, autorizado explicitamente pelo Fernando) — tabela + 3 funções confirmadas via `execute_sql`, RLS forçada |
 | `0022_agent_video_config_rpc.sql` | sim (2026-07-31, via Management API `database/query`) — RPC testada ao vivo provisionando a persona da Marina |
 | `0023_cleanup_rpcs.sql` | sim (2026-07-31, via Management API `database/query`) — exclusão de rascunho de agente e de fonte revogada, testada no e2e |
@@ -98,6 +99,11 @@ Racional completo: D-V2-055, D-V2-056 e D-V2-058 em
   operação; a RPC só devolve a referência do provider ao servidor depois de
   uma lease vencedora. O recibo aceito confirma apenas a aceitação pelo
   provider, não silêncio físico de mídia tardia.
+- A 0047 é um reparo mínimo de visibilidade de schema/tipo para RPCs
+  `service_role` via PostgREST. O harness reproduz a falha da chamada tipada
+  antes do grant e prova a resposta inerte depois dele; ele também confirma
+  que nenhum grant de tabela/função em `app` muda para `anon` ou
+  `authenticated`.
 - Os RPCs M5-01 de provider, webhook, billing e reconciliação são somente
   `service_role`. As tabelas de controle/recibo também revogam DML direto da
   própria `service_role`; o acesso é exclusivamente pelas RPCs SECURITY DEFINER.

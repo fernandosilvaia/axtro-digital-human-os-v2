@@ -4,7 +4,7 @@ import { createHash, randomBytes } from "node:crypto";
 import { pathToFileURL } from "node:url";
 
 export const PRODUCTION_BOOTSTRAP_VERSION = "m5-02-v1";
-export const REQUIRED_SCHEMA_VERSION = 46;
+export const REQUIRED_SCHEMA_VERSION = 47;
 
 const REQUEST_TIMEOUT_MS = 20_000;
 const MAX_RPC_RESPONSE_BYTES = 64 * 1024;
@@ -18,6 +18,7 @@ const RECALL_REGIONS = new Set(["us-east-1", "us-west-2", "eu-central-1", "ap-no
 const REQUIRED_CAPABILITIES = Object.freeze([
   "providerEffectReservations",
   "providerEffectTerminationFence",
+  "serviceRoleAppSchemaUsage",
   "providerEffectReconciliation",
   "billingUsageOutbox",
   "recallWebhookDedupe",
@@ -45,6 +46,13 @@ const REQUIRED_CAPABILITIES = Object.freeze([
   "runtimeDualOperatorReconciliation",
   "runtimeBridgeReceiptIntegrity",
 ]);
+
+const SERVICE_ROLE_RPC_PROBE = Object.freeze({
+  p_tenant_id: "019f0000-0000-7000-8000-000000004701",
+  p_agent_id: "019f0000-0000-7000-8000-000000004702",
+  p_channel_kind: "bootstrap_probe",
+  p_capability: "bootstrap_probe",
+});
 
 const PRICE_CATALOG = Object.freeze([
   Object.freeze({ env: "STRIPE_PRICE_PILOTO_BASE", amount: 49_700, usageType: "licensed" }),
@@ -250,6 +258,7 @@ async function readBoundedJson(response) {
 function createRpc(configuration, fetchImplementation) {
   const allowedRpcs = new Set([
     "portal_schema_capabilities_service",
+    "portal_runtime_channel_status_service",
     "portal_billing_usage_backlog_service",
     "portal_provider_effect_reconciliation_backlog_service",
     "portal_ai_usage_reconciliation_backlog_service",
@@ -313,6 +322,13 @@ function validateSchema(value) {
   return capabilities;
 }
 
+function validateServiceRoleRpcProbe(value) {
+  const result = ownRecord(value);
+  if (!result || Object.keys(result).length !== 1 || result.enabled !== false) {
+    fail("SERVICE_ROLE_RPC_PROBE_INVALID");
+  }
+}
+
 function uuidV7(nowMs = Date.now(), entropy = randomBytes(10)) {
   if (!Number.isSafeInteger(nowMs) || nowMs < 0 || nowMs > 0xffffffffffff || entropy.length !== 10) {
     fail("RUN_ID_GENERATION_FAILED");
@@ -351,6 +367,7 @@ export async function runProductionReadinessBootstrap(dependencies = {}) {
   const rpc = createRpc(configuration, fetchImplementation);
 
   validateSchema(await rpc("portal_schema_capabilities_service"));
+  validateServiceRoleRpcProbe(await rpc("portal_runtime_channel_status_service", SERVICE_ROLE_RPC_PROBE));
   const billingBacklog = parseBacklog(
     await rpc("portal_billing_usage_backlog_service"),
     BILLING_BACKLOG_KEYS,

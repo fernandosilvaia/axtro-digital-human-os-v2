@@ -104,6 +104,23 @@ def main() -> int:
         ):
             if invariant not in fence_sql:
                 errors.append(f"0046 termination fence invariant is missing: {invariant}")
+    service_role_schema_usage = SUPABASE_MIGRATIONS / "0047_service_role_app_schema_usage.sql"
+    if not service_role_schema_usage.exists():
+        errors.append("Missing Supabase-only service-role app schema usage fix 0047")
+    else:
+        schema_usage_sql = service_role_schema_usage.read_text(encoding="utf-8")
+        if "BEGIN;" not in schema_usage_sql or "COMMIT;" not in schema_usage_sql:
+            errors.append("0047 service-role app schema usage fix must have explicit transaction boundaries")
+        for invariant in (
+            "grant usage on schema app to service_role",
+            "grant usage on type app.uuid_v7 to service_role",
+            "'version',47",
+            "'serviceRoleAppSchemaUsage'",
+            "has_schema_privilege('service_role','app','USAGE')",
+            "has_type_privilege('service_role','app.uuid_v7','USAGE')",
+        ):
+            if invariant not in schema_usage_sql:
+                errors.append(f"0047 service-role app schema usage invariant is missing: {invariant}")
     if "tenant_isolation" not in all_sql:
         errors.append("Tenant isolation policy is missing")
     if "event_document ->> 'tenant_id' IS DISTINCT FROM tenant_id::text" not in all_sql:
