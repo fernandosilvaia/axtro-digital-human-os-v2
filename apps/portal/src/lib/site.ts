@@ -1,11 +1,22 @@
 import type { Metadata } from "next";
 
-/** Public canonical origin. Deploy hosts must be supplied explicitly when they differ. */
-export const SITE_URL = (process.env.NEXT_PUBLIC_SITE_URL ?? "https://closer.axtroai.com").replace(/\/$/, "");
-export const SITE_NAME = "Axtro Digital Human OS";
+/**
+ * The public marketing surface has one reviewed canonical origin. Runtime
+ * callback origins are validated separately in `public-origin.ts`; a preview
+ * deployment must never become the URL that search engines or AI answers use.
+ */
+export const SITE_URL = "https://closer.axtroai.com";
+export const SITE_NAME = "Axtro Closer AI Human";
+export const SITE_TAGLINE = "Closer de IA em vídeo";
+export const SITE_DESCRIPTION =
+  "Closer de IA em vídeo para conversas comerciais com presença identificada, contexto autorizado e controle da sua equipe.";
 export const OG_IMAGE_PATH = "/opengraph-image";
 
 export function absoluteUrl(path: string): string {
+  if (!path.startsWith("/") || path.startsWith("//")) {
+    throw new TypeError("Public site paths must be root-relative");
+  }
+
   return new URL(path, `${SITE_URL}/`).toString();
 }
 
@@ -36,7 +47,7 @@ export function createPageMetadata({
         url: absoluteUrl(OG_IMAGE_PATH),
         width: 1200,
         height: 630,
-        alt: `${SITE_NAME}, apresentadores digitais para vendas e atendimento`,
+        alt: `${SITE_NAME}, ${SITE_TAGLINE} com presença identificada e operação sob controle`,
       }],
     },
     twitter: {

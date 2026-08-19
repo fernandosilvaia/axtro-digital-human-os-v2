@@ -1,19 +1,33 @@
 import type { Metadata } from "next";
+import Link from "next/link";
 
-import { formatLongDate } from "@/lib/format-date";
-import { fetchTenantOverview, fetchUsageSummary, type UsageSummary } from "@/lib/portal-data";
+import { formatDateTime, formatLongDate } from "@/lib/format-date";
+import {
+  fetchConversationTranscripts,
+  fetchTenantOverview,
+  fetchUsageSummary,
+  type UsageSummary,
+} from "@/lib/portal-data";
 import { StatusBadge } from "@/components/status-badge";
 
-export const metadata: Metadata = { title: "Visão geral — Axtro Digital Human OS" };
+export const metadata: Metadata = { title: "Visão geral — Axtro Closer AI Human" };
 
 const METRICS = [
-  { key: "agents", label: "Agentes", hint: "Apresentadores digitais configurados" },
-  { key: "sessions", label: "Sessões", hint: "Interações registradas" },
-  { key: "knowledge_sources", label: "Fontes de conhecimento", hint: "Bases autorizadas para RAG" },
+  { key: "agents", label: "Agentes configurados", hint: "Presenças digitais sob controle da equipe" },
+  { key: "sessions", label: "Sessões registradas", hint: "Interações registradas pela operação" },
+  { key: "knowledge_sources", label: "Fontes autorizadas", hint: "Contexto liberado para recuperação" },
   { key: "contacts", label: "Contatos", hint: "Perfis de contato ativos" },
 ] as const;
 
 const DAILY_TOKEN_CAP = 500_000;
+
+const SURFACE_LABELS: Record<string, string> = {
+  chat: "Chat de teste",
+  video: "Vídeo",
+  meeting: "Reunião externa",
+};
+
+type ReadinessState = "done" | "pending" | "unknown";
 
 function formatUsd(value: number): string {
   return `US$ ${value.toLocaleString("pt-BR", { minimumFractionDigits: 2, maximumFractionDigits: 4 })}`;
@@ -28,73 +42,98 @@ const USAGE_SERVICE_LABELS: Record<string, string> = {
 };
 
 export default async function DashboardPage() {
-  let overview;
-  let usage: UsageSummary | null = null;
-  try {
-    overview = await fetchTenantOverview();
-  } catch {
+  const [overviewResult, usageResult, transcriptsResult] = await Promise.allSettled([
+    fetchTenantOverview(),
+    fetchUsageSummary(),
+    fetchConversationTranscripts(undefined, 4),
+  ]);
+
+  if (overviewResult.status === "rejected") {
     return (
-      <div className="error-banner" role="alert">
-        Não foi possível carregar a visão geral da conta agora. Recarregue a página; se persistir, contate o suporte.
-      </div>
+      <section className="error-banner" role="alert" aria-labelledby="dashboard-indisponivel">
+        <h1 id="dashboard-indisponivel">A central da operação está temporariamente indisponível.</h1>
+        <p>Não exibimos etapas ou métricas parciais quando não conseguimos confirmar os dados da conta. Recarregue a página; se persistir, contate o suporte.</p>
+      </section>
     );
   }
-  try {
-    usage = await fetchUsageSummary();
-  } catch {
-    // Painel de uso é secundário: se o resumo falhar, o dashboard continua.
-    usage = null;
-  }
+
+  const overview = overviewResult.value;
+  const usage: UsageSummary | null = usageResult.status === "fulfilled" ? usageResult.value : null;
+  const transcripts = transcriptsResult.status === "fulfilled" ? transcriptsResult.value : null;
 
   const tenant = overview.tenant;
   const counts = overview.counts;
-  const totalConfigured = counts ? counts.agents + counts.knowledge_sources : 0;
-  // Achado D-V2-107 (proposta "onboarding"): "Conta provisionada" era sempre
-  // true no momento em que a página renderiza (o tenant já foi provisionado
-  // em silêncio dentro de fetchTenantOverview antes do layout devolver a
-  // página) — o usuário nunca "ganhava" esse item, ele celebrava um registro
-  // que sempre existiu, não uma prova de que o produto funciona. Trocado
-  // pelo passo que de fato importa: já testou o agente no chat? O sinal já
-  // chega pronto em `usage.services_7d` (linha "portal.agent_preview" toda
-  // vez que sendAgentPreviewMessage é chamado), sem query nova.
-  const hasTestedAgent = (usage?.services_7d ?? []).some((row) => row.service === "portal.agent_preview");
+  const timeZone = tenant?.default_timezone ?? "America/Sao_Paulo";
   const readiness = [
-    { label: "Primeiro agente", done: (counts?.agents ?? 0) > 0, href: "/agentes", action: "Abrir agentes" },
-    { label: "Conhecimento autorizado", done: (counts?.knowledge_sources ?? 0) > 0, href: "/conhecimento", action: "Abrir conhecimento" },
-    { label: "Testar no chat", done: hasTestedAgent, href: "/agentes", action: "Testar agente" },
+    {
+      label: "Primeiro agente configurado",
+      state: readinessState(counts ? counts.agents > 0 : null),
+      href: "/agentes",
+      action: "Configurar agente",
+    },
+    {
+      label: "Conhecimento autorizado",
+      state: readinessState(counts ? counts.knowledge_sources > 0 : null),
+      href: "/conhecimento",
+      action: "Adicionar contexto",
+    },
+    {
+      label: "Primeira conversa registrada",
+      state: readinessState(transcripts ? transcripts.length > 0 : null),
+      href: "/conversas",
+      action: "Abrir conversas",
+    },
   ] as const;
-  const completedReadiness = readiness.filter((item) => item.done).length;
+  const completedReadiness = readiness.filter((item) => item.state === "done").length;
+  const unverifiedReadiness = readiness.filter((item) => item.state === "unknown").length;
   const readinessPercent = Math.round((completedReadiness / readiness.length) * 100);
-  const nextAction = readiness.find((item) => !item.done) ?? { label: "Workspace configurado", href: "/agentes", action: "Explorar agentes" };
+  const nextAction = readiness.find((item) => item.state === "pending") ?? {
+    label: "Revisar conversas registradas",
+    href: "/conversas",
+    action: "Abrir conversas",
+  };
+  const nextActionDescription = readiness.some((item) => item.state === "pending")
+    ? "Conclua a etapa abaixo para deixar a próxima conversa mais bem preparada."
+    : unverifiedReadiness > 0
+      ? "Há dados que não puderam ser verificados agora. Revise as conversas enquanto a central se reconecta."
+      : "A preparação essencial está confirmada. Use o histórico para transformar cada conversa em próximo passo.";
+  const readinessSummary = unverifiedReadiness > 0
+    ? `${completedReadiness} etapa(s) confirmada(s); ${unverifiedReadiness} não verificada(s)`
+    : `${completedReadiness}/${readiness.length} etapas concluídas`;
 
   return (
     <>
       <header className="workspace-hero">
         <div>
-          <span className="workspace-eyebrow"><span className="eyebrow-pulse" /> Control plane / overview</span>
-          <h1>O palco está pronto para a próxima conversa.</h1>
+          <span className="workspace-eyebrow">Central de operação / conversas</span>
+          <h1>Central da sua operação de conversa.</h1>
           <p>
-            {tenant ? tenant.legal_name : "Sua conta"} <span className="workspace-divider">/</span> operação em modo de configuração
+            {tenant ? tenant.legal_name : "Sua conta"} <span className="workspace-divider">/</span> contexto, presença e histórico em um só lugar
           </p>
         </div>
-        <div className="workspace-status"><span className="status-dot status-dot-live" /> <StatusBadge status={tenant?.status ?? "trial"} /></div>
+        {tenant && (
+          <div className="workspace-status">
+            <span className="workspace-status-label">Status da conta</span>
+            <StatusBadge status={tenant.status} />
+          </div>
+        )}
       </header>
 
       <div className="grid grid-4 workspace-metrics" style={{ marginBottom: 24 }}>
         {METRICS.map((metric) => (
           <div key={metric.key} className="card card-hover">
             <span className="metric-label">{metric.label}</span>
-            <div className="metric-value">{counts ? counts[metric.key] : 0}</div>
-            <div className="metric-hint">{metric.hint}</div>
+            <div className="metric-value">{counts ? counts[metric.key] : "—"}</div>
+            <div className="metric-hint">{counts ? metric.hint : "Dado indisponível no momento"}</div>
           </div>
         ))}
       </div>
 
-      {usage && (
+      {usage ? (
         <section className="card" style={{ marginBottom: 24 }} aria-labelledby="uso-ia">
           <h2 id="uso-ia" className="section-title">Uso de IA</h2>
           <p className="workspace-section-lead">
-            Consumo medido no ledger da conta — cada resposta, ingestão e chamada deixa rastro.
+            Consumo já registrado no ledger da conta, separado de qualquer fatura conciliada.
           </p>
           <div className="grid grid-4" style={{ marginBottom: usage.services_7d.length > 0 ? 16 : 0 }}>
             <div>
@@ -108,7 +147,7 @@ export default async function DashboardPage() {
             <div>
               <span className="metric-label">Conversas em vídeo hoje</span>
               <div className="metric-value">{usage.conversations_today.toLocaleString("pt-BR")}</div>
-              <div className="metric-hint">Chamadas Tavus iniciadas pela conta</div>
+              <div className="metric-hint">Conversas registradas no ledger da conta</div>
             </div>
             <div>
               <span className="metric-label">Custo atribuído hoje</span>
@@ -116,7 +155,7 @@ export default async function DashboardPage() {
               <div className="metric-hint">Ledger estimado/reportado — não é a fatura conciliada</div>
             </div>
             <div>
-              <span className="metric-label">Serviços ativos (7 dias)</span>
+              <span className="metric-label">Serviços com atividade (7 dias)</span>
               <div className="metric-value">{usage.services_7d.length}</div>
               <div className="metric-hint">Custo atribuído (7d): {formatUsd(usage.total_cost_usd_7d)}</div>
             </div>
@@ -136,53 +175,55 @@ export default async function DashboardPage() {
           )}
           <p style={{ margin: "14px 0 0", fontSize: "0.72rem", color: "var(--text-faint)" }}>{usage.cost_estimate_note}</p>
         </section>
+      ) : (
+        <section className="card workspace-data-notice" style={{ marginBottom: 24 }} aria-labelledby="uso-ia-indisponivel">
+          <h2 id="uso-ia-indisponivel" className="section-title">Uso de IA</h2>
+          <p className="workspace-section-lead" role="status">
+            O resumo de uso não está disponível agora. A central continua exibindo somente os dados que foram confirmados.
+          </p>
+        </section>
       )}
 
       <section className="card workspace-readiness" aria-labelledby="prontidao-operacional">
         <div className="workspace-readiness-top">
           <div>
             <span className="metric-label">Próximo melhor passo</span>
-            <h2 id="prontidao-operacional">Leve sua operação até a próxima conversa.</h2>
+            <h2 id="prontidao-operacional">{nextAction.label}</h2>
             <p className="workspace-section-lead">
-              Acompanhe o que já está pronto e avance só no que falta para colocar contexto e presença em campo.
+              {nextActionDescription}
             </p>
           </div>
           <a className="btn btn-primary btn-small" href={nextAction.href}>{nextAction.action}</a>
         </div>
-        <div className="workspace-readiness-meter" role="progressbar" aria-label="Prontidão operacional" aria-valuemin={0} aria-valuemax={100} aria-valuenow={readinessPercent}>
+        <div className="workspace-readiness-meter" role="progressbar" aria-label="Prontidão operacional confirmada" aria-valuemin={0} aria-valuemax={100} aria-valuenow={readinessPercent} aria-valuetext={readinessSummary}>
           <span style={{ width: `${readinessPercent}%` }} />
         </div>
         <div className="workspace-readiness-steps">
           {readiness.map((item) => (
-            <div key={item.label} className={`workspace-readiness-step${item.done ? " is-done" : ""}`}>
-              <span className="workspace-readiness-icon" aria-hidden="true">{item.done ? "✓" : "○"}</span>
+            <div key={item.label} className={`workspace-readiness-step${item.state === "done" ? " is-done" : ""}${item.state === "unknown" ? " is-unknown" : ""}`}>
+              <span className="workspace-readiness-icon" aria-hidden="true">{item.state === "done" ? "✓" : item.state === "unknown" ? "—" : "○"}</span>
               <span>{item.label}</span>
             </div>
           ))}
-          <span className="workspace-readiness-count">{completedReadiness}/{readiness.length} concluídos</span>
+          <span className="workspace-readiness-count">{readinessSummary}</span>
         </div>
       </section>
 
       <div className="workspace-grid">
         <section className="card workspace-primary" aria-labelledby="proximos-passos">
-          <h2 id="proximos-passos" className="section-title">Primeiros passos</h2>
-          <p className="workspace-section-lead">Configure os blocos que transformam presença em operação.</p>
+          <h2 id="proximos-passos" className="section-title">Pontos de controle</h2>
+          <p className="workspace-section-lead">Mantenha a operação pronta sem perder o contexto que sustenta cada conversa.</p>
           <ol style={{ margin: 0, paddingLeft: 20, color: "var(--text-muted)", fontSize: "0.9rem", display: "grid", gap: 10 }}>
             <li>
-              <strong style={{ color: "var(--text)" }}>Revise os dados da conta</strong> em Configurações — nome, idioma e fuso horário padrão.
+              <strong style={{ color: "var(--text)" }}>Defina a presença</strong> em Agentes — a equipe decide qual agente pode conduzir cada contexto.
             </li>
             <li>
-              <strong style={{ color: "var(--text)" }}>Cadastre e ative seu primeiro agente</strong> — a persona de vídeo é provisionada automaticamente na ativação.
+              <strong style={{ color: "var(--text)" }}>Autorize o conhecimento</strong> que pode apoiar a conversa antes de colocá-lo em campo.
             </li>
             <li>
-              <strong style={{ color: "var(--text)" }}>Adicione fontes de conhecimento</strong> autorizadas para o agente citar com segurança.
+              <strong style={{ color: "var(--text)" }}>Revise o histórico</strong> para transformar o que foi dito no próximo passo da equipe.
             </li>
           </ol>
-          {totalConfigured === 0 && (
-            <p style={{ fontSize: "0.8rem", color: "var(--text-faint)", marginTop: 14, marginBottom: 0 }}>
-              Sua conta está pronta — os recursos de operação são liberados conforme os provedores forem conectados.
-            </p>
-          )}
         </section>
 
         <section className="card workspace-side" aria-labelledby="dados-conta">
@@ -196,12 +237,46 @@ export default async function DashboardPage() {
               <InfoRow label="Criada em" value={formatLongDate(tenant.created_at, tenant.default_timezone)} />
             </dl>
           ) : (
-            <p style={{ color: "var(--text-muted)", fontSize: "0.88rem" }}>Conta ainda não provisionada.</p>
+            <p style={{ color: "var(--text-muted)", fontSize: "0.88rem" }}>Os dados da conta ainda não puderam ser confirmados.</p>
           )}
         </section>
       </div>
+
+      <section className="card workspace-conversation-feed" aria-labelledby="conversas-recentes">
+        <div className="workspace-conversation-feed-head">
+          <div>
+            <span className="metric-label">Histórico operacional</span>
+            <h2 id="conversas-recentes" className="section-title">Conversas registradas recentemente</h2>
+            <p className="workspace-section-lead">Retome o contexto que sua equipe já pode revisar, sem inventar prioridade ou resultado.</p>
+          </div>
+          <Link href="/conversas" className="btn btn-ghost btn-small">Ver todas</Link>
+        </div>
+        {transcripts === null ? (
+          <p className="workspace-section-lead" role="status">Não foi possível carregar as conversas recentes agora.</p>
+        ) : transcripts.length === 0 ? (
+          <p className="workspace-section-lead">Nenhuma conversa foi registrada ainda. Assim que houver uma interação persistida, ela aparecerá aqui.</p>
+        ) : (
+          <ul className="workspace-conversation-list">
+            {transcripts.map((transcript) => (
+              <li key={transcript.id}>
+                <Link href={`/conversas/${transcript.id}`} className="workspace-conversation-row">
+                  <span className="workspace-conversation-agent">{transcript.agentName}</span>
+                  <span className="workspace-conversation-surface">{SURFACE_LABELS[transcript.surface] ?? transcript.surface}</span>
+                  <span className="workspace-conversation-meta">{transcript.turnCount} {transcript.turnCount === 1 ? "turno" : "turnos"}</span>
+                  <time className="workspace-conversation-meta" dateTime={transcript.startedAt}>{formatDateTime(transcript.startedAt, timeZone)}</time>
+                </Link>
+              </li>
+            ))}
+          </ul>
+        )}
+      </section>
     </>
   );
+}
+
+function readinessState(value: boolean | null): ReadinessState {
+  if (value === null) return "unknown";
+  return value ? "done" : "pending";
 }
 
 function InfoRow({ label, value }: { label: string; value: React.ReactNode }) {

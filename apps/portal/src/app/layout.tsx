@@ -1,17 +1,16 @@
 import type { Metadata, Viewport } from "next";
 
-import { SITE_NAME, SITE_URL } from "@/lib/site";
+import { SITE_DESCRIPTION, SITE_NAME, SITE_TAGLINE, SITE_URL } from "@/lib/site";
 
 import "./globals.css";
 
 export const metadata: Metadata = {
   metadataBase: new URL(`${SITE_URL}/`),
   title: {
-    default: SITE_NAME,
+    default: `${SITE_NAME} | ${SITE_TAGLINE}`,
     template: "%s",
   },
-  description:
-    "Plataforma de apresentadores digitais para vendas, onboarding e customer success, com vídeo ao vivo, conhecimento governado e operação rastreável.",
+  description: SITE_DESCRIPTION,
   applicationName: SITE_NAME,
   manifest: "/manifest.json",
   icons: {
@@ -24,12 +23,16 @@ export const metadata: Metadata = {
   },
   robots: { index: false, follow: false },
   openGraph: {
-    title: SITE_NAME,
-    description:
-      "Apresentadores digitais para vendas, onboarding e customer success, com vídeo ao vivo, conhecimento governado e operação rastreável.",
+    title: `${SITE_NAME} | ${SITE_TAGLINE}`,
+    description: SITE_DESCRIPTION,
     type: "website",
     locale: "pt_BR",
     siteName: SITE_NAME,
+  },
+  twitter: {
+    card: "summary_large_image",
+    title: `${SITE_NAME} | ${SITE_TAGLINE}`,
+    description: SITE_DESCRIPTION,
   },
 };
 

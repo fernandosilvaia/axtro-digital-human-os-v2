@@ -1,23 +1,23 @@
-# Axtro Digital Human OS, contexto completo
+# Axtro Closer AI Human, contexto completo
 
 ## Identidade
 
-O Axtro Digital Human OS é um produto da Axtro AI. Ele oferece uma camada operacional para apresentações digitais e agentes de conversa em vídeo, com foco inicial em vendas e expansão para onboarding e customer success. A marca do produto é Axtro Digital Human OS, não Raízes Finance, Axtro Force ou Axtro Agent.
+O Axtro Closer AI Human é a experiência comercial do Axtro Digital Human OS, produto da Axtro AI. Ele oferece uma presença digital para conversas em vídeo, com foco inicial em vendas. A marca pública do produto é Axtro Closer AI Human; o Axtro Digital Human OS nomeia a plataforma operacional que o sustenta.
 
 ## Problema que resolve
 
-Times comerciais e de relacionamento precisam conduzir muitas conversas com consistência, mas não querem trocar clareza por automação opaca. O produto organiza presença digital, conhecimento autorizado, políticas e evidências operacionais em um workspace por conta.
+Times comerciais precisam dar continuidade a conversas importantes com consistência, mas não querem trocar clareza por automação opaca. O produto organiza presença digital, conhecimento autorizado, políticas e evidências operacionais em um workspace por conta.
 
 ## Público
 
-Empresas que vendem, implantam ou acompanham clientes por conversas repetíveis. O Sales Closer Alpha é a primeira aplicação, voltada a descoberta, qualificação, objeções e próximo passo. A mesma base pode suportar presenters para onboarding e customer success quando essas capacidades estiverem configuradas e aprovadas.
+Empresas que vendem por conversas repetíveis. O Sales Closer é a primeira aplicação, voltada a descoberta, qualificação, objeções e próximo passo. A mesma base pode suportar outros papéis quando essas capacidades estiverem configuradas e aprovadas.
 
 ## Como funciona
 
 1. A empresa configura o workspace e os agentes.
 2. A conta registra fontes de conhecimento autorizadas.
 3. O agente recebe contexto dentro dos limites da conta.
-4. A conversa pode acontecer com voz e vídeo quando providers estiverem disponíveis.
+4. A conversa pode acontecer com voz e vídeo quando providers estiverem disponíveis e a conta tiver configurado as finalidades aplicáveis.
 5. Ações passam por intenção, validação, política, aprovação quando necessária, execução idempotente e receipt.
 6. A linha do tempo registra o que ocorreu para revisão, replay e auditoria.
 
@@ -34,7 +34,7 @@ rotas privadas ficam fora desta superfície.
 
 ## Recursos confirmados
 
-- Landing pública com acesso à demonstração.
+- Landing pública com acesso à demonstração do Axtro Closer AI Human.
 - Workspace autenticado com visão geral, agentes, conhecimento, configurações e equipe.
 - Criação de rascunhos de agentes de Sales Closer.
 - Registro de fontes de conhecimento pendentes.

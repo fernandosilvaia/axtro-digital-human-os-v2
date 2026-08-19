@@ -6,7 +6,7 @@ export default function sitemap(): MetadataRoute.Sitemap {
   return [
     {
       url: absoluteUrl("/"),
-      lastModified: new Date("2026-07-31T00:00:00.000Z"),
+      lastModified: new Date("2026-08-19T00:00:00.000Z"),
       changeFrequency: "weekly",
       priority: 1,
     },

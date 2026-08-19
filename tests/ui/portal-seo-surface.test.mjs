@@ -17,7 +17,7 @@ function readDefaultSiteMetadata() {
   const program = [
     `const site = await import(${JSON.stringify(siteModule)});`,
     "const metadata = site.createPageMetadata({ title: 'Teste', description: 'Saída verificável', path: '/termos' });",
-    "console.log(JSON.stringify({ siteUrl: site.SITE_URL, absoluteUrl: site.absoluteUrl('/precos'), metadata }));",
+    "console.log(JSON.stringify({ siteUrl: site.SITE_URL, siteName: site.SITE_NAME, siteTagline: site.SITE_TAGLINE, absoluteUrl: site.absoluteUrl('/precos'), metadata }));",
   ].join("\n");
   const result = spawnSync(process.execPath, ["--input-type=module", "--eval", program], {
     cwd: root,
@@ -54,11 +54,35 @@ test("public canonical metadata resolves to the branded origin", () => {
   const output = readDefaultSiteMetadata();
 
   assert.equal(output.siteUrl, "https://closer.axtroai.com");
+  assert.equal(output.siteName, "Axtro Closer AI Human");
+  assert.equal(output.siteTagline, "Closer de IA em vídeo");
   assert.equal(output.absoluteUrl, "https://closer.axtroai.com/precos");
   assert.equal(output.metadata.alternates.canonical, "/termos");
   assert.equal(output.metadata.robots.index, true);
+  assert.equal(output.metadata.openGraph.siteName, "Axtro Closer AI Human");
   assert.equal(output.metadata.openGraph.url, "https://closer.axtroai.com/termos");
   assert.equal(output.metadata.twitter.images[0], "https://closer.axtroai.com/opengraph-image");
+});
+
+test("landing positions the verified Closer AI Human experience without fabricated proof", () => {
+  const landing = read("apps/portal/src/app/page.tsx");
+  const raissaHero = join(portal, "public", "assets", "digital-human", "raissa-closer-hero.png");
+
+  assert.match(landing, /title: "Axtro Closer AI Human \| Closer de IA em vídeo com controle"/);
+  assert.match(landing, /<h1 id="closer-hero-title">Seu melhor closer não deveria caber na agenda\.<\/h1>/);
+  assert.match(landing, /<DemoSubmitButton className="btn btn-primary btn-large">Assistir à demonstração <ArrowIcon \/><\/DemoSubmitButton>/);
+  assert.match(landing, /IA sempre identificada/);
+  assert.match(landing, /IA IDENTIFICADA/);
+  assert.match(landing, /src="\/assets\/digital-human\/raissa-closer-hero\.png"/);
+  assert.match(landing, /alt="Raissa no estúdio Axtro, identidade visual da experiência Closer AI Human"/);
+  assert.equal(existsSync(raissaHero), true, "A imagem local autorizada da Raissa deve existir");
+  assert.deepEqual([...readFileSync(raissaHero).subarray(0, 8)], [137, 80, 78, 71, 13, 10, 26, 10]);
+
+  // A landing não deve simular prova social, garantia ou ganhos numéricos sem
+  // fonte verificável. Números de estrutura (como 01/02/03) não entram neste
+  // padrão porque não carregam uma alegação de resultado.
+  assert.doesNotMatch(landing, /\b\d+(?:[.,]\d+)?(?:x|%)\b/i);
+  assert.doesNotMatch(landing, /AggregateRating|"@type": "Review"|Guarantee|ratingValue|reviewCount/);
 });
 
 test("portal sitemap, legal metadata and AI discovery policy remain internally consistent", () => {
@@ -106,8 +130,8 @@ test("portal sitemap, legal metadata and AI discovery policy remain internally c
   assert.match(privacy, /conversa em texto opera sem exigir nenhuma finalidade opcional/);
   assert.match(privacy, /exige consentimento\s+simultâneo a todas as finalidades opcionais/);
   assert.match(landing, /"@type": "FAQPage"/);
-  assert.match(landing, /<details className="faq-item" key=\{item\.question\} open>/);
-  assert.doesNotMatch(landing, /AggregateRating|"@type": "Review"|Guarantee/);
+  assert.match(landing, /<details className="faq-item" key=\{item\.question\}>/);
+  assert.doesNotMatch(landing, /AggregateRating|"@type": "Review"|Guarantee|ratingValue|reviewCount/);
 });
 
 test("manifest and share icons exist with valid image signatures", () => {
@@ -131,7 +155,10 @@ test("manifest and share icons exist with valid image signatures", () => {
 
 test("dashboard exposes a data-backed operational next step", () => {
   const dashboard = read("apps/portal/src/app/(app)/dashboard/page.tsx");
+  assert.match(dashboard, /Central da sua operação de conversa\./);
   assert.match(dashboard, /Próximo melhor passo/);
   assert.match(dashboard, /aria-valuenow=\{readinessPercent\}/);
+  assert.match(dashboard, /aria-label="Prontidão operacional confirmada"/);
   assert.match(dashboard, /nextAction\.href/);
+  assert.match(dashboard, /Ledger estimado\/reportado — não é a fatura conciliada/);
 });

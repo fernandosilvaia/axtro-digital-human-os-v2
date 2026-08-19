@@ -1,7 +1,7 @@
 "use client";
 
 import { usePathname } from "next/navigation";
-import { useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 
 import { signOut } from "@/lib/actions/auth";
 
@@ -22,17 +22,92 @@ export interface AppShellProps {
 export function AppShell({ email, roleLabel, children }: AppShellProps) {
   const pathname = usePathname();
   const [menuOpen, setMenuOpen] = useState(false);
+  const [isMobileNavigation, setIsMobileNavigation] = useState(false);
+  const menuToggleRef = useRef<HTMLButtonElement>(null);
+  const sidebarRef = useRef<HTMLElement>(null);
+  const navigationRef = useRef<HTMLElement>(null);
   const initial = email.slice(0, 1);
+
+  useEffect(() => {
+    const mediaQuery = window.matchMedia("(max-width: 860px)");
+    const syncNavigationMode = () => {
+      setIsMobileNavigation(mediaQuery.matches);
+      if (!mediaQuery.matches) setMenuOpen(false);
+    };
+
+    syncNavigationMode();
+    mediaQuery.addEventListener("change", syncNavigationMode);
+    return () => mediaQuery.removeEventListener("change", syncNavigationMode);
+  }, []);
+
+  const closeMenu = useCallback((restoreFocus = true) => {
+    setMenuOpen(false);
+    if (restoreFocus) {
+      window.requestAnimationFrame(() => menuToggleRef.current?.focus());
+    }
+  }, []);
+
+  useEffect(() => {
+    if (!isMobileNavigation || !menuOpen) return;
+
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key === "Escape") {
+        event.preventDefault();
+        closeMenu();
+        return;
+      }
+
+      if (event.key === "Tab") {
+        const focusable = sidebarRef.current?.querySelectorAll<HTMLElement>(
+          "a[href], button:not([disabled]), [tabindex]:not([tabindex='-1'])",
+        );
+        if (!focusable?.length) return;
+
+        const first = focusable[0];
+        const last = focusable[focusable.length - 1];
+        if (first === undefined || last === undefined) return;
+        if (event.shiftKey && document.activeElement === first) {
+          event.preventDefault();
+          last.focus();
+        } else if (!event.shiftKey && document.activeElement === last) {
+          event.preventDefault();
+          first.focus();
+        }
+      }
+    };
+
+    document.addEventListener("keydown", onKeyDown);
+    return () => document.removeEventListener("keydown", onKeyDown);
+  }, [closeMenu, isMobileNavigation, menuOpen]);
+
+  useEffect(() => {
+    if (!isMobileNavigation || !menuOpen) return;
+    navigationRef.current?.querySelector<HTMLAnchorElement>("a[href]")?.focus();
+  }, [isMobileNavigation, menuOpen]);
+
+  const toggleMenu = () => {
+    if (menuOpen) {
+      closeMenu();
+    } else {
+      setMenuOpen(true);
+    }
+  };
 
   return (
     <div className="app-shell" data-menu={menuOpen ? "open" : "closed"}>
       <a href="#conteudo" className="skip-link">Pular para o conteúdo</a>
-      <aside className="sidebar" aria-label="Navegação principal">
+      <aside
+        ref={sidebarRef}
+        className="sidebar"
+        aria-label="Navegação principal"
+        aria-hidden={isMobileNavigation && !menuOpen ? true : undefined}
+        inert={isMobileNavigation && !menuOpen ? true : undefined}
+      >
         <div className="sidebar-brand">
           <span className="brand-mark" aria-hidden="true">A</span>
-          <span className="brand-word">Digital Human OS</span>
+          <span className="brand-word">Axtro Closer AI Human</span>
         </div>
-        <nav className="nav">
+        <nav ref={navigationRef} id="navegacao-principal" className="nav">
           <span className="nav-section-label">Operação</span>
           {NAV_ITEMS.map(({ href, label, icon: Icon }) => (
             <a
@@ -40,7 +115,7 @@ export function AppShell({ email, roleLabel, children }: AppShellProps) {
               href={href}
               className="nav-link"
               aria-current={pathname.startsWith(href) ? "page" : undefined}
-              onClick={() => setMenuOpen(false)}
+              onClick={() => closeMenu()}
             >
               <Icon />
               {label}
@@ -65,21 +140,23 @@ export function AppShell({ email, roleLabel, children }: AppShellProps) {
         className="scrim"
         aria-label="Fechar menu"
         tabIndex={-1}
-        onClick={() => setMenuOpen(false)}
+        onClick={() => closeMenu()}
       />
-      <div className="content">
+      <div className="content" inert={isMobileNavigation && menuOpen ? true : undefined}>
         <header className="topbar">
           <button
+            ref={menuToggleRef}
             type="button"
             className="menu-toggle"
             aria-label={menuOpen ? "Fechar menu" : "Abrir menu"}
             aria-expanded={menuOpen}
-            onClick={() => setMenuOpen((open) => !open)}
+            aria-controls="navegacao-principal"
+            onClick={toggleMenu}
           >
             <IconMenu />
           </button>
           <div style={{ flex: 1 }} />
-          <span className="badge badge-accent"><span className="badge-dot" />Ambiente de configuração</span>
+          <span className="badge badge-accent">Axtro Closer AI Human</span>
         </header>
         <main id="conteudo" className="page">{children}</main>
       </div>

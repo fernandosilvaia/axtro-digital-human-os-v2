@@ -185,11 +185,22 @@ export interface TranscriptDetail {
   readonly endedAt: string | null;
 }
 
-/** Histórico de conversa (D-V2-106) — chat de teste, vídeo e reunião externa, tudo num só lugar pro dono revisar depois. */
-export async function fetchConversationTranscripts(agentId?: string): Promise<readonly TranscriptSummary[]> {
+/**
+ * Histórico de conversa (D-V2-106) — chat de teste, vídeo e reunião externa,
+ * tudo num só lugar para a equipe revisar. Lista somente os resumos visíveis
+ * para o tenant autenticado.
+ * O limite mantém superfícies de resumo (como o dashboard) pequenas; o RPC
+ * também o limita no banco antes da agregação para que o cliente não possa
+ * ampliar a leitura por acidente.
+ */
+export async function fetchConversationTranscripts(
+  agentId?: string,
+  limit = 50,
+): Promise<readonly TranscriptSummary[]> {
   const supabase = await createClient();
   const { data, error } = await supabase.rpc("portal_list_conversation_transcripts", {
     p_agent_id: agentId ?? null,
+    p_limit: limit,
   });
   if (error) throw new Error(`transcripts fetch failed: ${error.message}`);
   return (data ?? []) as readonly TranscriptSummary[];

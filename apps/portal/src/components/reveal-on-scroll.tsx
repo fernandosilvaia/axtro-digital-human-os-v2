@@ -11,15 +11,18 @@ interface RevealOnScrollProps {
 export function RevealOnScroll({ children, className = "", delay = 0 }: RevealOnScrollProps) {
   const ref = useRef<HTMLDivElement>(null);
   const [visible, setVisible] = useState(false);
+  const [shouldAnimate, setShouldAnimate] = useState(false);
 
   useEffect(() => {
     const element = ref.current;
     if (!element) return;
 
-    if (window.matchMedia("(prefers-reduced-motion: reduce)").matches) {
+    if (window.matchMedia("(prefers-reduced-motion: reduce)").matches || !("IntersectionObserver" in window)) {
       setVisible(true);
       return;
     }
+
+    setShouldAnimate(true);
 
     const observer = new IntersectionObserver(
       ([entry]) => {
@@ -39,6 +42,7 @@ export function RevealOnScroll({ children, className = "", delay = 0 }: RevealOn
     <div
       ref={ref}
       className={`reveal ${visible ? "is-visible" : ""} ${className}`.trim()}
+      data-reveal-ready={shouldAnimate ? "true" : undefined}
       style={{ "--reveal-delay": `${delay}ms` } as React.CSSProperties}
     >
       {children}

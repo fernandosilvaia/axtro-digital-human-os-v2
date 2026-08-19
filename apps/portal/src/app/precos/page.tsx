@@ -4,8 +4,8 @@ import { formatUsdCents, PLAN_CATALOG, PLAN_ORDER } from "@/lib/billing/plans";
 import { createPageMetadata } from "@/lib/site";
 
 export const metadata = createPageMetadata({
-  title: "Preços — Axtro Digital Human OS",
-  description: "Planos com conversas de vídeo incluídas por mês e overage transparente — sem taxa de setup, sem contrato mínimo.",
+  title: "Preços — Axtro Closer AI Human",
+  description: "Planos do Axtro Closer AI Human com conversas de vídeo incluídas por mês e uso adicional transparente.",
   path: "/precos",
 });
 
@@ -25,7 +25,7 @@ export default function PricingPage() {
   return (
     <main style={{ maxWidth: 1040, margin: "0 auto", padding: "56px 24px 80px" }}>
       <div style={{ marginBottom: 40 }}>
-        <Link href="/" style={{ color: "var(--accent)", fontSize: "0.85rem" }}>← Axtro Digital Human OS</Link>
+        <Link href="/" style={{ color: "var(--accent)", fontSize: "0.85rem" }}>← Axtro Closer AI Human</Link>
       </div>
 
       <header style={{ marginBottom: 48, maxWidth: 640 }}>

@@ -1,7 +1,7 @@
 {
-  "name": "Axtro Digital Human OS",
-  "short_name": "Axtro Human OS",
-  "description": "Apresentadores digitais para vendas, onboarding e customer success.",
+  "name": "Axtro Closer AI Human",
+  "short_name": "Axtro Closer",
+  "description": "Closer de IA em vídeo com presença identificada, contexto autorizado e controle da equipe.",
   "lang": "pt-BR",
   "dir": "ltr",
   "start_url": "/",
@@ -13,8 +13,5 @@
     { "src": "/icon.svg", "sizes": "any", "type": "image/svg+xml", "purpose": "any maskable" },
     { "src": "/icons/icon-192.png", "sizes": "192x192", "type": "image/png", "purpose": "any maskable" },
     { "src": "/icons/icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any maskable" }
-  ],
-  "shortcuts": [
-    { "name": "Abrir workspace", "short_name": "Workspace", "url": "/dashboard", "icons": [{ "src": "/icon.svg", "sizes": "any", "type": "image/svg+xml" }] }
   ]
 }

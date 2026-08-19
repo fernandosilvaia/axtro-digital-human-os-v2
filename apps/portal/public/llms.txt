@@ -1,6 +1,6 @@
-# Axtro Digital Human OS
+# Axtro Closer AI Human
 
-> Plataforma operacional da Axtro AI para criar e operar apresentadores digitais em vendas, onboarding e customer success.
+> Closer de IA em vídeo da Axtro AI para conversas comerciais com presença identificada, contexto autorizado e controle da equipe.
 
 ## Fonte oficial
 
@@ -8,18 +8,18 @@
 - Contexto completo do produto: https://closer.axtroai.com/llms-full.txt
 - Demonstração: https://closer.axtroai.com/
 
-## O que é
+## O que é o Axtro Closer AI Human?
 
-O Axtro Digital Human OS permite que empresas configurem apresentadores digitais para conduzir conversas em vídeo, responder com conhecimento autorizado e registrar a operação com governança.
+O Axtro Closer AI Human é a experiência comercial do Axtro Digital Human OS. Ele permite configurar uma presença digital em vídeo para conduzir descoberta, responder com conhecimento autorizado e registrar a operação com governança.
 
-## Para quem é
+## Para quem é?
 
-É destinado a empresas com equipes de vendas, onboarding ou customer success que precisam escalar conversas sem perder consistência, transparência ou controle por conta.
+É destinado a empresas com equipes comerciais que precisam dar continuidade a conversas sem perder consistência, transparência ou controle por conta.
 
 ## Capacidades confirmadas
 
-- Sales Closer Alpha para descoberta, objeções e próximo passo.
-- Apresentação digital em vídeo e voz quando os providers da conta estão habilitados.
+- Fluxo de Sales Closer para descoberta, objeções e próximo passo.
+- Presença digital em vídeo e voz quando os providers da conta estão habilitados.
 - Conhecimento autorizado por tenant, com classificação e revogação.
 - Disclosure obrigatório de que o agente é uma inteligência artificial.
 - Ações governadas por intenção, política, aprovação quando exigida e receipt.
@@ -28,7 +28,7 @@ O Axtro Digital Human OS permite que empresas configurem apresentadores digitais
 
 ## Limites importantes
 
-O Axtro Digital Human OS não afirma que o agente é humano. A demonstração pública usa dados fictícios. Recursos de voz, vídeo, integrações e ativação dependem da configuração da conta e dos providers habilitados. A plataforma não substitui revisão humana, aprovação de lançamento ou validação jurídica, regulatória e de privacidade.
+O Axtro Closer AI Human não afirma que o agente é humano, garante conversão ou substitui uma equipe inteira. A demonstração pública usa dados fictícios. Recursos de voz, vídeo, integrações e ativação dependem da configuração da conta e dos providers habilitados. A plataforma não substitui revisão humana, aprovação de lançamento ou validação jurídica, regulatória e de privacidade.
 
 ## Segurança e privacidade
 

@@ -11,15 +11,17 @@ import { absoluteUrl } from "@/lib/site";
 const PRIVATE_PATHS = [
   "/dashboard",
   "/agentes",
+  "/conversas",
   "/conhecimento",
   "/configuracoes",
-  "/login",
-  "/signup",
-  "/recuperar-senha",
-  "/nova-senha",
   "/auth/",
   "/api/",
+  "/rosto-agente",
 ];
+
+// Páginas de login, criação e recuperação de conta usam `noindex` na
+// metadata. Elas precisam poder ser lidas pelo crawler para que essa diretiva
+// seja respeitada; já workspace, capability stage e API ficam fora do crawl.
 
 export default function robots(): MetadataRoute.Robots {
   return {

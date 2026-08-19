@@ -30,7 +30,9 @@ test.describe.configure({ mode: "serial" });
 
 test("landing pública renderiza e aponta para login", async ({ page }) => {
   await page.goto("/");
-  await expect(page).toHaveTitle(/Axtro Digital Human OS/);
+  await expect(page).toHaveTitle("Axtro Closer AI Human | Closer de IA em vídeo com controle");
+  await expect(page.getByRole("heading", { name: "Seu melhor closer não deveria caber na agenda." })).toBeVisible();
+  await expect(page.getByRole("button", { name: "Assistir à demonstração" })).toBeVisible();
   await expect(page.locator('a[href="/login"]').first()).toBeVisible();
 });
 
@@ -77,16 +79,43 @@ test("rota protegida sem sessão redireciona para login", async ({ page }) => {
   await expect(page).toHaveURL(/\/login/);
 });
 
-test("login do usuário demo leva ao dashboard com métricas", async ({ page }) => {
+test("login do usuário demo leva à central de conversa com progresso e custos explicitamente atribuídos", async ({ page }) => {
   await page.goto("/login");
   await page.fill('input[type="email"]', DEMO_EMAIL);
   await page.fill('input[type="password"]', DEMO_PASSWORD);
   await page.click('button[type="submit"]');
   await page.waitForURL(/\/dashboard/, { timeout: 30_000 });
-  await expect(page.locator("h1").first()).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Central da sua operação de conversa." })).toBeVisible();
+  await expect(page.getByText("Próximo melhor passo", { exact: true })).toBeVisible();
+  await expect(page.getByRole("progressbar", { name: "Prontidão operacional confirmada" })).toHaveAttribute("aria-valuenow", /\d+/);
   // T8: painel de custo (ledger de efeitos pagos, M5-01 renomeou de "estimado" para "atribuído").
   await expect(page.getByText("Custo atribuído hoje")).toBeVisible();
   await expect(page.getByText("Ledger estimado/reportado — não é a fatura conciliada")).toBeVisible();
+});
+
+test("navegação móvel fecha com Escape e mantém o foco dentro do menu", async ({ page }) => {
+  await page.setViewportSize({ width: 390, height: 844 });
+  await login(page);
+  await page.goto("/dashboard");
+
+  const openMenu = page.getByRole("button", { name: "Abrir menu" });
+  await expect(openMenu).toBeVisible();
+  await openMenu.click();
+
+  const closeMenu = page.getByRole("button", { name: "Fechar menu" });
+  const firstNavigationLink = page.getByRole("link", { name: "Visão geral" });
+  const signOutButton = page.getByRole("button", { name: "Sair da conta" });
+  await expect(closeMenu).toHaveAttribute("aria-expanded", "true");
+  await expect(firstNavigationLink).toBeFocused();
+
+  await page.keyboard.press("Shift+Tab");
+  await expect(signOutButton).toBeFocused();
+  await page.keyboard.press("Tab");
+  await expect(firstNavigationLink).toBeFocused();
+
+  await page.keyboard.press("Escape");
+  await expect(page.getByRole("button", { name: "Abrir menu" })).toBeFocused();
+  await expect(page.locator('aside[aria-label="Navegação principal"]')).toHaveAttribute("aria-hidden", "true");
 });
 
 test("agentes: lista carrega e admin ativa e pausa um rascunho", async ({ page }) => {

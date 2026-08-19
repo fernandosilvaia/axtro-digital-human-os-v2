@@ -10,7 +10,7 @@ function canonicalUrl(path: "/" | "/precos") {
 }
 
 async function expectCanonicalMetadata(page: Page, path: "/" | "/precos") {
-  await expect(page).toHaveTitle(/Axtro Digital Human OS/);
+  await expect(page).toHaveTitle(/Axtro Closer AI Human/);
   await expect(page.locator('link[rel="canonical"]')).toHaveAttribute("href", canonicalUrl(path));
   await expect(page.locator('meta[name="robots"]')).toHaveAttribute("content", /index, follow/i);
   await expect(page.locator('meta[property="og:title"]')).toHaveAttribute("content", /Axtro/);
@@ -58,6 +58,17 @@ function assertNoForbiddenStructuredData(value: unknown): void {
   }
 }
 
+function hasStructuredDataType(value: unknown, type: string): boolean {
+  if (Array.isArray(value)) return value.some((item) => hasStructuredDataType(item, type));
+  if (value === null || typeof value !== "object") return false;
+
+  for (const [key, child] of Object.entries(value)) {
+    if (key === "@type" && child === type) return true;
+    if (hasStructuredDataType(child, type)) return true;
+  }
+  return false;
+}
+
 for (const viewport of [
   { name: "desktop", width: 1280, height: 800 },
   { name: "mobile", width: 390, height: 844 },
@@ -68,6 +79,14 @@ for (const viewport of [
     test("landing e preços preservam metadata, conteúdo verificável e navegação por teclado", async ({ page }) => {
       await page.goto("/", { waitUntil: "domcontentloaded", timeout: 8_000 });
       await expectCanonicalMetadata(page, "/");
+      await expect(page).toHaveTitle("Axtro Closer AI Human | Closer de IA em vídeo com controle");
+      await expect(page.locator('meta[property="og:title"]')).toHaveAttribute("content", "Axtro Closer AI Human | Closer de IA em vídeo com controle");
+      await expect(page.getByRole("heading", { name: "Seu melhor closer não deveria caber na agenda." })).toBeVisible();
+      await expect(page.getByRole("button", { name: "Assistir à demonstração" })).toBeVisible();
+      await expect(page.getByText("IA sempre identificada", { exact: true })).toBeVisible();
+      const raissa = page.getByAltText("Raissa no estúdio Axtro, identidade visual da experiência Closer AI Human");
+      await expect(raissa).toBeVisible();
+      await expect(raissa).toHaveAttribute("src", /raissa-closer-hero\.png/);
       await expect(page.getByRole("heading", { name: /O que você precisa saber/i })).toBeVisible();
       await expect(page.locator("#faq details").first()).toBeVisible();
       await expectNoHorizontalOverflow(page);
@@ -75,7 +94,9 @@ for (const viewport of [
 
       const structuredData = await page.locator('script[type="application/ld+json"]').allTextContents();
       expect(structuredData.length).toBeGreaterThan(0);
-      structuredData.forEach((document) => assertNoForbiddenStructuredData(JSON.parse(document)));
+      const parsedStructuredData = structuredData.map((document) => JSON.parse(document));
+      parsedStructuredData.forEach(assertNoForbiddenStructuredData);
+      expect(parsedStructuredData.some((document) => hasStructuredDataType(document, "FAQPage"))).toBe(true);
 
       await page.goto("/precos");
       await expectCanonicalMetadata(page, "/precos");
