@@ -2,7 +2,8 @@ import { expect, test, type Page } from "@playwright/test";
 
 const CANONICAL_ORIGIN = "https://closer.axtroai.com";
 const PUBLIC_DOCUMENTS = ["/robots.txt", "/sitemap.xml", "/llms.txt", "/llms-full.txt", "/termos", "/privacidade"] as const;
-const PRIVATE_PATHS = ["/dashboard", "/agentes", "/conhecimento", "/configuracoes", "/login", "/signup", "/api/"] as const;
+const CRAWL_EXCLUDED_PATHS = ["/dashboard", "/agentes", "/conversas", "/conhecimento", "/configuracoes", "/auth/", "/api/", "/rosto-agente"] as const;
+const NO_INDEX_AUTH_PATHS = ["/login", "/signup", "/recuperar-senha", "/nova-senha"] as const;
 const FORBIDDEN_STRUCTURED_DATA_KEYS = new Set(["aggregaterating", "review", "ratingvalue", "guarantee"]);
 
 function canonicalUrl(path: "/" | "/precos") {
@@ -23,7 +24,7 @@ async function expectNoHorizontalOverflow(page: Page) {
 }
 
 async function expectKeyboardReachableCta(page: Page) {
-  const demoCta = page.getByRole("button", { name: /Ver demonstração ao vivo/ });
+  const demoCta = page.getByRole("button", { name: "Assistir à demonstração" });
   await page.locator("body").focus();
 
   for (let index = 0; index < 20; index += 1) {
@@ -131,7 +132,7 @@ test("documentos e endpoints de descoberta são públicos, consistentes e sem su
   // (achado da revisão da Auditoria 360, corrigido junto com robots.ts).
   for (const bot of ["OAI-SearchBot", "Claude-SearchBot", "Claude-User"] as const) {
     const block = robots.match(new RegExp(`User-Agent:\\s*${bot}\\s*\\n([\\s\\S]*?)(?=\\n\\s*\\n|User-Agent:|$)`, "i"))?.[1] ?? "";
-    PRIVATE_PATHS.forEach((path) =>
+    CRAWL_EXCLUDED_PATHS.forEach((path) =>
       expect(block, `${bot} deve excluir ${path}`).toMatch(new RegExp(`Disallow:\\s*${path.replace(/\//g, "\\/")}`, "i")),
     );
   }
@@ -140,7 +141,7 @@ test("documentos e endpoints de descoberta são públicos, consistentes e sem su
   expect(sitemap).toContain(`${CANONICAL_ORIGIN}/precos`);
   expect(sitemap).toContain(`${CANONICAL_ORIGIN}/termos`);
   expect(sitemap).toContain(`${CANONICAL_ORIGIN}/privacidade`);
-  PRIVATE_PATHS.forEach((path) => expect(sitemap, `Sitemap não pode publicar ${path}`).not.toContain(path));
+  [...CRAWL_EXCLUDED_PATHS, ...NO_INDEX_AUTH_PATHS].forEach((path) => expect(sitemap, `Sitemap não pode publicar ${path}`).not.toContain(path));
 
   for (const path of ["/llms.txt", "/llms-full.txt"] as const) {
     const document = documents.get(path) ?? "";

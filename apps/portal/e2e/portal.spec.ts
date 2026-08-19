@@ -102,10 +102,12 @@ test("navegação móvel fecha com Escape e mantém o foco dentro do menu", asyn
   await expect(openMenu).toBeVisible();
   await openMenu.click();
 
-  const closeMenu = page.getByRole("button", { name: "Fechar menu" });
+  // O drawer e o scrim têm o mesmo nome acessível de fechamento; o toggle é
+  // o único controle que também expõe aria-expanded.
+  const menuToggle = page.locator(".menu-toggle");
   const firstNavigationLink = page.getByRole("link", { name: "Visão geral" });
   const signOutButton = page.getByRole("button", { name: "Sair da conta" });
-  await expect(closeMenu).toHaveAttribute("aria-expanded", "true");
+  await expect(menuToggle).toHaveAttribute("aria-expanded", "true");
   await expect(firstNavigationLink).toBeFocused();
 
   await page.keyboard.press("Shift+Tab");
