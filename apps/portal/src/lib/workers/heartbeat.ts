@@ -4,7 +4,7 @@ import { isUuidV7 } from "@axtro/domain";
 
 import { createServiceRoleClient } from "../supabase/service.ts";
 
-export const PORTAL_FINANCIAL_WORKER_VERSION = "m5-01-v1";
+export const PORTAL_FINANCIAL_WORKER_VERSION = "m5-02-v1";
 
 export type PortalFinancialWorker = "billing_usage" | "provider_effect_reconciler";
 export type WorkerHeartbeatPhase = "started" | "succeeded" | "failed";
