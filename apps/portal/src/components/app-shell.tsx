@@ -82,7 +82,17 @@ export function AppShell({ email, roleLabel, children }: AppShellProps) {
 
   useEffect(() => {
     if (!isMobileNavigation || !menuOpen) return;
-    navigationRef.current?.querySelector<HTMLAnchorElement>("a[href]")?.focus();
+    // The sidebar's visibility:hidden->visible transition flips at 0% of the
+    // CSS transition per spec, but Chromium doesn't treat descendants as
+    // focusable until the browser has actually painted that style change —
+    // one requestAnimationFrame (before paint) is still too early, so this
+    // waits for the frame after paint instead.
+    const raf1 = window.requestAnimationFrame(() => {
+      window.requestAnimationFrame(() => {
+        navigationRef.current?.querySelector<HTMLAnchorElement>("a[href]")?.focus();
+      });
+    });
+    return () => window.cancelAnimationFrame(raf1);
   }, [isMobileNavigation, menuOpen]);
 
   const toggleMenu = () => {
