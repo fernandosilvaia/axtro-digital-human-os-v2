@@ -353,6 +353,8 @@ importers:
 
   packages/provider-tavus: {}
 
+  packages/provider-telnyx: {}
+
   packages/realtime-telemetry: {}
 
   packages/role-packs/sales-closer:
