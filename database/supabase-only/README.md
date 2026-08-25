@@ -61,6 +61,7 @@ Racional completo: D-V2-055, D-V2-056 e D-V2-058 em
 | `0046_provider_effect_termination_fence.sql` | sim (2026-08-18, aplicação humana autorizada) — cria lease/receipt durável para término autorizado por `tenant_admin`, mantendo referência do provider só no servidor. Aceitação Tavus revoga atomicamente a stage capability vinculada antes de concluir a reservation; a capability não pode ser recriada nem resolver URL depois do término. `portal_schema_capabilities_service()` confirmou v46 e `providerEffectTerminationFence:true` após a aplicação. |
 | `0047_service_role_app_schema_usage.sql` | sim (2026-08-18, aplicação humana autorizada) — corrige a ACL que impedia o PostgREST de resolver parâmetros `app.uuid_v7` em RPCs `service_role`. Concede somente `USAGE` no schema `app` e no tipo `app.uuid_v7` à `service_role`; não concede tabela, função, nem privilégio novo a `anon`/`authenticated`. A capability confirmou v47/`serviceRoleAppSchemaUsage:true` e a probe PostgREST tipada, inerte, retornou 200. |
 | `0048_tavus_stage_settlement_timestamp.sql` | sim (2026-08-18, aplicação humana autorizada) — reparo forward-only da corrida entre criação e mutação Tavus: settle, resolve e revoke capturam o relógio de parede depois de seus locks e mantêm `updated_at` monotônico no limite original `expires_at <= updated_at + 45 minutes`. Não alonga a capability, não enfraquece a constraint e preserva RLS/grants; `portal_schema_capabilities_service()` confirmou v48/`tavusStageExpiryConcurrencyFence:true`. |
+| `0049_business_action_admission_and_leads.sql` | **não aplicada ainda** (implementação local, ADR-039 onda 1a, gate humano pendente, mesma disciplina de toda migration deste porte). Kill switches e configuração `auto_confirm_scheduling` por agente próprios do domínio (sem relação de código com `portal_runtime_*`), admissão do `BusinessActionIntent` (`portal_business_action_grants`, leitura read-only de `sessions.disclosure_status`/`consent_status`/`consent_evidence` já existentes, nunca escrita), `register_lead` idempotente por `(tenant_id, idempotency_key)` derivada do `command_fingerprint` do grant, e recibo (`portal_business_action_receipts`, um por grant). `propose_meeting_slots`/`confirm_meeting_slot`, as tabelas de proposta/reserva/conexão de calendário e toda RPC do Google Calendar listada em ADR-039 "Migração 0049" são onda 1b e deliberadamente ausentes. `PORTAL_BUSINESS_ACTION_BRIDGE_ENABLED` (novo, independente de `PORTAL_RUNTIME_BRIDGE_ENABLED`) começa `false` em todo ambiente. Provado por `scripts/supabase-portal-integration.mjs` (`assertBusinessActionAdmissionAndLeads`) contra Postgres local; nunca aplicada ao projeto hospedado. |
 | `0021_meeting_bot_sessions.sql` | sim (2026-07-30, via MCP `apply_migration`, autorizado explicitamente pelo Fernando) — tabela + 3 funções confirmadas via `execute_sql`, RLS forçada |
 | `0022_agent_video_config_rpc.sql` | sim (2026-07-31, via Management API `database/query`) — RPC testada ao vivo provisionando a persona da Marina |
 | `0023_cleanup_rpcs.sql` | sim (2026-07-31, via Management API `database/query`) — exclusão de rascunho de agente e de fonte revogada, testada no e2e |
@@ -109,6 +110,20 @@ Racional completo: D-V2-055, D-V2-056 e D-V2-058 em
   seguros contra uma transação que começou antes da criação concorrente. O
   harness força a ordenação de settle, exige a constraint de expiração intacta
   e confirma que nenhuma URL de stage permanece resolúvel.
+- A 0049 (ADR-039 onda 1a) é estruturalmente independente da bridge de canal
+  (0043/0044): nenhuma tabela ou função referencia `portal_runtime_*`, e a
+  admissão do `BusinessActionIntent` só lê `sessions.disclosure_status`/
+  `consent_status`/`consent_evidence` já existentes, nunca escreve disclosure
+  ou consentimento essencial (isso continua sendo responsabilidade exclusiva
+  de `portal_admit_runtime_channel_service`). O harness prova: kill switch
+  bloqueando `register_lead` só no tenant alvo; rejeição graciosa (sem
+  persistir grant) por disclosure/consentimento essencial/`lead_data_capture`
+  ausente e por presenter mismatch; replay idempotente da admissão; e
+  idempotência de `register_lead` por `(tenant_id, idempotency_key)`: duas
+  chamadas contra o mesmo grant devolvem o mesmo lead, nunca criam um
+  segundo. `propose_meeting_slots`/`confirm_meeting_slot` e todo o domínio de
+  calendário (proposta, reserva, conexão OAuth) ficam para uma migration
+  própria da onda 1b.
 - Os RPCs M5-01 de provider, webhook, billing e reconciliação são somente
   `service_role`. As tabelas de controle/recibo também revogam DML direto da
   própria `service_role`; o acesso é exclusivamente pelas RPCs SECURITY DEFINER.
