@@ -1161,6 +1161,18 @@ async function assertBusinessActionAdmissionAndLeads(databaseUrl) {
   assert.equal(replayed.grantId, grantId);
   assert.equal(replayed.generation, 0);
 
+  // A caller that (correctly or not) generates a fresh grantId per retry --
+  // exactly what apps/portal/src/lib/runtime/portal-business-action-bridge.ts
+  // does by default when nothing threads the first attempt's grantId through
+  // -- must still replay gracefully via (tenant_id, session_id,
+  // command_fingerprint), never a raw unique_violation surfacing to the
+  // caller.
+  const replayedFreshId = admit({ grantId: "019f0000-0000-7000-8000-0000000091ff", sessionId: readySession, presenterId: readyPresenter, fingerprint: "5".repeat(64) });
+  assert.equal(replayedFreshId.outcome, "replayed", "a retry with a different grantId but the same session+fingerprint replays the original grant instead of raising a constraint violation");
+  assert.equal(replayedFreshId.grantId, grantId, "the replay reports the FIRST grant's id, never the fresh one the retry generated");
+  assert.equal(queryScalar(databaseUrl, "SELECT count(*) FROM public.portal_business_action_grants WHERE id='019f0000-0000-7000-8000-0000000091ff';"), "0",
+    "the fresh grantId from the retry attempt is never actually persisted as a second row");
+
   assertFailed(runSql(databaseUrl, asRoleSql("authenticated", fixture.userAlpha, `SELECT public.portal_admit_business_action_service(
     '019f0000-0000-7000-8000-000000009151','${fixture.tenantAlpha}','${fixture.agentAlpha}','${readySession}','${readyPresenter}','register_lead','${"6".repeat(64)}',0
   );`)), "authenticated callers cannot directly admit a business action");

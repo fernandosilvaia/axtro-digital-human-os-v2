@@ -247,8 +247,23 @@ begin
   if p_action_kind='register_lead' and not exists(select 1 from public.consent_evidence where tenant_id=p_tenant_id and session_id=p_session_id and purpose='lead_data_capture' and status='granted') then
     return jsonb_build_object('outcome','denied_purpose_consent');
   end if;
-  insert into public.portal_business_action_grants(id,tenant_id,agent_id,session_id,presenter_id,action_kind,command_fingerprint,generation)
-    values(p_grant_id,p_tenant_id,p_agent_id,p_session_id,p_presenter_id,p_action_kind,p_command_fingerprint,p_generation);
+  begin
+    insert into public.portal_business_action_grants(id,tenant_id,agent_id,session_id,presenter_id,action_kind,command_fingerprint,generation)
+      values(p_grant_id,p_tenant_id,p_agent_id,p_session_id,p_presenter_id,p_action_kind,p_command_fingerprint,p_generation);
+  exception when unique_violation then
+    -- A retry that (correctly or not) generates a fresh p_grant_id instead of
+    -- reusing the one from its first attempt still lands on the same
+    -- (tenant_id, session_id, command_fingerprint) row via that table's own
+    -- unique constraint. Falling back to a lookup here makes idempotent
+    -- replay a property of the schema, not something every future caller of
+    -- this RPC has to get right on its own -- the same reasoning that keeps
+    -- id-based replay (the "if found" branch above) from being the only path.
+    select * into v_grant from public.portal_business_action_grants where tenant_id=p_tenant_id and session_id=p_session_id and command_fingerprint=p_command_fingerprint for update;
+    if not found then raise; end if;
+    if row(v_grant.agent_id,v_grant.presenter_id,v_grant.action_kind,v_grant.generation)
+       is distinct from row(p_agent_id,p_presenter_id,p_action_kind,p_generation) then raise exception 'business action admission replay conflict' using errcode='23505'; end if;
+    return jsonb_build_object('outcome',case when v_grant.expires_at<=now() then 'expired' else 'replayed' end,'grantId',v_grant.id,'sessionId',v_grant.session_id,'generation',v_grant.generation,'expiresAt',v_grant.expires_at);
+  end;
   return jsonb_build_object('outcome','issued','grantId',p_grant_id,'sessionId',p_session_id,'generation',p_generation,'expiresAt',now()+interval '60 minutes');
 end $$;
 
