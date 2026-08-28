@@ -684,6 +684,20 @@ end $$;
 -- token) happens in the application's OAuth callback route, out of scope
 -- for this migration. Reconnecting a tenant creates a fresh secret and
 -- deletes the prior one so a stale credential never lingers in Vault.
+--
+-- Deletes the prior secret BEFORE creating the new one, not after: the
+-- Vault secret name is deterministic per tenant
+-- ('business_action_calendar:<tenant_id>'), and vault.secrets enforces a
+-- unique index on name, so calling vault.create_secret while the old row
+-- under that same name still exists raises duplicate_object -- confirmed by
+-- reproducing it directly against a real Supabase Vault instance. That bug
+-- silently bricked the ONLY recovery path ADR-039 describes for
+-- reauth_required (the CHECK constraint below requires vault_secret_id to
+-- stay non-null for any non-revoked status, so a stale-but-present secret
+-- always collided on reconnect). Deleting first is safe under Postgres
+-- transaction semantics: if vault.create_secret then fails for any reason,
+-- the whole function's transaction rolls back and the delete is undone with
+-- it, so the tenant never ends up with zero live credential.
 create or replace function public.portal_connect_google_calendar_service(
   p_id app.uuid_v7,p_tenant_id app.uuid_v7,p_actor_id app.uuid_v7,
   p_google_account_email text,p_calendar_id text,p_default_timezone text,p_refresh_token text
@@ -701,6 +715,10 @@ begin
   select * into v_existing from public.portal_business_action_calendar_connections where tenant_id=p_tenant_id for update;
   v_old_secret_id:=v_existing.vault_secret_id;
 
+  if v_old_secret_id is not null then
+    delete from vault.secrets where id=v_old_secret_id;
+  end if;
+
   select vault.create_secret(p_refresh_token,'business_action_calendar:'||p_tenant_id::text,'ADR-039 Google Calendar OAuth refresh token, tenant-scoped') into v_secret_id;
 
   insert into public.portal_business_action_calendar_connections(id,tenant_id,google_account_email,calendar_id,default_timezone,vault_secret_id,status,connected_by_actor_id,connected_at,updated_at)
@@ -709,10 +727,6 @@ begin
     google_account_email=excluded.google_account_email,calendar_id=excluded.calendar_id,default_timezone=excluded.default_timezone,
     vault_secret_id=excluded.vault_secret_id,status='connected',connected_by_actor_id=excluded.connected_by_actor_id,connected_at=now(),
     revoked_by_actor_id=null,revoked_at=null,updated_at=now();
-
-  if v_old_secret_id is not null and v_old_secret_id<>v_secret_id then
-    delete from vault.secrets where id=v_old_secret_id;
-  end if;
 
   return jsonb_build_object('outcome','connected','tenantId',p_tenant_id,'calendarId',p_calendar_id,'status','connected');
 end $$;

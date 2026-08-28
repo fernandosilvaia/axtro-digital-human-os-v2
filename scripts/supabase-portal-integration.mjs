@@ -1380,6 +1380,21 @@ function assertBusinessActionCalendarScheduling(databaseUrl) {
   assert.equal(queryScalar(databaseUrl, `SELECT count(*) FROM vault.secrets WHERE id='${firstSecretId}';`), "0", "the prior secret is deleted from Vault on reconnect, never left orphaned");
   assert.equal(queryScalar(databaseUrl, `SELECT secret FROM vault.secrets WHERE id='${secondContext.vaultSecretId}';`), "1//harness-refresh-token-beta-v2");
 
+  // The exact self-recovery path ADR-039 describes for reauth_required: a
+  // worker (out of scope here) would flip status without touching
+  // vault_secret_id (the CHECK constraint requires it stay non-null for any
+  // non-revoked status). Reconnecting must still succeed -- this is the
+  // concrete scenario the original create-before-delete ordering bug broke,
+  // since the Vault secret name is deterministic per tenant and the stale
+  // row under that name was still present when create_secret ran.
+  runSql(databaseUrl, `UPDATE public.portal_business_action_calendar_connections SET status='reauth_required' WHERE tenant_id='${fixture.tenantBeta}';`);
+  const reauthReconnect = connect({ tenantId: fixture.tenantBeta, actorId: fixture.actorBeta, refreshToken: "1//harness-refresh-token-beta-v3" });
+  assert.equal(reauthReconnect.outcome, "connected", "reconnecting from reauth_required succeeds instead of colliding on the Vault secret name");
+  const thirdContext = context(fixture.tenantBeta);
+  assert.equal(thirdContext.status, "connected");
+  assert.notEqual(thirdContext.vaultSecretId, secondContext.vaultSecretId, "the reauth_required reconnect also rotates to a fresh Vault secret");
+  assert.equal(queryScalar(databaseUrl, `SELECT count(*) FROM vault.secrets WHERE id='${secondContext.vaultSecretId}';`), "0", "the stale reauth_required secret is deleted, never left orphaned");
+
   assertFailed(runSql(databaseUrl, asRoleSql("service_role", null,
     `SELECT public.portal_disconnect_google_calendar_service('${fixture.tenantBeta}','${nextId()}');`)),
   "an actor with no tenant_admin membership cannot disconnect a calendar");
@@ -1390,7 +1405,7 @@ function assertBusinessActionCalendarScheduling(databaseUrl) {
   assert.equal(revokedContext.outcome, "found", "a revoked connection row still exists -- context distinguishes never-connected from revoked");
   assert.equal(revokedContext.status, "revoked");
   assert.equal(revokedContext.vaultSecretId, null, "no dangling Vault reference survives revocation");
-  assert.equal(queryScalar(databaseUrl, `SELECT count(*) FROM vault.secrets WHERE id='${secondContext.vaultSecretId}';`), "0", "disconnect deletes the live Vault secret");
+  assert.equal(queryScalar(databaseUrl, `SELECT count(*) FROM vault.secrets WHERE id='${thirdContext.vaultSecretId}';`), "0", "disconnect deletes the live Vault secret");
   assert.equal(disconnect(fixture.tenantBeta, fixture.actorBeta).outcome, "revoked", "disconnecting an already-revoked connection is idempotent, never an error");
 
   // -- scheduling flow (tenantAlpha/agentAlpha, auto_confirm_scheduling already true) --
@@ -3554,7 +3569,12 @@ function postPortablePreludeSql() {
 // direct delete) so the migration can be proven end to end locally; there is
 // no encryption at rest here (fine for a disposable test cluster torn down
 // at the end of this run) and production runs against the real managed
-// Vault, never this stub.
+// Vault, never this stub. secrets_name_idx replicates the real Vault's own
+// unique partial index on name -- without it this stub is unfaithful in
+// exactly the way that let portal_connect_google_calendar_service's original
+// create-before-delete ordering bug (reconnect collides on the tenant's
+// deterministic secret name) pass the harness silently; see the reconnect
+// assertions below, which now depend on this index actually being enforced.
 function vaultPreludeSql() {
   return `
     CREATE SCHEMA vault AUTHORIZATION postgres;
@@ -3566,6 +3586,7 @@ function vaultPreludeSql() {
       created_at timestamptz NOT NULL DEFAULT now(),
       updated_at timestamptz NOT NULL DEFAULT now()
     );
+    CREATE UNIQUE INDEX secrets_name_idx ON vault.secrets(name) WHERE name IS NOT NULL;
     CREATE OR REPLACE FUNCTION vault.create_secret(new_secret text, new_name text DEFAULT NULL, new_description text DEFAULT NULL)
     RETURNS uuid LANGUAGE plpgsql AS $$
     DECLARE v_id uuid;
