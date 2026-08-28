@@ -671,17 +671,21 @@ instante da admissão em si (responder rápido com o handoff), nunca para a
 criação da Checkout Session, que já não acontece mais dentro desta
 fronteira navegador → servidor de jeito nenhum.
 
-## Migração 0050: tabelas e RPCs (nível de design, sem SQL completo)
+## Migração 0052: tabelas e RPCs (nível de design, sem SQL completo)
 
-A última migration física em `database/supabase-only/` é
-`0048_tavus_stage_settlement_timestamp.sql` (confirmado rodando
-`ls database/supabase-only/ | sort | tail -5`). O ADR-039, aceito um dia
-antes deste, já reserva logicamente o número `0049` para o domínio de
-calendário e lead, ainda não materializado em disco. Este ADR não reutiliza
-esse número: a próxima migration livre para o domínio de cobrança é `0050`,
-e pressupõe `0049` já aplicada antes dela (nenhuma tabela deste domínio lê
-dado de `0049`, mas a sequência expand-only e o probe de capacidades, que
-sobe de v49 para v50, exigem essa ordem).
+A última migration física em `database/supabase-only/` era
+`0048_tavus_stage_settlement_timestamp.sql` quando este ADR foi escrito
+(confirmado rodando `ls database/supabase-only/ | sort | tail -5`). O
+ADR-039, aceito um dia antes deste, reservava logicamente o número `0049`
+para o domínio de calendário e lead. Antes de qualquer uma das duas migrations
+mergear, porém, uma sessão concorrente aplicou em produção suas próprias
+`0049_portal_text_preview_admission.sql` e `0050_meeting_terminal_notification_claim.sql`
+(feature não relacionada), forçando a onda 1a do ADR-039 a renumerar para
+`0051` (D-V2-145 em `docs/operations/DECISIONS_LOG.md`). Este ADR não
+reutiliza nenhum dos números já tomados: a próxima migration livre para o
+domínio de cobrança é `0052`, e pressupõe `0051` já aplicada antes dela
+(nenhuma tabela deste domínio lê dado de `0051`, mas a sequência expand-only
+e o probe de capacidades, que sobe de v51 para v52, exigem essa ordem).
 
 Tabelas novas, todas com `tenant_id app.uuid_v7 not null`, RLS forçada, sem
 policy para `authenticated`/`anon`/`service_role` direto (só RPC
@@ -890,9 +894,9 @@ conectada), duas das quatro categorias de risco ALTO de Fernando ao mesmo
 tempo (banco e pagamento, com auth também presente no fluxo OAuth); a
 aplicação em produção exige gate humano antes e depois, como qualquer
 mudança dessa classe. O deploy segue o mesmo padrão expand-only já usado
-desde o ADR-036: aplicar `0050` (depois de `0049`) antes de subir o
+desde o ADR-036: aplicar `0052` (depois de `0051`) antes de subir o
 artefato de aplicação que a usa; nenhuma tabela ou RPC anterior é removida
-ou estreitada, então o rollback de aplicação para antes de `0050` continua
+ou estreitada, então o rollback de aplicação para antes de `0052` continua
 seguro. `PORTAL_BUSINESS_ACTION_CHECKOUT_ENABLED` começa `false` em todo
 ambiente, inclusive produção, e assim permanece até a revisão de segurança
 e compliance do fluxo Stripe Connect ser concluída e um tenant canário ser
@@ -937,8 +941,8 @@ categoria ALTO):**
   dual-approval manual.
 - Suporte estrutural a taxa de plataforma (`application_fee_amount`), com o
   percentual em si tratado como decisão de negócio pendente, não técnica.
-- Migração `0050` (número confirmado livre, considerando a reserva lógica
-  do `0049` pelo ADR-039).
+- Migração `0052` (número confirmado livre depois da renumeração da onda 1a do
+  ADR-039 — D-V2-145 em `docs/operations/DECISIONS_LOG.md`).
 - Escopo V1: cobrança única (`mode: "payment"`), sem assinatura recorrente
   para o cliente final, sem ferramenta de reembolso dentro do Portal (o
   tenant usa o próprio dashboard Stripe para isso), sem desconto, sem
@@ -973,7 +977,7 @@ bloqueava (autonomia da geração do link de cobrança) foi resolvido acima.
 - Confirmação final do tipo de conta (Standard) antes do primeiro tenant
   real conectar, por ser categoria ALTO (pagamento) mesmo já vindo com
   recomendação técnica forte deste ADR.
-- Aplicação da migration `0050` em produção segue o mesmo gate humano de
+- Aplicação da migration `0052` em produção segue o mesmo gate humano de
   toda migration deste porte (autorização explícita antes e depois, nunca
   automática).
 - A tela de aprovação do `tenant_admin` (listar reservas `pending_approval`,

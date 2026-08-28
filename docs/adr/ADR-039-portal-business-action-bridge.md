@@ -346,10 +346,14 @@ não uma decisão de arquitetura: a doutrina de conduta já dá o padrão certo
 ("deixa eu já checar sua agenda aqui" em vez de silêncio), o mesmo recurso
 que um closer humano usa para preencher um instante de busca.
 
-## Migração 0049: tabelas e RPCs (nível de design, sem SQL completo)
+## Migração 0051: tabelas e RPCs (nível de design, sem SQL completo)
 
-A última migration de `database/supabase-only/` é `0048_tavus_stage_settlement_timestamp.sql`;
-a próxima livre é `0049`.
+A última migration de `database/supabase-only/` era `0048_tavus_stage_settlement_timestamp.sql`
+quando este design foi escrito, tornando `0049` o próximo número livre. Antes desta
+migration mergear, porém, uma sessão concorrente aplicou em produção suas próprias
+`0049_portal_text_preview_admission.sql` e `0050_meeting_terminal_notification_claim.sql`
+(feature não relacionada) — o número livre real na hora do merge passou a ser `0051`
+(D-V2-145 em `docs/operations/DECISIONS_LOG.md` registra a renumeração).
 
 Tabelas novas, todas com `tenant_id app.uuid_v7 not null`, RLS forçada, sem
 policy para `authenticated`/`anon`/`service_role` direto (só RPC
@@ -435,10 +439,10 @@ Esta migration mexe em banco (tabelas novas, RLS, RPCs `service_role`) e
 introduz custódia de credencial de OAuth (classe auth), duas das quatro
 categorias que Fernando classifica como risco ALTO; a aplicação em produção
 exige gate humano antes e depois, como qualquer mudança dessa classe. Deploy
-segue o mesmo padrão expand-only já usado desde o ADR-036/038: aplicar 0049
+segue o mesmo padrão expand-only já usado desde o ADR-036/038: aplicar 0051
 antes de subir o artefato de aplicação que a usa; nenhuma tabela ou RPC
 anterior é removida ou estreitada, então o rollback de aplicação para antes
-de 0049 continua seguro (o código antigo simplesmente ignora as tabelas
+de 0051 continua seguro (o código antigo simplesmente ignora as tabelas
 novas). `PORTAL_BUSINESS_ACTION_BRIDGE_ENABLED` começa `false` em todo
 ambiente, inclusive produção, até uma validação de schema/capacidades e um
 canário de tenant aprovado, o mesmo discipline de rollout que o ADR-038 já
@@ -477,7 +481,7 @@ confirmada libera a reserva.
   no `confirm_meeting_slot` (`sendUpdates` do Google) — assumido como
   comportamento padrão porque é o objetivo do produto; revisitar se algum
   tenant piloto pedir o contrário.
-- Aplicação da migration 0049 em produção segue o mesmo gate humano de toda
+- Aplicação da migration 0051 em produção segue o mesmo gate humano de toda
   migration deste porte (autorização explícita antes e depois, nunca
   automática).
 
