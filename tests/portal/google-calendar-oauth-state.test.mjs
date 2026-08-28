@@ -62,6 +62,39 @@ test("o Map interno não cresce sem limite — um state nunca concluído eventua
   assert.equal(oauthState.consumeGoogleCalendarOAuthState(first), null);
 });
 
+test("achado da revisão de segurança: um tenant gerando volume de states nunca evicta o state pendente de OUTRO tenant", () => {
+  // Um tenant_admin de outro tenant tem um fluxo legítimo em andamento.
+  const victimState = oauthState.createGoogleCalendarOAuthState("tenant-victim-flood", "actor-victim-flood");
+
+  // Um tenant diferente (potencialmente malicioso, ou vários coordenados)
+  // gera volume de states sem nunca concluir o fluxo -- mais que o bound
+  // por tenant, o suficiente pra também estourar o bound global sozinho.
+  for (let i = 0; i < 250; i += 1) {
+    oauthState.createGoogleCalendarOAuthState("tenant-flooder", `actor-flooder-${i}`);
+  }
+
+  // O state da vítima, gerado ANTES do flood e nunca consumido, ainda
+  // precisa estar vivo -- o flood só pode evictar as entradas mais antigas
+  // do PRÓPRIO tenant-flooder, nunca as de tenant-victim-flood.
+  assert.deepEqual(
+    oauthState.consumeGoogleCalendarOAuthState(victimState),
+    { tenantId: "tenant-victim-flood", actorId: "actor-victim-flood" },
+    "um tenant flooding states não pode empurrar pra fora o state pendente legítimo de outro tenant",
+  );
+});
+
+test("bound por tenant: um único tenant não acumula states pendentes sem limite, mesmo sem nunca concluir o fluxo", () => {
+  const first = oauthState.createGoogleCalendarOAuthState("tenant-self-flood", "actor-self-flood-first");
+  for (let i = 0; i < 20; i += 1) {
+    oauthState.createGoogleCalendarOAuthState("tenant-self-flood", `actor-self-flood-${i}`);
+  }
+  assert.equal(
+    oauthState.consumeGoogleCalendarOAuthState(first),
+    null,
+    "o bound por tenant deveria ter evictado o state mais antigo do PRÓPRIO tenant muito antes de 20 states pendentes",
+  );
+});
+
 test("um state amarrado a um tenant/actor nunca é confundido com o de outro (isolamento)", () => {
   const stateVictim = oauthState.createGoogleCalendarOAuthState("tenant-victim", "actor-victim");
   const stateAttacker = oauthState.createGoogleCalendarOAuthState("tenant-attacker", "actor-attacker");

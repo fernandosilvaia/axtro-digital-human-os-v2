@@ -37,13 +37,21 @@
  * - Uso único: consumido (removido do Map) na primeira leitura, sucesso ou
  *   falha — um `state` reaproveitado (replay) nunca é aceito de novo, seja
  *   pelo atacante seja por um retry acidental do navegador.
- * - Bound de tamanho (`MAX_TRACKED_STATES`) com eviction do mais antigo,
- *   mesma disciplina defensiva de `rate-limit.ts`: aqui a chave é um token
- *   aleatório de 256 bits que o CHAMADOR não escolhe (gerado por nós, nunca
- *   pelo `tenant_admin`), então não existe o risco de terceiro envenenar a
- *   eviction de outro tenant que motivou o cuidado extra em `rate-limit.ts`
- *   — o bound aqui é só backstop contra um `tenant_admin` (ou um bug de UI)
- *   clicando "Conectar" repetidamente sem nunca concluir o fluxo.
+ * - Bound de tamanho GLOBAL (`MAX_TRACKED_STATES`) com eviction do mais
+ *   antigo do processo inteiro, mesma disciplina defensiva de
+ *   `rate-limit.ts`, como backstop de memória total. **Achado real da
+ *   revisão de segurança adversarial**: um bound só global, sem checar
+ *   tenant, permite um `tenant_admin` malicioso (ou vários coordenados —
+ *   alcançável aqui porque o cadastro é self-service) gerar volume de
+ *   `state` sem nunca concluir o fluxo e empurrar pra fora do Map um `state`
+ *   pendente LEGÍTIMO de OUTRO tenant — mesmo respeitando o rate limiter por
+ *   tenant de `calendar-connection.ts` (a soma entre tenants diferentes
+ *   nunca era limitada). Por isso existe também `MAX_TRACKED_STATES_PER_TENANT`:
+ *   ao atingir o teto por tenant, evict só a entrada mais antiga DAQUELE
+ *   MESMO tenant, nunca de outro. A chave em si (o token de 256 bits)
+ *   continua não sendo escolhível pelo chamador, então não há risco de
+ *   colisão/poisoning por adivinhação — o risco fechado aqui era puramente
+ *   volumétrico entre tenants distintos, não de adivinhação de chave.
  */
 import { randomBytes } from "node:crypto";
 
@@ -72,6 +80,45 @@ function pruneExpired(now: number): void {
 }
 
 /**
+ * Achado real da revisão de segurança adversarial (onda 1b-ii): o bound
+ * global sozinho (`MAX_TRACKED_STATES`) evict o item mais antigo do Map
+ * INTEIRO, sem checar de qual tenant ele é — um tenant malicioso (ou vários
+ * coordenados, alcançável nesta aplicação porque o cadastro é self-service)
+ * gerando volume de `state` sem nunca completar o fluxo pode empurrar pra
+ * fora do Map um `state` pendente LEGÍTIMO de outro tenant, forçando esse
+ * tenant_admin vítima a ver "state_invalido" no meio do próprio fluxo dele.
+ * O rate limiter por tenant em `calendar-connection.ts`
+ * (`google-calendar-connect:<tenantId>`, 6/min) não impede isto: a soma
+ * entre tenants diferentes nunca é limitada, e mesmo um único tenant sozinho
+ * respeitando esse limite poderia acumular até 60 states pendentes ao longo
+ * da janela de TTL de 10 minutos (6/min × 10min) — já mais que uma fração
+ * razoável do bound global de 200. Por isso este bound por tenant é
+ * necessário ALÉM do bound global (que continua existindo como backstop de
+ * memória total do processo): ao atingir o teto por tenant, evict só a
+ * entrada mais antiga DAQUELE MESMO tenant, nunca de outro — preservando a
+ * garantia central deste arquivo (nenhum tenant pode afetar o `state`
+ * pendente de outro).
+ */
+const MAX_TRACKED_STATES_PER_TENANT = 8;
+
+function evictOldestForTenant(tenantId: string): void {
+  for (const [state, pending] of pendingStates) {
+    if (pending.tenantId === tenantId) {
+      pendingStates.delete(state);
+      return;
+    }
+  }
+}
+
+function countForTenant(tenantId: string): number {
+  let count = 0;
+  for (const pending of pendingStates.values()) {
+    if (pending.tenantId === tenantId) count += 1;
+  }
+  return count;
+}
+
+/**
  * Gera e persiste um `state` novo amarrado a `(tenantId, actorId)`. Chamado
  * uma vez por tentativa de conexão, no início do fluxo (Server Action
  * `startGoogleCalendarConnection`), nunca reexecutado por um retry — cada
@@ -80,6 +127,9 @@ function pruneExpired(now: number): void {
 export function createGoogleCalendarOAuthState(tenantId: string, actorId: string, clock: GoogleCalendarOAuthStateClock = SYSTEM_CLOCK): string {
   const now = clock.now();
   pruneExpired(now);
+  if (countForTenant(tenantId) >= MAX_TRACKED_STATES_PER_TENANT) {
+    evictOldestForTenant(tenantId);
+  }
   if (pendingStates.size >= MAX_TRACKED_STATES) {
     const oldestState = pendingStates.keys().next().value;
     if (oldestState !== undefined) pendingStates.delete(oldestState);
