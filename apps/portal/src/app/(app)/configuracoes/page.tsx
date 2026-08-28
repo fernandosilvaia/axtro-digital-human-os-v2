@@ -1,7 +1,9 @@
 import type { Metadata } from "next";
 
+import { fetchGoogleCalendarConnection, type GoogleCalendarConnectionContext } from "@/lib/google-calendar/connection";
 import { fetchBillingStatus, fetchTeam, fetchTenantOverview } from "@/lib/portal-data";
 import { BillingSection } from "./billing-section";
+import { CalendarSection } from "./calendar-section";
 import { TeamSection } from "./team-section";
 import { TenantProfileForm } from "./tenant-profile-form";
 
@@ -10,9 +12,14 @@ export const metadata: Metadata = { title: "Configurações — Axtro Digital Hu
 export default async function SettingsPage({
   searchParams,
 }: {
-  searchParams: Promise<{ billing_success?: string; billing_error?: string }>;
+  searchParams: Promise<{ billing_success?: string; billing_error?: string; calendar_status?: string; calendar_error?: string }>;
 }) {
-  const { billing_success: billingSuccess, billing_error: billingError } = await searchParams;
+  const {
+    billing_success: billingSuccess,
+    billing_error: billingError,
+    calendar_status: calendarStatus,
+    calendar_error: calendarError,
+  } = await searchParams;
 
   let overview;
   let team;
@@ -34,6 +41,18 @@ export default async function SettingsPage({
     billing = await fetchBillingStatus();
   } catch {
     billing = null;
+  }
+
+  // Mesma degradação isolada da cobrança acima: uma falha aqui (RPC
+  // indisponível, ambiente sem a migration 0052) nunca derruba o resto da
+  // página — só o card do Google Calendar mostra o aviso.
+  let calendarConnection: GoogleCalendarConnectionContext | null = null;
+  if (overview.tenant) {
+    try {
+      calendarConnection = await fetchGoogleCalendarConnection(overview.tenant.id);
+    } catch {
+      calendarConnection = null;
+    }
   }
 
   const tenant = overview.tenant;
@@ -88,6 +107,13 @@ export default async function SettingsPage({
             isAdmin={isAdmin}
             billingSuccess={billingSuccess === "1"}
             billingError={billingError ?? null}
+          />
+
+          <CalendarSection
+            connection={calendarConnection}
+            isAdmin={isAdmin}
+            calendarStatus={calendarStatus ?? null}
+            calendarError={calendarError ?? null}
           />
         </div>
       ) : (

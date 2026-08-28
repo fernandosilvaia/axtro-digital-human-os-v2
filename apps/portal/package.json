@@ -13,6 +13,7 @@
   },
   "dependencies": {
     "@axtro/domain": "workspace:*",
+    "@axtro/provider-google-calendar": "workspace:*",
     "@axtro/provider-openrouter": "workspace:*",
     "@axtro/provider-recall": "workspace:*",
     "@axtro/provider-stripe": "workspace:*",

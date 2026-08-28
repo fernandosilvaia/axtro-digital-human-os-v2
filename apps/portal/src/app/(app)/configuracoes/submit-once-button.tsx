@@ -15,15 +15,18 @@ export function SubmitOnceButton({
   className,
   style,
   children,
+  pendingLabel = "Abrindo o checkout…",
 }: {
   className: string;
   style?: CSSProperties;
   children: ReactNode;
+  /** Rótulo mostrado enquanto a action está em voo. Default preserva o texto original (contexto de checkout, o único chamador até a onda 1b-ii). */
+  pendingLabel?: string;
 }) {
   const { pending } = useFormStatus();
   return (
     <button type="submit" className={className} style={style} disabled={pending} aria-busy={pending}>
-      {pending ? "Abrindo o checkout…" : children}
+      {pending ? pendingLabel : children}
     </button>
   );
 }
