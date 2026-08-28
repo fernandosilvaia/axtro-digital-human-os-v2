@@ -5,22 +5,30 @@
  * disponibilidade real (FreeBusy), criar um evento real com um id gerado
  * pelo chamador (recuperação de reserva no padrão ADR-036), buscar um
  * evento existente (reconciliação de uma linha `unknown`), cancelar um
- * evento (rollback de uma reserva que nunca deveria ter existido) e trocar
- * um `refresh_token` OAuth por um `access_token` de curto prazo. Mesmos
- * guardrails dos outros quatro adapters reais (OpenRouter, Tavus, Recall.ai,
- * Telnyx): fetch injetável, timeout obrigatório, erro tipado, segredo nunca
- * aparece em erro/log, validação de input fechada antes da rede.
+ * evento (rollback de uma reserva que nunca deveria ter existido), trocar um
+ * `refresh_token` OAuth por um `access_token` de curto prazo, e (onda
+ * 1b-ii) trocar o `code` de autorização inicial pelo primeiro
+ * `refresh_token`/`access_token` de um tenant. Mesmos guardrails dos outros
+ * quatro adapters reais (OpenRouter, Tavus, Recall.ai, Telnyx): fetch
+ * injetável, timeout obrigatório, erro tipado, segredo nunca aparece em
+ * erro/log, validação de input fechada antes da rede.
  *
  * Diferença estrutural dos outros quatro: nenhum usa uma chave de API única
  * de plataforma. Google Calendar é OAuth por tenant (ADR-039, "Credencial do
- * Google Calendar por tenant") — este pacote nunca vê nem simula o fluxo de
- * autorização inicial (redirect pro consent screen, troca do primeiro
- * `code` por `refresh_token`), só recebe um `refreshToken` já existente
- * (injetado por quem chama, hoje: vindo do Supabase Vault, fora do escopo
- * deste pacote) e sabe trocá-lo por um `access_token` quando precisa fazer
- * uma chamada real. O fluxo de autorização inicial, a migration, a RPC de
- * reserva durável e qualquer Server Action do portal ficam fora desta
- * fatia, de propósito (ver ADR-039).
+ * Google Calendar por tenant"). Correção da onda 1b-ii: o parágrafo anterior
+ * desta doc dizia que este pacote "nunca vê nem simula o fluxo de
+ * autorização inicial" — isso deixou de ser verdade para a TROCA em si
+ * (`exchangeGoogleAuthorizationCode`, abaixo, espelha `refreshGoogleAccessToken`
+ * exatamente). O que continua fora deste pacote, de propósito, é só a
+ * MONTAGEM do redirect pro consent screen do Google (`client_id`,
+ * `redirect_uri`, `scope`, `state` anti-CSRF) e tudo que depende de sessão
+ * HTTP/cookie do portal (gerar e validar o `state`, saber qual tenant/actor
+ * iniciou o fluxo) — isso é trabalho da rota de callback OAuth do portal
+ * (`apps/portal/src/app/api/google-calendar/oauth/callback/route.ts`) e das
+ * Server Actions de conectar/desconectar
+ * (`apps/portal/src/lib/actions/calendar-connection.ts`), nunca deste
+ * pacote sem estado. A migration e a RPC de custódia do refresh token no
+ * Supabase Vault também ficam fora desta fatia (ver ADR-039).
  *
  * Fontes consultadas (2026-08-25), doc real, não memória de treino:
  * - Base URL + shape de request/response de cada método (FreeBusy, Events
@@ -82,6 +90,37 @@
  *   tokens." Este é o único erro que este pacote mapeia para o código
  *   `reauth_required` que ADR-039 pede explicitamente ("um `invalid_grant`
  *   do Google vira `reauth_required` na linha").
+ * - Troca do `code` de autorização pelo primeiro `refresh_token`/`access_token`
+ *   (onda 1b-ii, `exchangeGoogleAuthorizationCode`): MESMA página oficial do
+ *   item anterior (developers.google.com/identity/protocols/oauth2/web-server),
+ *   seção "Exchange authorization code for refresh and access tokens" —
+ *   MESMO endpoint (`POST https://oauth2.googleapis.com/token`), mesmo
+ *   `Content-Type: application/x-www-form-urlencoded`, corpo `client_id`,
+ *   `client_secret`, `code`, `redirect_uri` (deve bater exatamente com o
+ *   `redirect_uri` usado para gerar o `code`), `grant_type=authorization_code`.
+ *   Resposta de sucesso: MESMO envelope JSON do refresh (`access_token`,
+ *   `expires_in`, `scope`, `token_type`) mais `refresh_token` — presente só
+ *   na primeira troca de consentimento (`access_type=offline`+`prompt=consent`
+ *   na URL de autorização, montada fora deste pacote); a mesma página
+ *   documenta que um usuário que já autorizou antes SEM revogar acesso pode
+ *   não receber `refresh_token` de novo mesmo com os dois parâmetros
+ *   corretos — comportamento que este pacote trata como erro tipado
+ *   explícito (`missing_refresh_token`), nunca finge sucesso sem o valor. O
+ *   envelope também inclui `id_token` (JWT OIDC) quando a URL de autorização
+ *   pediu o escopo `openid` — repassado como está (`idToken`), nunca
+ *   decodificado ou validado aqui (Art. 16: decodificar claims é
+ *   interpretação de negócio, fora do escopo deste pacote sem estado; ver o
+ *   comentário de `decodeGoogleIdTokenEmail` no portal). Diferente do
+ *   refresh, um `invalid_grant` aqui significa "este `code` específico é
+ *   inválido/expirado/já usado/não bate com o `redirect_uri`" — nunca
+ *   "recredencie o tenant" (não existe conexão estabelecida ainda nesta
+ *   chamada), então este pacote deliberadamente NÃO mapeia esse erro para
+ *   `reauth_required`; cai no mesmo `provider_rejected`/`provider_unavailable`
+ *   genérico por status HTTP que qualquer outra rejeição do endpoint de
+ *   token já usa. Comportamento estável e amplamente documentado do fluxo
+ *   OAuth2 "web server" da Google (mesma família de garantias do item de
+ *   refresh acima); não revalidado ao vivo nesta rodada especificamente para
+ *   este bullet.
  *
  * AMBIGUIDADE DOCUMENTADA (Art. 16 — não inventar o que a doc não confirma):
  * 1. O formato de `calendarId` não tem um charset fechado documentado (pode
@@ -124,6 +163,7 @@
 
 export type GoogleCalendarProviderErrorCode =
   | "missing_credentials"
+  | "missing_refresh_token"
   | "invalid_request"
   | "event_not_found"
   | "event_id_conflict"
@@ -319,6 +359,163 @@ export async function refreshGoogleAccessToken(options: GoogleOAuthClientOptions
       expiresInSeconds: expiresIn,
       scope: typeof scope === "string" ? scope : null,
       tokenType,
+    });
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+// ---------------------------------------------------------------------------
+// OAuth2: code de autorização -> refresh_token + access_token (troca inicial)
+// ---------------------------------------------------------------------------
+
+export interface GoogleAuthorizationCodeExchangeOptions {
+  readonly clientId: string;
+  readonly clientSecret: string;
+  /** O `code` de uso único devolvido pelo Google no redirect de volta pro `redirect_uri`. Nunca logado por este pacote nem por quem o chama. */
+  readonly code: string;
+  /** Deve ser byte-idêntico ao `redirect_uri` usado para gerar este `code` na URL de autorização (exigência do próprio Google). */
+  readonly redirectUri: string;
+  readonly timeoutMs?: number;
+  readonly fetchImplementation?: typeof fetch;
+}
+
+export interface GoogleAuthorizationCodeExchangeResult extends GoogleAccessToken {
+  /** Só existe porque este pacote trata a ausência como erro tipado (`missing_refresh_token`) em vez de devolver um resultado incompleto silenciosamente. */
+  readonly refreshToken: string;
+  /**
+   * JWT OIDC bruto, repassado como o Google devolveu (base64url header.payload.signature),
+   * quando a URL de autorização pediu o escopo `openid` -- `null` se ausente
+   * no envelope. Nunca decodificado nem validado aqui (Art. 16): extrair e
+   * usar a claim `email` é decisão de negócio de quem chama (ver
+   * `apps/portal/src/lib/google-calendar/id-token.ts`).
+   */
+  readonly idToken: string | null;
+}
+
+function validateAuthorizationCodeExchangeOptions(
+  options: GoogleAuthorizationCodeExchangeOptions,
+): { clientId: string; clientSecret: string; code: string; redirectUri: string } {
+  const clientId = trimmedOrEmpty(options.clientId);
+  const clientSecret = trimmedOrEmpty(options.clientSecret);
+  const code = trimmedOrEmpty(options.code);
+  const redirectUri = trimmedOrEmpty(options.redirectUri);
+  if (clientId.length === 0 || clientSecret.length === 0 || code.length === 0 || redirectUri.length === 0) {
+    throw new GoogleCalendarProviderError("missing_credentials", "Google OAuth client id/secret, authorization code or redirect_uri are not configured");
+  }
+  return { clientId, clientSecret, code, redirectUri };
+}
+
+/**
+ * Troca o `code` de autorização inicial (fluxo de callback OAuth do portal,
+ * fora deste pacote) pelo primeiro `refresh_token`/`access_token` de um
+ * tenant, chamando o MESMO endpoint de token real do Google que
+ * `refreshGoogleAccessToken` usa (developers.google.com/identity/protocols/oauth2/web-server,
+ * seção "Exchange authorization code for refresh and access tokens" --
+ * ver o cabeçalho deste arquivo). Espelha `refreshGoogleAccessToken`
+ * deliberadamente: mesmo `readBoundedText`, mesmo `GoogleCalendarProviderError`,
+ * mesmo timeout com corpo pendurado, mesmo `fetchImplementation` injetável,
+ * mesmo `TOKEN_ENDPOINT` -- só o corpo da requisição (`code`+`redirect_uri`+
+ * `grant_type=authorization_code` em vez de `refresh_token`+
+ * `grant_type=refresh_token`) e o formato da resposta (`refresh_token`+
+ * `id_token` obrigatórios/opcionais aqui, nunca esperados no refresh) mudam.
+ *
+ * Nunca mapeia `invalid_grant` para `reauth_required` (ver o cabeçalho do
+ * arquivo: nesta chamada não existe conexão estabelecida para reautenticar
+ * -- um `invalid_grant` aqui é sempre sobre o `code` em si, não sobre um
+ * `refresh_token` já custodiado). Se o Google devolver 2xx sem
+ * `refresh_token` no corpo (acontece quando o usuário já autorizou antes sem
+ * revogar, mesmo com `access_type=offline`+`prompt=consent` -- comportamento
+ * do próprio Google, não bug deste pacote), lança `missing_refresh_token`
+ * com uma mensagem que já orienta revogar o acesso em
+ * https://myaccount.google.com/permissions e tentar de novo -- nunca
+ * devolve um resultado sem `refreshToken` silenciosamente.
+ */
+export async function exchangeGoogleAuthorizationCode(
+  options: GoogleAuthorizationCodeExchangeOptions,
+): Promise<GoogleAuthorizationCodeExchangeResult> {
+  const { clientId, clientSecret, code, redirectUri } = validateAuthorizationCodeExchangeOptions(options);
+  const timeoutMs = options.timeoutMs ?? DEFAULT_TIMEOUT_MS;
+  const fetchImplementation = options.fetchImplementation ?? fetch;
+
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), timeoutMs);
+  let response: Response;
+  try {
+    response = await fetchImplementation(TOKEN_ENDPOINT, {
+      method: "POST",
+      signal: controller.signal,
+      headers: { "Content-Type": "application/x-www-form-urlencoded" },
+      body: new URLSearchParams({
+        client_id: clientId,
+        client_secret: clientSecret,
+        code,
+        redirect_uri: redirectUri,
+        grant_type: "authorization_code",
+      }).toString(),
+    });
+  } catch (error) {
+    clearTimeout(timer);
+    if (error instanceof Error && error.name === "AbortError") {
+      throw new GoogleCalendarProviderError("provider_timeout", `Google OAuth token endpoint timed out after ${timeoutMs}ms`);
+    }
+    throw new GoogleCalendarProviderError("provider_unavailable", "Google OAuth token endpoint request failed before a response");
+  }
+  // Mesmo achado de auditoria dos outros adapters: o timer segue vivo até o
+  // CORPO ser consumido -- headers rápidos com body pendurado não escapam do
+  // timeout.
+  try {
+    let text: string;
+    try {
+      text = await readBoundedText(response, controller.signal, MAX_TOKEN_RESPONSE_BYTES, "Google OAuth token response exceeded the body limit");
+    } catch (error) {
+      if (error instanceof GoogleCalendarProviderError) throw error;
+      if (error instanceof Error && error.name === "AbortError") {
+        throw new GoogleCalendarProviderError("provider_timeout", `Google OAuth token endpoint timed out after ${timeoutMs}ms`);
+      }
+      throw new GoogleCalendarProviderError("malformed_provider_response", "Google OAuth token endpoint returned unreadable output");
+    }
+    let record: Record<string, unknown> = {};
+    if (text.length > 0) {
+      try {
+        record = (JSON.parse(text) ?? {}) as Record<string, unknown>;
+      } catch {
+        if (response.ok) throw new GoogleCalendarProviderError("malformed_provider_response", "Google OAuth token endpoint returned non-JSON output");
+      }
+    }
+
+    if (!response.ok) {
+      // Deliberadamente NÃO mapeia invalid_grant para reauth_required aqui
+      // -- ver o comentário desta função e o cabeçalho do arquivo.
+      const errorCode: GoogleCalendarProviderErrorCode = response.status >= 500 ? "provider_unavailable" : "provider_rejected";
+      const reason = typeof record.error === "string" ? record.error : `HTTP ${response.status}`;
+      throw new GoogleCalendarProviderError(errorCode, `Google OAuth token endpoint rejected the authorization code exchange (${reason})`, response.status);
+    }
+
+    const accessToken = record.access_token;
+    const expiresIn = record.expires_in;
+    const tokenType = record.token_type;
+    if (typeof accessToken !== "string" || accessToken.length === 0
+      || typeof expiresIn !== "number" || !Number.isFinite(expiresIn) || expiresIn <= 0
+      || typeof tokenType !== "string" || tokenType.length === 0) {
+      throw new GoogleCalendarProviderError("malformed_provider_response", "Google OAuth token payload is incomplete");
+    }
+    const refreshToken = record.refresh_token;
+    if (typeof refreshToken !== "string" || refreshToken.length === 0) {
+      throw new GoogleCalendarProviderError(
+        "missing_refresh_token",
+        "Google did not return a refresh_token for this authorization code (usually means this account already authorized access before without revoking it) -- revoke access at https://myaccount.google.com/permissions and try connecting again",
+      );
+    }
+    const scope = record.scope;
+    const idToken = record.id_token;
+    return Object.freeze({
+      accessToken,
+      expiresInSeconds: expiresIn,
+      scope: typeof scope === "string" ? scope : null,
+      tokenType,
+      refreshToken,
+      idToken: typeof idToken === "string" && idToken.length > 0 ? idToken : null,
     });
   } finally {
     clearTimeout(timer);
@@ -854,4 +1051,69 @@ export function createFakeGoogleCalendarPort(fakeOptions: FakeGoogleCalendarPort
       return deterministicFakeAccessToken();
     },
   });
+}
+
+// ---------------------------------------------------------------------------
+// Modo fake determinístico -- troca do code de autorização (onda 1b-ii)
+// ---------------------------------------------------------------------------
+
+export interface FakeGoogleAuthorizationCodeExchangeOptions {
+  /**
+   * Simula o único caso documentado em que o Google devolve 2xx sem
+   * `refresh_token` (ver o comentário de `exchangeGoogleAuthorizationCode`
+   * acima) -- exercita `missing_refresh_token` sem rede.
+   */
+  readonly simulateMissingRefreshToken?: boolean;
+}
+
+const FAKE_AUTHORIZATION_CODE_ACCESS_TOKEN = "fake-google-authorization-code-access-token";
+const FAKE_AUTHORIZATION_CODE_REFRESH_TOKEN = "fake-google-authorization-code-refresh-token";
+const FAKE_GOOGLE_ACCOUNT_EMAIL = "google-calendar-demo@example.com";
+
+function base64UrlJson(value: Readonly<Record<string, unknown>>): string {
+  return Buffer.from(JSON.stringify(value), "utf8").toString("base64url");
+}
+
+/**
+ * Formato de JWT (header.payload.signature) sem assinatura criptográfica
+ * real -- suficiente pro decodificador do portal, que nunca verifica
+ * assinatura (ver `apps/portal/src/lib/google-calendar/id-token.ts`), e
+ * nunca usado como prova de identidade fora do modo fake.
+ */
+function deterministicFakeIdToken(): string {
+  const header = base64UrlJson({ alg: "none", typ: "JWT" });
+  const payload = base64UrlJson({ email: FAKE_GOOGLE_ACCOUNT_EMAIL, email_verified: true });
+  return `${header}.${payload}.fake-signature`;
+}
+
+/**
+ * Contrato determinístico igual ao de `createFakeGoogleCalendarPort`: mesmo
+ * input -> mesmo resultado, sem rede, reaplicando a mesma validação de
+ * presença/formato do modo real (`validateAuthorizationCodeExchangeOptions`).
+ * Devolve `refreshToken`/`accessToken`/`idToken` fixos e determinísticos
+ * (o e-mail dentro do `idToken` é o que a rota de callback do portal
+ * exercita em modo fake) -- exceto quando `simulateMissingRefreshToken`
+ * pede o caminho de erro.
+ */
+export function createFakeGoogleAuthorizationCodeExchange(
+  fakeOptions: FakeGoogleAuthorizationCodeExchangeOptions = {},
+): (options: GoogleAuthorizationCodeExchangeOptions) => Promise<GoogleAuthorizationCodeExchangeResult> {
+  const simulateMissingRefreshToken = fakeOptions.simulateMissingRefreshToken === true;
+  return async (options: GoogleAuthorizationCodeExchangeOptions): Promise<GoogleAuthorizationCodeExchangeResult> => {
+    validateAuthorizationCodeExchangeOptions(options);
+    if (simulateMissingRefreshToken) {
+      throw new GoogleCalendarProviderError(
+        "missing_refresh_token",
+        "Google did not return a refresh_token for this authorization code (usually means this account already authorized access before without revoking it) -- revoke access at https://myaccount.google.com/permissions and try connecting again",
+      );
+    }
+    return Object.freeze({
+      accessToken: FAKE_AUTHORIZATION_CODE_ACCESS_TOKEN,
+      expiresInSeconds: FAKE_TOKEN_EXPIRES_IN_SECONDS,
+      scope: "https://www.googleapis.com/auth/calendar openid email",
+      tokenType: "Bearer",
+      refreshToken: FAKE_AUTHORIZATION_CODE_REFRESH_TOKEN,
+      idToken: deterministicFakeIdToken(),
+    });
+  };
 }

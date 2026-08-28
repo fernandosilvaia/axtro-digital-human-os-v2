@@ -153,6 +153,170 @@ test("refreshGoogleAccessToken: timeout aborta antes dos headers e nunca vaza cr
 });
 
 // ---------------------------------------------------------------------------
+// exchangeGoogleAuthorizationCode (troca inicial code -> refresh_token, onda 1b-ii)
+// ---------------------------------------------------------------------------
+
+const AUTH_CODE = "test-authorization-code-000000000";
+const REDIRECT_URI = "https://portal.test/api/google-calendar/oauth/callback";
+
+function authorizationCodeTokenOkResponse(overrides = {}) {
+  return new Response(JSON.stringify({
+    access_token: "fake-access-token-abc",
+    refresh_token: "fake-refresh-token-xyz",
+    expires_in: 3600,
+    scope: "https://www.googleapis.com/auth/calendar openid email",
+    token_type: "Bearer",
+    id_token: "header.payload.signature",
+    ...overrides,
+  }), { status: 200 });
+}
+
+test("exchangeGoogleAuthorizationCode troca o code por refresh_token/access_token/id_token no endpoint oficial", async () => {
+  const { calls, implementation } = fakeFetch(async () => authorizationCodeTokenOkResponse());
+  const result = await provider.exchangeGoogleAuthorizationCode({
+    clientId: CLIENT_ID,
+    clientSecret: CLIENT_SECRET,
+    code: AUTH_CODE,
+    redirectUri: REDIRECT_URI,
+    fetchImplementation: implementation,
+  });
+  assert.deepEqual(result, {
+    accessToken: "fake-access-token-abc",
+    expiresInSeconds: 3600,
+    scope: "https://www.googleapis.com/auth/calendar openid email",
+    tokenType: "Bearer",
+    refreshToken: "fake-refresh-token-xyz",
+    idToken: "header.payload.signature",
+  });
+  assert.equal(calls.length, 1);
+  assert.equal(calls[0].url, "https://oauth2.googleapis.com/token");
+  const body = new URLSearchParams(calls[0].init.body);
+  assert.equal(body.get("client_id"), CLIENT_ID);
+  assert.equal(body.get("client_secret"), CLIENT_SECRET);
+  assert.equal(body.get("code"), AUTH_CODE);
+  assert.equal(body.get("redirect_uri"), REDIRECT_URI);
+  assert.equal(body.get("grant_type"), "authorization_code");
+  assert.equal(body.has("refresh_token"), false);
+});
+
+test("exchangeGoogleAuthorizationCode: 2xx sem refresh_token vira missing_refresh_token, nunca finge sucesso incompleto", async () => {
+  const { implementation } = fakeFetch(async () => authorizationCodeTokenOkResponse({ refresh_token: undefined }));
+  await assert.rejects(
+    () => provider.exchangeGoogleAuthorizationCode({
+      clientId: CLIENT_ID, clientSecret: CLIENT_SECRET, code: AUTH_CODE, redirectUri: REDIRECT_URI, fetchImplementation: implementation,
+    }),
+    (e) => {
+      assert.equal(e.code, "missing_refresh_token");
+      assert.equal(e.message.includes("myaccount.google.com/permissions"), true);
+      return true;
+    },
+  );
+});
+
+test("exchangeGoogleAuthorizationCode: idToken ausente no envelope vira null (não é erro — openid é opcional na URL de autorização)", async () => {
+  const { implementation } = fakeFetch(async () => authorizationCodeTokenOkResponse({ id_token: undefined }));
+  const result = await provider.exchangeGoogleAuthorizationCode({
+    clientId: CLIENT_ID, clientSecret: CLIENT_SECRET, code: AUTH_CODE, redirectUri: REDIRECT_URI, fetchImplementation: implementation,
+  });
+  assert.equal(result.idToken, null);
+});
+
+test("exchangeGoogleAuthorizationCode: invalid_grant do code NUNCA vira reauth_required (não existe conexão a reautenticar); outro 400 vira provider_rejected, 5xx vira provider_unavailable", async () => {
+  const invalidGrant = fakeFetch(async () => new Response(JSON.stringify({ error: "invalid_grant", error_description: "Malformed auth code." }), { status: 400 }));
+  await assert.rejects(
+    () => provider.exchangeGoogleAuthorizationCode({
+      clientId: CLIENT_ID, clientSecret: CLIENT_SECRET, code: AUTH_CODE, redirectUri: REDIRECT_URI, fetchImplementation: invalidGrant.implementation,
+    }),
+    (e) => e.code === "provider_rejected" && e.httpStatus === 400,
+  );
+
+  const down = fakeFetch(async () => new Response("service down", { status: 503 }));
+  await assert.rejects(
+    () => provider.exchangeGoogleAuthorizationCode({
+      clientId: CLIENT_ID, clientSecret: CLIENT_SECRET, code: AUTH_CODE, redirectUri: REDIRECT_URI, fetchImplementation: down.implementation,
+    }),
+    (e) => e.code === "provider_unavailable" && e.httpStatus === 503,
+  );
+});
+
+test("exchangeGoogleAuthorizationCode: payload incompleto vira malformed_provider_response; credencial/code/redirect_uri ausente nem chama a rede", async () => {
+  const junk = fakeFetch(async () => new Response(JSON.stringify({ access_token: "x" }), { status: 200 }));
+  await assert.rejects(
+    () => provider.exchangeGoogleAuthorizationCode({
+      clientId: CLIENT_ID, clientSecret: CLIENT_SECRET, code: AUTH_CODE, redirectUri: REDIRECT_URI, fetchImplementation: junk.implementation,
+    }),
+    (e) => e.code === "malformed_provider_response",
+  );
+
+  for (const missing of [
+    { clientId: "", clientSecret: CLIENT_SECRET, code: AUTH_CODE, redirectUri: REDIRECT_URI },
+    { clientId: CLIENT_ID, clientSecret: CLIENT_SECRET, code: "", redirectUri: REDIRECT_URI },
+    { clientId: CLIENT_ID, clientSecret: CLIENT_SECRET, code: AUTH_CODE, redirectUri: "" },
+  ]) {
+    const { calls, implementation } = fakeFetch(async () => authorizationCodeTokenOkResponse());
+    await assert.rejects(
+      () => provider.exchangeGoogleAuthorizationCode({ ...missing, fetchImplementation: implementation }),
+      (e) => e.code === "missing_credentials",
+    );
+    assert.equal(calls.length, 0);
+  }
+});
+
+test("exchangeGoogleAuthorizationCode: timeout aborta antes dos headers e nunca vaza code/client_secret no erro", async () => {
+  const timeoutFetch = async (_url, init) => new Promise((_resolve, reject) => {
+    init.signal.addEventListener("abort", () => reject(Object.assign(new Error("aborted"), { name: "AbortError" })));
+  });
+  await assert.rejects(
+    () => provider.exchangeGoogleAuthorizationCode({
+      clientId: CLIENT_ID, clientSecret: CLIENT_SECRET, code: AUTH_CODE, redirectUri: REDIRECT_URI, timeoutMs: 5, fetchImplementation: timeoutFetch,
+    }),
+    (e) => {
+      assert.equal(e.code, "provider_timeout");
+      assert.equal(e.message.includes(CLIENT_SECRET), false);
+      assert.equal(e.message.includes(AUTH_CODE), false);
+      return true;
+    },
+  );
+});
+
+// ---------------------------------------------------------------------------
+// createFakeGoogleAuthorizationCodeExchange (modo fake determinístico, onda 1b-ii)
+// ---------------------------------------------------------------------------
+
+test("fake: createFakeGoogleAuthorizationCodeExchange é determinístico e reaplica a mesma validação do modo real, sem rede", async () => {
+  const exchange = provider.createFakeGoogleAuthorizationCodeExchange();
+  const first = await exchange({ clientId: CLIENT_ID, clientSecret: CLIENT_SECRET, code: AUTH_CODE, redirectUri: REDIRECT_URI });
+  const second = await exchange({ clientId: CLIENT_ID, clientSecret: CLIENT_SECRET, code: "outro-code-qualquer", redirectUri: REDIRECT_URI });
+  assert.deepEqual(first, second);
+  assert.equal(typeof first.refreshToken, "string");
+  assert.equal(first.refreshToken.length > 0, true);
+  assert.equal(typeof first.idToken, "string");
+  assert.equal(first.idToken.split(".").length, 3);
+
+  await assert.rejects(
+    () => exchange({ clientId: "", clientSecret: CLIENT_SECRET, code: AUTH_CODE, redirectUri: REDIRECT_URI }),
+    (e) => e.code === "missing_credentials",
+  );
+});
+
+test("fake: simulateMissingRefreshToken força missing_refresh_token sem rede", async () => {
+  const exchange = provider.createFakeGoogleAuthorizationCodeExchange({ simulateMissingRefreshToken: true });
+  await assert.rejects(
+    () => exchange({ clientId: CLIENT_ID, clientSecret: CLIENT_SECRET, code: AUTH_CODE, redirectUri: REDIRECT_URI }),
+    (e) => e.code === "missing_refresh_token",
+  );
+});
+
+test("fake: idToken devolvido é um JWT decodificável (header.payload.signature) com a claim email — o mesmo caminho que a rota de callback do portal decodifica", async () => {
+  const exchange = provider.createFakeGoogleAuthorizationCodeExchange();
+  const result = await exchange({ clientId: CLIENT_ID, clientSecret: CLIENT_SECRET, code: AUTH_CODE, redirectUri: REDIRECT_URI });
+  const [, payloadSegment] = result.idToken.split(".");
+  const payload = JSON.parse(Buffer.from(payloadSegment, "base64url").toString("utf8"));
+  assert.equal(typeof payload.email, "string");
+  assert.match(payload.email, /^[^\s@]+@[^\s@]+\.[^\s@]+$/);
+});
+
+// ---------------------------------------------------------------------------
 // createGoogleCalendarPort — queryFreeBusy
 // ---------------------------------------------------------------------------
 
