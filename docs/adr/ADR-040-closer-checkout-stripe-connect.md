@@ -1,7 +1,25 @@
 # ADR-040: Checkout do cliente final do tenant via Stripe Connect (o closer fecha e cobra)
 
-**Status:** Proposto. Um ponto de decisão bloqueia o início do código (autonomia da geração do link de cobrança sem operador humano) e outros pontos são gates de pré-lançamento, ambos listados em "Decisões do dono do produto" abaixo.
+**Status:** Aceito (2026-08-28). O ponto de decisão que bloqueava o início do
+código, se `request_checkout` podia ser tão autônomo quanto
+`confirm_meeting_slot` ou exigia aprovação humana do tenant antes de o link
+sair, foi resolvido por Fernando Silva: aprovação humana obrigatória. Ver
+"Decisões do dono do produto" e a seção "Aprovação humana do tenant: máquina
+de estados, prazos e entrega" abaixo. Os itens restantes são gates de
+pré-lançamento, não bloqueiam o início do código.
 **Data:** 2026-08-25
+**Revisão:** 2026-08-28. Fernando decidiu o oposto da recomendação original
+deste ADR (autonomia protegida por camadas): `request_checkout` exige
+aprovação humana do `tenant_admin` antes de o link ser gerado. Isso não é só
+marcar uma decisão como resolvida, é uma mudança real de máquina de estados
+e de fluxo, porque a versão anterior deste documento assumia o link saindo
+em tempo real, dentro da própria chamada de vídeo. As seções "Fluxo de
+confirmação", a nova "Aprovação humana do tenant", "Idempotência e fence",
+"Receipt e auditoria", "Migração 0052", "Alternativas consideradas",
+"Consequências", "Rollout e rollback" e "Decisões do dono do produto" foram
+todas revisadas para refletir isso; o mecanismo Stripe Connect Standard, o
+catálogo fechado, a idempotência no padrão ADR-036 e o split de plataforma
+não mudaram.
 **Relacionados:** Art. 3, 5, 6, 7, 8, 9, 15, 17 da Constituição; ADR-004, ADR-005, ADR-007, ADR-009, ADR-010, ADR-015, ADR-016, ADR-021, ADR-032, ADR-036, ADR-038, ADR-039
 
 ## Contexto
@@ -93,9 +111,9 @@ existe, dobraria a superfície de auditoria sem ganhar segurança nenhuma (Art.
 flags de fail-closed independentes para o mesmo tipo de decisão (sessão
 elegível para uma ação de negócio ou não). O risco mais alto de cobrança não
 mora na admissão, mora na execução (catálogo fechado, conta Stripe do
-tenant, reserva durável, webhook assinado) e no controle de rollout, que
-recebe uma camada extra descrita abaixo, especificamente por causa dessa
-classe de risco.
+tenant, reserva durável, webhook assinado, e agora aprovação humana antes de
+qualquer chamada à Stripe) e no controle de rollout, que recebe uma camada
+extra descrita abaixo, especificamente por causa dessa classe de risco.
 
 ### Duas camadas de flag, mais o kill switch existente
 
@@ -126,7 +144,11 @@ ADR-039, cujo domínio fechado de `action_kind` ganha o valor
 agente tiver `checkout_enabled=true` e, condição adicional só deste domínio,
 o tenant tiver uma conta Stripe conectada e ativa (próxima seção). Ausência
 de qualquer uma dessas condições produz uma recusa declarada, nunca uma
-falha muda, no mesmo padrão de `auto_confirm_disabled` do ADR-039.
+falha muda, no mesmo padrão de `auto_confirm_disabled` do ADR-039. Essas
+quatro camadas (mais o catálogo e a conta Stripe) continuam decidindo só se
+`request_checkout` é admitida, isto é, se uma reserva chega a ser criada;
+não decidem mais, sozinhas, se o link sai para o prospect, isso é o assunto
+da seção "Aprovação humana do tenant" abaixo.
 
 ### Mecanismo de cobrança: Stripe Connect Standard, cobrança direta
 
@@ -235,9 +257,9 @@ texto livre) e, opcionalmente, `quantity` (inteiro entre 1 e o `max_quantity`
 configurado naquela linha de catálogo, padrão 1) e `contactEmail` (validado
 por formato; se omitido e a sessão já capturou um e-mail de contato antes,
 por `register_lead` ou por `confirm_meeting_slot`, o servidor reaproveita
-esse e-mail já validado; se nenhum dos dois existir, a própria tela de
-Checkout hospedada da Stripe pede o e-mail ao prospect, então a ausência não
-bloqueia a geração do link).
+esse e-mail já validado; se nenhum dos dois existir, a ausência não bloqueia
+a criação da reserva, mas passa a importar no momento da aprovação humana,
+ver "Aprovação humana do tenant" abaixo).
 
 O catálogo, `portal_business_action_checkout_products`, é configurado pelo
 `tenant_admin` antes da call, fora do escopo de código deste ADR (fica para
@@ -252,21 +274,26 @@ Axtro: se o preço na Stripe não bater com o que está cacheado (o tenant
 mudou o valor direto no dashboard Stripe dele, por exemplo), a reserva não
 avança. Isso fecha por construção o mesmo risco que o Art. 15 já nomeia
 para transcript: um prompt adversarial não pode fazer o servidor cobrar um
-valor que não foi aprovado pelo próprio tenant antes da call.
+valor que não foi aprovado pelo próprio tenant antes da call. Como o
+dispatch agora só acontece depois de uma aprovação humana (abaixo), esse
+preflight passa a rodar tipicamente horas depois da reserva ter sido
+criada, o que é uma proteção a mais, não a menos: um preço que mudou
+enquanto a reserva esperava aprovação também é pego por ele, não só um
+preço que já estava errado no momento da call.
 
 V1 não suporta desconto, carrinho com múltiplos produtos na mesma reserva
 nem assinatura recorrente para o cliente final (`mode: "payment"`, cobrança
 única, sempre). Cada uma dessas é uma extensão real, não um requisito
 implícito do pedido de Fernando, e entra como revisit trigger.
 
-### Fluxo de confirmação: o ato de gerar o link não move dinheiro, o ato de completá-lo sim
+### Fluxo de confirmação: pedir, aprovar e completar são três atos diferentes, só o terceiro move dinheiro
 
-Esta é a decisão de maior risco do documento inteiro, e é dividida em duas
-partes com pesos diferentes.
+Esta continua sendo a decisão de maior risco do documento inteiro, e agora
+tem três atos distintos, não dois.
 
-A primeira parte não é ambígua e este ADR já a fixa: o cartão do prospect
-nunca passa pelo modelo nem pelo backend do Portal. `request_checkout`
-produz um link para uma Stripe Checkout Session hospedada
+O primeiro ato não é ambíguo e este ADR já o fixa desde a versão original:
+o cartão do prospect nunca passa pelo modelo nem pelo backend do Portal.
+`request_checkout` produz um link para uma Stripe Checkout Session hospedada
 (`checkout.stripe.com`), nunca um formulário de cartão embutido na
 interface do Portal (Stripe Elements) e nunca qualquer campo onde o modelo
 "digite" um número de cartão. Checkout hospedado mantém o Portal fora do
@@ -275,35 +302,213 @@ autoavaliação PCI), o prospect é quem abre a tela da própria Stripe e digita
 os próprios dados, e é literalmente essa ação, o clique em "Pagar" na tela
 da Stripe, que constitui a confirmação explícita do próprio prospect que a
 tarefa original pede. Não existe um caminho alternativo mais seguro que
-ainda cumpra "o closer fecha e cobra de verdade"; isto é recomendação firme,
-não um ponto em aberto.
+ainda cumpra "o closer fecha e cobra de verdade"; isto continua sendo
+recomendação firme, não um ponto em aberto.
 
-A segunda parte é genuinamente aberta e por isso volta para Fernando: gerar
-o link em si, sem nenhum operador do tenant revisando antes, é diferente de
-cobrar de fato, porque gerar o link não move um centavo, só o prospect
-completando o Checkout move. Isso separa o risco em dois eventos distintos:
-o evento de baixo risco (oferecer um link para um produto que o próprio
-tenant já aprovou previamente no catálogo) e o evento de risco real
-(o prospect decidir pagar). A recomendação deste ADR é que `request_checkout`
-siga o mesmo padrão de autonomia que o ADR-039 já aplicou a
-`confirm_meeting_slot`: o modelo decide, dentro da conversa, o momento de
-oferecer o link, sem um humano do tenant aprovando cada oferta em tempo
-real, protegido pelas quatro camadas já descritas (duas flags de ambiente,
-kill switch, interruptor por agente) mais o catálogo fechado e a conta
-Stripe conectada como pré-requisitos. O argumento a favor é que o momento de
-risco real de fraude e chargeback não é "o closer ofereceu um link", é "o
-prospect pagou", e esse segundo momento já é estruturalmente gated pela
-própria Stripe, fora do controle ou julgamento do modelo. O argumento contra
-é que cobrança, mesmo com essa separação, ainda é dinheiro saindo do bolso
-de um terceiro real, uma categoria de risco que Fernando classifica acima
-de agendar uma reunião, e um closer mal calibrado ofertando cobrança fora de
-hora é um problema comercial e de reputação mesmo sem nenhuma fraude
-envolvida. Este ADR não resolve essa tensão sozinho: apresenta a
-recomendação, mas a decisão final (se `request_checkout` pode ser tão
-autônomo quanto `confirm_meeting_slot`, ou se exige algum tipo de aprovação
-humana do tenant antes de o link ser oferecido ao prospect) fica
-explicitamente para Fernando confirmar antes do início do código, listada
-em "Decisões do dono do produto".
+O segundo ato, gerar o link em si, era o ponto genuinamente aberto da versão
+original deste ADR, e foi resolvido por Fernando Silva (2026-08-28), na
+direção oposta à recomendação deste documento: `request_checkout` não pode
+ser tão autônomo quanto `confirm_meeting_slot`. Um `tenant_admin` do tenant
+precisa aprovar cada oferta de cobrança antes de o link ser gerado e
+chegar ao prospect. O argumento de Fernando pesa mais do que o argumento
+original deste ADR a favor da autonomia: cobrança é dinheiro saindo do
+bolso de um terceiro real, e um closer mal calibrado ofertando cobrança
+fora de hora, mesmo sem nenhuma fraude envolvida, é um problema comercial e
+de reputação que o tenant só descobriria depois do fato; um operador humano
+revisando antes de o link sair elimina essa classe de erro por construção,
+ao custo de o link nunca mais sair em tempo real dentro da própria call.
+Isso não é um ajuste de parâmetro num flag já existente: aprovação humana
+assíncrona desacopla o momento em que o link passa a existir do momento da
+chamada de vídeo, às vezes por minutos, às vezes por horas, quase sempre
+depois de a call já ter terminado. O modelo não pode "esperar" no meio de
+uma conversa por uma aprovação de um humano que talvez nem esteja olhando o
+Portal naquele instante, então ele deixa de ser o canal de entrega do link.
+A seção "Aprovação humana do tenant: máquina de estados, prazos e entrega"
+logo abaixo é a máquina de estados nova por inteiro; esta seção mantém só a
+decisão e o porquê.
+
+O terceiro ato não mudou: gerar o link não move um centavo, só o prospect
+completando o Checkout move. A distinção entre `committed` (o link existe)
+e `payment_completed` (o prospect de fato pagou) continua sendo o coração
+deste desenho, detalhada na seção "Idempotência e fence" abaixo, só que
+agora nenhuma das duas transições acontece dentro de uma call ao vivo nem é
+anunciada por um Presenter.
+
+### Aprovação humana do tenant: máquina de estados, prazos e entrega
+
+`request_checkout` continua sendo admitido exatamente como a seção "Duas
+camadas de flag" acima descreve: as duas variáveis de ambiente, o kill
+switch, `checkout_enabled` do agente, o catálogo fechado e a conta Stripe
+conectada decidem, sozinhos, se a tool call é admitida. Nada disso mudou. O
+que muda é o que acontece depois da admissão. Antes desta revisão, admissão
+levava direto a `reserved` e, poucos segundos depois, a `committed` (o link
+já pronto, dentro da mesma execução da tool call). Com aprovação humana
+obrigatória, admissão leva a um estado novo, anterior a `reserved`:
+`pending_approval`. Nenhuma chamada à Stripe acontece neste estado nem em
+nenhum estado anterior a ele.
+
+**O que fica gravado em `pending_approval`, imutável a partir daqui.**
+`portal_reserve_business_checkout_service` continua fazendo exatamente a
+mesma validação e o mesmo snapshot que já fazia na versão original (valida o
+grant, a sessão e o catálogo; roda o preflight de preço vivo contra a conta
+Stripe conectada; resolve `contactEmail` de `register_lead`/`confirm_meeting_slot`
+se a tool call não trouxe um), só que agora a linha nasce em
+`pending_approval`, não em `reserved`. Todo dado que o operador vai aprovar
+já está resolvido e travado nesse momento: `product_id`, `display_name`,
+`unit_amount_cents`, `currency`, `quantity`, `stripe_price_id`,
+`stripe_account_id`, `platform_fee_bps`/`application_fee_amount_cents` (se
+algum), `contact_email` (se já capturado) e `lead_id`/`session_id` de
+correlação. Nenhum desses valores é recalculado nem regravado depois: o
+operador aprova exatamente o que o prospect pediu durante a call, nunca um
+preço, uma quantidade ou uma conta Stripe diferente. Se o preço vivo na
+Stripe tiver mudado entre a criação da reserva e a aprovação, isso é pego
+pelo preflight que já roda antes de qualquer dispatch (o mesmo preflight da
+seção "O que é cobrado" acima), não por uma segunda leitura do catálogo
+aqui: a linha `pending_approval` não é regravada com um preço novo, o
+dispatch simplesmente falha de forma declarada e a reserva não avança.
+
+**Quem aprova, e como.** Só um `tenant_admin` do tenant dono da reserva, a
+mesma autorização que já governa `auto_confirm_scheduling` (ADR-039) e o
+catálogo de checkout deste próprio ADR. A tela que lista reservas
+`pending_approval` e oferece os botões de aprovar/rejeitar é trabalho de
+produto fora do escopo de código deste ADR (o mesmo tratamento que o
+catálogo e a tela de conexão Stripe já recebem), mas o contrato de RPC já
+fica fixado aqui, porque é o que qualquer código futuro dessa tela vai
+chamar:
+
+- `portal_approve_business_checkout_service`, `service_role`-only, exige
+  `tenant_admin` autenticado do tenant da reserva. Aceita `reservationId` e,
+  opcionalmente, `contactEmail` (usado só se a reserva não capturou nenhum
+  e-mail durante a call; ver "Entrega do link" abaixo). Fence estrito: só
+  transiciona `pending_approval` → `reserved`; chamar sobre qualquer outro
+  estado (já aprovado, já rejeitado, já expirado, não encontrado) devolve
+  uma recusa declarada (`already_approved`/`already_rejected`/
+  `approval_expired`/`not_found`), nunca um erro mudo. Grava `approved_by`
+  (o `user_id` do `tenant_admin`) e `approved_at`. Não chama a Stripe: só
+  abre o fence para a pipeline que já existia
+  (`portal_dispatch_business_checkout_reservation_service` →
+  `portal_commit_business_checkout_reservation_service`), disparada em
+  seguida, no mesmo fluxo de aplicação que serve o clique de "Aprovar", sem
+  alteração de desenho na própria pipeline.
+- `portal_reject_business_checkout_service`, mesma autorização e mesmo
+  fence, só que transiciona `pending_approval` → `rejected` (estado
+  terminal novo). Aceita um `rejectionReason` opcional (texto curto, de
+  autoria do operador, nunca do modelo, guardado só para o histórico do
+  próprio tenant). Nenhuma chamada à Stripe acontece neste caminho, nunca.
+
+**O que o modelo diz ao prospect na hora.** Como o link não existe mais no
+momento da tool call, `request_checkout` nunca mais devolve um link ou uma
+promessa de valor ao Tavus: devolve uma frase curta de handoff, no mesmo
+espírito da doutrina de `auto_confirm_disabled` que o ADR-039 já desenhou
+para agendamento não autônomo. Uma frase de exemplo, só para ilustrar o
+tom (o texto final é trabalho de prompt em `metodo-silva.ts`, fora do
+escopo de código deste ADR, igual ao resto da doutrina de conduta do closer
+já citada neste documento): "vou preparar o link de pagamento com o time e
+te envio em seguida". O modelo nunca afirma que o link já foi gerado e
+nunca afirma que já foi enviado; depois desta revisão, ele também nunca
+mais tem uma segunda oportunidade de anunciar isso durante a mesma call.
+Pela primeira vez neste domínio, o produto assume de propósito que o
+"sucesso" de `request_checkout` não é algo que o Presenter chega a anunciar
+ao vivo. Isso é consistente com o Art. 7 ("o Presenter só anuncia conclusão
+após receipt de sucesso"): a consequência de não existir mais um receipt
+`succeeded` síncrono para esta ação (ver receipt, abaixo) é justamente que
+não existe mais conclusão para o Presenter anunciar dentro da call.
+
+**Entrega do link depois da aprovação.** Quando
+`portal_commit_business_checkout_reservation_service` grava `checkout_url`
+(o mesmo passo que já existia, só que agora disparado pelo fluxo de
+aprovação em vez de pela própria tool call), a aplicação dispara um e-mail
+para `contact_email`, reaproveitando a infraestrutura Resend já existente em
+`apps/portal/src/lib/email.ts` (o mesmo provedor do SMTP de auth, D-V2-063)
+com uma função nova, irmã de `sendProposalEmail`, por exemplo
+`sendCheckoutLinkEmail`, no mesmo padrão de "IA rascunha, humano manda" que
+`sendClosingProposal` (`apps/portal/src/lib/actions/proposal.ts`) já aplica
+para o fechamento ao vivo do próprio Digital Human OS: um clique humano
+explícito, depois de revisão, dispara um e-mail para um endereço externo,
+best-effort, sem desfazer o efeito já commitado se o envio falhar. Se
+`contactEmail` nunca foi capturado, nem por `register_lead`, nem por
+`confirm_meeting_slot`, nem no próprio `request_checkout`, a aprovação NÃO
+fica bloqueada só por isso, mas o `tenant_admin` precisa fornecer um e-mail
+válido no momento de aprovar: o argumento opcional `contactEmail` de
+`portal_approve_business_checkout_service` passa a ser obrigatório só nesse
+caso específico, com a mesma validação de formato que `sendClosingProposal`
+já aplica hoje ao próprio `prospect_email` (`PROSPECT_EMAIL_PATTERN`). Isso
+reaproveita, na aprovação, exatamente o mesmo padrão de UI já comprovado
+neste repositório, em vez de inventar um segundo formulário de captura de
+contato. Se o e-mail falhar no envio (a mesma classe de falha que
+`sendClosingProposal` já trata hoje), a reserva continua `committed`, com
+`checkout_url` gravado e legível pelo operador na mesma tela, que pode
+copiar o link manualmente; a Checkout Session já existe do lado da Stripe
+independentemente do e-mail ter saído ou não.
+
+**Prazo de expiração e o que acontece com o receipt.** Uma reserva em
+`pending_approval` expira sozinha depois de 72 horas (três dias corridos)
+sem que nenhum `tenant_admin` aja sobre ela, gravado em
+`approval_expires_at` no momento da criação da reserva. O prazo é fixo, não
+configurável por tenant nesta versão (Art. 17): curto o bastante para o
+produto não empurrar um link stale para um prospect que já esfriou, comprido
+o bastante para atravessar um fim de semana ou um feriado sem que o único
+`tenant_admin` do tenant, ausente naquele dia, perca a janela inteira. O
+mesmo worker de varredura periódica que o ADR-036 já roda a cada dez
+minutos, e que o ADR-039 já estendeu para varrer a reserva de calendário,
+ganha mais um alvo: uma RPC nova,
+`portal_expire_pending_business_checkout_reservations_service`, transiciona
+toda linha `pending_approval` com `approval_expires_at` no passado para
+`approval_expired` (estado terminal novo, sem chamada à Stripe em nenhum
+momento deste caminho). Este prazo é inteiramente independente da expiração
+do grant do `BusinessActionIntent` (60 minutos, ADR-039): um grant expirado
+não invalida uma reserva já criada, o mesmo princípio que já vale para uma
+reserva de calendário `unknown` sobrevivendo ao grant que a originou.
+
+Isto força reconsiderar o receipt. Na versão original deste ADR, o receipt
+do `BusinessActionIntent` marcava `succeeded` no momento em que `committed`
+era alcançado, porque isso acontecia dentro da mesma execução da tool call.
+Agora não acontece mais: `committed` só é alcançável depois de uma
+aprovação humana que pode vir horas ou dias depois, numa execução de
+servidor completamente diferente (o clique do `tenant_admin`), sem nenhum
+Presenter vivo do outro lado para receber uma conclusão. Gravar `succeeded`
+ali continuaria tecnicamente possível, mas violaria o espírito do Art. 7 (
+"o Presenter só anuncia conclusão após receipt de sucesso"): não existe mais
+conclusão para o Presenter anunciar, porque o Presenter, na prática, já não
+está mais na chamada quando isso acontece. A decisão deste ADR é que
+`portal_business_action_receipts.outcome` ganha um quinto valor, aditivo,
+`pending_approval`, ao lado dos quatro já existentes
+(`succeeded`/`rejected`/`failed`/`unknown`). `portal_reserve_business_checkout_service`
+grava o único receipt deste grant com `outcome='pending_approval'` no
+momento em que a reserva é criada; esse é, na prática, o desfecho final do
+receipt para todo `request_checkout` que chega a criar uma reserva, porque
+o próprio Art. 7 já ordena a sequência certa (`aprovação quando exigida`
+vem antes de `execução idempotente` e de `tool_execution_receipt` no funil
+que ele descreve), e a aprovação, quando exigida, nunca acontece dentro da
+mesma execução que o receipt síncrono cobre.
+`portal_commit_business_checkout_reservation_service` deixa de gravar
+receipt (removido nesta revisão; ver "Migração 0052" abaixo): o desfecho
+real da cobrança (link gerado e enviado, rejeitado ou expirado sem ação)
+fica inteiramente registrado na própria
+`portal_business_action_checkout_reservations`, a mesma tabela que a seção
+"Receipt e auditoria" já chama de "evidência financeira de verdade",
+correlacionável ao receipt só pelo `reservationId` que ele já guarda. Isso
+preserva o desenho append-only, um receipt por grant, que o ADR-039 já
+fixou para este domínio: nenhuma linha de `portal_business_action_receipts`
+é reescrita por esta revisão, só um valor novo de `outcome` passa a existir.
+`succeeded` continua um valor válido do domínio fechado (`confirm_meeting_slot`,
+por exemplo, continua usando), só deixa de ser alcançável por
+`request_checkout` nesta versão do produto; isso é uma consequência real e
+documentada da decisão de Fernando, não um efeito colateral escondido.
+
+**Rejeição.** Se o `tenant_admin` rejeita, nada é enviado ao prospect, a
+Stripe nunca é chamada, e a reserva vai para `rejected` (estado terminal),
+com `rejected_by`/`rejected_at`/`rejection_reason` gravados para o
+histórico do próprio tenant (a mesma tela de "vendas fechadas pelo closer"
+já prevista fora do escopo deste ADR mostra isso). Esta versão do ADR não
+desenha uma notificação automática de volta ao "closer", porque o closer,
+neste produto, é o próprio agente de vídeo, não um funcionário do tenant
+com caixa de entrada própria: quem rejeita já sabe que rejeitou, e não
+existe hoje um segundo humano no fluxo que precise ser avisado. Uma
+notificação por e-mail para outro `tenant_admin` do mesmo tenant (por
+exemplo, quando quem originou a call e quem aprova são pessoas diferentes)
+é um gate de pré-lançamento razoável, listado abaixo, não uma peça
+obrigatória da arquitetura.
 
 ### Idempotência e fence no padrão do ADR-036, com uma vantagem real do Idempotency-Key da Stripe
 
@@ -311,13 +516,14 @@ Criar uma Checkout Session é uma chamada de rede que pode falhar de forma
 ambígua (timeout depois de a Stripe já ter criado a sessão do lado dela).
 Isso é a mesma classe de risco que qualquer efeito pago já desenhado neste
 repositório, e recebe a mesma disciplina reserved → provider_in_flight →
-committed/unknown → completed. A tabela nova,
-`portal_business_action_checkout_reservations`, não tenta reaproveitar
-`provider_effect_reservations` (as colunas de billing e cap bucket daquela
-tabela são específicas de Tavus, Recall e OpenRouter; forçar cobrança para
-dentro dela repetiria a modelagem por overload que o Art. 17 já proíbe, o
-mesmo racional que o ADR-039 já aplicou para não reaproveitar aquela tabela
-com a reserva de calendário) nem `portal_business_action_calendar_reservations`
+committed/unknown → completed, agora precedida por `pending_approval` (seção
+anterior). A tabela nova, `portal_business_action_checkout_reservations`,
+não tenta reaproveitar `provider_effect_reservations` (as colunas de
+billing e cap bucket daquela tabela são específicas de Tavus, Recall e
+OpenRouter; forçar cobrança para dentro dela repetiria a modelagem por
+overload que o Art. 17 já proíbe, o mesmo racional que o ADR-039 já aplicou
+para não reaproveitar aquela tabela com a reserva de calendário) nem
+`portal_business_action_calendar_reservations`
 (o ciclo de vida e as colunas de evidência são de domínios diferentes,
 Google Calendar de um lado, Stripe do outro).
 
@@ -339,30 +545,40 @@ formalizou para o M5-02. Diferente de um efeito Tavus ou Recall, uma
 Checkout Session nunca criada não tem custo nem recurso ativo para conter:
 ela simplesmente nunca existiu ou vai expirar sozinha do lado da Stripe
 (prazo padrão configurável, este produto usa um prazo curto, poucas horas,
-suficiente para cobrir o resto da call e uma janela curta depois dela); não
-existe, portanto, um estado `cleanup_pending` nem uma lease de terminação
-neste domínio, porque não há nada para terminar. Isso é uma simplificação
-real em relação ao Tavus e ao Recall, não uma lacuna: o Art. 17 pede para
-não construir uma máquina de estados maior do que o problema exige.
+suficiente para cobrir uma janela curta depois da aprovação); não existe,
+portanto, um estado `cleanup_pending` nem uma lease de terminação neste
+domínio, porque não há nada para terminar. Isso é uma simplificação real em
+relação ao Tavus e ao Recall, não uma lacuna: o Art. 17 pede para não
+construir uma máquina de estados maior do que o problema exige.
 
-Os estados da reserva são: `reserved`, `provider_in_flight`, `committed`
-(a Checkout Session existe, com `stripe_checkout_session_id` e
-`checkout_url` gravados; é neste ponto que o receipt do
-`BusinessActionIntent` marca `succeeded`, porque o trabalho do modelo,
-oferecer o link, terminou aqui), `unknown`, `expired` ou `released` (só por
-falha comprovada pré-dispatch, por exemplo produto desativado no catálogo
-ou conta Stripe desconectada, nunca depois do dispatch), e dois estados
-terminais que só um webhook assinado pode escrever: `payment_completed` e
+Os estados da reserva, depois desta revisão, são: `pending_approval`
+(estado inicial, criado pela admissão do `BusinessActionIntent`, sem
+nenhuma chamada à Stripe; ver "Aprovação humana do tenant" acima), `reserved`
+(só alcançável por aprovação explícita de um `tenant_admin`, nunca
+diretamente da admissão), `provider_in_flight`, `committed` (a Checkout
+Session existe, com `stripe_checkout_session_id` e `checkout_url`
+gravados; é neste ponto que a aplicação dispara o e-mail com o link, não
+mais o Presenter anunciando nada ao vivo, porque o Presenter normalmente já
+não está mais na call quando isso acontece), `unknown`, `expired` ou
+`released` (só por falha comprovada pré-dispatch depois da aprovação, por
+exemplo produto desativado no catálogo ou conta Stripe desconectada entre a
+aprovação e o dispatch, nunca depois do dispatch), dois estados terminais
+pré-Stripe que nunca envolvem nenhuma chamada à Stripe, `rejected`
+(rejeição explícita de um `tenant_admin`) e `approval_expired` (prazo de 72
+horas em `pending_approval` esgotado sem ação), e dois estados terminais que
+só um webhook assinado pode escrever: `payment_completed` e
 `payment_failed`. A distinção entre `committed` (o link existe) e
-`payment_completed` (o prospect de fato pagou) é o coração deste desenho:
-"sucesso" para o funil de ações de negócio (Art. 7, "o Presenter só anuncia
-conclusão após receipt de sucesso") significa só que o link foi gerado, e a
-doutrina de conduta do closer (texto a escrever em `metodo-silva.ts`, fora
-do escopo deste ADR) precisa deixar isso explícito: o modelo nunca afirma
-que recebeu ou confirmou um pagamento, porque essa informação chega de
-forma assíncrona, muitas vezes depois de a call já ter terminado, e nunca
-pelo julgamento do modelo. A frase certa é "te mandei o link de pagamento,
-é só confirmar aí", nunca "recebi seu pagamento".
+`payment_completed` (o prospect de fato pagou) continua sendo o coração
+deste desenho, só que agora nenhuma das duas transições acontece dentro de
+uma call ao vivo nem é anunciada por um Presenter: como "Aprovação humana do
+tenant" já detalha, o receipt do `BusinessActionIntent` grava
+`pending_approval` uma única vez, na admissão, e não é reescrito quando a
+reserva chega a `committed` ou a `payment_completed`. A doutrina de conduta
+do closer (texto a escrever em `metodo-silva.ts`, fora do escopo deste ADR)
+só precisa cobrir o momento da própria call, o handoff ("vou preparar o
+link de pagamento com o time e te envio em seguida"), porque não existe mais
+um momento, dentro da call, em que o modelo saiba que o link foi gerado ou
+que o pagamento foi confirmado, para anunciar certo ou errado.
 
 ### Split de plataforma: suportado estruturalmente, percentual é decisão de negócio
 
@@ -408,7 +624,9 @@ registrado, ou o evento é rejeitado). A tabela nova
 `portal_business_action_checkout_stripe_event_receipts` reclama cada
 `event_id` uma única vez antes de aplicar qualquer efeito, o mesmo padrão
 de `billing_stripe_event_receipts`, prevenindo reprocessamento de retry da
-Stripe.
+Stripe. Este webhook só é alcançado depois de `committed`, o que esta
+revisão não muda: só o instante em que `committed` acontece, dentro da
+linha do tempo, se deslocou para depois da aprovação humana.
 
 ### Receipt e auditoria
 
@@ -427,6 +645,16 @@ oferecida pelo closer, paga ou não, correlacionável ao lead e à sessão de
 call de origem. Uma tela de "vendas fechadas pelo closer" para o tenant ver
 esse histórico é trabalho de produto fora do escopo deste ADR.
 
+Esta revisão soma a essa evidência quem aprovou ou rejeitou e quando
+(`approved_by`/`approved_at`/`rejected_by`/`rejected_at`/`rejection_reason`),
+pelo mesmo motivo que já vale para o resto da tabela: a reserva, não o
+receipt, é quem carrega a história completa do que aconteceu com aquela
+oferta de cobrança. O `outcome` do receipt em `portal_business_action_receipts`
+fica travado em `pending_approval` assim que a reserva é criada, como
+"Aprovação humana do tenant" já explica; a futura tela de "vendas fechadas
+pelo closer" lê o estado da reserva, nunca o `outcome` do receipt, para
+mostrar o desfecho real ao tenant.
+
 ### Fronteira navegador → servidor
 
 `request_checkout` entra pelo mesmo handler de `conversation.tool_call` e
@@ -438,7 +666,10 @@ sessão Stripe. Uma chamada real à Stripe (criação de Checkout Session) não
 é instantânea; o mesmo problema de UX que o ADR-039 já registrou para a
 chamada ao Google Calendar se repete aqui e recebe o mesmo tratamento (texto
 de preenchimento no prompt, edição futura de `metodo-silva.ts`, fora deste
-ADR).
+ADR). Depois desta revisão, esse problema de UX passa a valer só para o
+instante da admissão em si (responder rápido com o handoff), nunca para a
+criação da Checkout Session, que já não acontece mais dentro desta
+fronteira navegador → servidor de jeito nenhum.
 
 ## Migração 0050: tabelas e RPCs (nível de design, sem SQL completo)
 
@@ -471,11 +702,15 @@ policy para `authenticated`/`anon`/`service_role` direto (só RPC
   momento da reserva, `stripe_account_id` snapshotado, `platform_fee_bps` e
   `application_fee_amount_cents` snapshotados, `contact_email` opcional,
   `lead_id` opcional e nullable só para correlação, `stripe_idempotency_key`
-  único por tenant, `state` em `reserved`/`provider_in_flight`/`committed`/
-  `unknown`/`expired`/`released`/`payment_completed`/`payment_failed`,
-  `stripe_checkout_session_id`, `checkout_url`, `stripe_payment_intent_id`,
-  `stripe_charge_id`, `amount_total_cents`, colunas de reconciliação
-  espelhando `provider_effect_reservations`)
+  único por tenant, `state` em `pending_approval`/`reserved`/
+  `provider_in_flight`/`committed`/`unknown`/`expired`/`released`/
+  `rejected`/`approval_expired`/`payment_completed`/`payment_failed`,
+  `approval_expires_at` (gravado na criação, usado só pela varredura
+  periódica de expiração), `approved_by`/`approved_at`, `rejected_by`/
+  `rejected_at`/`rejection_reason`, `stripe_checkout_session_id`,
+  `checkout_url`, `stripe_payment_intent_id`, `stripe_charge_id`,
+  `amount_total_cents`, colunas de reconciliação espelhando
+  `provider_effect_reservations`)
 - `portal_business_action_checkout_stripe_event_receipts` (dedup de eventos
   do webhook de conta conectada: `event_id` chave primária, `event_type`,
   `tenant_id`, `reservation_id`, `connected_account_id`,
@@ -500,14 +735,34 @@ RPCs novas, todas `service_role`-only, revogadas de `public`/`anon`/
   gerencia o catálogo, com verificação do preço vivo na Stripe no momento do
   cadastro)
 - `portal_reserve_business_checkout_service` (valida grant, sessão e
-  catálogo, snapshota preço/moeda/conta Stripe, cria a linha `reserved`)
+  catálogo, roda o preflight de preço vivo contra a conta Stripe conectada,
+  snapshota preço/moeda/quantidade/conta Stripe/contato, cria a linha em
+  `pending_approval` com `approval_expires_at`, grava o único receipt deste
+  grant com `outcome='pending_approval'`)
+- `portal_approve_business_checkout_service` (`tenant_admin`, fence
+  `pending_approval` → `reserved`, aceita `contactEmail` opcional/
+  obrigatório só quando a reserva não capturou nenhum durante a call, grava
+  `approved_by`/`approved_at`, nunca chama a Stripe)
+- `portal_reject_business_checkout_service` (`tenant_admin`, fence
+  `pending_approval` → `rejected`, aceita `rejectionReason` opcional, grava
+  `rejected_by`/`rejected_at`, nunca chama a Stripe)
+- `portal_expire_pending_business_checkout_reservations_service`
+  (`service_role`, chamada pelo mesmo worker de varredura periódica do
+  ADR-036/039, transiciona toda linha `pending_approval` com
+  `approval_expires_at` no passado para `approval_expired`)
 - `portal_dispatch_business_checkout_reservation_service` (fence `reserved`
-  → `provider_in_flight`, chamado imediatamente antes da chamada à Stripe)
+  → `provider_in_flight`, chamado imediatamente antes da chamada à Stripe,
+  só alcançável depois de `portal_approve_business_checkout_service`)
 - `portal_commit_business_checkout_reservation_service` (`provider_in_flight`
-  → `committed`, grava `stripe_checkout_session_id`/`checkout_url`, grava
-  receipt `succeeded`)
+  → `committed`, grava `stripe_checkout_session_id`/`checkout_url`; não
+  grava receipt novo, o receipt deste grant já foi gravado como
+  `pending_approval` na reserva e não é reescrito; a aplicação, no mesmo
+  fluxo do clique de aprovação, dispara em seguida o e-mail do link para
+  `contact_email`)
 - `portal_release_business_checkout_reservation_service` (libera só falha
-  comprovada pré-dispatch)
+  comprovada pré-dispatch depois da aprovação, nunca antes dela: os
+  desfechos pré-aprovação são `rejected` ou `approval_expired`, nunca
+  `released`)
 - `portal_mark_business_checkout_reservation_unknown_service`
 - `portal_reconcile_business_checkout_reservation_service` (repete a mesma
   chamada de criação com a mesma chave de idempotência; se inconclusivo,
@@ -525,7 +780,11 @@ atual; a versão do probe sobe para 50. O domínio fechado de `action_kind`
 em `portal_business_action_grants`, `portal_business_action_receipts` e
 `portal_business_action_kill_switches`/`..._kill_switch_events` (tabelas do
 ADR-039) é ampliado para incluir `request_checkout`, de forma aditiva, sem
-remover os três valores existentes. Nenhuma tabela ou RPC anterior é
+remover os três valores existentes. O domínio fechado de `outcome` em
+`portal_business_action_receipts` (tabela do ADR-039) ganha um quinto
+valor, `pending_approval`, também de forma aditiva, sem remover os quatro
+já existentes (`succeeded`/`rejected`/`failed`/`unknown`); ver "Aprovação
+humana do tenant" acima para o porquê. Nenhuma tabela ou RPC anterior é
 estreitada por esta migration.
 
 `packages/provider-stripe` ganha um método novo (fora do escopo de código
@@ -576,6 +835,14 @@ mesmo arquivo.
    superfície de ataque sem benefício. Revisitar se uma capacidade futura
    exigir agir com o token da própria conta conectada em vez do da
    plataforma.
+7. Manter `request_checkout` tão autônomo quanto `confirm_meeting_slot`, sem
+   aprovação humana, protegido só pelas quatro camadas de
+   flag/kill switch/catálogo/conta Stripe já descritas (a recomendação
+   original deste ADR). Rejeitado por decisão explícita de Fernando Silva
+   (2026-08-28): cobrança é dinheiro saindo do bolso de um terceiro real,
+   uma categoria de risco que pesa mais do que a fricção comercial de uma
+   aprovação assíncrona; ver "Fluxo de confirmação" e "Aprovação humana do
+   tenant" acima.
 
 ## Consequências
 
@@ -599,6 +866,22 @@ tabela ou RPC existente é estreitada; nenhuma promessa de cobrança é feita
 ao modelo antes de um receipt confirmado, e nenhuma promessa de pagamento
 recebido é feita antes de um webhook assinado da Stripe confirmar.
 
+Esta revisão soma mais duas consequências estruturais. Primeiro, este
+domínio passa a depender de e-mail transacional (Resend, via
+`apps/portal/src/lib/email.ts`) para completar seu próprio fluxo, algo que a
+versão autônoma original não precisava: sem uma função de envio nova
+(`sendCheckoutLinkEmail` ou nome equivalente, fora do escopo de código
+deste ADR) e sem um `contactEmail` válido no momento da aprovação, um link
+gerado não chega a lugar nenhum sozinho. Segundo, `request_checkout` se
+torna a primeira ação de negócio deste produto cujo receipt nunca atinge
+`succeeded`: o `outcome` fica permanentemente em `pending_approval` a partir
+da admissão, e o desfecho real (link entregue, rejeitado ou expirado sem
+ação) vive só na reserva, nunca no receipt. Isso é uma divergência
+deliberada e documentada do padrão que `confirm_meeting_slot` estabeleceu no
+ADR-039, não um descuido: lá, a aprovação é a própria fala do prospect
+dentro da call; aqui, a aprovação é um humano do tenant agindo depois,
+quase sempre fora dela.
+
 ## Rollout e rollback
 
 Esta migration mexe em banco (tabelas novas, RLS, RPCs `service_role`) e
@@ -618,11 +901,19 @@ de toda capacidade nova. Nenhum tenant deve conectar uma conta Stripe real
 antes dessa revisão. Rollback de qualquer uma das duas flags é imediato
 (voltar para `false` bloqueia toda admissão nova de `request_checkout` sem
 afetar nenhuma reserva ou pagamento já registrado); rollback de uma reserva
-de cobrança individual nunca é automático, segue a mesma regra do ADR-036,
-só uma repetição idempotente que prova o resultado ou uma reconciliação
-manual de dois operadores libera ou resolve a reserva. Desconectar a conta
-Stripe de um tenant não invalida uma Checkout Session já `committed`, ela
-continua existindo do lado da Stripe até expirar ou ser completada.
+de cobrança individual que já passou de `reserved` em diante nunca é
+automático, segue a mesma regra do ADR-036, só uma repetição idempotente
+que prova o resultado ou uma reconciliação manual de dois operadores libera
+ou resolve a reserva. Desconectar a conta Stripe de um tenant não invalida
+uma Checkout Session já `committed`, ela continua existindo do lado da
+Stripe até expirar ou ser completada.
+
+Uma reserva ainda em `pending_approval` é mais simples de desfazer do que
+qualquer uma dessas: como nenhuma chamada à Stripe jamais aconteceu nesse
+estado, "cancelar" uma oferta de cobrança pendente é só deixá-la expirar
+sozinha (`approval_expired`, 72 horas) ou o `tenant_admin` rejeitar
+explicitamente; nenhuma das duas ações precisa de reconciliação com a
+Stripe, porque não existe nada do lado da Stripe para reconciliar.
 
 ## Decisões do dono do produto
 
@@ -652,18 +943,22 @@ categoria ALTO):**
   para o cliente final, sem ferramenta de reembolso dentro do Portal (o
   tenant usa o próprio dashboard Stripe para isso), sem desconto, sem
   carrinho multi-produto, moeda única (USD).
+- **Aprovação humana obrigatória do tenant para `request_checkout`**:
+  decidido por Fernando Silva (2026-08-28), na direção oposta à
+  recomendação original deste ADR. Um `tenant_admin` precisa aprovar cada
+  oferta de cobrança antes de o link ser gerado; o modelo nunca oferece o
+  link ao vivo, só um handoff. A máquina de estados ganhou um estado
+  inicial novo (`pending_approval`, anterior a `reserved`) e dois estados
+  terminais novos (`rejected` e `approval_expired`, prazo fixo de 72
+  horas); o receipt do `BusinessActionIntent` ganhou um quinto `outcome`
+  (`pending_approval`) e nunca mais alcança `succeeded` para esta ação; a
+  entrega do link ao prospect passou a depender de e-mail (Resend), no
+  mesmo padrão de `sendClosingProposal`. Ver "Fluxo de confirmação" e
+  "Aprovação humana do tenant: máquina de estados, prazos e entrega" acima
+  para o desenho completo.
 
-**Bloqueia o início do código, decisão explícita necessária:**
-- **Autonomia da geração do link de cobrança**: se `request_checkout` pode
-  ser tão autônomo quanto `confirm_meeting_slot` (o modelo oferece o link
-  durante a conversa, sem um operador do tenant aprovando cada oferta em
-  tempo real, protegido pelas quatro camadas de controle já descritas), ou
-  se Fernando quer algum tipo de aprovação humana do tenant antes de o link
-  ser oferecido ao prospect. A recomendação deste ADR é autonomia protegida
-  por camadas (ver seção "Fluxo de confirmação"), mas, diferente do
-  agendamento do ADR-039, esta decisão específica não foi tomada por
-  Fernando ainda e precisa ser antes de qualquer código deste domínio,
-  porque é dinheiro saindo do bolso de um terceiro real.
+**Bloqueia o início do código:** nenhum item restante. O único ponto que
+bloqueava (autonomia da geração do link de cobrança) foi resolvido acima.
 
 **Gates de pré-lançamento, não bloqueiam o início da implementação:**
 - Habilitar Connect na própria conta Stripe da Axtro e aceitar os termos de
@@ -681,10 +976,15 @@ categoria ALTO):**
 - Aplicação da migration `0050` em produção segue o mesmo gate humano de
   toda migration deste porte (autorização explícita antes e depois, nunca
   automática).
-- Confirmar se `contactEmail` deve ser obrigatório antes de gerar o link
-  ou se a própria tela da Stripe pode coletá-lo (assumido como não
-  obrigatório neste ADR, para reduzir fricção); revisitar se algum tenant
-  piloto pedir o contrário.
+- A tela de aprovação do `tenant_admin` (listar reservas `pending_approval`,
+  aprovar, rejeitar) é trabalho de produto fora do escopo de código deste
+  ADR; o contrato de RPC já está fixado em "Aprovação humana do tenant"
+  acima, mas nenhum tenant piloto usa `request_checkout` de verdade antes
+  de essa tela existir.
+- Notificação por e-mail de rejeição ou de expiração de uma reserva
+  `pending_approval` para um segundo `tenant_admin` do mesmo tenant (quando
+  quem originou a call e quem aprova são pessoas diferentes) não é
+  desenhada nesta versão; revisitar se um tenant piloto pedir.
 
 ## Revisit trigger
 
@@ -693,7 +993,10 @@ recorrente (não só cobrança única), quando um segundo tipo ou uma segunda
 conta conectada por tenant for necessário, quando multi-moeda for pedido
 por um tenant fora dos EUA, quando o tenant pedir reembolso ou estorno
 iniciado de dentro do Portal em vez do dashboard próprio da Stripe, quando
-a fricção de onboarding de conta Standard justificar reavaliar Express, ou
-quando o Action Runtime genérico descrito em
+a fricção de onboarding de conta Standard justificar reavaliar Express,
+quando o prazo fixo de 72 horas de `pending_approval` precisar ser
+configurável por tenant, quando um tenant piloto pedir notificação
+proativa de reserva pendente de aprovação ou prestes a expirar, ou quando
+o Action Runtime genérico descrito em
 `docs/architecture/ACTION_AND_TOOL_RUNTIME.md` ganhar um contrato de
 produção capaz de substituir este bridge específico de domínio.
