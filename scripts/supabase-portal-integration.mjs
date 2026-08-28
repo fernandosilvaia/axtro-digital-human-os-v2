@@ -109,6 +109,10 @@ try {
   await assertTerminationFencePhase(databaseUrl, { expectedSchemaVersion: 48, expectTimestampFence: true });
   assertFailed(runFile(databaseUrl, join(supabaseMigrationDirectory, "0040_production_integrity_hardening.sql")), "non-idempotent 0040 cannot be replayed without a migration receipt gate");
   assert.equal(queryScalar(databaseUrl, "SELECT count(*) FROM public.axtro_supabase_test_migrations;"), "48");
+  const businessActionApplied = applySupabaseMigrations(databaseUrl, 51, 51);
+  assert.deepEqual(businessActionApplied, ["0051"]);
+  assertBusinessActionBridgeContractPhase(databaseUrl);
+  assert.equal(queryScalar(databaseUrl, "SELECT count(*) FROM public.axtro_supabase_test_migrations;"), "49");
 
   assertMigrationCapabilities(databaseUrl);
   assertLeastPrivilege(databaseUrl);
@@ -133,8 +137,9 @@ try {
   assertRecallDailyPaidAttemptBudget(databaseUrl);
   assertCostEventSchemaVersion(databaseUrl);
   await assertRuntimeChannelBridge(databaseUrl);
+  assertBusinessActionAdmissionAndLeads(databaseUrl);
 
-  console.log("SUPABASE PORTAL INTEGRATION PASSED: migrations 0001-0048, grants, RLS, transcripts, reservations and readiness capability");
+  console.log("SUPABASE PORTAL INTEGRATION PASSED: migrations 0001-0048 + 0051 (0049-0050 applied separately, out of band), grants, RLS, transcripts, reservations and readiness capability");
 } catch (error) {
   primaryError = error;
   throw error;
@@ -150,7 +155,7 @@ function applySupabaseMigrations(databaseUrl, firstVersion, lastVersion) {
   const migrations = readdirSync(supabaseMigrationDirectory)
     .filter((name) => /^\d{4}_.+\.sql$/.test(name))
     .sort();
-  assert.equal(migrations.length, 48, "the harness must cover every Supabase-only migration through the 0048 Tavus settlement timestamp phase");
+  assert.equal(migrations.length, 49, "the harness must cover every Supabase-only migration through the 0051 business action admission phase (0049-0050 numbers were claimed by an unrelated concurrent migration before this one merged)");
   const applied = [];
   for (const migration of migrations) {
     const numericVersion = Number(migration.slice(0, 4));
@@ -296,6 +301,14 @@ function assertRuntimeBridgeIntegrityRepairPhase(databaseUrl) {
   const capabilities = queryJson(databaseUrl, asRoleSql("service_role", null, "SELECT public.portal_schema_capabilities_service();"));
   assert.equal(capabilities.version, 44, "0044 enables the runtime bridge receipt-integrity contract");
   assert.equal(capabilities.runtimeBridgeReceiptIntegrity, true);
+}
+
+function assertBusinessActionBridgeContractPhase(databaseUrl) {
+  const capabilities = queryJson(databaseUrl, asRoleSql("service_role", null, "SELECT public.portal_schema_capabilities_service();"));
+  assert.equal(capabilities.version, 51, "0051 enables the ADR-039 wave 1a business action admission contract");
+  for (const capability of ["businessActionKillSwitches", "businessActionGrants", "businessActionReceipts", "businessActionLeads"]) {
+    assert.equal(capabilities[capability], true, capability);
+  }
 }
 
 function assertMeetingStatusOverloadRepairPhase(databaseUrl) {
@@ -725,7 +738,7 @@ function assertTavusStageSettlementTimestampPhase(databaseUrl) {
 function assertMigrationCapabilities(databaseUrl) {
   assert.equal(queryScalar(databaseUrl, "SELECT to_regprocedure('public.portal_schema_capabilities_service()') IS NOT NULL;"), "t");
   const capabilities = queryJson(databaseUrl, asRoleSql("service_role", null, "SELECT public.portal_schema_capabilities_service();"));
-  assert.equal(capabilities.version, 48);
+  assert.equal(capabilities.version, 51);
   assert.equal(capabilities.providerEffectReservations, true);
   assert.equal(capabilities.billingUsageOutbox, true);
   assert.equal(capabilities.recallWebhookDedupe, true);
@@ -757,6 +770,10 @@ function assertMigrationCapabilities(databaseUrl) {
   assert.equal(capabilities.providerEffectTerminationFence, true);
   assert.equal(capabilities.serviceRoleAppSchemaUsage, true);
   assert.equal(capabilities.tavusStageExpiryConcurrencyFence, true);
+  assert.equal(capabilities.businessActionKillSwitches, true);
+  assert.equal(capabilities.businessActionGrants, true);
+  assert.equal(capabilities.businessActionReceipts, true);
+  assert.equal(capabilities.businessActionLeads, true);
   assert.equal(queryScalar(databaseUrl, "SELECT to_regclass('public.provider_effect_reservations') IS NOT NULL;"), "t");
   assert.equal(queryScalar(databaseUrl, "SELECT to_regclass('public.billing_usage_outbox') IS NOT NULL;"), "t");
   for (const signature of [
@@ -828,6 +845,12 @@ function assertLeastPrivilege(databaseUrl) {
     "portal_runtime_scene_execution_receipts",
     "portal_runtime_operator_approvals",
     "portal_runtime_operator_reconciliation_receipts",
+    "portal_business_action_kill_switches",
+    "portal_business_action_kill_switch_events",
+    "portal_business_action_agent_settings",
+    "portal_business_action_grants",
+    "portal_business_action_receipts",
+    "portal_business_action_leads",
   ];
   for (const table of [...m5Tables, "conversation_transcripts", "meeting_bot_sessions"]) {
     assert.equal(queryScalar(databaseUrl, `SELECT relrowsecurity AND relforcerowsecurity FROM pg_class WHERE oid = 'public.${table}'::regclass;`), "t");
@@ -1046,6 +1069,183 @@ async function assertRuntimeChannelBridge(databaseUrl) {
     'tavus_video',array['recording'],'${"d".repeat(64)}',0,'${blockedDisclosure}','runtime-v1','${disclosureHash}','spoken','pt-BR','${sqlLiteral(noPurpose)}'::jsonb,'[]'::jsonb
   );`)), "an optional capability without purpose evidence fails before disclosure/session persistence");
   assert.equal(queryScalar(databaseUrl, `SELECT count(*) FROM public.portal_runtime_channel_bindings WHERE id='${blockedId}';`), "0");
+}
+
+// ADR-039 wave 1a. Unlike portal_admit_runtime_channel_service, admission
+// here never creates the session/disclosure/consent evidence it checks, so
+// every fixture session below is inserted directly (the same durable shape
+// ADR-038's channel admission would have left behind), never through a
+// business-action RPC.
+function businessActionSessionFixtureSql(tenantId, agentId, sessionId, presenterId, disclosureStatus, consentStatus) {
+  return `
+    INSERT INTO public.sessions (tenant_id,id,agent_id,role_pack_id,role_pack_version,channel_type,status,active_presenter_id,disclosure_status,consent_status)
+    VALUES ('${tenantId}','${sessionId}','${agentId}','sales','business-action-harness-v1','api','ready','${presenterId}','${disclosureStatus}','${consentStatus}');
+    INSERT INTO public.session_participants (tenant_id,id,session_id,participant_type,display_name,joined_at)
+    VALUES ('${tenantId}','${presenterId}','${sessionId}','digital_presenter','Business Action Harness Presenter',now());
+  `;
+}
+
+function leadDataCaptureConsentSql(tenantId, sessionId, consentId) {
+  return `
+    INSERT INTO public.consent_evidence (tenant_id,id,session_id,subject_ref,consent_type,purpose,status,method,jurisdiction,disclosure_version,evidence_hash,captured_at)
+    VALUES ('${tenantId}','${consentId}','${sessionId}','business-action-harness-subject','lead_data_capture','lead_data_capture','granted','click','BR','business-action-harness-v1','${"e".repeat(64)}',now());
+  `;
+}
+
+async function assertBusinessActionAdmissionAndLeads(databaseUrl) {
+  const fp = "9".repeat(64);
+  const admit = (overrides = {}) => {
+    const p = {
+      grantId: "019f0000-0000-7000-8000-000000009100", tenantId: fixture.tenantAlpha, agentId: fixture.agentAlpha,
+      sessionId: "019f0000-0000-7000-8000-000000009101", presenterId: "019f0000-0000-7000-8000-000000009102",
+      actionKind: "register_lead", fingerprint: fp, generation: 0,
+      ...overrides,
+    };
+    return queryJson(databaseUrl, asRoleSql("service_role", null, `SELECT public.portal_admit_business_action_service(
+      '${p.grantId}','${p.tenantId}','${p.agentId}','${p.sessionId}','${p.presenterId}','${p.actionKind}','${p.fingerprint}',${p.generation}
+    );`));
+  };
+  const register = (overrides = {}) => {
+    const p = {
+      leadId: "019f0000-0000-7000-8000-000000009200", receiptId: "019f0000-0000-7000-8000-000000009201",
+      grantId: "019f0000-0000-7000-8000-000000009100", contactName: "Ana Prospect",
+      contactEmail: "ana@example.test", contactPhone: null, summary: "Interessada no plano anual",
+      ...overrides,
+    };
+    return queryJson(databaseUrl, asRoleSql("service_role", null, `SELECT public.portal_register_business_lead_service(
+      '${p.leadId}','${p.receiptId}','${p.grantId}','${sqlLiteral(p.contactName)}',
+      ${p.contactEmail === null ? "null" : `'${sqlLiteral(p.contactEmail)}'`},
+      ${p.contactPhone === null ? "null" : `'${sqlLiteral(p.contactPhone)}'`},
+      '${sqlLiteral(p.summary)}'
+    );`));
+  };
+
+  // -- flag independence: bridge disabled without any read/write --
+  assert.equal(queryScalar(databaseUrl, "SELECT to_regprocedure('public.portal_admit_business_action_service(app.uuid_v7,app.uuid_v7,app.uuid_v7,app.uuid_v7,app.uuid_v7,text,text,integer)') IS NOT NULL;"), "t",
+    "the service RPC itself has no PORTAL_BUSINESS_ACTION_BRIDGE_ENABLED concept -- the flag is enforced by apps/portal/src/lib/runtime/portal-business-action-bridge.ts before any RPC call, proven by tests/portal/business-action-bridge.test.mjs");
+
+  // -- disclosure / essential consent / purpose consent rejections --
+  const pendingSession = "019f0000-0000-7000-8000-000000009110";
+  const pendingPresenter = "019f0000-0000-7000-8000-000000009111";
+  assertSucceeded(runSql(databaseUrl, businessActionSessionFixtureSql(fixture.tenantAlpha, fixture.agentAlpha, pendingSession, pendingPresenter, "pending", "pending")), "pending disclosure/consent session fixture");
+  assert.equal(admit({ grantId: "019f0000-0000-7000-8000-000000009112", sessionId: pendingSession, presenterId: pendingPresenter, fingerprint: "1".repeat(64) }).outcome, "denied_disclosure");
+  assert.equal(queryScalar(databaseUrl, "SELECT count(*) FROM public.portal_business_action_grants WHERE id='019f0000-0000-7000-8000-000000009112';"), "0", "a denied admission never persists a grant");
+
+  const consentPendingSession = "019f0000-0000-7000-8000-000000009120";
+  const consentPendingPresenter = "019f0000-0000-7000-8000-000000009121";
+  assertSucceeded(runSql(databaseUrl, businessActionSessionFixtureSql(fixture.tenantAlpha, fixture.agentAlpha, consentPendingSession, consentPendingPresenter, "delivered", "pending")), "delivered disclosure, pending consent session fixture");
+  assert.equal(admit({ grantId: "019f0000-0000-7000-8000-000000009122", sessionId: consentPendingSession, presenterId: consentPendingPresenter, fingerprint: "2".repeat(64) }).outcome, "denied_essential_consent");
+
+  const noPurposeSession = "019f0000-0000-7000-8000-000000009130";
+  const noPurposePresenter = "019f0000-0000-7000-8000-000000009131";
+  assertSucceeded(runSql(databaseUrl, businessActionSessionFixtureSql(fixture.tenantAlpha, fixture.agentAlpha, noPurposeSession, noPurposePresenter, "delivered", "granted")), "essential-only session fixture");
+  assert.equal(admit({ grantId: "019f0000-0000-7000-8000-000000009132", sessionId: noPurposeSession, presenterId: noPurposePresenter, fingerprint: "3".repeat(64) }).outcome, "denied_purpose_consent",
+    "essential_processing alone never authorizes register_lead -- lead_data_capture is a distinct Art. 5 purpose");
+
+  // -- presenter mismatch (One Mouth Rule read, ADR-039) --
+  const wrongPresenter = "019f0000-0000-7000-8000-000000009133";
+  assert.equal(admit({ grantId: "019f0000-0000-7000-8000-000000009134", sessionId: noPurposeSession, presenterId: wrongPresenter, fingerprint: "4".repeat(64) }).outcome, "presenter_mismatch");
+  assert.equal(queryScalar(databaseUrl, "SELECT count(*) FROM public.portal_business_action_grants WHERE id='019f0000-0000-7000-8000-000000009134';"), "0");
+
+  // -- fully satisfied session: issuance, replay and register_lead idempotency --
+  const readySession = "019f0000-0000-7000-8000-000000009140";
+  const readyPresenter = "019f0000-0000-7000-8000-000000009141";
+  assertSucceeded(runSql(databaseUrl, businessActionSessionFixtureSql(fixture.tenantAlpha, fixture.agentAlpha, readySession, readyPresenter, "delivered", "granted")), "fully satisfied session fixture");
+  assertSucceeded(runSql(databaseUrl, leadDataCaptureConsentSql(fixture.tenantAlpha, readySession, "019f0000-0000-7000-8000-000000009142")), "lead_data_capture consent fixture");
+  const grantId = "019f0000-0000-7000-8000-000000009150";
+  const issued = admit({ grantId, sessionId: readySession, presenterId: readyPresenter, fingerprint: "5".repeat(64) });
+  assert.equal(issued.outcome, "issued");
+  assert.equal(issued.grantId, grantId);
+  const replayed = admit({ grantId, sessionId: readySession, presenterId: readyPresenter, fingerprint: "5".repeat(64) });
+  assert.equal(replayed.outcome, "replayed", "an identical admission command is idempotent");
+  assert.equal(replayed.grantId, grantId);
+  assert.equal(replayed.generation, 0);
+
+  // A caller that (correctly or not) generates a fresh grantId per retry --
+  // exactly what apps/portal/src/lib/runtime/portal-business-action-bridge.ts
+  // does by default when nothing threads the first attempt's grantId through
+  // -- must still replay gracefully via (tenant_id, session_id,
+  // command_fingerprint), never a raw unique_violation surfacing to the
+  // caller.
+  const replayedFreshId = admit({ grantId: "019f0000-0000-7000-8000-0000000091ff", sessionId: readySession, presenterId: readyPresenter, fingerprint: "5".repeat(64) });
+  assert.equal(replayedFreshId.outcome, "replayed", "a retry with a different grantId but the same session+fingerprint replays the original grant instead of raising a constraint violation");
+  assert.equal(replayedFreshId.grantId, grantId, "the replay reports the FIRST grant's id, never the fresh one the retry generated");
+  assert.equal(queryScalar(databaseUrl, "SELECT count(*) FROM public.portal_business_action_grants WHERE id='019f0000-0000-7000-8000-0000000091ff';"), "0",
+    "the fresh grantId from the retry attempt is never actually persisted as a second row");
+
+  assertFailed(runSql(databaseUrl, asRoleSql("authenticated", fixture.userAlpha, `SELECT public.portal_admit_business_action_service(
+    '019f0000-0000-7000-8000-000000009151','${fixture.tenantAlpha}','${fixture.agentAlpha}','${readySession}','${readyPresenter}','register_lead','${"6".repeat(64)}',0
+  );`)), "authenticated callers cannot directly admit a business action");
+  assert.equal(queryScalar(databaseUrl, "SELECT count(*) FROM public.portal_business_action_grants WHERE id='019f0000-0000-7000-8000-000000009151';"), "0");
+
+  const firstRegistration = register({ leadId: "019f0000-0000-7000-8000-000000009152", receiptId: "019f0000-0000-7000-8000-000000009153", grantId });
+  assert.equal(firstRegistration.outcome, "succeeded");
+  assert.equal(firstRegistration.leadId, "019f0000-0000-7000-8000-000000009152");
+  const secondRegistration = register({ leadId: "019f0000-0000-7000-8000-000000009154", receiptId: "019f0000-0000-7000-8000-000000009155", grantId, contactName: "Ana Prospect (retry)" });
+  assert.equal(secondRegistration.outcome, "succeeded", "a retried register_lead call against the same grant replays the existing receipt");
+  assert.equal(secondRegistration.leadId, firstRegistration.leadId, "the same idempotency key (the grant's command_fingerprint) never creates a second lead");
+  assert.equal(queryScalar(databaseUrl, `SELECT count(*) FROM public.portal_business_action_leads WHERE tenant_id='${fixture.tenantAlpha}' AND session_id='${readySession}';`), "1");
+  assert.equal(queryScalar(databaseUrl, `SELECT count(*) FROM public.portal_business_action_receipts WHERE tenant_id='${fixture.tenantAlpha}' AND grant_id='${grantId}';`), "1");
+  assert.equal(queryScalar(databaseUrl, `SELECT contact_name FROM public.portal_business_action_leads WHERE id='${firstRegistration.leadId}';`), "Ana Prospect",
+    "the replayed retry never overwrites the durable lead row");
+
+  // A genuinely distinct intent (its own commandFingerprint) on the same
+  // session is a second lead, never collapsed with the first.
+  const secondGrantId = "019f0000-0000-7000-8000-000000009160";
+  const secondIssued = admit({ grantId: secondGrantId, sessionId: readySession, presenterId: readyPresenter, fingerprint: "7".repeat(64) });
+  assert.equal(secondIssued.outcome, "issued");
+  const secondDistinctRegistration = register({ leadId: "019f0000-0000-7000-8000-000000009161", receiptId: "019f0000-0000-7000-8000-000000009162", grantId: secondGrantId, contactName: "Bruno Prospect", contactEmail: null, contactPhone: "+55 11 90000-0000" });
+  assert.equal(secondDistinctRegistration.outcome, "succeeded");
+  assert.notEqual(secondDistinctRegistration.leadId, firstRegistration.leadId);
+  assert.equal(queryScalar(databaseUrl, `SELECT count(*) FROM public.portal_business_action_leads WHERE tenant_id='${fixture.tenantAlpha}' AND session_id='${readySession}';`), "2");
+
+  assertFailed(runSql(databaseUrl, `INSERT INTO public.portal_business_action_leads
+    (id,tenant_id,agent_id,session_id,contact_name,idempotency_key) VALUES
+    ('019f0000-0000-7000-8000-000000009163','${fixture.tenantAlpha}','${fixture.agentAlpha}','${readySession}','No Contact Channel','${"8".repeat(64)}');`),
+  "register_lead requires at least one of contactEmail/contactPhone at the database boundary, not only in the application layer");
+
+  // -- kill switch: scoped to one tenant, never leaking to another --
+  const betaSession = "019f0000-0000-7000-8000-000000009170";
+  const betaPresenter = "019f0000-0000-7000-8000-000000009171";
+  assertSucceeded(runSql(databaseUrl, businessActionSessionFixtureSql(fixture.tenantBeta, fixture.agentBeta, betaSession, betaPresenter, "delivered", "granted")), "beta fully satisfied session fixture");
+  assertSucceeded(runSql(databaseUrl, leadDataCaptureConsentSql(fixture.tenantBeta, betaSession, "019f0000-0000-7000-8000-000000009172")), "beta lead_data_capture consent fixture");
+
+  assert.equal(queryJson(databaseUrl, asRoleSql("service_role", null,
+    `SELECT public.portal_business_action_status_service('${fixture.tenantAlpha}','${fixture.agentAlpha}','register_lead');`)).enabled, true);
+  assert.equal(queryScalar(databaseUrl, asRoleSql("service_role", null, `SELECT public.portal_set_business_action_kill_switch_service(
+    '019f0000-0000-7000-8000-000000009180','${fixture.tenantAlpha}','${fixture.actorAlpha}',null,'register_lead',false,'incident_hold'
+  );`)), "t");
+  assert.equal(queryScalar(databaseUrl, `SELECT count(*) FROM public.portal_business_action_kill_switch_events WHERE tenant_id='${fixture.tenantAlpha}' AND reason_code='incident_hold';`), "1");
+  assertFailed(runSql(databaseUrl, `INSERT INTO public.portal_business_action_kill_switch_events
+    (id,tenant_id,kill_switch_id,actor_id,enabled,reason_code) VALUES
+    ('019f0000-0000-7000-8000-000000009181','${fixture.tenantBeta}','019f0000-0000-7000-8000-000000009180','${fixture.actorBeta}',false,'cross_tenant_switch');`),
+  "composite kill-switch FK rejects a cross-tenant event");
+  assert.equal(queryJson(databaseUrl, asRoleSql("service_role", null,
+    `SELECT public.portal_business_action_status_service('${fixture.tenantAlpha}','${fixture.agentAlpha}','register_lead');`)).enabled, false);
+
+  const blockedGrantId = "019f0000-0000-7000-8000-000000009182";
+  assert.equal(admit({ grantId: blockedGrantId, sessionId: readySession, presenterId: readyPresenter, fingerprint: "a".repeat(64) }).outcome, "blocked_kill_switch");
+  assert.equal(queryScalar(databaseUrl, `SELECT count(*) FROM public.portal_business_action_grants WHERE id='${blockedGrantId}';`), "0");
+
+  assert.equal(queryJson(databaseUrl, asRoleSql("service_role", null,
+    `SELECT public.portal_business_action_status_service('${fixture.tenantBeta}','${fixture.agentBeta}','register_lead');`)).enabled, true,
+    "a tenant-scoped kill switch never blocks a different tenant");
+  const betaGrantId = "019f0000-0000-7000-8000-000000009183";
+  const betaIssued = admit({ grantId: betaGrantId, tenantId: fixture.tenantBeta, agentId: fixture.agentBeta, sessionId: betaSession, presenterId: betaPresenter, fingerprint: "b".repeat(64) });
+  assert.equal(betaIssued.outcome, "issued", "tenant beta admits register_lead while tenant alpha stays blocked");
+  const betaRegistration = register({ leadId: "019f0000-0000-7000-8000-000000009184", receiptId: "019f0000-0000-7000-8000-000000009185", grantId: betaGrantId, contactName: "Carla Prospect", contactEmail: "carla@example.test" });
+  assert.equal(betaRegistration.outcome, "succeeded");
+
+  assert.equal(queryScalar(databaseUrl, asRoleSql("service_role", null, `SELECT public.portal_set_business_action_kill_switch_service(
+    '019f0000-0000-7000-8000-000000009180','${fixture.tenantAlpha}','${fixture.actorAlpha}',null,'register_lead',true,'incident_resolved'
+  );`)), "t", "restore the kill switch so it never leaks state into a later test run of this suite");
+
+  // -- register_lead RPC requires the agent settings/kill switch setters to stay tenant_admin gated --
+  assertFailed(runSql(databaseUrl, asRoleSql("service_role", null,
+    `SELECT public.portal_set_business_action_agent_settings_service('${fixture.tenantAlpha}','${fixture.actorBeta}','${fixture.agentAlpha}',true);`)));
+  assert.equal(queryScalar(databaseUrl, asRoleSql("service_role", null,
+    `SELECT public.portal_set_business_action_agent_settings_service('${fixture.tenantAlpha}','${fixture.actorAlpha}','${fixture.agentAlpha}',true);`)), "t");
+  assert.equal(queryScalar(databaseUrl, `SELECT auto_confirm_scheduling FROM public.portal_business_action_agent_settings WHERE tenant_id='${fixture.tenantAlpha}' AND agent_id='${fixture.agentAlpha}';`), "t");
 }
 
 function assertWorkerHeartbeatLifecycle(databaseUrl) {

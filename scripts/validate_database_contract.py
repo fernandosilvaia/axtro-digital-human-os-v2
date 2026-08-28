@@ -143,6 +143,49 @@ def main() -> int:
         ):
             if invariant not in timestamp_sql:
                 errors.append(f"0048 Tavus stage settlement timestamp invariant is missing: {invariant}")
+    business_action_admission = SUPABASE_MIGRATIONS / "0051_business_action_admission_and_leads.sql"
+    if not business_action_admission.exists():
+        errors.append("Missing Supabase-only business action admission and leads migration 0051")
+    else:
+        admission_sql = business_action_admission.read_text(encoding="utf-8")
+        if "begin;" not in admission_sql or "commit;" not in admission_sql:
+            errors.append("0051 business action admission must have explicit transaction boundaries")
+        for invariant in (
+            "portal_business_action_kill_switches",
+            "portal_business_action_kill_switch_events",
+            "portal_business_action_agent_settings",
+            "portal_business_action_grants",
+            "portal_business_action_receipts",
+            "portal_business_action_leads",
+            "portal_set_business_action_kill_switch_service",
+            "portal_business_action_status_service",
+            "portal_set_business_action_agent_settings_service",
+            "portal_admit_business_action_service",
+            "portal_register_business_lead_service",
+            "action_kind in ('register_lead')",
+            "foreign key (tenant_id,kill_switch_id) references public.portal_business_action_kill_switches(tenant_id,id)",
+            "unique (tenant_id,idempotency_key)",
+            "contact_email is not null or contact_phone is not null",
+            "'version',51",
+            "'businessActionKillSwitches'",
+            "'businessActionGrants'",
+            "'businessActionReceipts'",
+            "'businessActionLeads'",
+        ):
+            if invariant not in admission_sql:
+                errors.append(f"0051 business action admission invariant is missing: {invariant}")
+        for absent_calendar_object in (
+            "create table public.portal_business_action_calendar_reservations",
+            "create table public.portal_business_action_calendar_connections",
+            "create table public.portal_business_action_proposals",
+            "create table public.portal_business_action_proposal_slots",
+            "create or replace function public.portal_propose_business_meeting_slots_service",
+            "create or replace function public.portal_reserve_business_meeting_slot_service",
+            "create or replace function public.portal_connect_google_calendar_service",
+            "google_event_id",
+        ):
+            if absent_calendar_object in admission_sql:
+                errors.append(f"0051 must not implement wave 1b calendar scope: found {absent_calendar_object}")
     if "tenant_isolation" not in all_sql:
         errors.append("Tenant isolation policy is missing")
     if "event_document ->> 'tenant_id' IS DISTINCT FROM tenant_id::text" not in all_sql:

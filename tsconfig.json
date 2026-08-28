@@ -33,6 +33,7 @@
     { "path": "./packages/provider-tavus" },
     { "path": "./packages/provider-recall" },
     { "path": "./packages/provider-stripe" },
+    { "path": "./packages/provider-google-calendar" },
     { "path": "./packages/provider-telnyx" },
     { "path": "./packages/evaluation" },
     { "path": "./apps/ingestion-worker" },

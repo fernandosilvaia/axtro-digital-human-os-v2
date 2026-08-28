@@ -345,6 +345,8 @@ importers:
         specifier: workspace:*
         version: link:../provider-contracts
 
+  packages/provider-google-calendar: {}
+
   packages/provider-openrouter: {}
 
   packages/provider-recall: {}
