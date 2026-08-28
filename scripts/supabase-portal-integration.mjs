@@ -109,8 +109,8 @@ try {
   await assertTerminationFencePhase(databaseUrl, { expectedSchemaVersion: 48, expectTimestampFence: true });
   assertFailed(runFile(databaseUrl, join(supabaseMigrationDirectory, "0040_production_integrity_hardening.sql")), "non-idempotent 0040 cannot be replayed without a migration receipt gate");
   assert.equal(queryScalar(databaseUrl, "SELECT count(*) FROM public.axtro_supabase_test_migrations;"), "48");
-  const businessActionApplied = applySupabaseMigrations(databaseUrl, 49, 49);
-  assert.deepEqual(businessActionApplied, ["0049"]);
+  const businessActionApplied = applySupabaseMigrations(databaseUrl, 51, 51);
+  assert.deepEqual(businessActionApplied, ["0051"]);
   assertBusinessActionBridgeContractPhase(databaseUrl);
   assert.equal(queryScalar(databaseUrl, "SELECT count(*) FROM public.axtro_supabase_test_migrations;"), "49");
 
@@ -139,7 +139,7 @@ try {
   await assertRuntimeChannelBridge(databaseUrl);
   assertBusinessActionAdmissionAndLeads(databaseUrl);
 
-  console.log("SUPABASE PORTAL INTEGRATION PASSED: migrations 0001-0049, grants, RLS, transcripts, reservations and readiness capability");
+  console.log("SUPABASE PORTAL INTEGRATION PASSED: migrations 0001-0048 + 0051 (0049-0050 applied separately, out of band), grants, RLS, transcripts, reservations and readiness capability");
 } catch (error) {
   primaryError = error;
   throw error;
@@ -155,7 +155,7 @@ function applySupabaseMigrations(databaseUrl, firstVersion, lastVersion) {
   const migrations = readdirSync(supabaseMigrationDirectory)
     .filter((name) => /^\d{4}_.+\.sql$/.test(name))
     .sort();
-  assert.equal(migrations.length, 49, "the harness must cover every Supabase-only migration through the 0049 business action admission phase");
+  assert.equal(migrations.length, 49, "the harness must cover every Supabase-only migration through the 0051 business action admission phase (0049-0050 numbers were claimed by an unrelated concurrent migration before this one merged)");
   const applied = [];
   for (const migration of migrations) {
     const numericVersion = Number(migration.slice(0, 4));
@@ -305,7 +305,7 @@ function assertRuntimeBridgeIntegrityRepairPhase(databaseUrl) {
 
 function assertBusinessActionBridgeContractPhase(databaseUrl) {
   const capabilities = queryJson(databaseUrl, asRoleSql("service_role", null, "SELECT public.portal_schema_capabilities_service();"));
-  assert.equal(capabilities.version, 49, "0049 enables the ADR-039 wave 1a business action admission contract");
+  assert.equal(capabilities.version, 51, "0051 enables the ADR-039 wave 1a business action admission contract");
   for (const capability of ["businessActionKillSwitches", "businessActionGrants", "businessActionReceipts", "businessActionLeads"]) {
     assert.equal(capabilities[capability], true, capability);
   }
@@ -738,7 +738,7 @@ function assertTavusStageSettlementTimestampPhase(databaseUrl) {
 function assertMigrationCapabilities(databaseUrl) {
   assert.equal(queryScalar(databaseUrl, "SELECT to_regprocedure('public.portal_schema_capabilities_service()') IS NOT NULL;"), "t");
   const capabilities = queryJson(databaseUrl, asRoleSql("service_role", null, "SELECT public.portal_schema_capabilities_service();"));
-  assert.equal(capabilities.version, 49);
+  assert.equal(capabilities.version, 51);
   assert.equal(capabilities.providerEffectReservations, true);
   assert.equal(capabilities.billingUsageOutbox, true);
   assert.equal(capabilities.recallWebhookDedupe, true);

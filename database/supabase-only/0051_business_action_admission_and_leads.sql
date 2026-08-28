@@ -2,7 +2,7 @@
 -- per-agent auto_confirm_scheduling storage, the BusinessActionIntent grant
 -- and register_lead only. propose_meeting_slots/confirm_meeting_slot, the
 -- calendar proposal/reservation/connection tables and every Google Calendar
--- RPC listed in ADR-039 "Migração 0049" are wave 1b and deliberately absent
+-- RPC listed in ADR-039 "Migração 0051" (renumbered: production reached v50 via an unrelated concurrent migration before this one merged) are wave 1b and deliberately absent
 -- from this file. Structurally independent of 0043/0044: no table or
 -- function here references portal_runtime_* (ADR-039 "PORTAL_BUSINESS_ACTION_BRIDGE_ENABLED,
 -- um flag novo e independente").
@@ -333,7 +333,7 @@ grant execute on function public.portal_register_business_lead_service(app.uuid_
 create or replace function public.portal_schema_capabilities_service()
 returns jsonb language sql stable security definer set search_path='public' as $$
   select jsonb_build_object(
-    'version',49,
+    'version',51,
     'providerEffectReservations',to_regclass('public.provider_effect_reservations') is not null,
     'providerEffectReconciliation',to_regprocedure('public.portal_lease_provider_effect_reconciliation_service(app.uuid_v7,integer,integer)') is not null,
     'providerEffectTerminationFence',to_regclass('public.provider_effect_termination_receipts') is not null and to_regprocedure('public.portal_begin_provider_effect_termination_service(app.uuid_v7,app.uuid_v7,app.uuid_v7,uuid,app.uuid_v7,app.uuid_v7,text,text,integer)') is not null and to_regprocedure('public.portal_settle_provider_effect_termination_service(app.uuid_v7,app.uuid_v7,app.uuid_v7,text,text)') is not null,
