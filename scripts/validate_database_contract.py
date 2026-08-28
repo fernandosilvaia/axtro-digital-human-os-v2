@@ -186,6 +186,44 @@ def main() -> int:
         ):
             if absent_calendar_object in admission_sql:
                 errors.append(f"0051 must not implement wave 1b calendar scope: found {absent_calendar_object}")
+    calendar_scheduling = SUPABASE_MIGRATIONS / "0052_business_action_calendar_scheduling.sql"
+    if not calendar_scheduling.exists():
+        errors.append("Missing Supabase-only business action calendar scheduling migration 0052")
+    else:
+        calendar_sql = calendar_scheduling.read_text(encoding="utf-8")
+        if "begin;" not in calendar_sql or "commit;" not in calendar_sql:
+            errors.append("0052 business action calendar scheduling must have explicit transaction boundaries")
+        for invariant in (
+            "create table public.portal_business_action_proposals",
+            "create table public.portal_business_action_proposal_slots",
+            "create table public.portal_business_action_calendar_connections",
+            "create table public.portal_business_action_calendar_reservations",
+            "create table public.portal_business_action_meeting_reconcile_approvals",
+            "portal_propose_business_meeting_slots_service",
+            "portal_reserve_business_meeting_slot_service",
+            "portal_dispatch_business_meeting_reservation_service",
+            "portal_commit_business_meeting_reservation_service",
+            "portal_release_business_meeting_reservation_service",
+            "portal_mark_business_meeting_reservation_unknown_service",
+            "portal_reconcile_business_meeting_reservation_service",
+            "portal_connect_google_calendar_service",
+            "portal_disconnect_google_calendar_service",
+            "portal_google_calendar_connection_context_service",
+            "vault.create_secret",
+            "action_kind in ('register_lead','propose_meeting_slots','confirm_meeting_slot')",
+            "start_at timestamptz not null",
+            "end_at timestamptz not null",
+            "timezone text not null",
+            "'version',52",
+            "'businessActionProposals'",
+            "'businessActionCalendarReservations'",
+            "'businessActionCalendarConnections'",
+        ):
+            if invariant not in calendar_sql:
+                errors.append(f"0052 business action calendar scheduling invariant is missing: {invariant}")
+        for forbidden_slot_storage in ("slots jsonb not null", "slots jsonb[]"):
+            if forbidden_slot_storage in calendar_sql:
+                errors.append(f"0052 must never persist proposal slots as a JSONB array column: found {forbidden_slot_storage}")
     if "tenant_isolation" not in all_sql:
         errors.append("Tenant isolation policy is missing")
     if "event_document ->> 'tenant_id' IS DISTINCT FROM tenant_id::text" not in all_sql:

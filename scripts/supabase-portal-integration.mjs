@@ -67,6 +67,7 @@ try {
   assert.equal(portable.history.length, 11, "portable migrations 0001-0011 must apply first");
   assertSucceeded(runSql(databaseUrl, authPreludeSql()), "Supabase auth and role prelude");
   assertSucceeded(runSql(databaseUrl, postPortablePreludeSql()), "post-portable grants and deterministic fixtures");
+  assertSucceeded(runSql(databaseUrl, vaultPreludeSql()), "Supabase Vault schema stub for local testing");
 
   const preExpandApplied = applySupabaseMigrations(databaseUrl, 1, 39);
   assert.deepEqual(preExpandApplied, Array.from({ length: 39 }, (_, index) => String(index + 1).padStart(4, "0")));
@@ -113,6 +114,10 @@ try {
   assert.deepEqual(businessActionApplied, ["0051"]);
   assertBusinessActionBridgeContractPhase(databaseUrl);
   assert.equal(queryScalar(databaseUrl, "SELECT count(*) FROM public.axtro_supabase_test_migrations;"), "49");
+  const calendarSchedulingApplied = applySupabaseMigrations(databaseUrl, 52, 52);
+  assert.deepEqual(calendarSchedulingApplied, ["0052"]);
+  assertBusinessActionCalendarSchedulingPhase(databaseUrl);
+  assert.equal(queryScalar(databaseUrl, "SELECT count(*) FROM public.axtro_supabase_test_migrations;"), "50");
 
   assertMigrationCapabilities(databaseUrl);
   assertLeastPrivilege(databaseUrl);
@@ -138,8 +143,9 @@ try {
   assertCostEventSchemaVersion(databaseUrl);
   await assertRuntimeChannelBridge(databaseUrl);
   assertBusinessActionAdmissionAndLeads(databaseUrl);
+  assertBusinessActionCalendarScheduling(databaseUrl);
 
-  console.log("SUPABASE PORTAL INTEGRATION PASSED: migrations 0001-0048 + 0051 (0049-0050 applied separately, out of band), grants, RLS, transcripts, reservations and readiness capability");
+  console.log("SUPABASE PORTAL INTEGRATION PASSED: migrations 0001-0048 + 0051-0052 (0049-0050 applied separately, out of band), grants, RLS, transcripts, reservations and readiness capability");
 } catch (error) {
   primaryError = error;
   throw error;
@@ -155,7 +161,7 @@ function applySupabaseMigrations(databaseUrl, firstVersion, lastVersion) {
   const migrations = readdirSync(supabaseMigrationDirectory)
     .filter((name) => /^\d{4}_.+\.sql$/.test(name))
     .sort();
-  assert.equal(migrations.length, 49, "the harness must cover every Supabase-only migration through the 0051 business action admission phase (0049-0050 numbers were claimed by an unrelated concurrent migration before this one merged)");
+  assert.equal(migrations.length, 50, "the harness must cover every Supabase-only migration through the 0052 calendar scheduling phase (0049-0050 numbers were claimed by an unrelated concurrent migration before 0051 merged)");
   const applied = [];
   for (const migration of migrations) {
     const numericVersion = Number(migration.slice(0, 4));
@@ -307,6 +313,14 @@ function assertBusinessActionBridgeContractPhase(databaseUrl) {
   const capabilities = queryJson(databaseUrl, asRoleSql("service_role", null, "SELECT public.portal_schema_capabilities_service();"));
   assert.equal(capabilities.version, 51, "0051 enables the ADR-039 wave 1a business action admission contract");
   for (const capability of ["businessActionKillSwitches", "businessActionGrants", "businessActionReceipts", "businessActionLeads"]) {
+    assert.equal(capabilities[capability], true, capability);
+  }
+}
+
+function assertBusinessActionCalendarSchedulingPhase(databaseUrl) {
+  const capabilities = queryJson(databaseUrl, asRoleSql("service_role", null, "SELECT public.portal_schema_capabilities_service();"));
+  assert.equal(capabilities.version, 52, "0052 enables the ADR-039 wave 1b calendar scheduling contract");
+  for (const capability of ["businessActionProposals", "businessActionCalendarReservations", "businessActionCalendarConnections"]) {
     assert.equal(capabilities[capability], true, capability);
   }
 }
@@ -738,7 +752,7 @@ function assertTavusStageSettlementTimestampPhase(databaseUrl) {
 function assertMigrationCapabilities(databaseUrl) {
   assert.equal(queryScalar(databaseUrl, "SELECT to_regprocedure('public.portal_schema_capabilities_service()') IS NOT NULL;"), "t");
   const capabilities = queryJson(databaseUrl, asRoleSql("service_role", null, "SELECT public.portal_schema_capabilities_service();"));
-  assert.equal(capabilities.version, 51);
+  assert.equal(capabilities.version, 52);
   assert.equal(capabilities.providerEffectReservations, true);
   assert.equal(capabilities.billingUsageOutbox, true);
   assert.equal(capabilities.recallWebhookDedupe, true);
@@ -774,6 +788,9 @@ function assertMigrationCapabilities(databaseUrl) {
   assert.equal(capabilities.businessActionGrants, true);
   assert.equal(capabilities.businessActionReceipts, true);
   assert.equal(capabilities.businessActionLeads, true);
+  assert.equal(capabilities.businessActionProposals, true);
+  assert.equal(capabilities.businessActionCalendarReservations, true);
+  assert.equal(capabilities.businessActionCalendarConnections, true);
   assert.equal(queryScalar(databaseUrl, "SELECT to_regclass('public.provider_effect_reservations') IS NOT NULL;"), "t");
   assert.equal(queryScalar(databaseUrl, "SELECT to_regclass('public.billing_usage_outbox') IS NOT NULL;"), "t");
   for (const signature of [
@@ -1246,6 +1263,331 @@ async function assertBusinessActionAdmissionAndLeads(databaseUrl) {
   assert.equal(queryScalar(databaseUrl, asRoleSql("service_role", null,
     `SELECT public.portal_set_business_action_agent_settings_service('${fixture.tenantAlpha}','${fixture.actorAlpha}','${fixture.agentAlpha}',true);`)), "t");
   assert.equal(queryScalar(databaseUrl, `SELECT auto_confirm_scheduling FROM public.portal_business_action_agent_settings WHERE tenant_id='${fixture.tenantAlpha}' AND agent_id='${fixture.agentAlpha}';`), "t");
+}
+
+// ADR-039 wave 1b: propose_meeting_slots / confirm_meeting_slot calendar
+// scheduling (0052). Runs after assertBusinessActionAdmissionAndLeads, whose
+// last statement already flipped auto_confirm_scheduling=true for
+// (tenantAlpha, agentAlpha) -- deliberately reused here for the happy-path
+// reserve flow instead of re-flipping it, and exercised as still-false by
+// default for (tenantBeta, agentBeta), which this function never touches.
+function assertBusinessActionCalendarScheduling(databaseUrl) {
+  let seq = 0x9500;
+  const nextId = () => `019f0000-0000-7000-8000-${(seq++).toString(16).padStart(12, "0")}`;
+  let fpSeq = 0;
+  const nextFingerprint = () => (fpSeq++).toString(16).padStart(64, "0");
+
+  const connect = (overrides = {}) => {
+    const p = {
+      id: nextId(), tenantId: fixture.tenantAlpha, actorId: fixture.actorAlpha,
+      email: "closer-calendar@example.test", calendarId: "primary", timezone: "America/Sao_Paulo",
+      refreshToken: "1//harness-refresh-token-alpha",
+      ...overrides,
+    };
+    return queryJson(databaseUrl, asRoleSql("service_role", null, `SELECT public.portal_connect_google_calendar_service(
+      '${p.id}','${p.tenantId}','${p.actorId}','${sqlLiteral(p.email)}','${sqlLiteral(p.calendarId)}','${p.timezone}','${sqlLiteral(p.refreshToken)}'
+    );`));
+  };
+  const disconnect = (tenantId, actorId) => queryJson(databaseUrl, asRoleSql("service_role", null,
+    `SELECT public.portal_disconnect_google_calendar_service('${tenantId}','${actorId}');`));
+  const context = (tenantId) => queryJson(databaseUrl, asRoleSql("service_role", null,
+    `SELECT public.portal_google_calendar_connection_context_service('${tenantId}');`));
+  const admitAction = (overrides = {}) => {
+    const p = {
+      grantId: nextId(), tenantId: fixture.tenantAlpha, agentId: fixture.agentAlpha,
+      sessionId: null, presenterId: null, actionKind: "propose_meeting_slots", fingerprint: nextFingerprint(), generation: 0,
+      ...overrides,
+    };
+    return queryJson(databaseUrl, asRoleSql("service_role", null, `SELECT public.portal_admit_business_action_service(
+      '${p.grantId}','${p.tenantId}','${p.agentId}','${p.sessionId}','${p.presenterId}','${p.actionKind}','${p.fingerprint}',${p.generation}
+    );`));
+  };
+  const propose = (overrides = {}) => {
+    const p = {
+      receiptId: nextId(), proposalId: nextId(), grantId: null,
+      tenantId: fixture.tenantAlpha, agentId: fixture.agentAlpha, sessionId: null, presenterId: null,
+      durationMinutes: 30, timezone: "America/Sao_Paulo", slots: [], contactName: null, contactEmail: null,
+      ...overrides,
+    };
+    const slotsJson = sqlLiteral(JSON.stringify(p.slots));
+    return queryJson(databaseUrl, asRoleSql("service_role", null, `SELECT public.portal_propose_business_meeting_slots_service(
+      '${p.receiptId}','${p.proposalId}','${p.grantId}','${p.tenantId}','${p.agentId}','${p.sessionId}','${p.presenterId}',
+      ${p.durationMinutes},'${p.timezone}','${slotsJson}'::jsonb,
+      ${p.contactName === null ? "null" : `'${sqlLiteral(p.contactName)}'`},
+      ${p.contactEmail === null ? "null" : `'${sqlLiteral(p.contactEmail)}'`}
+    );`));
+  };
+  const reserve = (overrides = {}) => {
+    const p = {
+      reservationId: nextId(), receiptId: nextId(), grantId: null,
+      tenantId: fixture.tenantAlpha, agentId: fixture.agentAlpha, sessionId: null, presenterId: null,
+      proposalId: null, slotId: null, contactEmail: "prospect@example.test", contactName: "Prospect Harness",
+      ...overrides,
+    };
+    return queryJson(databaseUrl, asRoleSql("service_role", null, `SELECT public.portal_reserve_business_meeting_slot_service(
+      '${p.reservationId}','${p.receiptId}','${p.grantId}','${p.tenantId}','${p.agentId}','${p.sessionId}','${p.presenterId}',
+      '${p.proposalId}','${p.slotId}','${sqlLiteral(p.contactEmail)}','${sqlLiteral(p.contactName)}'
+    );`));
+  };
+  const dispatch = (tenantId, reservationId) => queryJson(databaseUrl, asRoleSql("service_role", null,
+    `SELECT public.portal_dispatch_business_meeting_reservation_service('${tenantId}','${reservationId}');`));
+  const commit = (overrides = {}) => {
+    const p = { tenantId: fixture.tenantAlpha, reservationId: null, receiptId: nextId(), htmlLink: null, ...overrides };
+    return queryJson(databaseUrl, asRoleSql("service_role", null, `SELECT public.portal_commit_business_meeting_reservation_service(
+      '${p.tenantId}','${p.reservationId}','${p.receiptId}',${p.htmlLink === null ? "null" : `'${sqlLiteral(p.htmlLink)}'`}
+    );`));
+  };
+  const release = (overrides = {}) => {
+    const p = { tenantId: fixture.tenantAlpha, reservationId: null, receiptId: nextId(), evidence: "proposal_expired", ...overrides };
+    return queryJson(databaseUrl, asRoleSql("service_role", null, `SELECT public.portal_release_business_meeting_reservation_service(
+      '${p.tenantId}','${p.reservationId}','${p.receiptId}','${p.evidence}'
+    );`));
+  };
+  const markUnknown = (tenantId, reservationId, failureCode = "google_timeout") => queryScalar(databaseUrl, asRoleSql("service_role", null,
+    `SELECT public.portal_mark_business_meeting_reservation_unknown_service('${tenantId}','${reservationId}','${failureCode}');`));
+  const reconcile = (overrides = {}) => {
+    const p = {
+      approvalId: nextId(), tenantId: fixture.tenantAlpha, reservationId: null, operatorActorId: null,
+      fingerprint: null, outcome: "released", releaseEvidenceCode: "operator_reconciliation_absent", htmlLink: null,
+      ...overrides,
+    };
+    return queryJson(databaseUrl, asRoleSql("service_role", null, `SELECT public.portal_reconcile_business_meeting_reservation_service(
+      '${p.approvalId}','${p.tenantId}','${p.reservationId}','${p.operatorActorId}','${p.fingerprint}','${p.outcome}',
+      ${p.releaseEvidenceCode === null ? "null" : `'${p.releaseEvidenceCode}'`},
+      ${p.htmlLink === null ? "null" : `'${sqlLiteral(p.htmlLink)}'`}
+    );`));
+  };
+
+  // -- connection lifecycle (tenantBeta, isolated from the scheduling flow below) --
+  assert.equal(context(fixture.tenantBeta).outcome, "not_connected");
+  const firstConnect = connect({ tenantId: fixture.tenantBeta, actorId: fixture.actorBeta, refreshToken: "1//harness-refresh-token-beta-v1" });
+  assert.equal(firstConnect.outcome, "connected");
+  const firstContext = context(fixture.tenantBeta);
+  assert.equal(firstContext.outcome, "found");
+  assert.equal(firstContext.status, "connected");
+  assert.equal(firstContext.calendarId, "primary");
+  assert.ok(firstContext.vaultSecretId, "connection context exposes the opaque vault secret reference");
+  const rawConnectionRow = queryRows(databaseUrl, `SELECT * FROM public.portal_business_action_calendar_connections WHERE tenant_id='${fixture.tenantBeta}';`).join("\n");
+  assert.ok(!rawConnectionRow.includes("harness-refresh-token-beta"), "the raw refresh token never appears in any column of the connections table");
+  const firstSecretId = firstContext.vaultSecretId;
+  assert.equal(queryScalar(databaseUrl, `SELECT secret FROM vault.secrets WHERE id='${firstSecretId}';`), "1//harness-refresh-token-beta-v1",
+    "sanity check on the local Vault stub itself: the secret really is stored, just never read back through the connections table");
+
+  const reconnect = connect({ tenantId: fixture.tenantBeta, actorId: fixture.actorBeta, refreshToken: "1//harness-refresh-token-beta-v2" });
+  assert.equal(reconnect.outcome, "connected");
+  const secondContext = context(fixture.tenantBeta);
+  assert.notEqual(secondContext.vaultSecretId, firstSecretId, "reconnecting rotates to a fresh Vault secret");
+  assert.equal(queryScalar(databaseUrl, `SELECT count(*) FROM vault.secrets WHERE id='${firstSecretId}';`), "0", "the prior secret is deleted from Vault on reconnect, never left orphaned");
+  assert.equal(queryScalar(databaseUrl, `SELECT secret FROM vault.secrets WHERE id='${secondContext.vaultSecretId}';`), "1//harness-refresh-token-beta-v2");
+
+  assertFailed(runSql(databaseUrl, asRoleSql("service_role", null,
+    `SELECT public.portal_disconnect_google_calendar_service('${fixture.tenantBeta}','${nextId()}');`)),
+  "an actor with no tenant_admin membership cannot disconnect a calendar");
+
+  const disconnected = disconnect(fixture.tenantBeta, fixture.actorBeta);
+  assert.equal(disconnected.outcome, "revoked");
+  const revokedContext = context(fixture.tenantBeta);
+  assert.equal(revokedContext.outcome, "found", "a revoked connection row still exists -- context distinguishes never-connected from revoked");
+  assert.equal(revokedContext.status, "revoked");
+  assert.equal(revokedContext.vaultSecretId, null, "no dangling Vault reference survives revocation");
+  assert.equal(queryScalar(databaseUrl, `SELECT count(*) FROM vault.secrets WHERE id='${secondContext.vaultSecretId}';`), "0", "disconnect deletes the live Vault secret");
+  assert.equal(disconnect(fixture.tenantBeta, fixture.actorBeta).outcome, "revoked", "disconnecting an already-revoked connection is idempotent, never an error");
+
+  // -- scheduling flow (tenantAlpha/agentAlpha, auto_confirm_scheduling already true) --
+  assert.equal(connect({ tenantId: fixture.tenantAlpha, actorId: fixture.actorAlpha, refreshToken: "1//harness-refresh-token-alpha-scheduling" }).outcome, "connected");
+
+  const calSession = nextId();
+  const calPresenter = nextId();
+  assertSucceeded(runSql(databaseUrl, businessActionSessionFixtureSql(fixture.tenantAlpha, fixture.agentAlpha, calSession, calPresenter, "delivered", "granted")), "calendar scheduling session fixture");
+
+  // propose_meeting_slots never needs a purpose-consent beyond essential --
+  // ADR-039's explicit exemption, distinct from confirm_meeting_slot below.
+  const proposeGrantId = nextId();
+  const proposeIssued = admitAction({ grantId: proposeGrantId, actionKind: "propose_meeting_slots", sessionId: calSession, presenterId: calPresenter });
+  assert.equal(proposeIssued.outcome, "issued");
+
+  const slot1Id = nextId();
+  const slot2Id = nextId();
+  const firstProposal = propose({
+    grantId: proposeGrantId, sessionId: calSession, presenterId: calPresenter,
+    slots: [
+      { id: slot1Id, startAt: "2026-09-01T14:00:00Z", endAt: "2026-09-01T14:30:00Z" },
+      { id: slot2Id, startAt: "2026-09-01T15:00:00Z", endAt: "2026-09-01T15:30:00Z" },
+    ],
+  });
+  assert.equal(firstProposal.outcome, "succeeded");
+  assert.equal(queryScalar(databaseUrl, `SELECT count(*) FROM public.portal_business_action_proposal_slots WHERE tenant_id='${fixture.tenantAlpha}' AND proposal_id='${firstProposal.proposalId}';`), "2");
+  const replayedProposal = propose({
+    grantId: proposeGrantId, sessionId: calSession, presenterId: calPresenter,
+    slots: [{ id: nextId(), startAt: "2026-09-01T16:00:00Z", endAt: "2026-09-01T16:30:00Z" }],
+  });
+  assert.equal(replayedProposal.outcome, "succeeded");
+  assert.equal(replayedProposal.proposalId, firstProposal.proposalId, "a retried propose_meeting_slots call against the same grant replays the existing proposal");
+  assert.equal(queryScalar(databaseUrl, `SELECT count(*) FROM public.portal_business_action_proposals WHERE tenant_id='${fixture.tenantAlpha}' AND grant_id='${proposeGrantId}';`), "1");
+  assert.equal(queryScalar(databaseUrl, `SELECT count(*) FROM public.portal_business_action_proposal_slots WHERE tenant_id='${fixture.tenantAlpha}' AND proposal_id='${firstProposal.proposalId}';`), "2", "a replayed propose call never appends a third slot row");
+
+  assertFailed(runSql(databaseUrl, asRoleSql("service_role", null,
+    `SELECT public.portal_propose_business_meeting_slots_service('${nextId()}','${nextId()}','019f0000-0000-7000-8000-000000009150','${fixture.tenantAlpha}','${fixture.agentAlpha}','${calSession}','${calPresenter}',30,'UTC','[]'::jsonb,null,null);`)),
+  "a grant issued for register_lead (from assertBusinessActionAdmissionAndLeads) cannot be spent against propose_meeting_slots");
+
+  // confirm_meeting_slot requires the meeting_scheduling purpose consent
+  // ADR-039 adds -- denied before it is captured, issued once it is.
+  const preConsentConfirmGrant = admitAction({ grantId: nextId(), actionKind: "confirm_meeting_slot", sessionId: calSession, presenterId: calPresenter });
+  assert.equal(preConsentConfirmGrant.outcome, "denied_purpose_consent");
+  assertSucceeded(runSql(databaseUrl, `
+    INSERT INTO public.consent_evidence (tenant_id,id,session_id,subject_ref,consent_type,purpose,status,method,jurisdiction,disclosure_version,evidence_hash,captured_at)
+    VALUES ('${fixture.tenantAlpha}','${nextId()}','${calSession}','business-action-harness-subject','meeting_scheduling','meeting_scheduling','granted','click','BR','business-action-harness-v1','${"f".repeat(64)}',now());
+  `), "meeting_scheduling consent fixture");
+
+  const confirmGrant1 = nextId();
+  assert.equal(admitAction({ grantId: confirmGrant1, actionKind: "confirm_meeting_slot", sessionId: calSession, presenterId: calPresenter }).outcome, "issued");
+
+  const reservation1 = reserve({ grantId: confirmGrant1, sessionId: calSession, presenterId: calPresenter, proposalId: firstProposal.proposalId, slotId: slot1Id });
+  assert.equal(reservation1.outcome, "reserved");
+  assert.equal(reservation1.googleEventId, reservation1.reservationId.replaceAll("-", ""), "google_event_id is deterministically derived from the reservation's own id");
+  assert.equal(queryScalar(databaseUrl, `SELECT state FROM public.portal_business_action_calendar_reservations WHERE id='${reservation1.reservationId}';`), "reserved");
+
+  const reservation1Replay = reserve({ grantId: confirmGrant1, sessionId: calSession, presenterId: calPresenter, proposalId: firstProposal.proposalId, slotId: slot1Id });
+  assert.equal(reservation1Replay.outcome, "replayed");
+  assert.equal(reservation1Replay.reservationId, reservation1.reservationId);
+
+  // -- slot conflict: a second, independently admitted confirm_meeting_slot
+  // grant racing for the same slot loses at the database's own partial
+  // unique index, not by a pre-check that a concurrent caller could race past --
+  const confirmGrant2 = nextId();
+  assert.equal(admitAction({ grantId: confirmGrant2, actionKind: "confirm_meeting_slot", sessionId: calSession, presenterId: calPresenter }).outcome, "issued");
+  const conflictAttempt = reserve({ grantId: confirmGrant2, sessionId: calSession, presenterId: calPresenter, proposalId: firstProposal.proposalId, slotId: slot1Id });
+  assert.equal(conflictAttempt.outcome, "rejected");
+  assert.equal(conflictAttempt.reason, "slot_conflict");
+  assert.equal(queryScalar(databaseUrl, `SELECT outcome FROM public.portal_business_action_receipts WHERE tenant_id='${fixture.tenantAlpha}' AND grant_id='${confirmGrant2}';`), "rejected");
+  assert.equal(queryScalar(databaseUrl, `SELECT count(*) FROM public.portal_business_action_calendar_reservations WHERE tenant_id='${fixture.tenantAlpha}' AND slot_id='${slot1Id}' AND state<>'released';`), "1", "the slot never ends up with two live reservations");
+
+  // -- dispatch/commit fence --
+  const firstDispatch = dispatch(fixture.tenantAlpha, reservation1.reservationId);
+  assert.equal(firstDispatch.acquired, true);
+  assert.equal(firstDispatch.state, "provider_in_flight");
+  const secondDispatch = dispatch(fixture.tenantAlpha, reservation1.reservationId);
+  assert.equal(secondDispatch.acquired, false, "dispatching an already in-flight reservation never re-fires nor fails");
+  assert.equal(secondDispatch.state, "provider_in_flight");
+
+  const committed = commit({ reservationId: reservation1.reservationId, htmlLink: "https://calendar.google.com/event?eid=harness1" });
+  assert.equal(committed.outcome, "succeeded");
+  assert.equal(committed.state, "committed");
+  const commitReceipt = queryRows(databaseUrl, `SELECT outcome,effect_hash FROM public.portal_business_action_receipts WHERE tenant_id='${fixture.tenantAlpha}' AND grant_id='${confirmGrant1}';`)[0];
+  assert.match(commitReceipt, /succeeded/);
+  const replayedCommit = commit({ reservationId: reservation1.reservationId });
+  assert.equal(replayedCommit.outcome, "succeeded", "a retried commit call against the same grant replays the existing receipt instead of erroring on the provider_in_flight precondition");
+
+  const proposeGrant2 = nextId();
+  assert.equal(admitAction({ grantId: proposeGrant2, actionKind: "propose_meeting_slots", sessionId: calSession, presenterId: calPresenter }).outcome, "issued");
+  const slot3Id = nextId();
+  const slot4Id = nextId();
+  const slot5Id = nextId();
+  const slot6Id = nextId();
+  const secondProposal = propose({
+    grantId: proposeGrant2, sessionId: calSession, presenterId: calPresenter,
+    slots: [
+      { id: slot3Id, startAt: "2026-09-02T14:00:00Z", endAt: "2026-09-02T14:30:00Z" },
+      { id: slot4Id, startAt: "2026-09-02T15:00:00Z", endAt: "2026-09-02T15:30:00Z" },
+      { id: slot5Id, startAt: "2026-09-02T16:00:00Z", endAt: "2026-09-02T16:30:00Z" },
+      { id: slot6Id, startAt: "2026-09-02T17:00:00Z", endAt: "2026-09-02T17:30:00Z" },
+    ],
+  });
+  assert.equal(secondProposal.outcome, "succeeded");
+
+  assertFailed(runSql(databaseUrl, asRoleSql("service_role", null,
+    `SELECT public.portal_commit_business_meeting_reservation_service('${fixture.tenantAlpha}','${nextId()}','${nextId()}');`)),
+  "commit on a nonexistent reservation raises, never silently succeeds");
+
+  // -- release: only ever pre-dispatch --
+  const releaseGrant = nextId();
+  assert.equal(admitAction({ grantId: releaseGrant, actionKind: "confirm_meeting_slot", sessionId: calSession, presenterId: calPresenter }).outcome, "issued");
+  const releaseReservation = reserve({ grantId: releaseGrant, sessionId: calSession, presenterId: calPresenter, proposalId: secondProposal.proposalId, slotId: slot3Id });
+  assert.equal(releaseReservation.outcome, "reserved");
+  const released = release({ reservationId: releaseReservation.reservationId, evidence: "proposal_expired" });
+  assert.equal(released.outcome, "released");
+  assert.equal(queryScalar(databaseUrl, `SELECT state FROM public.portal_business_action_calendar_reservations WHERE id='${releaseReservation.reservationId}';`), "released");
+  assert.equal(queryScalar(databaseUrl, `SELECT outcome FROM public.portal_business_action_receipts WHERE tenant_id='${fixture.tenantAlpha}' AND grant_id='${releaseGrant}';`), "rejected");
+  const releasedReplay = release({ reservationId: releaseReservation.reservationId, evidence: "proposal_expired" });
+  assert.equal(releasedReplay.outcome, "released", "a retried release call against the same grant replays the existing receipt");
+
+  const notReleasableGrant = nextId();
+  assert.equal(admitAction({ grantId: notReleasableGrant, actionKind: "confirm_meeting_slot", sessionId: calSession, presenterId: calPresenter }).outcome, "issued");
+  const notReleasableReservation = reserve({ grantId: notReleasableGrant, sessionId: calSession, presenterId: calPresenter, proposalId: secondProposal.proposalId, slotId: slot4Id });
+  assert.equal(dispatch(fixture.tenantAlpha, notReleasableReservation.reservationId).acquired, true);
+  const notReleasable = release({ reservationId: notReleasableReservation.reservationId, evidence: "proposal_expired" });
+  assert.equal(notReleasable.outcome, "not_releasable", "the release RPC explicitly refuses to release a reservation past 'reserved', never after a dispatch");
+  assert.equal(queryScalar(databaseUrl, `SELECT state FROM public.portal_business_action_calendar_reservations WHERE id='${notReleasableReservation.reservationId}';`), "provider_in_flight");
+  assert.equal(queryScalar(databaseUrl, `SELECT count(*) FROM public.portal_business_action_receipts WHERE tenant_id='${fixture.tenantAlpha}' AND grant_id='${notReleasableGrant}';`), "0", "a refused release never writes a receipt -- the attempt is still open, headed for mark-unknown/reconcile instead");
+
+  // -- unknown + dual-operator reconciliation --
+  assert.equal(markUnknown(fixture.tenantAlpha, notReleasableReservation.reservationId), "t");
+  assert.equal(queryScalar(databaseUrl, `SELECT state FROM public.portal_business_action_calendar_reservations WHERE id='${notReleasableReservation.reservationId}';`), "unknown");
+  assert.equal(markUnknown(fixture.tenantAlpha, notReleasableReservation.reservationId), "f", "marking an already-unknown reservation unknown again is a no-op, never an error");
+
+  const secondOperatorUserId = "10000000-0000-4000-8000-000000000090";
+  const secondOperatorActorId = nextId();
+  assertSucceeded(runSql(databaseUrl, `
+    INSERT INTO auth.users (id, email) VALUES ('${secondOperatorUserId}', 'second-operator@example.test');
+    INSERT INTO public.user_tenant_memberships (user_id, tenant_id, actor_id, role) VALUES ('${secondOperatorUserId}', '${fixture.tenantAlpha}', '${secondOperatorActorId}', 'tenant_admin');
+  `), "second tenant_admin operator fixture for dual-approval reconciliation");
+
+  const releaseEvidenceFp = "a".repeat(64);
+  const firstApproval = reconcile({ reservationId: notReleasableReservation.reservationId, operatorActorId: fixture.actorAlpha, fingerprint: releaseEvidenceFp, outcome: "released" });
+  assert.equal(firstApproval.outcome, "awaiting_second_operator");
+  assert.equal(firstApproval.approvals, 1);
+  assert.equal(queryScalar(databaseUrl, `SELECT state FROM public.portal_business_action_calendar_reservations WHERE id='${notReleasableReservation.reservationId}';`), "unknown");
+
+  const sameOperatorRetry = reconcile({ reservationId: notReleasableReservation.reservationId, operatorActorId: fixture.actorAlpha, fingerprint: releaseEvidenceFp, outcome: "released" });
+  assert.equal(sameOperatorRetry.outcome, "awaiting_second_operator");
+  assert.equal(sameOperatorRetry.approvals, 1, "the same operator approving twice never advances the count -- dual approval requires two genuinely distinct people");
+  assert.equal(queryScalar(databaseUrl, `SELECT state FROM public.portal_business_action_calendar_reservations WHERE id='${notReleasableReservation.reservationId}';`), "unknown");
+
+  const secondApproval = reconcile({ reservationId: notReleasableReservation.reservationId, operatorActorId: secondOperatorActorId, fingerprint: releaseEvidenceFp, outcome: "released" });
+  assert.equal(secondApproval.outcome, "released");
+  assert.equal(secondApproval.state, "released");
+  assert.equal(queryScalar(databaseUrl, `SELECT state FROM public.portal_business_action_calendar_reservations WHERE id='${notReleasableReservation.reservationId}';`), "released");
+  assert.equal(queryScalar(databaseUrl, `SELECT outcome FROM public.portal_business_action_receipts WHERE tenant_id='${fixture.tenantAlpha}' AND grant_id='${notReleasableGrant}';`), "failed",
+    "a reservation reconciled to released after a real dispatch attempt is a failed confirm_meeting_slot, not a pre-dispatch rejection");
+
+  const idempotentReplay = reconcile({ reservationId: notReleasableReservation.reservationId, operatorActorId: fixture.actorAlpha, fingerprint: releaseEvidenceFp, outcome: "released" });
+  assert.equal(idempotentReplay.outcome, "released", "reconciling an already-settled reservation with the same evidence/outcome replays idempotently");
+  const conflictingReplay = reconcile({ reservationId: notReleasableReservation.reservationId, operatorActorId: fixture.actorAlpha, fingerprint: "b".repeat(64), outcome: "released" });
+  assert.equal(conflictingReplay.outcome, "already_settled", "reconciling a settled reservation with different evidence is a reported conflict, never a silent overwrite");
+
+  // -- the 'committed' reconciliation outcome, which the runtime dual-approval pattern (0043) never allows --
+  const committedGrant = nextId();
+  assert.equal(admitAction({ grantId: committedGrant, actionKind: "confirm_meeting_slot", sessionId: calSession, presenterId: calPresenter }).outcome, "issued");
+  const committedReservation = reserve({ grantId: committedGrant, sessionId: calSession, presenterId: calPresenter, proposalId: secondProposal.proposalId, slotId: slot5Id });
+  assert.equal(dispatch(fixture.tenantAlpha, committedReservation.reservationId).acquired, true);
+  assert.equal(markUnknown(fixture.tenantAlpha, committedReservation.reservationId), "t");
+  const commitEvidenceFp = "c".repeat(64);
+  assert.equal(reconcile({ reservationId: committedReservation.reservationId, operatorActorId: fixture.actorAlpha, fingerprint: commitEvidenceFp, outcome: "committed", releaseEvidenceCode: null }).outcome, "awaiting_second_operator");
+  const committedFinal = reconcile({ reservationId: committedReservation.reservationId, operatorActorId: secondOperatorActorId, fingerprint: commitEvidenceFp, outcome: "committed", releaseEvidenceCode: null, htmlLink: "https://calendar.google.com/event?eid=harness-reconciled" });
+  assert.equal(committedFinal.outcome, "committed");
+  assert.equal(queryScalar(databaseUrl, `SELECT state FROM public.portal_business_action_calendar_reservations WHERE id='${committedReservation.reservationId}';`), "committed");
+  assert.equal(queryScalar(databaseUrl, `SELECT committed_at IS NOT NULL FROM public.portal_business_action_calendar_reservations WHERE id='${committedReservation.reservationId}';`), "t");
+  assert.equal(queryScalar(databaseUrl, `SELECT outcome FROM public.portal_business_action_receipts WHERE tenant_id='${fixture.tenantAlpha}' AND grant_id='${committedGrant}';`), "succeeded",
+    "reconciling to committed produces the same succeeded outcome a direct commit would");
+
+  // -- not reconcilable: a reservation still 'reserved' was never dispatched, so it is not this RPC's problem --
+  const notReconcilableGrant = nextId();
+  assert.equal(admitAction({ grantId: notReconcilableGrant, actionKind: "confirm_meeting_slot", sessionId: calSession, presenterId: calPresenter }).outcome, "issued");
+  const notReconcilableReservation = reserve({ grantId: notReconcilableGrant, sessionId: calSession, presenterId: calPresenter, proposalId: secondProposal.proposalId, slotId: slot6Id });
+  const notReconcilable = reconcile({ reservationId: notReconcilableReservation.reservationId, operatorActorId: fixture.actorAlpha, fingerprint: "d".repeat(64), outcome: "released" });
+  assert.equal(notReconcilable.outcome, "not_reconcilable");
+  assert.equal(queryScalar(databaseUrl, `SELECT state FROM public.portal_business_action_calendar_reservations WHERE id='${notReconcilableReservation.reservationId}';`), "reserved");
+
+  // -- cross-tenant isolation: a real reservation id guessed under the wrong tenant is simply not found --
+  assertFailed(runSql(databaseUrl, asRoleSql("service_role", null,
+    `SELECT public.portal_dispatch_business_meeting_reservation_service('${fixture.tenantBeta}','${notReconcilableReservation.reservationId}');`)),
+  "a reservation cannot be dispatched under a tenant that does not own it");
+
+  // -- RLS proof: even service_role has no direct table access, only the SECURITY DEFINER RPCs above do --
+  assertFailed(runSql(databaseUrl, asRoleSql("service_role", null, "SELECT 1 FROM public.portal_business_action_calendar_reservations LIMIT 1;")),
+    "service_role has no direct SELECT on the calendar reservations table");
+  assertFailed(runSql(databaseUrl, asRoleSql("service_role", null, "SELECT 1 FROM public.portal_business_action_calendar_connections LIMIT 1;")),
+    "service_role has no direct SELECT on the calendar connections table");
 }
 
 function assertWorkerHeartbeatLifecycle(databaseUrl) {
@@ -3203,6 +3545,35 @@ function postPortablePreludeSql() {
       filename text NOT NULL,
       applied_at timestamptz NOT NULL DEFAULT now()
     );
+  `;
+}
+
+// Minimal stand-in for the real Supabase Vault (pgsodium-backed) extension,
+// which does not exist in a vanilla local PostgreSQL 17 cluster. Mirrors
+// only the surface 0052's RPCs call (vault.create_secret, vault.secrets for
+// direct delete) so the migration can be proven end to end locally; there is
+// no encryption at rest here (fine for a disposable test cluster torn down
+// at the end of this run) and production runs against the real managed
+// Vault, never this stub.
+function vaultPreludeSql() {
+  return `
+    CREATE SCHEMA vault AUTHORIZATION postgres;
+    CREATE TABLE vault.secrets (
+      id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+      name text,
+      description text NOT NULL DEFAULT '',
+      secret text NOT NULL,
+      created_at timestamptz NOT NULL DEFAULT now(),
+      updated_at timestamptz NOT NULL DEFAULT now()
+    );
+    CREATE OR REPLACE FUNCTION vault.create_secret(new_secret text, new_name text DEFAULT NULL, new_description text DEFAULT NULL)
+    RETURNS uuid LANGUAGE plpgsql AS $$
+    DECLARE v_id uuid;
+    BEGIN
+      INSERT INTO vault.secrets(name, description, secret) VALUES (new_name, coalesce(new_description, ''), new_secret) RETURNING id INTO v_id;
+      RETURN v_id;
+    END $$;
+    REVOKE ALL ON SCHEMA vault FROM PUBLIC;
   `;
 }
 
