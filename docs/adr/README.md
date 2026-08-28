@@ -43,3 +43,4 @@ Accepted decisions for V2. The Constitution has precedence. A change to an accep
 - [ADR-037](ADR-037-cost-event-conversation-unit.md) — CostEvent 2.1.0 para a unidade comercial fechada `conversation`
 - [ADR-038](ADR-038-portal-channel-runtime-bridge.md) — Bridge durável dos canais Portal para sessão, consentimento, floor, cenas e receipts
 - [ADR-039](ADR-039-portal-business-action-bridge.md) — Bridge de ações de negócio do Portal (agendar reunião via Google Calendar, registrar lead) sob o funil do Art. 7, independente do flag do ADR-038
+- [ADR-040](ADR-040-closer-checkout-stripe-connect.md): checkout do cliente final do tenant via Stripe Connect Standard (cobrança direta), quarta ação do `BusinessActionIntent` do ADR-039, catálogo fechado por tenant e reserva durável no padrão do ADR-036. Autonomia da geração do link ainda depende de decisão do dono do produto.
