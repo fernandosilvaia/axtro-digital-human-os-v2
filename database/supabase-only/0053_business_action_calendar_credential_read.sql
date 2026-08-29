@@ -26,21 +26,15 @@
 -- vault.decrypted_secrets: the real Supabase Vault extension (pgsodium-
 -- backed) publishes this view over vault.secrets with a decrypted_secret
 -- column holding the plaintext, alongside id/name/description/secret(cipher-
--- text)/key_id/nonce/created_at/updated_at -- this is Supabase's own public,
--- stable Vault documentation shape (the canonical read pattern is
--- `select decrypted_secret from vault.decrypted_secrets where id = ...`).
+-- text)/key_id/nonce/created_at/updated_at. Confirmed empirically against
+-- this project's own real hosted Supabase instance (ovctadcrvnfpgxzplupp),
+-- not just Supabase's public documentation shape:
+-- `select column_name,data_type from information_schema.columns where
+-- table_schema='vault' and table_name='decrypted_secrets'` returned exactly
+-- this column set, matching what scripts/supabase-portal-integration.mjs's
+-- local stub of this view (added alongside this migration) already assumed.
 -- Nothing in this repository referenced vault.decrypted_secrets before this
--- migration (0052 explicitly avoided it, and grepping the repo for
--- "decrypted_secret" before this file only ever found that one comment), so
--- this is a documented assumption, not a locally-confirmed fact: whoever
--- applies this migration to the hosted project should run
--- `select decrypted_secret from vault.decrypted_secrets limit 0;` against
--- real Supabase Vault first and confirm the column exists before trusting
--- this function's very first live call. scripts/supabase-portal-integration.mjs's
--- local stub of this view (added alongside this migration) can only prove
--- the RPC's own logic and grants; it cannot prove the real managed
--- extension's column name, because the stub is hand-written to match this
--- same assumption.
+-- migration (0052 explicitly avoided it).
 begin;
 
 create or replace function public.portal_google_calendar_decrypted_refresh_token_service(p_tenant_id app.uuid_v7)

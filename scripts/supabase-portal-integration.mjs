@@ -3653,14 +3653,13 @@ function postPortablePreludeSql() {
 // vault.decrypted_secrets: this view's column shape (id, name, description,
 // secret, decrypted_secret, created_at, updated_at -- omitting the real
 // extension's key_id/nonce, internal encryption metadata 0053's RPC never
-// reads) is Supabase Vault's own publicly documented read pattern
-// (`select decrypted_secret from vault.decrypted_secrets where ...`), not
-// something confirmed against this project's real hosted Vault instance
-// before 0053 was written; see that migration's own header comment for the
-// full caveat. Since this stub's vault.secrets never actually encrypts
-// anything (secret is already plaintext, same disposable-cluster rationale
-// as above), decrypted_secret here is simply secret verbatim -- faithful to
-// the real view's *shape*, not its cryptography.
+// reads) matches the real column set confirmed empirically against this
+// project's own hosted Supabase instance (ovctadcrvnfpgxzplupp) via
+// information_schema.columns -- see 0053's own header comment. Since this
+// stub's vault.secrets never actually encrypts anything (secret is already
+// plaintext, same disposable-cluster rationale as above), decrypted_secret
+// here is simply secret verbatim -- faithful to the real view's *shape*,
+// not its cryptography.
 function vaultPreludeSql() {
   return `
     CREATE SCHEMA vault AUTHORIZATION postgres;
