@@ -46,6 +46,7 @@ import {
   type ProposedCalendarSlot,
 } from "./availability.ts";
 import type { BusinessHoursClock } from "./business-hours.ts";
+import { FloridaTimeError } from "../time/florida.ts";
 import { createServiceRoleClient } from "../supabase/service.ts";
 
 const MEETING_DURATION_MINUTES_SET: ReadonlySet<number> = new Set(MEETING_DURATION_MINUTES_ALLOWLIST);
@@ -233,6 +234,17 @@ export async function proposeGoogleCalendarMeetingSlots(
   // provider_rejected, provider_unavailable, missing_credentials...) vira
   // `provider_error` com o código original preservado (metadado seguro,
   // nunca contém segredo).
+  //
+  // `FloridaTimeError` também é capturado aqui, deliberadamente: `defaultTimezone`
+  // vem de DADO ARMAZENADO (a conexão do tenant), não do chamador imediato
+  // desta função -- a CHECK constraint do banco (`app.is_bounded_timezone`)
+  // valida só o FORMATO por regex, nunca se o fuso IANA existe de verdade,
+  // então um valor tipo "America/Sao_Paolo" (erro de digitação, mas
+  // regex-válido) passaria pelo banco e só estouraria aqui, dentro de
+  // `wallClockPartsAt`/`wallClockToUtcIso` (`time/florida.ts`). Isso é dado
+  // ruim pré-existente, não entrada malformada DESTA chamada -- então
+  // `service_unavailable` (mesmo bucket de "algo está errado, mas não é
+  // culpa de quem chamou nem do provider"), nunca uma exceção não tratada.
   let slots: readonly ProposedCalendarSlot[];
   try {
     const port = dependencies.port ?? buildGoogleCalendarPort(refreshToken);
@@ -252,6 +264,7 @@ export async function proposeGoogleCalendarMeetingSlots(
       if (error.code === "reauth_required") return Object.freeze({ outcome: "reauth_required" });
       return Object.freeze({ outcome: "provider_error", providerErrorCode: error.code });
     }
+    if (error instanceof FloridaTimeError) return Object.freeze({ outcome: "service_unavailable" });
     throw error;
   }
 

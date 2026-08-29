@@ -185,6 +185,24 @@ test("reauth_required do provider vira outcome próprio, nunca escreve nada na c
   assert.equal(calls.some((call) => call.name === "portal_propose_business_meeting_slots_service"), false);
 });
 
+test("defaultTimezone armazenado inválido (formato regex-válido no banco, mas não um fuso IANA real) vira service_unavailable, nunca uma exceção", async () => {
+  // app.is_bounded_timezone (0052) só valida FORMATO por regex, nunca se o
+  // fuso IANA existe de verdade -- um valor tipo "America/Sao_Paolo" (erro
+  // de digitação, mas regex-válido) passaria pelo banco e só estouraria
+  // dentro de time/florida.ts (FloridaTimeError), antes de qualquer chamada
+  // ao port (por isso um `port` é passado explicitamente aqui: se este teste
+  // chegasse a chamá-lo, seria sinal de que a checagem de fuso não está
+  // acontecendo antes da chamada de rede, como deveria). Isto é dado
+  // armazenado ruim pré-existente, não entrada malformada desta chamada.
+  const { client: rpc, calls } = fakeRpcClient({
+    connection: Object.freeze({ outcome: "found", calendarId: CALENDAR_ID, defaultTimezone: "America/Sao_Paolo_typo_but_regex_valid", status: "connected", googleAccountEmail: "demo@example.test" }),
+  });
+  const port = { async queryFreeBusy() { throw new Error("should never be called: the timezone check must fail before any network call"); } };
+  const result = await proposeModule.proposeGoogleCalendarMeetingSlots(baseInput(), { rpc, port, clock: clockAt("2026-08-05T12:00:00.000Z") });
+  assert.deepEqual(result, { outcome: "service_unavailable" });
+  assert.equal(calls.some((call) => call.name === "portal_propose_business_meeting_slots_service"), false);
+});
+
 test("outro erro do provider (timeout/malformed/rejected) vira provider_error com o código original, nunca uma exceção", async () => {
   for (const code of ["provider_timeout", "malformed_provider_response", "provider_rejected", "provider_unavailable"]) {
     const { client: rpc } = fakeRpcClient();
