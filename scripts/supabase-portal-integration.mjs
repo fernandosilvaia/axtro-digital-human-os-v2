@@ -118,6 +118,10 @@ try {
   assert.deepEqual(calendarSchedulingApplied, ["0052"]);
   assertBusinessActionCalendarSchedulingPhase(databaseUrl);
   assert.equal(queryScalar(databaseUrl, "SELECT count(*) FROM public.axtro_supabase_test_migrations;"), "50");
+  const calendarCredentialReadApplied = applySupabaseMigrations(databaseUrl, 53, 53);
+  assert.deepEqual(calendarCredentialReadApplied, ["0053"]);
+  assertBusinessActionCalendarCredentialReadPhase(databaseUrl);
+  assert.equal(queryScalar(databaseUrl, "SELECT count(*) FROM public.axtro_supabase_test_migrations;"), "51");
 
   assertMigrationCapabilities(databaseUrl);
   assertLeastPrivilege(databaseUrl);
@@ -144,8 +148,9 @@ try {
   await assertRuntimeChannelBridge(databaseUrl);
   assertBusinessActionAdmissionAndLeads(databaseUrl);
   assertBusinessActionCalendarScheduling(databaseUrl);
+  assertBusinessActionCalendarCredentialRead(databaseUrl);
 
-  console.log("SUPABASE PORTAL INTEGRATION PASSED: migrations 0001-0048 + 0051-0052 (0049-0050 applied separately, out of band), grants, RLS, transcripts, reservations and readiness capability");
+  console.log("SUPABASE PORTAL INTEGRATION PASSED: migrations 0001-0048 + 0051-0053 (0049-0050 applied separately, out of band), grants, RLS, transcripts, reservations and readiness capability");
 } catch (error) {
   primaryError = error;
   throw error;
@@ -161,7 +166,7 @@ function applySupabaseMigrations(databaseUrl, firstVersion, lastVersion) {
   const migrations = readdirSync(supabaseMigrationDirectory)
     .filter((name) => /^\d{4}_.+\.sql$/.test(name))
     .sort();
-  assert.equal(migrations.length, 50, "the harness must cover every Supabase-only migration through the 0052 calendar scheduling phase (0049-0050 numbers were claimed by an unrelated concurrent migration before 0051 merged)");
+  assert.equal(migrations.length, 51, "the harness must cover every Supabase-only migration through the 0053 decrypted credential read phase (0049-0050 numbers were claimed by an unrelated concurrent migration before 0051 merged)");
   const applied = [];
   for (const migration of migrations) {
     const numericVersion = Number(migration.slice(0, 4));
@@ -323,6 +328,12 @@ function assertBusinessActionCalendarSchedulingPhase(databaseUrl) {
   for (const capability of ["businessActionProposals", "businessActionCalendarReservations", "businessActionCalendarConnections"]) {
     assert.equal(capabilities[capability], true, capability);
   }
+}
+
+function assertBusinessActionCalendarCredentialReadPhase(databaseUrl) {
+  const capabilities = queryJson(databaseUrl, asRoleSql("service_role", null, "SELECT public.portal_schema_capabilities_service();"));
+  assert.equal(capabilities.version, 53, "0053 enables the ADR-039 wave 1b-iii decrypted refresh token read contract");
+  assert.equal(capabilities.businessActionCalendarCredentialRead, true);
 }
 
 function assertMeetingStatusOverloadRepairPhase(databaseUrl) {
@@ -752,7 +763,7 @@ function assertTavusStageSettlementTimestampPhase(databaseUrl) {
 function assertMigrationCapabilities(databaseUrl) {
   assert.equal(queryScalar(databaseUrl, "SELECT to_regprocedure('public.portal_schema_capabilities_service()') IS NOT NULL;"), "t");
   const capabilities = queryJson(databaseUrl, asRoleSql("service_role", null, "SELECT public.portal_schema_capabilities_service();"));
-  assert.equal(capabilities.version, 52);
+  assert.equal(capabilities.version, 53);
   assert.equal(capabilities.providerEffectReservations, true);
   assert.equal(capabilities.billingUsageOutbox, true);
   assert.equal(capabilities.recallWebhookDedupe, true);
@@ -791,6 +802,7 @@ function assertMigrationCapabilities(databaseUrl) {
   assert.equal(capabilities.businessActionProposals, true);
   assert.equal(capabilities.businessActionCalendarReservations, true);
   assert.equal(capabilities.businessActionCalendarConnections, true);
+  assert.equal(capabilities.businessActionCalendarCredentialRead, true);
   assert.equal(queryScalar(databaseUrl, "SELECT to_regclass('public.provider_effect_reservations') IS NOT NULL;"), "t");
   assert.equal(queryScalar(databaseUrl, "SELECT to_regclass('public.billing_usage_outbox') IS NOT NULL;"), "t");
   for (const signature of [
@@ -1603,6 +1615,67 @@ function assertBusinessActionCalendarScheduling(databaseUrl) {
     "service_role has no direct SELECT on the calendar reservations table");
   assertFailed(runSql(databaseUrl, asRoleSql("service_role", null, "SELECT 1 FROM public.portal_business_action_calendar_connections LIMIT 1;")),
     "service_role has no direct SELECT on the calendar connections table");
+}
+
+// ADR-039 wave 1b-iii (0053): portal_google_calendar_decrypted_refresh_token_service
+// is the only RPC in this schema that ever reads a decrypted Vault secret
+// back out (0052's portal_google_calendar_connection_context_service
+// deliberately never does -- see that function's own comment in the
+// migration). Reuses tenants/actors earlier phases already made
+// tenant_admin (tenantZeta needs no membership at all -- the RPC only ever
+// takes p_tenant_id; tenantDelta/actorDelta and tenantGamma/actorGamma were
+// already granted tenant_admin by assertUsageSummaryLedgerTotals and
+// assertBillingCheckoutContract) instead of adding new membership fixtures,
+// but creates and tears down its own calendar connections here rather than
+// depending on whatever state assertBusinessActionCalendarScheduling
+// happened to leave tenantAlpha/tenantBeta in.
+function assertBusinessActionCalendarCredentialRead(databaseUrl) {
+  const readToken = (tenantId) => queryJson(databaseUrl, asRoleSql("service_role", null,
+    `SELECT public.portal_google_calendar_decrypted_refresh_token_service('${tenantId}');`));
+
+  // -- (1) a tenant that never connected a calendar at all --
+  assert.equal(readToken(fixture.tenantZeta).outcome, "not_connected",
+    "a tenant with no calendar connection row has no decrypted credential to read");
+
+  // -- (2) a tenant whose connection exists but is revoked: the dead
+  // connection's secret must never surface -- same declared not_connected
+  // outcome as a tenant that never connected at all, never an exception and
+  // never a shape that would let a caller tell the two cases apart --
+  assertSucceeded(runSql(databaseUrl, asRoleSql("service_role", null, `SELECT public.portal_connect_google_calendar_service(
+    '019f0000-0000-7000-8000-0000000a6600','${fixture.tenantDelta}','${fixture.actorDelta}',
+    '${sqlLiteral("revoked-credential-read@example.test")}','${sqlLiteral("primary")}','UTC',
+    '${sqlLiteral("1//harness-refresh-token-delta-credential-read")}'
+  );`)), "connect fixture for the revoked-connection credential-read scenario");
+  assertSucceeded(runSql(databaseUrl, asRoleSql("service_role", null,
+    `SELECT public.portal_disconnect_google_calendar_service('${fixture.tenantDelta}','${fixture.actorDelta}');`)),
+  "disconnect fixture for the revoked-connection credential-read scenario");
+  assert.equal(queryScalar(databaseUrl, `SELECT status FROM public.portal_business_action_calendar_connections WHERE tenant_id='${fixture.tenantDelta}';`), "revoked",
+    "sanity check on the fixture itself: the connection row must really be revoked, not merely absent");
+  assert.equal(readToken(fixture.tenantDelta).outcome, "not_connected",
+    "a revoked connection's secret is never exposed, even though its row still exists");
+
+  // -- (3) a tenant with a live connection: the RPC must return exactly the
+  // raw value portal_connect_google_calendar_service wrote, proving the
+  // write -> Vault -> decrypted-read roundtrip, not merely that some string
+  // comes back --
+  const liveRefreshToken = "1//harness-refresh-token-gamma-credential-read";
+  assertSucceeded(runSql(databaseUrl, asRoleSql("service_role", null, `SELECT public.portal_connect_google_calendar_service(
+    '019f0000-0000-7000-8000-0000000a6601','${fixture.tenantGamma}','${fixture.actorGamma}',
+    '${sqlLiteral("live-credential-read@example.test")}','${sqlLiteral("primary")}','UTC','${sqlLiteral(liveRefreshToken)}'
+  );`)), "connect fixture for the live-connection credential-read roundtrip");
+  const found = readToken(fixture.tenantGamma);
+  assert.equal(found.outcome, "found");
+  assert.equal(found.refreshToken, liveRefreshToken,
+    "the RPC returns exactly the raw refresh token portal_connect_google_calendar_service wrote, proving the write -> Vault -> decrypted read roundtrip");
+
+  // -- (4) least privilege: only service_role may ever call this RPC --
+  const signature = "public.portal_google_calendar_decrypted_refresh_token_service(app.uuid_v7)";
+  assert.equal(queryScalar(databaseUrl, `SELECT has_function_privilege('service_role', '${signature}', 'EXECUTE');`), "t", "service_role grant");
+  assert.equal(queryScalar(databaseUrl, `SELECT has_function_privilege('authenticated', '${signature}', 'EXECUTE');`), "f", "authenticated revoke");
+  assert.equal(queryScalar(databaseUrl, `SELECT has_function_privilege('anon', '${signature}', 'EXECUTE');`), "f", "anon revoke");
+  assertFailed(runSql(databaseUrl, asRoleSql("authenticated", fixture.userGamma,
+    `SELECT public.portal_google_calendar_decrypted_refresh_token_service('${fixture.tenantGamma}');`)),
+  "an authenticated caller cannot invoke the decrypted-refresh-token RPC directly, not even for its own tenant");
 }
 
 function assertWorkerHeartbeatLifecycle(databaseUrl) {
@@ -3565,16 +3638,29 @@ function postPortablePreludeSql() {
 
 // Minimal stand-in for the real Supabase Vault (pgsodium-backed) extension,
 // which does not exist in a vanilla local PostgreSQL 17 cluster. Mirrors
-// only the surface 0052's RPCs call (vault.create_secret, vault.secrets for
-// direct delete) so the migration can be proven end to end locally; there is
-// no encryption at rest here (fine for a disposable test cluster torn down
-// at the end of this run) and production runs against the real managed
-// Vault, never this stub. secrets_name_idx replicates the real Vault's own
-// unique partial index on name -- without it this stub is unfaithful in
-// exactly the way that let portal_connect_google_calendar_service's original
+// only the surface 0052's and 0053's RPCs call (vault.create_secret,
+// vault.secrets for direct delete, vault.decrypted_secrets for the 0053
+// read) so those migrations can be proven end to end locally; there is no
+// encryption at rest here (fine for a disposable test cluster torn down at
+// the end of this run) and production runs against the real managed Vault,
+// never this stub. secrets_name_idx replicates the real Vault's own unique
+// partial index on name -- without it this stub is unfaithful in exactly the
+// way that let portal_connect_google_calendar_service's original
 // create-before-delete ordering bug (reconnect collides on the tenant's
 // deterministic secret name) pass the harness silently; see the reconnect
 // assertions below, which now depend on this index actually being enforced.
+//
+// vault.decrypted_secrets: this view's column shape (id, name, description,
+// secret, decrypted_secret, created_at, updated_at -- omitting the real
+// extension's key_id/nonce, internal encryption metadata 0053's RPC never
+// reads) is Supabase Vault's own publicly documented read pattern
+// (`select decrypted_secret from vault.decrypted_secrets where ...`), not
+// something confirmed against this project's real hosted Vault instance
+// before 0053 was written; see that migration's own header comment for the
+// full caveat. Since this stub's vault.secrets never actually encrypts
+// anything (secret is already plaintext, same disposable-cluster rationale
+// as above), decrypted_secret here is simply secret verbatim -- faithful to
+// the real view's *shape*, not its cryptography.
 function vaultPreludeSql() {
   return `
     CREATE SCHEMA vault AUTHORIZATION postgres;
@@ -3594,6 +3680,9 @@ function vaultPreludeSql() {
       INSERT INTO vault.secrets(name, description, secret) VALUES (new_name, coalesce(new_description, ''), new_secret) RETURNING id INTO v_id;
       RETURN v_id;
     END $$;
+    CREATE VIEW vault.decrypted_secrets AS
+      SELECT id, name, description, secret, secret AS decrypted_secret, created_at, updated_at
+      FROM vault.secrets;
     REVOKE ALL ON SCHEMA vault FROM PUBLIC;
   `;
 }
