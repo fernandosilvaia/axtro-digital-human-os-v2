@@ -1,83 +1,81 @@
--- ADR-041 "Resolver sessão, presenter e geração de uma chamada já viva sem
--- recriar o acoplamento que ADR-039 já proíbe". A tool call de negócio
--- (register_lead/propose_meeting_slots/confirm_meeting_slot) chega numa
--- requisição HTTP separada, minutos depois de admitPortalChannel ter
--- resolvido sessionId/presenterId em memória (video-conversation.ts) e
--- devolvido a URL da chamada. Sem esta RPC, o único jeito óbvio de
--- redescobrir esses valores seria chamar admitPortalChannel de novo com o
--- mesmo commandId -- o que recriaria exatamente a dependência de
--- PORTAL_RUNTIME_BRIDGE_ENABLED que ADR-039 construiu
--- portal-business-action-bridge.ts inteiro para evitar (esse módulo nunca
--- importa nem chama nada de portal-channel-runtime-bridge.ts).
+-- ADR-039 wave 1b-iii: closes the one gap 0052 left open on purpose. That
+-- migration's portal_google_calendar_connection_context_service (see its own
+-- comment, right above the grants block below) deliberately never selects
+-- vault.decrypted_secrets -- it hands the application vault_secret_id/
+-- calendar_id/default_timezone/status and stops there. Nothing else this
+-- codebase has ever shipped reads a decrypted Vault secret back out; every
+-- prior write (portal_connect_google_calendar_service, 0052) only ever wrote
+-- one in and never had to read it back. Without this migration the
+-- application has zero way to obtain the actual refresh token bytes it needs
+-- to call Google's freebusy/events APIs -- the OAuth connection flow (wave
+-- 1b-ii) is otherwise a write-only vault with no reader.
 --
--- Mesmo formato de portal_get_sentinel_attach_service (0043): leitura pura,
--- STABLE, SECURITY DEFINER, junção sobre dado que a admissão do canal já
--- deixou gravado (0043), nunca chamando a própria RPC de admissão. Ancorada
--- não num provider ref (o que a Server Action de tool call ainda não tem
--- motivo de conhecer) e sim na mesma chave de idempotência que
--- startVideoConversation/stopVideoConversation já usam para reencontrar a
--- chamada viva a partir de um commandId
--- (paidEffectIntentKey(commandId,discriminator), paid-effects/index.ts).
+-- Single change: one new RPC, portal_google_calendar_decrypted_refresh_token_service,
+-- named so its purpose is unmistakable next to the sibling function it
+-- complements (never replaces) -- "_context_service" stays secret-free,
+-- "_decrypted_refresh_token_service" is the only place in this schema that
+-- is not. service_role-only, same as every RPC in this domain; never logs
+-- anything (no RAISE of any kind, at any level, in this function's body);
+-- never raises an exception for a missing/inactive connection, only ever
+-- returns a declared outcome, so a caller (or an attacker probing through a
+-- misconfigured surface) cannot distinguish "tenant has no connection" from
+-- "tenant's connection exists but is revoked/reauth_required" from any other
+-- not-found shape by error message -- all three collapse to the same
+-- {"outcome":"not_connected"} response.
 --
--- NUMBERING NOTE: database/supabase-only/ termina em 0052 na main. 0053 está
--- reservada pela onda 1b-iii (portal_google_calendar_decrypted_refresh_token_service),
--- ainda não mergeada na main quando este arquivo foi escrito; 0054 é o
--- próximo número livre (ADR-041 já documenta essa numeração explicitamente).
--- Se a ordem de merge inverter, renumerar seguindo o mesmo padrão já
--- registrado em D-V2-145/146/149 em docs/operations/DECISIONS_LOG.md: mudar
--- o nome do arquivo, todo literal de versão abaixo (schema_capabilities,
--- este comentário) e scripts/supabase-portal-integration.mjs +
--- scripts/validate_database_contract.py.
+-- vault.decrypted_secrets: the real Supabase Vault extension (pgsodium-
+-- backed) publishes this view over vault.secrets with a decrypted_secret
+-- column holding the plaintext, alongside id/name/description/secret(cipher-
+-- text)/key_id/nonce/created_at/updated_at. Confirmed empirically against
+-- this project's own real hosted Supabase instance (ovctadcrvnfpgxzplupp),
+-- not just Supabase's public documentation shape:
+-- `select column_name,data_type from information_schema.columns where
+-- table_schema='vault' and table_name='decrypted_secrets'` returned exactly
+-- this column set, matching what scripts/supabase-portal-integration.mjs's
+-- local stub of this view (added alongside this migration) already assumed.
+-- Nothing in this repository referenced vault.decrypted_secrets before this
+-- migration (0052 explicitly avoided it).
 begin;
 
--- Mesma disciplina anti-oráculo de portal_get_sentinel_attach_service (0043)
--- e de portal_google_calendar_decrypted_refresh_token_service (0053, onda
--- 1b-iii): toda forma de "não encontrado" -- idempotency_key desconhecida,
--- reserva sem receipt de canal ainda vinculado, receipt apontando pra um
--- binding cujo agent_id não bate com o do chamador, ou (defensivamente) um
--- binding cuja sessão já não existe -- colapsa no mesmo outcome 'not_found'.
--- Nenhum branch aqui deixa o chamador distinguir "essa reserva não existe"
--- de "existe mas pertence a outro agente" por mensagem, código de erro ou
--- formato de resposta (Art. 15).
---
--- presenterId é lido de sessions.active_presenter_id, nunca de
--- portal_runtime_channel_bindings.presenter_id: a coluna do binding é o
--- presenter que venceu o floor no instante da admissão e nunca é atualizada
--- depois; sessions.active_presenter_id é o floor vivo e pode se mover por
--- handoff (Art. 2) depois da admissão. Ler a coluna do binding aqui
--- entregaria, silenciosamente, uma identidade de presenter obsoleta pra uma
--- tool call que chega minutos depois de um handoff já ter acontecido.
---
--- Status terminal é 'completed'/'failed' -- confirmado contra o próprio
--- CHECK de public.sessions
--- (database/migrations/0003_interaction_and_actions.sql:
--- `status text NOT NULL CHECK (status IN ('preparing','ready','active','handoff_pending','completed','failed'))`),
--- nunca o vocabulário ('ended','failed') que meeting_bot_sessions (0021) usa
--- para o próprio status, que é uma tabela e um domínio diferentes.
-create or replace function public.portal_business_action_call_context_service(
-  p_tenant_id app.uuid_v7,p_agent_id app.uuid_v7,p_idempotency_key text
-) returns jsonb language sql stable security definer set search_path='public' as $$
-  select case
-    when b.id is null then jsonb_build_object('outcome','not_found')
-    when b.agent_id is distinct from p_agent_id then jsonb_build_object('outcome','not_found')
-    when s.id is null then jsonb_build_object('outcome','not_found')
-    when s.status in ('completed','failed') then jsonb_build_object('outcome','session_terminal')
-    else jsonb_build_object('outcome','found','sessionId',s.id,'presenterId',s.active_presenter_id,'generation',b.generation)
-  end
-  from (values(1)) seed(n)
-  left join public.provider_effect_reservations r on r.tenant_id=p_tenant_id and r.idempotency_key=p_idempotency_key
-  left join public.portal_runtime_provider_channel_receipts pr on pr.tenant_id=r.tenant_id and pr.reservation_id=r.id
-  left join public.portal_runtime_channel_bindings b on b.tenant_id=pr.tenant_id and b.id=pr.binding_id
-  left join public.sessions s on s.tenant_id=b.tenant_id and s.id=b.session_id
-$$;
+create or replace function public.portal_google_calendar_decrypted_refresh_token_service(p_tenant_id app.uuid_v7)
+returns jsonb language plpgsql stable security definer set search_path='public' as $$
+declare v_vault_secret_id uuid; v_refresh_token text;
+begin
+  -- Only a 'connected' row's secret is ever eligible. A revoked connection's
+  -- vault_secret_id is already null by the table's own CHECK constraint
+  -- (0052); a reauth_required connection still has a live vault_secret_id
+  -- but its credential is known-stale from Google's side, so it is excluded
+  -- here explicitly rather than relying on that CHECK's side effect alone.
+  select vault_secret_id into v_vault_secret_id
+    from public.portal_business_action_calendar_connections
+    where tenant_id=p_tenant_id and status='connected';
+  if not found then return jsonb_build_object('outcome','not_connected'); end if;
 
-revoke all on function public.portal_business_action_call_context_service(app.uuid_v7,app.uuid_v7,text) from public,anon,authenticated;
-grant execute on function public.portal_business_action_call_context_service(app.uuid_v7,app.uuid_v7,text) to service_role;
+  -- Defensive, not merely decorative: v_vault_secret_id came from a snapshot
+  -- read above, not a row lock, so a concurrent disconnect (which deletes
+  -- the Vault row, see portal_disconnect_google_calendar_service) between
+  -- these two statements is possible under READ COMMITTED. Treat that race
+  -- the same as never having connected -- not_connected, never an error.
+  select decrypted_secret into v_refresh_token from vault.decrypted_secrets where id=v_vault_secret_id;
+  if not found then return jsonb_build_object('outcome','not_connected'); end if;
 
+  return jsonb_build_object('outcome','found','refreshToken',v_refresh_token);
+end $$;
+
+-- The armadilha dos grants from this migration's own operating rules: a bare
+-- CREATE OR REPLACE on a brand-new function still defaults EXECUTE to
+-- PUBLIC, which includes anon. Revoke explicitly and grant only service_role,
+-- every time this file is reapplied, never trusting CREATE OR REPLACE alone.
+revoke all on function public.portal_google_calendar_decrypted_refresh_token_service(app.uuid_v7) from public,anon,authenticated;
+grant execute on function public.portal_google_calendar_decrypted_refresh_token_service(app.uuid_v7) to service_role;
+
+-- Byte-identical to 0052's body except the version literal and the one new
+-- capability key -- every existing key stays exactly as 0052 defined it so
+-- no prior capability probe regresses.
 create or replace function public.portal_schema_capabilities_service()
 returns jsonb language sql stable security definer set search_path='public' as $$
   select jsonb_build_object(
-    'version',54,
+    'version',53,
     'providerEffectReservations',to_regclass('public.provider_effect_reservations') is not null,
     'providerEffectReconciliation',to_regprocedure('public.portal_lease_provider_effect_reconciliation_service(app.uuid_v7,integer,integer)') is not null,
     'providerEffectTerminationFence',to_regclass('public.provider_effect_termination_receipts') is not null and to_regprocedure('public.portal_begin_provider_effect_termination_service(app.uuid_v7,app.uuid_v7,app.uuid_v7,uuid,app.uuid_v7,app.uuid_v7,text,text,integer)') is not null and to_regprocedure('public.portal_settle_provider_effect_termination_service(app.uuid_v7,app.uuid_v7,app.uuid_v7,text,text)') is not null,
@@ -121,8 +119,7 @@ returns jsonb language sql stable security definer set search_path='public' as $
     'businessActionProposals',to_regclass('public.portal_business_action_proposals') is not null and to_regclass('public.portal_business_action_proposal_slots') is not null and to_regprocedure('public.portal_propose_business_meeting_slots_service(app.uuid_v7,app.uuid_v7,app.uuid_v7,app.uuid_v7,app.uuid_v7,app.uuid_v7,app.uuid_v7,integer,text,jsonb,text,text)') is not null,
     'businessActionCalendarReservations',to_regclass('public.portal_business_action_calendar_reservations') is not null and to_regprocedure('public.portal_reserve_business_meeting_slot_service(app.uuid_v7,app.uuid_v7,app.uuid_v7,app.uuid_v7,app.uuid_v7,app.uuid_v7,app.uuid_v7,app.uuid_v7,app.uuid_v7,text,text)') is not null and to_regprocedure('public.portal_reconcile_business_meeting_reservation_service(app.uuid_v7,app.uuid_v7,app.uuid_v7,app.uuid_v7,text,text,text,text)') is not null,
     'businessActionCalendarConnections',to_regclass('public.portal_business_action_calendar_connections') is not null and to_regprocedure('public.portal_connect_google_calendar_service(app.uuid_v7,app.uuid_v7,app.uuid_v7,text,text,text,text)') is not null and to_regprocedure('public.portal_disconnect_google_calendar_service(app.uuid_v7,app.uuid_v7)') is not null and to_regprocedure('public.portal_google_calendar_connection_context_service(app.uuid_v7)') is not null,
-    'businessActionCalendarCredentialRead',to_regprocedure('public.portal_google_calendar_decrypted_refresh_token_service(app.uuid_v7)') is not null,
-    'businessActionLiveCallContext',to_regprocedure('public.portal_business_action_call_context_service(app.uuid_v7,app.uuid_v7,text)') is not null
+    'businessActionCalendarCredentialRead',to_regprocedure('public.portal_google_calendar_decrypted_refresh_token_service(app.uuid_v7)') is not null
   )
 $$;
 revoke all on function public.portal_schema_capabilities_service() from public,anon,authenticated;

@@ -66,3 +66,34 @@ test("fuso IANA desconhecido é rejeitado com erro tipado, nunca conversão sile
   assert.throws(() => florida.wallClockToUtcIso("2026-08-05T15:00:00", "America/Nao_Existe"), florida.FloridaTimeError);
   assert.throws(() => florida.wallClockToUtcIso("2026-08-05T15:00:00", ""), florida.FloridaTimeError);
 });
+
+// ---------------------------------------------------------------------------
+// wallClockPartsAt (ADR-039 onda 1b-iv: horário comercial multi-dia)
+// ---------------------------------------------------------------------------
+
+test("wallClockPartsAt decompõe data/hora local e o dia da semana ISO (1=segunda..7=domingo) no fuso do tenant", () => {
+  // 2026-08-05 é uma quarta-feira.
+  assert.deepEqual(
+    florida.wallClockPartsAt(Date.parse("2026-08-05T18:00:00.000Z"), "America/Sao_Paulo"),
+    { year: 2026, month: 8, day: 5, hour: 15, minute: 0, second: 0, isoWeekday: 3 },
+  );
+  // 2026-08-08 é sábado, 2026-08-09 é domingo.
+  assert.equal(florida.wallClockPartsAt(Date.parse("2026-08-08T12:00:00.000Z"), "UTC").isoWeekday, 6);
+  assert.equal(florida.wallClockPartsAt(Date.parse("2026-08-09T12:00:00.000Z"), "UTC").isoWeekday, 7);
+});
+
+test("wallClockPartsAt concorda com wallClockToUtcIso na mesma transição de horário de verão", () => {
+  // Mesmo instante do teste de spring-forward acima: 2026-03-08T03:30:00 local (EDT, já após o pulo).
+  const atMs = Date.parse("2026-03-08T07:30:00.000Z");
+  const parts = florida.wallClockPartsAt(atMs, "America/New_York");
+  assert.equal(parts.year, 2026);
+  assert.equal(parts.month, 3);
+  assert.equal(parts.day, 8);
+  assert.equal(parts.hour, 3);
+  assert.equal(parts.minute, 30);
+});
+
+test("wallClockPartsAt rejeita fuso IANA desconhecido com erro tipado", () => {
+  assert.throws(() => florida.wallClockPartsAt(Date.now(), "America/Nao_Existe"), florida.FloridaTimeError);
+  assert.throws(() => florida.wallClockPartsAt(Date.now(), ""), florida.FloridaTimeError);
+});

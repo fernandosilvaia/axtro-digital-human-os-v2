@@ -224,6 +224,27 @@ def main() -> int:
         for forbidden_slot_storage in ("slots jsonb not null", "slots jsonb[]"):
             if forbidden_slot_storage in calendar_sql:
                 errors.append(f"0052 must never persist proposal slots as a JSONB array column: found {forbidden_slot_storage}")
+    calendar_credential_read = SUPABASE_MIGRATIONS / "0053_business_action_calendar_credential_read.sql"
+    if not calendar_credential_read.exists():
+        errors.append("Missing Supabase-only business action calendar credential read migration 0053")
+    else:
+        credential_read_sql = calendar_credential_read.read_text(encoding="utf-8")
+        if "begin;" not in credential_read_sql or "commit;" not in credential_read_sql:
+            errors.append("0053 business action calendar credential read must have explicit transaction boundaries")
+        for invariant in (
+            "portal_google_calendar_decrypted_refresh_token_service",
+            "status='connected'",
+            "vault.decrypted_secrets",
+            "'outcome','not_connected'",
+            "'outcome','found','refreshToken',v_refresh_token",
+            "'version',53",
+            "'businessActionCalendarCredentialRead'",
+        ):
+            if invariant not in credential_read_sql:
+                errors.append(f"0053 business action calendar credential read invariant is missing: {invariant}")
+        for forbidden_grant in ("to public;", "to anon;"):
+            if forbidden_grant in credential_read_sql:
+                errors.append(f"0053 must never grant the decrypted-secret RPC to {forbidden_grant.split()[1].rstrip(';')}")
     live_call_context = SUPABASE_MIGRATIONS / "0054_business_action_live_call_context.sql"
     if not live_call_context.exists():
         errors.append("Missing Supabase-only business action live call context migration 0054")
