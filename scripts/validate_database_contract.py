@@ -224,6 +224,29 @@ def main() -> int:
         for forbidden_slot_storage in ("slots jsonb not null", "slots jsonb[]"):
             if forbidden_slot_storage in calendar_sql:
                 errors.append(f"0052 must never persist proposal slots as a JSONB array column: found {forbidden_slot_storage}")
+    live_call_context = SUPABASE_MIGRATIONS / "0054_business_action_live_call_context.sql"
+    if not live_call_context.exists():
+        errors.append("Missing Supabase-only business action live call context migration 0054")
+    else:
+        live_call_context_sql = live_call_context.read_text(encoding="utf-8")
+        if "begin;" not in live_call_context_sql or "commit;" not in live_call_context_sql:
+            errors.append("0054 business action live call context must have explicit transaction boundaries")
+        for invariant in (
+            "create or replace function public.portal_business_action_call_context_service",
+            "provider_effect_reservations",
+            "portal_runtime_provider_channel_receipts",
+            "portal_runtime_channel_bindings",
+            "left join public.sessions s",
+            "s.status in ('completed','failed')",
+            "language sql stable security definer",
+            "'version',54",
+            "'businessActionLiveCallContext'",
+        ):
+            if invariant not in live_call_context_sql:
+                errors.append(f"0054 business action live call context invariant is missing: {invariant}")
+        for forbidden_write in ("insert into", "update public.", "delete from"):
+            if forbidden_write in live_call_context_sql.lower():
+                errors.append(f"0054 must remain a pure read: found {forbidden_write}")
     if "tenant_isolation" not in all_sql:
         errors.append("Tenant isolation policy is missing")
     if "event_document ->> 'tenant_id' IS DISTINCT FROM tenant_id::text" not in all_sql:
