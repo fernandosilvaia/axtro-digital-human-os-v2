@@ -107,6 +107,8 @@ export interface BusinessActionToolCallDependencies {
 
 const INTERNAL_TIMEOUT_MS = 8_000;
 const EMAIL_PATTERN = /^[^@\s]+@[^@\s]+\.[^@\s]+$/;
+/** RFC 5321 sec. 4.5.3.1.3 total-length bound -- same constant already used by lib/google-calendar/id-token.ts. Achado real de revisão adversarial: contactEmail era o único campo de contato sem limite de tamanho em nenhuma das camadas do funil (contactName/contactPhone/qualificationSummary já tinham bound). */
+const MAX_EMAIL_CHARS = 320;
 const MEETING_DURATIONS_MINUTES = new Set([15, 30, 45, 60]);
 const RETRYABLE_REJECTION_CODES: ReadonlySet<PortalBusinessActionRejectionCode> = new Set(["slot_not_offered", "proposal_expired", "slot_conflict"]);
 
@@ -170,7 +172,7 @@ function validateRegisterLeadArgs(value: Record<string, unknown>): RegisterLeadA
   const contactName = value.contactName;
   if (typeof contactName !== "string" || contactName.trim().length < 1 || contactName.length > 200) return null;
   const contactEmail = value.contactEmail;
-  if (contactEmail !== undefined && (typeof contactEmail !== "string" || !EMAIL_PATTERN.test(contactEmail))) return null;
+  if (contactEmail !== undefined && (typeof contactEmail !== "string" || contactEmail.length > MAX_EMAIL_CHARS || !EMAIL_PATTERN.test(contactEmail))) return null;
   const contactPhone = value.contactPhone;
   if (contactPhone !== undefined && (typeof contactPhone !== "string" || contactPhone.length === 0 || contactPhone.length > 32)) return null;
   if (contactEmail === undefined && contactPhone === undefined) return null;
@@ -216,45 +218,59 @@ function validateConfirmMeetingSlotArgs(value: Record<string, unknown>): Confirm
   const slotIndex = value.slotIndex;
   if (typeof slotIndex !== "number" || !Number.isInteger(slotIndex) || slotIndex < 0) return null;
   const contactEmail = value.contactEmail;
-  if (typeof contactEmail !== "string" || !EMAIL_PATTERN.test(contactEmail)) return null;
+  if (typeof contactEmail !== "string" || contactEmail.length > MAX_EMAIL_CHARS || !EMAIL_PATTERN.test(contactEmail)) return null;
   return Object.freeze({ proposalId, slotIndex, contactEmail });
 }
 
-async function runBusinessActionToolCall(
+/**
+ * Achado real de revisão de segurança adversarial (ADR-041 onda B): `Promise.race`
+ * entre o trabalho real e o timeout de 8s NUNCA cancela a promise perdedora --
+ * quando o timeout vence, `runBusinessActionToolCall` continua rodando no
+ * servidor até o fim, inclusive escrevendo no banco (`admitBusinessAction`/
+ * `registerBusinessLead`), MESMO DEPOIS de a Server Action já ter devolvido
+ * "Handoff" ao Tavus. Se o modelo, ouvindo esse "Handoff", decidir tentar de
+ * novo com um `tool_call_id` GENUINAMENTE NOVO (o comportamento que a própria
+ * ADR-041, linha 113, já define como correto -- "uma nova decisão do modelo"
+ * merece um grant novo), a tentativa nova deriva um `commandId`/
+ * `commandFingerprint` diferente da original e é admitida como uma intenção
+ * legitimamente nova -- enquanto a tentativa original, nunca cancelada,
+ * eventualmente completa e grava SUA PRÓPRIA linha também. Resultado: dois
+ * leads para o mesmo contato na mesma sessão, exatamente a duplicação de PII
+ * que o design de `commandId` determinístico existe para eliminar (linha 216
+ * da ADR).
+ *
+ * Fix: um lock em memória de processo por `(tenantId, sessionId, actionKind)`
+ * -- mesmo mecanismo e mesma ressalva operacional já documentada e aceita em
+ * `oauth-state.ts`/`rate-limit.ts` (processo único no Railway hoje). Uma
+ * segunda chamada para o MESMO (tenant, sessão, ação) que chega enquanto a
+ * primeira ainda está em voo nunca inicia uma segunda admissão: ela espera o
+ * resultado da tentativa já em andamento e devolve o mesmo resultado, mesmo
+ * que isso signifique que ela também estoure o próprio timeout de 8s
+ * aguardando (nesse caso o chamador recebe Handoff de qualquer forma, mas
+ * NENHUMA escrita duplicada acontece). Isto é deliberadamente mais estreito
+ * que cancelar a tentativa original (o que exigiria propagar AbortSignal por
+ * cinco camadas até a chamada RPC do Supabase): fecha exatamente a janela de
+ * corrida que o achado descreve, sem impedir uma reconvocação sequencial
+ * genuína depois que a primeira tentativa já terminou (o comportamento que a
+ * ADR-041 linha 113 já define como correto continua funcionando).
+ */
+const inFlightBusinessActions = new Map<string, Promise<BusinessActionToolCallResult>>();
+
+function inFlightBusinessActionKey(tenantId: string, sessionId: string, actionKind: string): string {
+  return `${tenantId}:${sessionId}:${actionKind}`;
+}
+
+async function admitAndDispatchBusinessAction(
+  tenantId: string,
   agentId: string,
-  commandId: string,
-  mode: "video" | "presentation",
-  toolName: string,
+  sessionId: string,
+  presenterId: string,
+  generation: number,
+  actionKind: PortalBusinessActionKind,
   toolCallId: string,
-  rawArguments: string | Record<string, unknown>,
+  validatedArgs: RegisterLeadArgs | ProposeMeetingSlotsArgs | ConfirmMeetingSlotArgs,
   dependencies: Required<Omit<BusinessActionToolCallDependencies, "timeoutMs">>,
 ): Promise<BusinessActionToolCallResult> {
-  // Passo 1: tenantId sempre resolvido do lado do servidor, nunca aceito do chamador.
-  const [overview, agents] = await Promise.all([dependencies.fetchTenantOverview(), dependencies.fetchAgents()]);
-  if (!overview.provisioned || !overview.tenant) return declaredOutcome("handoff");
-  const tenantId = overview.tenant.id;
-  if (!agents.some((candidate) => candidate.id === agentId)) return declaredOutcome("handoff");
-
-  // Passo 2: contexto da chamada viva, pela mesma chave de idempotência que start/stopVideoConversation já usam.
-  const idempotencyKey = paidEffectIntentKey(commandId, mode === "video" ? "tavus:video" : "tavus:presentation");
-  const liveContext = await dependencies.resolveLiveBusinessActionCallContext({ tenantId, agentId, idempotencyKey });
-  if (liveContext.outcome !== "found") return declaredOutcome("session_not_found");
-  const { sessionId, presenterId, generation } = liveContext.context;
-
-  // Passo 3: defensivo -- o dispatcher cliente já só encaminha nomes de BUSINESS_ACTION_TOOL_NAMES até aqui.
-  if (!isBusinessActionToolName(toolName)) return declaredOutcome("handoff");
-
-  // Passo 4: parse + validação de schema fechado por tool. Nunca chega à RPC com argumento fora do contrato.
-  const parsedArguments = parseRawArguments(rawArguments);
-  if (parsedArguments === null) return declaredOutcome("handoff");
-
-  const actionKind: PortalBusinessActionKind = toolName;
-  let validatedArgs: RegisterLeadArgs | ProposeMeetingSlotsArgs | ConfirmMeetingSlotArgs | null;
-  if (actionKind === "register_lead") validatedArgs = validateRegisterLeadArgs(parsedArguments);
-  else if (actionKind === "propose_meeting_slots") validatedArgs = validateProposeMeetingSlotsArgs(parsedArguments);
-  else validatedArgs = validateConfirmMeetingSlotArgs(parsedArguments);
-  if (validatedArgs === null) return declaredOutcome("handoff");
-
   // Passo 5: commandId de admissão determinístico a partir do tool_call_id do Tavus -- replay do mesmo tool_call_id sempre deriva o mesmo commandId.
   const admissionCommandId = deterministicBusinessActionCommandId(tenantId, agentId, sessionId, actionKind, toolCallId);
   const admission = await dependencies.admitBusinessAction({
@@ -292,6 +308,56 @@ async function runBusinessActionToolCall(
   // Ambas passam pela admissão (grant fica registrado, kill switch/consentimento continuam valendo), mas a RPC
   // de negócio em si não é chamada nesta onda -- por dois motivos DIFERENTES e documentados acima.
   return declaredOutcome("handoff");
+}
+
+async function runBusinessActionToolCall(
+  agentId: string,
+  commandId: string,
+  mode: "video" | "presentation",
+  toolName: string,
+  toolCallId: string,
+  rawArguments: string | Record<string, unknown>,
+  dependencies: Required<Omit<BusinessActionToolCallDependencies, "timeoutMs">>,
+): Promise<BusinessActionToolCallResult> {
+  // Passo 1: tenantId sempre resolvido do lado do servidor, nunca aceito do chamador.
+  const [overview, agents] = await Promise.all([dependencies.fetchTenantOverview(), dependencies.fetchAgents()]);
+  if (!overview.provisioned || !overview.tenant) return declaredOutcome("handoff");
+  const tenantId = overview.tenant.id;
+  if (!agents.some((candidate) => candidate.id === agentId)) return declaredOutcome("handoff");
+
+  // Passo 2: contexto da chamada viva, pela mesma chave de idempotência que start/stopVideoConversation já usam.
+  const idempotencyKey = paidEffectIntentKey(commandId, mode === "video" ? "tavus:video" : "tavus:presentation");
+  const liveContext = await dependencies.resolveLiveBusinessActionCallContext({ tenantId, agentId, idempotencyKey });
+  if (liveContext.outcome !== "found") return declaredOutcome("session_not_found");
+  const { sessionId, presenterId, generation } = liveContext.context;
+
+  // Passo 3: defensivo -- o dispatcher cliente já só encaminha nomes de BUSINESS_ACTION_TOOL_NAMES até aqui.
+  if (!isBusinessActionToolName(toolName)) return declaredOutcome("handoff");
+
+  // Passo 4: parse + validação de schema fechado por tool. Nunca chega à RPC com argumento fora do contrato.
+  const parsedArguments = parseRawArguments(rawArguments);
+  if (parsedArguments === null) return declaredOutcome("handoff");
+
+  const actionKind: PortalBusinessActionKind = toolName;
+  let validatedArgs: RegisterLeadArgs | ProposeMeetingSlotsArgs | ConfirmMeetingSlotArgs | null;
+  if (actionKind === "register_lead") validatedArgs = validateRegisterLeadArgs(parsedArguments);
+  else if (actionKind === "propose_meeting_slots") validatedArgs = validateProposeMeetingSlotsArgs(parsedArguments);
+  else validatedArgs = validateConfirmMeetingSlotArgs(parsedArguments);
+  if (validatedArgs === null) return declaredOutcome("handoff");
+
+  // Lock em voo (ver comentário acima de admitAndDispatchBusinessAction):
+  // uma segunda tentativa concorrente pro mesmo (tenant, sessão, ação) nunca
+  // inicia uma segunda admissão -- ela espera e reflete o resultado real da
+  // tentativa já em andamento.
+  const key = inFlightBusinessActionKey(tenantId, sessionId, actionKind);
+  const existing = inFlightBusinessActions.get(key);
+  if (existing !== undefined) return existing;
+
+  const attempt = admitAndDispatchBusinessAction(tenantId, agentId, sessionId, presenterId, generation, actionKind, toolCallId, validatedArgs, dependencies).finally(() => {
+    if (inFlightBusinessActions.get(key) === attempt) inFlightBusinessActions.delete(key);
+  });
+  inFlightBusinessActions.set(key, attempt);
+  return attempt;
 }
 
 function timeoutOutcome(ms: number): Promise<BusinessActionToolCallResult> {

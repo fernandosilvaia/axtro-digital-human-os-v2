@@ -25,6 +25,8 @@ const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3
 const UUID_V7_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/;
 const FINGERPRINT_PATTERN = /^[a-f0-9]{64}$/;
 const EMAIL_PATTERN = /^[^@\s]+@[^@\s]+\.[^@\s]+$/;
+/** RFC 5321 sec. 4.5.3.1.3 total-length bound -- same constant already used by lib/google-calendar/id-token.ts. Achado real de revisão adversarial (ADR-041 onda B): contactEmail era o único campo de contato sem limite de tamanho em nenhuma das camadas do funil. */
+const MAX_EMAIL_CHARS = 320;
 const PHONE_PATTERN = /^[0-9+()\-. ]{6,32}$/;
 /** Same bound app.is_bounded_timezone (0052) enforces server-side: a plausible IANA-ish zone name, or the literal 'UTC'. */
 const TIMEZONE_PATTERN = /^(UTC|[A-Za-z]+(\/[A-Za-z0-9_+-]+)+)$/;
@@ -356,7 +358,7 @@ export function createPortalBusinessActionBridge(dependencies: PortalBusinessAct
     const contactEmail = input.contactEmail === undefined || input.contactEmail === null ? null : input.contactEmail.trim();
     const contactPhone = input.contactPhone === undefined || input.contactPhone === null ? null : input.contactPhone.trim();
     if (contactEmail === null && contactPhone === null) throw new PortalBusinessActionBridgeInputError("register_lead requires contactEmail or contactPhone");
-    if (contactEmail !== null && (contactEmail.length === 0 || !EMAIL_PATTERN.test(contactEmail))) throw new PortalBusinessActionBridgeInputError("contactEmail is invalid");
+    if (contactEmail !== null && (contactEmail.length === 0 || contactEmail.length > MAX_EMAIL_CHARS || !EMAIL_PATTERN.test(contactEmail))) throw new PortalBusinessActionBridgeInputError("contactEmail is invalid");
     if (contactPhone !== null && !PHONE_PATTERN.test(contactPhone)) throw new PortalBusinessActionBridgeInputError("contactPhone is invalid");
     const qualificationSummary = input.qualificationSummary ?? "";
     if (qualificationSummary.length > 2_000) throw new PortalBusinessActionBridgeInputError("qualificationSummary is invalid");
@@ -408,7 +410,7 @@ export function createPortalBusinessActionBridge(dependencies: PortalBusinessAct
     const contactName = input.contactName === undefined || input.contactName === null ? null : input.contactName.trim();
     if (contactName !== null && (contactName.length === 0 || contactName.length > 200)) throw new PortalBusinessActionBridgeInputError("contactName is invalid");
     const contactEmail = input.contactEmail === undefined || input.contactEmail === null ? null : input.contactEmail.trim();
-    if (contactEmail !== null && (contactEmail.length === 0 || !EMAIL_PATTERN.test(contactEmail))) throw new PortalBusinessActionBridgeInputError("contactEmail is invalid");
+    if (contactEmail !== null && (contactEmail.length === 0 || contactEmail.length > MAX_EMAIL_CHARS || !EMAIL_PATTERN.test(contactEmail))) throw new PortalBusinessActionBridgeInputError("contactEmail is invalid");
 
     try {
       const receipt = await rpc(client, PORTAL_BUSINESS_ACTION_BRIDGE_RPC.propose, {
@@ -449,7 +451,7 @@ export function createPortalBusinessActionBridge(dependencies: PortalBusinessAct
     const proposalId = assertUuidV7(input.proposalId, "proposalId");
     const slotId = assertUuidV7(input.slotId, "slotId");
     const contactEmail = input.contactEmail.trim();
-    if (contactEmail.length === 0 || !EMAIL_PATTERN.test(contactEmail)) throw new PortalBusinessActionBridgeInputError("contactEmail is invalid");
+    if (contactEmail.length === 0 || contactEmail.length > MAX_EMAIL_CHARS || !EMAIL_PATTERN.test(contactEmail)) throw new PortalBusinessActionBridgeInputError("contactEmail is invalid");
     const contactName = input.contactName === undefined || input.contactName === null ? null : input.contactName.trim();
     if (contactName !== null && (contactName.length === 0 || contactName.length > 200)) throw new PortalBusinessActionBridgeInputError("contactName is invalid");
 

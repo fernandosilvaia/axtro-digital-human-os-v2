@@ -360,6 +360,53 @@ test("a genuinely new tool_call_id derives a genuinely different admission comma
   assert.notEqual(calls.admit[0].commandId, calls.admit[1].commandId);
 });
 
+test("achado de revisão de segurança: uma segunda tool call CONCORRENTE pro mesmo (tenant, sessão, ação), com um tool_call_id NOVO, nunca admite um segundo grant/lead enquanto a primeira ainda está em voo", async () => {
+  // Simula exatamente o cenário do achado: o timeout interno de 8s dispara
+  // "Handoff" pro modelo enquanto admitBusinessAction/registerBusinessLead da
+  // tentativa original ainda não terminaram no servidor -- o modelo, seguindo
+  // a doutrina de handoff, emite um tool_call_id NOVO pra tentar de novo. Sem
+  // o lock em voo, isso admitiria um segundo grant com um commandFingerprint
+  // diferente (toolCallId entra na derivação) e gravaria um segundo lead.
+  let releaseFirstAdmit;
+  const firstAdmitGate = new Promise((resolve) => { releaseFirstAdmit = resolve; });
+  const { actions, calls } = loadBusinessActionToolCall({
+    async admit(input, callNumber) {
+      if (callNumber === 1) await firstAdmitGate; // trava a primeira tentativa em voo até o teste liberar
+      return { outcome: "issued", code: "issued", grant: defaultGrant(input) };
+    },
+  });
+
+  const firstCall = actions.executeBusinessActionToolCall(
+    AGENT_ID, "019b0000-0000-7000-8000-0000000000c1", "presentation", "register_lead", "tool-call-original",
+    JSON.stringify({ contactName: "Ana Prospect", contactEmail: "ana@example.test" }),
+  );
+  // Espera até a primeira tentativa realmente ter entrado em admitBusinessAction
+  // (não só ter sido despachada) antes de disparar a "retentativa" concorrente,
+  // pra reproduzir com precisão a janela de corrida real.
+  while (calls.admit.length < 1) await new Promise((resolve) => setTimeout(resolve, 0));
+
+  const retryCall = actions.executeBusinessActionToolCall(
+    AGENT_ID, "019b0000-0000-7000-8000-0000000000c1", "presentation", "register_lead", "tool-call-retry",
+    JSON.stringify({ contactName: "Ana Prospect", contactEmail: "ana@example.test" }),
+  );
+
+  // Enquanto a primeira tentativa segue travada, a segunda (mesmo tenant/
+  // sessão/ação, tool_call_id diferente) NUNCA deve ter iniciado sua própria
+  // admissão -- ela está esperando o resultado da primeira, não abrindo uma
+  // segunda janela de escrita concorrente.
+  await new Promise((resolve) => setTimeout(resolve, 20));
+  assert.equal(calls.admit.length, 1, "a segunda tentativa não pode ter chamado admitBusinessAction enquanto a primeira ainda está em voo");
+  assert.equal(calls.registerLead.length, 0, "nenhum lead pode ter sido registrado ainda -- a primeira tentativa continua bloqueada");
+
+  releaseFirstAdmit();
+  const [firstResult, retryResult] = await Promise.all([firstCall, retryCall]);
+
+  assertResult(firstResult, { status: "success", output: "Lead registrado." });
+  assertResult(retryResult, { status: "success", output: "Lead registrado." });
+  assert.equal(calls.admit.length, 1, "só UMA admissão para o (tenant,sessão,ação) inteiro, mesmo com dois tool_call_id distintos concorrentes");
+  assert.equal(calls.registerLead.length, 1, "só UM lead registrado -- o achado da revisão de segurança descrevia exatamente uma duplicação aqui");
+});
+
 // ---------------------------------------------------------------------------
 // Timeout interno
 // ---------------------------------------------------------------------------
