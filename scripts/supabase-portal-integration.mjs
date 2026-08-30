@@ -122,18 +122,18 @@ try {
   assert.deepEqual(calendarCredentialReadApplied, ["0053"]);
   assertBusinessActionCalendarCredentialReadPhase(databaseUrl);
   assert.equal(queryScalar(databaseUrl, "SELECT count(*) FROM public.axtro_supabase_test_migrations;"), "51");
-  // 0054 is the ADR-041 wave A migration still in flight on another branch,
-  // not yet merged to main; 0055 is the next safe number for this ticket
-  // given 0053 is now merged and 0054 is still pending (see this file's own
-  // header comment). Applied directly after 0053 -- there is no dedicated
-  // "phase" assertion function for it (see assertMigrationCapabilities'
+  const liveCallContextApplied = applySupabaseMigrations(databaseUrl, 54, 54);
+  assert.deepEqual(liveCallContextApplied, ["0054"]);
+  assertBusinessActionLiveCallContextPhase(databaseUrl);
+  assert.equal(queryScalar(databaseUrl, "SELECT count(*) FROM public.axtro_supabase_test_migrations;"), "52");
+  // 0055 has no dedicated "phase" assertion function (see assertMigrationCapabilities'
   // comment on why portal_schema_capabilities_service() was deliberately
   // left untouched); its behavior is instead proven as an extension of
   // assertBusinessActionAdmissionAndLeads/assertBusinessActionCalendarScheduling
   // below, the same functions that already exercise every RPC it touches.
   const emailLengthBoundApplied = applySupabaseMigrations(databaseUrl, 55, 55);
   assert.deepEqual(emailLengthBoundApplied, ["0055"]);
-  assert.equal(queryScalar(databaseUrl, "SELECT count(*) FROM public.axtro_supabase_test_migrations;"), "52");
+  assert.equal(queryScalar(databaseUrl, "SELECT count(*) FROM public.axtro_supabase_test_migrations;"), "53");
 
   assertMigrationCapabilities(databaseUrl);
   assertLeastPrivilege(databaseUrl);
@@ -172,8 +172,9 @@ try {
   await assertBusinessActionAdmissionAndLeads(databaseUrl);
   assertBusinessActionCalendarScheduling(databaseUrl);
   assertBusinessActionCalendarCredentialRead(databaseUrl);
+  assertBusinessActionLiveCallContext(databaseUrl);
 
-  console.log("SUPABASE PORTAL INTEGRATION PASSED: migrations 0001-0048 + 0051-0053 + 0055 (0049-0050 applied separately, out of band; 0054 not yet merged), grants, RLS, transcripts, reservations and readiness capability");
+  console.log("SUPABASE PORTAL INTEGRATION PASSED: migrations 0001-0048 + 0051-0055 (0049-0050 applied separately, out of band), grants, RLS, transcripts, reservations and readiness capability");
 } catch (error) {
   primaryError = error;
   throw error;
@@ -189,7 +190,7 @@ function applySupabaseMigrations(databaseUrl, firstVersion, lastVersion) {
   const migrations = readdirSync(supabaseMigrationDirectory)
     .filter((name) => /^\d{4}_.+\.sql$/.test(name))
     .sort();
-  assert.equal(migrations.length, 52, "the harness must cover every Supabase-only migration through the 0055 email length bound phase (0049-0050 numbers were claimed by an unrelated concurrent migration before 0051 merged; 0054 is still on another branch, not yet merged)");
+  assert.equal(migrations.length, 53, "the harness must cover every Supabase-only migration through the 0055 email length bound phase (0049-0050 numbers were claimed by an unrelated concurrent migration before 0051 merged)");
   const applied = [];
   for (const migration of migrations) {
     const numericVersion = Number(migration.slice(0, 4));
@@ -357,6 +358,14 @@ function assertBusinessActionCalendarCredentialReadPhase(databaseUrl) {
   const capabilities = queryJson(databaseUrl, asRoleSql("service_role", null, "SELECT public.portal_schema_capabilities_service();"));
   assert.equal(capabilities.version, 53, "0053 enables the ADR-039 wave 1b-iii decrypted refresh token read contract");
   assert.equal(capabilities.businessActionCalendarCredentialRead, true);
+}
+
+function assertBusinessActionLiveCallContextPhase(databaseUrl) {
+  const capabilities = queryJson(databaseUrl, asRoleSql("service_role", null, "SELECT public.portal_schema_capabilities_service();"));
+  assert.equal(capabilities.version, 54, "0054 enables the ADR-041 live-call-context read contract");
+  assert.equal(capabilities.businessActionLiveCallContext, true);
+  assert.equal(queryScalar(databaseUrl,
+    "SELECT to_regprocedure('public.portal_business_action_call_context_service(app.uuid_v7,app.uuid_v7,text)') IS NOT NULL;"), "t");
 }
 
 function assertMeetingStatusOverloadRepairPhase(databaseUrl) {
@@ -786,7 +795,7 @@ function assertTavusStageSettlementTimestampPhase(databaseUrl) {
 function assertMigrationCapabilities(databaseUrl) {
   assert.equal(queryScalar(databaseUrl, "SELECT to_regprocedure('public.portal_schema_capabilities_service()') IS NOT NULL;"), "t");
   const capabilities = queryJson(databaseUrl, asRoleSql("service_role", null, "SELECT public.portal_schema_capabilities_service();"));
-  assert.equal(capabilities.version, 53);
+  assert.equal(capabilities.version, 54);
   assert.equal(capabilities.providerEffectReservations, true);
   assert.equal(capabilities.billingUsageOutbox, true);
   assert.equal(capabilities.recallWebhookDedupe, true);
@@ -826,6 +835,7 @@ function assertMigrationCapabilities(databaseUrl) {
   assert.equal(capabilities.businessActionCalendarReservations, true);
   assert.equal(capabilities.businessActionCalendarConnections, true);
   assert.equal(capabilities.businessActionCalendarCredentialRead, true);
+  assert.equal(capabilities.businessActionLiveCallContext, true);
   assert.equal(queryScalar(databaseUrl, "SELECT to_regclass('public.provider_effect_reservations') IS NOT NULL;"), "t");
   assert.equal(queryScalar(databaseUrl, "SELECT to_regclass('public.billing_usage_outbox') IS NOT NULL;"), "t");
   for (const signature of [
@@ -1840,6 +1850,186 @@ function assertBusinessActionCalendarCredentialRead(databaseUrl) {
     `SELECT public.portal_google_calendar_decrypted_refresh_token_service('${fixture.tenantGamma}');`)),
   "an authenticated caller cannot invoke the decrypted-refresh-token RPC directly, not even for its own tenant");
 }
+
+
+// ADR-041 "Resolver sessão, presenter e geração de uma chamada já viva sem
+// recriar o acoplamento que ADR-039 já proíbe" (migration 0054). Builds the
+// exact durable trail a live call leaves behind -- portal_admit_runtime_channel_service
+// (0043) for the session/binding, portal_consume_runtime_channel_grant_service
+// for the provider dispatch fence, portal_begin_provider_effect_service /
+// portal_mark_provider_effect_in_flight_service / portal_commit_provider_effect_service
+// (0040) for the reservation, portal_bind_runtime_provider_channel_service
+// (0043) for the receipt that ties the reservation to the binding -- then
+// resolves it back purely by (tenantId, agentId, idempotencyKey), never by
+// calling any admission RPC a second time.
+function assertBusinessActionLiveCallContext(databaseUrl) {
+  // An isolated tenant/agent/subscription fixture, not fixture.tenantAlpha:
+  // by this point in the suite tenantAlpha has already accumulated 'tavus'
+  // reservations from many earlier phases, and portal_begin_provider_effect_service's
+  // own tavus_no_delivery_period budget (cap 3, 0040) has no notion of "this
+  // is just a harness fixture" -- reusing tenantAlpha here intermittently
+  // returns 'capped' depending on suite ordering, not the 'reserved' outcome
+  // this test needs to set up its fixture. A dedicated tenant with an
+  // 'active' subscription (never 'trialing', so the separate monthly-trial
+  // cap never applies) keeps this test's cap budget entirely its own.
+  const harnessUserId = "10000000-0000-4000-8000-00000000c001";
+  const tenantId = "019f0000-0000-7000-8000-00000000c000";
+  const agentId = "019f0000-0000-7000-8000-00000000c002";
+  const actorId = "019f0000-0000-7000-8000-00000000c003";
+  const mismatchAgentId = "019f0000-0000-7000-8000-00000000c004";
+  const subscriptionId = "019f0000-0000-7000-8000-00000000c005";
+  assertSucceeded(runSql(databaseUrl, `
+    INSERT INTO auth.users(id,email) VALUES ('${harnessUserId}','live-call-context-harness@example.test');
+    INSERT INTO public.tenants(id,slug,legal_name,status,home_region,default_language,default_timezone)
+      VALUES ('${tenantId}','live-call-context-harness','Live Call Context Harness','active','local','pt','America/Sao_Paulo');
+    INSERT INTO public.agents(tenant_id,id,name,role_type,status,disclosure_profile_id)
+      VALUES ('${tenantId}','${agentId}','Live Call Context Harness Agent','sales','active','default');
+    INSERT INTO public.user_tenant_memberships(user_id,tenant_id,actor_id,role) VALUES ('${harnessUserId}','${tenantId}','${actorId}','tenant_admin');
+    INSERT INTO public.tenant_subscriptions(id,tenant_id,stripe_customer_id,stripe_subscription_id,plan_id,status,current_period_start,current_period_end)
+      VALUES ('${subscriptionId}','${tenantId}','cus_LiveCallContext','sub_LiveCallContext','piloto','active',date_trunc('month',now()),date_trunc('month',now())+interval '1 month');
+  `), "isolated live call context harness tenant");
+
+  const bindingId = "019f0000-0000-7000-8000-000000009601";
+  const sessionId = "019f0000-0000-7000-8000-000000009602";
+  const presenterId = "019f0000-0000-7000-8000-000000009603";
+  const disclosureId = "019f0000-0000-7000-8000-000000009604";
+  const consentId = "019f0000-0000-7000-8000-000000009605";
+  const commandFingerprint = "7".repeat(64);
+  const evidenceHash = "8".repeat(64);
+  const disclosureHash = "9".repeat(64);
+  const essential = JSON.stringify({
+    id: consentId,
+    subjectRef: "live-call-context-operator",
+    jurisdiction: "BR",
+    evidenceHash,
+    method: "click",
+  });
+
+  assertSucceeded(runSql(databaseUrl, asRoleSql("service_role", null, `
+    SELECT public.portal_admit_runtime_channel_service(
+      '${bindingId}','${tenantId}','${actorId}','${agentId}',
+      '${sessionId}','${presenterId}','tavus_video',array['scene_presentation'],'${commandFingerprint}',0,
+      '${disclosureId}','runtime-v1','${disclosureHash}','visual','pt-BR','${sqlLiteral(essential)}'::jsonb,'[]'::jsonb
+    );
+  `)), "live call context runtime admission");
+
+  assert.equal(queryJson(databaseUrl, asRoleSql("service_role", null,
+    `SELECT public.portal_consume_runtime_channel_grant_service('${bindingId}','${commandFingerprint}','tavus');`)).outcome, "acquired",
+  "live call context tavus dispatch fence");
+
+  const idempotencyKey = "live-call-context-alpha";
+  const reservationId = "019f0000-0000-7000-8000-000000009607";
+  const costEventId = "019f0000-0000-7000-8000-000000009608";
+  assert.equal(queryJson(databaseUrl, asRoleSql("service_role", null,
+    reservationInvocationSql(tenantId, agentId, idempotencyKey, reservationId, costEventId, "tavus"))).outcome, "reserved",
+  "live call context provider reservation");
+  assert.equal(queryJson(databaseUrl, asRoleSql("service_role", null,
+    `SELECT public.portal_mark_provider_effect_in_flight_service('${reservationId}');`)).acquired, true);
+  assert.equal(queryJson(databaseUrl, asRoleSql("service_role", null,
+    `SELECT public.portal_commit_provider_effect_service('${reservationId}','live-call-context-actual','https://tavus.daily.co/live-call-context');`)).committed, true);
+  assert.equal(queryScalar(databaseUrl, asRoleSql("service_role", null,
+    `SELECT public.portal_bind_runtime_provider_channel_service('019f0000-0000-7000-8000-000000009606','${bindingId}','${reservationId}','tavus','live-call-context-actual','https://tavus.daily.co/live-call-context');`)), "t",
+  "live call context provider channel receipt");
+
+  const call = (tenant, agent, key) => queryJson(databaseUrl, asRoleSql("service_role", null,
+    `SELECT public.portal_business_action_call_context_service('${tenant}','${agent}','${sqlLiteral(key)}');`));
+
+  const found = call(tenantId, agentId, idempotencyKey);
+  assert.equal(found.outcome, "found");
+  assert.equal(found.sessionId, sessionId);
+  assert.equal(found.presenterId, presenterId, "presenter matches the admission-time presenter before any handoff");
+  assert.equal(found.generation, 0);
+
+  // -- handoff: sessions.active_presenter_id moves to a new presenter; the
+  // binding's own presenter_id column is never touched. A second read must
+  // reflect the new floor, proving the RPC reads sessions fresh instead of
+  // the stale value captured on the binding at admission time --
+  const handoffPresenterId = "019f0000-0000-7000-8000-000000009609";
+  assertSucceeded(runSql(databaseUrl, `
+    INSERT INTO public.session_participants (tenant_id,id,session_id,participant_type,display_name,joined_at)
+    VALUES ('${tenantId}','${handoffPresenterId}','${sessionId}','human_presenter','Live Call Context Handoff Presenter',now());
+    UPDATE public.sessions SET active_presenter_id='${handoffPresenterId}', updated_at=now() WHERE tenant_id='${tenantId}' AND id='${sessionId}';
+  `), "live call context handoff presenter swap");
+  const foundAfterHandoff = call(tenantId, agentId, idempotencyKey);
+  assert.equal(foundAfterHandoff.outcome, "found");
+  assert.equal(foundAfterHandoff.presenterId, handoffPresenterId,
+    "presenterId is read fresh from sessions.active_presenter_id, never the static presenter_id captured on the binding at admission time");
+  assert.notEqual(
+    queryScalar(databaseUrl, `SELECT presenter_id::text FROM public.portal_runtime_channel_bindings WHERE tenant_id='${tenantId}' AND id='${bindingId}';`),
+    handoffPresenterId,
+    "the binding's own presenter_id column is never mutated by handoff, confirming the RPC does not read it",
+  );
+
+  // -- agentId mismatch collapses into the same not_found outcome as a
+  // missing reservation/binding/session: no message or shape difference --
+  assert.equal(call(tenantId, mismatchAgentId, idempotencyKey).outcome, "not_found", "agentId mismatch never reveals that the reservation/binding exist");
+
+  // -- unknown idempotencyKey --
+  assert.equal(call(tenantId, agentId, "live-call-context-unknown-key").outcome, "not_found", "unknown idempotencyKey collapses into not_found");
+
+  // -- cross-tenant lookup never finds another tenant's reservation --
+  assert.equal(call(fixture.tenantBeta, agentId, idempotencyKey).outcome, "not_found", "cross-tenant lookup never finds another tenant's reservation");
+
+  // -- terminal session: a tool call arriving after the session already
+  // ended/failed gets a declared outcome, never treated as a live call --
+  const terminalBindingId = "019f0000-0000-7000-8000-000000009610";
+  const terminalSessionId = "019f0000-0000-7000-8000-000000009611";
+  const terminalPresenterId = "019f0000-0000-7000-8000-000000009612";
+  const terminalDisclosureId = "019f0000-0000-7000-8000-000000009613";
+  const terminalConsentId = "019f0000-0000-7000-8000-000000009614";
+  const terminalFingerprint = "1".repeat(64);
+  const terminalEssential = JSON.stringify({
+    id: terminalConsentId,
+    subjectRef: "live-call-context-terminal-operator",
+    jurisdiction: "BR",
+    evidenceHash,
+    method: "click",
+  });
+  assertSucceeded(runSql(databaseUrl, asRoleSql("service_role", null, `
+    SELECT public.portal_admit_runtime_channel_service(
+      '${terminalBindingId}','${tenantId}','${actorId}','${agentId}',
+      '${terminalSessionId}','${terminalPresenterId}','tavus_video',array['scene_presentation'],'${terminalFingerprint}',0,
+      '${terminalDisclosureId}','runtime-v1','${disclosureHash}','visual','pt-BR','${sqlLiteral(terminalEssential)}'::jsonb,'[]'::jsonb
+    );
+  `)), "live call context terminal-session runtime admission");
+  assert.equal(queryJson(databaseUrl, asRoleSql("service_role", null,
+    `SELECT public.portal_consume_runtime_channel_grant_service('${terminalBindingId}','${terminalFingerprint}','tavus');`)).outcome, "acquired");
+  const terminalIdempotencyKey = "live-call-context-terminal";
+  const terminalReservationId = "019f0000-0000-7000-8000-000000009616";
+  const terminalCostEventId = "019f0000-0000-7000-8000-000000009617";
+  assert.equal(queryJson(databaseUrl, asRoleSql("service_role", null,
+    reservationInvocationSql(tenantId, agentId, terminalIdempotencyKey, terminalReservationId, terminalCostEventId, "tavus"))).outcome, "reserved");
+  assert.equal(queryJson(databaseUrl, asRoleSql("service_role", null,
+    `SELECT public.portal_mark_provider_effect_in_flight_service('${terminalReservationId}');`)).acquired, true);
+  assert.equal(queryJson(databaseUrl, asRoleSql("service_role", null,
+    `SELECT public.portal_commit_provider_effect_service('${terminalReservationId}','live-call-context-terminal-actual','https://tavus.daily.co/live-call-context-terminal');`)).committed, true);
+  assert.equal(queryScalar(databaseUrl, asRoleSql("service_role", null,
+    `SELECT public.portal_bind_runtime_provider_channel_service('019f0000-0000-7000-8000-000000009615','${terminalBindingId}','${terminalReservationId}','tavus','live-call-context-terminal-actual','https://tavus.daily.co/live-call-context-terminal');`)), "t");
+
+  assertSucceeded(runSql(databaseUrl,
+    `UPDATE public.sessions SET status='completed', ended_at=now(), updated_at=now() WHERE tenant_id='${tenantId}' AND id='${terminalSessionId}';`),
+  "live call context terminal session status transition to completed");
+  assert.equal(call(tenantId, agentId, terminalIdempotencyKey).outcome, "session_terminal", "a completed session is a declared outcome, never treated as a live call");
+
+  // sessions' own status enum (database/migrations/0003_interaction_and_actions.sql)
+  // has two terminal values, 'completed' and 'failed' -- prove both collapse
+  // into the same outcome, not just the first one tried.
+  assertSucceeded(runSql(databaseUrl,
+    `UPDATE public.sessions SET status='failed', updated_at=now() WHERE tenant_id='${tenantId}' AND id='${terminalSessionId}';`),
+  "live call context terminal session status transition to failed");
+  assert.equal(call(tenantId, agentId, terminalIdempotencyKey).outcome, "session_terminal", "a failed session is also a declared session_terminal outcome");
+
+  // -- least privilege: never executable by authenticated/anon. Explicit
+  // here in addition to assertLeastPrivilege's catalog-wide sweep, because
+  // the task gate calls this out by name --
+  assertFailed(runSql(databaseUrl, asRoleSql("authenticated", fixture.userAlpha,
+    `SELECT public.portal_business_action_call_context_service('${tenantId}','${agentId}','${idempotencyKey}');`)),
+  "authenticated callers cannot resolve live call context directly");
+  assertFailed(runSql(databaseUrl, asRoleSql("anon", null,
+    `SELECT public.portal_business_action_call_context_service('${tenantId}','${agentId}','${idempotencyKey}');`)),
+  "anon callers cannot resolve live call context directly");
+}
+
 
 function assertWorkerHeartbeatLifecycle(databaseUrl) {
   const firstBillingRun = "019f0000-0000-7000-8000-000000006500";

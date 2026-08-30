@@ -20,7 +20,7 @@ function admissionInput(overrides = {}) {
   };
 }
 
-function fakeBridge({ admission = null, registration = null, idGenerator = null } = {}) {
+function fakeBridge({ admission = null, registration = null, proposal = null, reservation = null, idGenerator = null } = {}) {
   const calls = [];
   let index = 5;
   const rpc = {
@@ -34,6 +34,18 @@ function fakeBridge({ admission = null, registration = null, idGenerator = null 
         data: registration ?? { outcome: "succeeded", leadId: IDS[7], receiptId: parameters.p_receipt_id },
         error: null,
       };
+      if (name === "portal_propose_business_meeting_slots_service") return {
+        data: proposal ?? { outcome: "succeeded", proposalId: parameters.p_proposal_id, receiptId: parameters.p_receipt_id },
+        error: null,
+      };
+      if (name === "portal_reserve_business_meeting_slot_service") return {
+        data: reservation ?? {
+          outcome: "reserved", reservationId: parameters.p_reservation_id, state: "reserved",
+          googleEventId: parameters.p_reservation_id.replaceAll("-", ""), googleCalendarId: "primary",
+          startAt: "2026-09-01T13:00:00.000Z", endAt: "2026-09-01T13:30:00.000Z", timezone: "America/Sao_Paulo",
+        },
+        error: null,
+      };
       throw new Error(`unexpected RPC ${name}`);
     },
   };
@@ -42,6 +54,22 @@ function fakeBridge({ admission = null, registration = null, idGenerator = null 
     idGenerator: idGenerator ?? (() => IDS[index++]),
   });
   return { bridge, calls };
+}
+
+function meetingSlotsGrant(overrides = {}) {
+  return {
+    tenantId: IDS[0], agentId: IDS[1], sessionId: IDS[2], presenterId: IDS[3],
+    actionKind: "propose_meeting_slots", grantId: IDS[5], generationId: 0, commandFingerprint: "e".repeat(64),
+    ...overrides,
+  };
+}
+
+function confirmSlotGrant(overrides = {}) {
+  return {
+    tenantId: IDS[0], agentId: IDS[1], sessionId: IDS[2], presenterId: IDS[3],
+    actionKind: "confirm_meeting_slot", grantId: IDS[5], generationId: 0, commandFingerprint: "f".repeat(64),
+    ...overrides,
+  };
 }
 
 test("business action bridge admits and registers a lead in one funnel", async () => {
@@ -138,5 +166,217 @@ test("business action bridge rejects register_lead without contactEmail or conta
 test("business action bridge rejects a malformed commandId before any RPC", async () => {
   const { bridge, calls } = fakeBridge();
   await assert.rejects(bridge.admitBusinessAction(admissionInput({ commandId: "not-a-uuid" })), /commandId must be a UUID/);
+  assert.equal(calls.length, 0);
+});
+
+// ---------------------------------------------------------------------------
+// proposeBusinessMeetingSlots (ADR-041)
+// ---------------------------------------------------------------------------
+
+const SLOT_A = "019b0000-0000-7000-8000-000000000101";
+const SLOT_B = "019b0000-0000-7000-8000-000000000102";
+
+test("proposeBusinessMeetingSlots persists the already-computed slots and returns the proposalId", async () => {
+  const { bridge, calls } = fakeBridge();
+  const grant = meetingSlotsGrant();
+  const result = await bridge.proposeBusinessMeetingSlots({
+    grant, durationMinutes: 30, timezone: "America/Sao_Paulo",
+    slots: [
+      { id: SLOT_A, startAt: "2026-09-01T13:00:00.000Z", endAt: "2026-09-01T13:30:00.000Z" },
+      { id: SLOT_B, startAt: "2026-09-01T14:00:00.000Z", endAt: "2026-09-01T14:30:00.000Z" },
+    ],
+    contactName: "Ana Prospect", contactEmail: "ana@example.test",
+  });
+  assert.equal(result.outcome, "proposed");
+  if (result.outcome !== "proposed") return assert.fail("expected proposed");
+  const call = calls.find((entry) => entry.name === "portal_propose_business_meeting_slots_service");
+  assert.ok(call);
+  assert.equal(call.parameters.p_grant_id, grant.grantId);
+  assert.equal(call.parameters.p_duration_minutes, 30);
+  assert.equal(call.parameters.p_timezone, "America/Sao_Paulo");
+  assert.deepEqual(call.parameters.p_slots, [
+    { id: SLOT_A, startAt: "2026-09-01T13:00:00.000Z", endAt: "2026-09-01T13:30:00.000Z" },
+    { id: SLOT_B, startAt: "2026-09-01T14:00:00.000Z", endAt: "2026-09-01T14:30:00.000Z" },
+  ]);
+  assert.equal(call.parameters.p_contact_name, "Ana Prospect");
+  assert.equal(call.parameters.p_contact_email, "ana@example.test");
+  assert.equal(result.proposalId, call.parameters.p_proposal_id);
+});
+
+test("proposeBusinessMeetingSlots fails closed before any RPC when the flag is off", async () => {
+  const disabledBridge = createPortalBusinessActionBridge({ env: {}, rpc: { rpc: () => { throw new Error("must not be called"); } } });
+  const result = await disabledBridge.proposeBusinessMeetingSlots({
+    grant: meetingSlotsGrant(), durationMinutes: 30, timezone: "America/Sao_Paulo",
+    slots: [{ id: SLOT_A, startAt: "2026-09-01T13:00:00.000Z", endAt: "2026-09-01T13:30:00.000Z" }],
+  });
+  assert.deepEqual(result, { outcome: "rejected", code: "bridge_disabled" });
+});
+
+test("proposeBusinessMeetingSlots rejects a grant whose actionKind is not propose_meeting_slots, before any RPC", async () => {
+  const { bridge, calls } = fakeBridge();
+  await assert.rejects(
+    bridge.proposeBusinessMeetingSlots({
+      grant: meetingSlotsGrant({ actionKind: "register_lead" }), durationMinutes: 30, timezone: "America/Sao_Paulo",
+      slots: [{ id: SLOT_A, startAt: "2026-09-01T13:00:00.000Z", endAt: "2026-09-01T13:30:00.000Z" }],
+    }),
+    /grant\.actionKind must be propose_meeting_slots/,
+  );
+  assert.equal(calls.length, 0);
+});
+
+test("proposeBusinessMeetingSlots rejects a duration outside the closed allowlist, before any RPC", async () => {
+  const { bridge, calls } = fakeBridge();
+  await assert.rejects(
+    bridge.proposeBusinessMeetingSlots({
+      grant: meetingSlotsGrant(), durationMinutes: 20, timezone: "America/Sao_Paulo",
+      slots: [{ id: SLOT_A, startAt: "2026-09-01T13:00:00.000Z", endAt: "2026-09-01T13:30:00.000Z" }],
+    }),
+    /durationMinutes is invalid/,
+  );
+  assert.equal(calls.length, 0);
+});
+
+test("proposeBusinessMeetingSlots rejects an unbounded timezone string, before any RPC", async () => {
+  const { bridge, calls } = fakeBridge();
+  await assert.rejects(
+    bridge.proposeBusinessMeetingSlots({
+      grant: meetingSlotsGrant(), durationMinutes: 30, timezone: "not a timezone",
+      slots: [{ id: SLOT_A, startAt: "2026-09-01T13:00:00.000Z", endAt: "2026-09-01T13:30:00.000Z" }],
+    }),
+    /timezone is invalid/,
+  );
+  assert.equal(calls.length, 0);
+});
+
+test("proposeBusinessMeetingSlots rejects a duplicate slot id, before any RPC", async () => {
+  const { bridge, calls } = fakeBridge();
+  await assert.rejects(
+    bridge.proposeBusinessMeetingSlots({
+      grant: meetingSlotsGrant(), durationMinutes: 30, timezone: "America/Sao_Paulo",
+      slots: [
+        { id: SLOT_A, startAt: "2026-09-01T13:00:00.000Z", endAt: "2026-09-01T13:30:00.000Z" },
+        { id: SLOT_A, startAt: "2026-09-01T14:00:00.000Z", endAt: "2026-09-01T14:30:00.000Z" },
+      ],
+    }),
+    /duplicate slot id/,
+  );
+  assert.equal(calls.length, 0);
+});
+
+test("proposeBusinessMeetingSlots rejects a slot whose endAt is not after startAt, before any RPC", async () => {
+  const { bridge, calls } = fakeBridge();
+  await assert.rejects(
+    bridge.proposeBusinessMeetingSlots({
+      grant: meetingSlotsGrant(), durationMinutes: 30, timezone: "America/Sao_Paulo",
+      slots: [{ id: SLOT_A, startAt: "2026-09-01T13:30:00.000Z", endAt: "2026-09-01T13:00:00.000Z" }],
+    }),
+    /slot startAt\/endAt is invalid/,
+  );
+  assert.equal(calls.length, 0);
+});
+
+test("proposeBusinessMeetingSlots maps declared RPC rejection reasons verbatim and defaults an unknown reason to grant_invalid", async () => {
+  for (const reason of ["kill_switch_active", "grant_expired", "grant_scope_mismatch"]) {
+    const { bridge } = fakeBridge({ proposal: { outcome: "rejected", reason } });
+    const result = await bridge.proposeBusinessMeetingSlots({
+      grant: meetingSlotsGrant(), durationMinutes: 30, timezone: "America/Sao_Paulo",
+      slots: [{ id: SLOT_A, startAt: "2026-09-01T13:00:00.000Z", endAt: "2026-09-01T13:30:00.000Z" }],
+    });
+    assert.deepEqual(result, { outcome: "rejected", code: reason });
+  }
+  const { bridge: unknownReasonBridge } = fakeBridge({ proposal: { outcome: "rejected", reason: "something_new" } });
+  const unknownResult = await unknownReasonBridge.proposeBusinessMeetingSlots({
+    grant: meetingSlotsGrant(), durationMinutes: 30, timezone: "America/Sao_Paulo",
+    slots: [{ id: SLOT_A, startAt: "2026-09-01T13:00:00.000Z", endAt: "2026-09-01T13:30:00.000Z" }],
+  });
+  assert.deepEqual(unknownResult, { outcome: "rejected", code: "grant_invalid" });
+});
+
+// ---------------------------------------------------------------------------
+// reserveBusinessMeetingSlot (ADR-041)
+// ---------------------------------------------------------------------------
+
+test("reserveBusinessMeetingSlot returns a reserved receipt but never claims a Google Calendar event exists", async () => {
+  const { bridge, calls } = fakeBridge();
+  const grant = confirmSlotGrant();
+  const result = await bridge.reserveBusinessMeetingSlot({
+    grant, proposalId: IDS[8], slotId: SLOT_A, contactEmail: "ana@example.test", contactName: "Ana Prospect",
+  });
+  assert.equal(result.outcome, "reserved");
+  if (result.outcome !== "reserved") return assert.fail("expected reserved");
+  assert.equal(typeof result.googleEventId, "string");
+  const call = calls.find((entry) => entry.name === "portal_reserve_business_meeting_slot_service");
+  assert.equal(call.parameters.p_proposal_id, IDS[8]);
+  assert.equal(call.parameters.p_slot_id, SLOT_A);
+  assert.equal(call.parameters.p_contact_email, "ana@example.test");
+});
+
+test("reserveBusinessMeetingSlot replays an existing reservation idempotently by grant_id", async () => {
+  const { bridge } = fakeBridge({ reservation: { outcome: "replayed", reservationId: IDS[9], state: "reserved", googleEventId: "abc123" } });
+  const result = await bridge.reserveBusinessMeetingSlot({
+    grant: confirmSlotGrant(), proposalId: IDS[8], slotId: SLOT_A, contactEmail: "ana@example.test",
+  });
+  assert.deepEqual(result, { outcome: "replayed", code: "replayed", reservationId: IDS[9], state: "reserved", googleEventId: "abc123" });
+});
+
+test("reserveBusinessMeetingSlot propagates auto_confirm_disabled instead of assuming success -- the only outcome reachable today per ADR-041", async () => {
+  const { bridge } = fakeBridge({ reservation: { outcome: "rejected", reason: "auto_confirm_disabled" } });
+  const result = await bridge.reserveBusinessMeetingSlot({
+    grant: confirmSlotGrant(), proposalId: IDS[8], slotId: SLOT_A, contactEmail: "ana@example.test",
+  });
+  assert.deepEqual(result, { outcome: "rejected", code: "auto_confirm_disabled" });
+});
+
+test("reserveBusinessMeetingSlot maps every declared RPC rejection reason verbatim", async () => {
+  for (const reason of ["kill_switch_active", "grant_expired", "grant_scope_mismatch", "proposal_not_found", "proposal_expired", "slot_not_offered", "calendar_not_connected", "slot_conflict"]) {
+    const { bridge } = fakeBridge({ reservation: { outcome: "rejected", reason } });
+    const result = await bridge.reserveBusinessMeetingSlot({
+      grant: confirmSlotGrant(), proposalId: IDS[8], slotId: SLOT_A, contactEmail: "ana@example.test",
+    });
+    assert.deepEqual(result, { outcome: "rejected", code: reason });
+  }
+});
+
+test("reserveBusinessMeetingSlot defaults an undeclared rejection reason to grant_invalid, and a wholly unexpected RPC outcome to service_unavailable", async () => {
+  const { bridge: undeclaredReasonBridge } = fakeBridge({ reservation: { outcome: "rejected", reason: "something_new" } });
+  const undeclaredResult = await undeclaredReasonBridge.reserveBusinessMeetingSlot({
+    grant: confirmSlotGrant(), proposalId: IDS[8], slotId: SLOT_A, contactEmail: "ana@example.test",
+  });
+  assert.deepEqual(undeclaredResult, { outcome: "rejected", code: "grant_invalid" });
+
+  const { bridge: unexpectedOutcomeBridge } = fakeBridge({ reservation: { outcome: "something_else" } });
+  const unexpectedResult = await unexpectedOutcomeBridge.reserveBusinessMeetingSlot({
+    grant: confirmSlotGrant(), proposalId: IDS[8], slotId: SLOT_A, contactEmail: "ana@example.test",
+  });
+  assert.deepEqual(unexpectedResult, { outcome: "rejected", code: "service_unavailable" });
+});
+
+test("reserveBusinessMeetingSlot fails closed before any RPC when the flag is off", async () => {
+  const disabledBridge = createPortalBusinessActionBridge({ env: {}, rpc: { rpc: () => { throw new Error("must not be called"); } } });
+  const result = await disabledBridge.reserveBusinessMeetingSlot({
+    grant: confirmSlotGrant(), proposalId: IDS[8], slotId: SLOT_A, contactEmail: "ana@example.test",
+  });
+  assert.deepEqual(result, { outcome: "rejected", code: "bridge_disabled" });
+});
+
+test("reserveBusinessMeetingSlot rejects a grant whose actionKind is not confirm_meeting_slot, before any RPC", async () => {
+  const { bridge, calls } = fakeBridge();
+  await assert.rejects(
+    bridge.reserveBusinessMeetingSlot({
+      grant: confirmSlotGrant({ actionKind: "propose_meeting_slots" }), proposalId: IDS[8], slotId: SLOT_A, contactEmail: "ana@example.test",
+    }),
+    /grant\.actionKind must be confirm_meeting_slot/,
+  );
+  assert.equal(calls.length, 0);
+});
+
+test("reserveBusinessMeetingSlot rejects an invalid contactEmail, before any RPC", async () => {
+  const { bridge, calls } = fakeBridge();
+  await assert.rejects(
+    bridge.reserveBusinessMeetingSlot({
+      grant: confirmSlotGrant(), proposalId: IDS[8], slotId: SLOT_A, contactEmail: "not-an-email",
+    }),
+    /contactEmail is invalid/,
+  );
   assert.equal(calls.length, 0);
 });
