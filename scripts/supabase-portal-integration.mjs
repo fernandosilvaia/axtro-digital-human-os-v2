@@ -122,6 +122,18 @@ try {
   assert.deepEqual(calendarCredentialReadApplied, ["0053"]);
   assertBusinessActionCalendarCredentialReadPhase(databaseUrl);
   assert.equal(queryScalar(databaseUrl, "SELECT count(*) FROM public.axtro_supabase_test_migrations;"), "51");
+  // 0054 is the ADR-041 wave A migration still in flight on another branch,
+  // not yet merged to main; 0055 is the next safe number for this ticket
+  // given 0053 is now merged and 0054 is still pending (see this file's own
+  // header comment). Applied directly after 0053 -- there is no dedicated
+  // "phase" assertion function for it (see assertMigrationCapabilities'
+  // comment on why portal_schema_capabilities_service() was deliberately
+  // left untouched); its behavior is instead proven as an extension of
+  // assertBusinessActionAdmissionAndLeads/assertBusinessActionCalendarScheduling
+  // below, the same functions that already exercise every RPC it touches.
+  const emailLengthBoundApplied = applySupabaseMigrations(databaseUrl, 55, 55);
+  assert.deepEqual(emailLengthBoundApplied, ["0055"]);
+  assert.equal(queryScalar(databaseUrl, "SELECT count(*) FROM public.axtro_supabase_test_migrations;"), "52");
 
   assertMigrationCapabilities(databaseUrl);
   assertLeastPrivilege(databaseUrl);
@@ -146,11 +158,22 @@ try {
   assertRecallDailyPaidAttemptBudget(databaseUrl);
   assertCostEventSchemaVersion(databaseUrl);
   await assertRuntimeChannelBridge(databaseUrl);
-  assertBusinessActionAdmissionAndLeads(databaseUrl);
+  // assertBusinessActionAdmissionAndLeads is `async function` (unlike its
+  // sibling assertBusinessActionCalendarScheduling right below, which is
+  // synchronous) -- missing this `await` let the harness race ahead into
+  // the next assertion before this one's internal awaited steps (including
+  // its kill-switch admission/restore sequence) actually finished, since
+  // Node only yields back to a caller's own continuation at each `await`
+  // point. Found while verifying a kill-switch test fixture fix: reverting
+  // that fix on its own produced a confusing, unrelated-looking failure
+  // inside assertBusinessActionCalendarScheduling instead of the expected
+  // one right here -- exactly the symptom of two assertions running
+  // out of order against the same fixture tenant.
+  await assertBusinessActionAdmissionAndLeads(databaseUrl);
   assertBusinessActionCalendarScheduling(databaseUrl);
   assertBusinessActionCalendarCredentialRead(databaseUrl);
 
-  console.log("SUPABASE PORTAL INTEGRATION PASSED: migrations 0001-0048 + 0051-0053 (0049-0050 applied separately, out of band), grants, RLS, transcripts, reservations and readiness capability");
+  console.log("SUPABASE PORTAL INTEGRATION PASSED: migrations 0001-0048 + 0051-0053 + 0055 (0049-0050 applied separately, out of band; 0054 not yet merged), grants, RLS, transcripts, reservations and readiness capability");
 } catch (error) {
   primaryError = error;
   throw error;
@@ -166,7 +189,7 @@ function applySupabaseMigrations(databaseUrl, firstVersion, lastVersion) {
   const migrations = readdirSync(supabaseMigrationDirectory)
     .filter((name) => /^\d{4}_.+\.sql$/.test(name))
     .sort();
-  assert.equal(migrations.length, 51, "the harness must cover every Supabase-only migration through the 0053 decrypted credential read phase (0049-0050 numbers were claimed by an unrelated concurrent migration before 0051 merged)");
+  assert.equal(migrations.length, 52, "the harness must cover every Supabase-only migration through the 0055 email length bound phase (0049-0050 numbers were claimed by an unrelated concurrent migration before 0051 merged; 0054 is still on another branch, not yet merged)");
   const applied = [];
   for (const migration of migrations) {
     const numericVersion = Number(migration.slice(0, 4));
@@ -1265,9 +1288,25 @@ async function assertBusinessActionAdmissionAndLeads(databaseUrl) {
   const betaRegistration = register({ leadId: "019f0000-0000-7000-8000-000000009184", receiptId: "019f0000-0000-7000-8000-000000009185", grantId: betaGrantId, contactName: "Carla Prospect", contactEmail: "carla@example.test" });
   assert.equal(betaRegistration.outcome, "succeeded");
 
+  // Latent bug found while implementing the 0055 e-mail-bound migration: this
+  // restore call used to reuse the SAME event id (...9180) as the disable
+  // call above. portal_set_business_action_kill_switch_service's own
+  // idempotency guard (`if exists(select 1 from
+  // portal_business_action_kill_switch_events where id=p_id) then return
+  // true`) then treated the "restore" as a replay of the "disable" and
+  // silently no-op'ed it -- the switch stayed enabled=false even though the
+  // call returned `true` and this assertion never noticed, because it only
+  // checked the return value, never the actual switch state afterward. A
+  // fresh event id here (...9186, never used before in this suite) is what
+  // makes this a genuinely new event instead of a replay; the assertion
+  // right after now also confirms the switch state itself, not just the
+  // RPC's return value.
   assert.equal(queryScalar(databaseUrl, asRoleSql("service_role", null, `SELECT public.portal_set_business_action_kill_switch_service(
-    '019f0000-0000-7000-8000-000000009180','${fixture.tenantAlpha}','${fixture.actorAlpha}',null,'register_lead',true,'incident_resolved'
+    '019f0000-0000-7000-8000-000000009186','${fixture.tenantAlpha}','${fixture.actorAlpha}',null,'register_lead',true,'incident_resolved'
   );`)), "t", "restore the kill switch so it never leaks state into a later test run of this suite");
+  assert.equal(queryJson(databaseUrl, asRoleSql("service_role", null,
+    `SELECT public.portal_business_action_status_service('${fixture.tenantAlpha}','${fixture.agentAlpha}','register_lead');`)).enabled, true,
+    "the restore call above must have actually re-enabled the switch, not silently no-op'ed as a replay of the disable event");
 
   // -- register_lead RPC requires the agent settings/kill switch setters to stay tenant_admin gated --
   assertFailed(runSql(databaseUrl, asRoleSql("service_role", null,
@@ -1275,6 +1314,47 @@ async function assertBusinessActionAdmissionAndLeads(databaseUrl) {
   assert.equal(queryScalar(databaseUrl, asRoleSql("service_role", null,
     `SELECT public.portal_set_business_action_agent_settings_service('${fixture.tenantAlpha}','${fixture.actorAlpha}','${fixture.agentAlpha}',true);`)), "t");
   assert.equal(queryScalar(databaseUrl, `SELECT auto_confirm_scheduling FROM public.portal_business_action_agent_settings WHERE tenant_id='${fixture.tenantAlpha}' AND agent_id='${fixture.agentAlpha}';`), "t");
+
+  // -- ADR-041 defense-in-depth (0055): contactEmail gets the same
+  // char_length(...) <= 320 (RFC 5321 sec. 4.5.3.1.3) bound at the database
+  // boundary that apps/portal/src/lib/google-calendar/id-token.ts's
+  // MAX_EMAIL_CHARS already enforces in the application layer. Both emails
+  // below are valid per the format regex alone -- only the new length
+  // branch can possibly reject the oversized one, proving this is a real
+  // bound, not just a stricter format check in disguise. Runs against
+  // tenantBeta/betaSession (never kill-switched anywhere in this function,
+  // unlike tenantAlpha/readySession above) so it cannot depend on the
+  // kill-switch restore a few lines up staying correctly applied.
+  const boundaryEmail = `${"a".repeat(307)}@example.test`; // exactly 320 chars
+  const oversizedEmail = `${"a".repeat(308)}@example.test`; // 321 chars
+  assert.equal(boundaryEmail.length, 320);
+  assert.equal(oversizedEmail.length, 321);
+
+  const boundaryGrantId = "019f0000-0000-7000-8000-0000000091a0";
+  assert.equal(admit({ grantId: boundaryGrantId, tenantId: fixture.tenantBeta, agentId: fixture.agentBeta, sessionId: betaSession, presenterId: betaPresenter, fingerprint: "c".repeat(64) }).outcome, "issued");
+  const boundaryRegistration = register({
+    leadId: "019f0000-0000-7000-8000-0000000091a1", receiptId: "019f0000-0000-7000-8000-0000000091a2",
+    grantId: boundaryGrantId, contactName: "Boundary Email Prospect", contactEmail: boundaryEmail, contactPhone: null,
+  });
+  assert.equal(boundaryRegistration.outcome, "succeeded", "a 320-char e-mail (the RFC 5321 bound) still registers exactly as before -- non-regression");
+  assert.equal(queryScalar(databaseUrl, `SELECT char_length(contact_email) FROM public.portal_business_action_leads WHERE id='${boundaryRegistration.leadId}';`), "320");
+
+  const oversizedGrantId = "019f0000-0000-7000-8000-0000000091a3";
+  assert.equal(admit({ grantId: oversizedGrantId, tenantId: fixture.tenantBeta, agentId: fixture.agentBeta, sessionId: betaSession, presenterId: betaPresenter, fingerprint: "d".repeat(64) }).outcome, "issued");
+  assertFailed(runSql(databaseUrl, asRoleSql("service_role", null, `SELECT public.portal_register_business_lead_service(
+    '019f0000-0000-7000-8000-0000000091a4','019f0000-0000-7000-8000-0000000091a5','${oversizedGrantId}','Oversized Email Prospect',
+    '${oversizedEmail}',null,''
+  );`)), "portal_register_business_lead_service rejects a 321-char e-mail even though its format regex alone would accept it");
+  assert.equal(queryScalar(databaseUrl, "SELECT count(*) FROM public.portal_business_action_leads WHERE id='019f0000-0000-7000-8000-0000000091a4';"), "0",
+    "the rejected oversized-email registration never persists a lead row");
+
+  // Bypass the RPC entirely: proves the char_length bound is enforced by the
+  // table's own CHECK constraint, not only by portal_register_business_lead_service's
+  // plpgsql guard -- the actual defense-in-depth property this migration exists for.
+  assertFailed(runSql(databaseUrl, `INSERT INTO public.portal_business_action_leads
+    (id,tenant_id,agent_id,session_id,contact_name,contact_email,idempotency_key) VALUES
+    ('019f0000-0000-7000-8000-0000000091a6','${fixture.tenantBeta}','${fixture.agentBeta}','${betaSession}','Direct Insert Prospect','${oversizedEmail}','${"e".repeat(64)}');`),
+  "portal_business_action_leads_email_chk rejects a >320-char e-mail on a direct INSERT, proving the bound is a database invariant and not only an RPC-layer one");
 }
 
 // ADR-039 wave 1b: propose_meeting_slots / confirm_meeting_slot calendar
@@ -1420,6 +1500,25 @@ function assertBusinessActionCalendarScheduling(databaseUrl) {
   assert.equal(queryScalar(databaseUrl, `SELECT count(*) FROM vault.secrets WHERE id='${thirdContext.vaultSecretId}';`), "0", "disconnect deletes the live Vault secret");
   assert.equal(disconnect(fixture.tenantBeta, fixture.actorBeta).outcome, "revoked", "disconnecting an already-revoked connection is idempotent, never an error");
 
+  // -- ADR-041 defense-in-depth (0055): google_account_email gets the same
+  // 320-char bound as contactEmail elsewhere in this domain. Not named in
+  // the original task list, but this RPC's own p_google_account_email check
+  // had the identical gap (format regex only, no char_length) -- same fix,
+  // same reasoning, isolated on tenantGamma so it never disturbs tenantBeta's
+  // already-exercised connect/reconnect/revoke state above.
+  const boundaryGoogleEmail = `${"g".repeat(307)}@example.test`; // exactly 320 chars
+  const oversizedGoogleEmail = `${"g".repeat(308)}@example.test`; // 321 chars
+  assert.equal(boundaryGoogleEmail.length, 320);
+  assert.equal(oversizedGoogleEmail.length, 321);
+  const boundaryConnect = connect({ tenantId: fixture.tenantGamma, actorId: fixture.actorGamma, email: boundaryGoogleEmail, refreshToken: "1//harness-refresh-token-gamma-boundary" });
+  assert.equal(boundaryConnect.outcome, "connected", "a 320-char google_account_email (the RFC 5321 bound) still connects exactly as before -- non-regression");
+  assert.equal(queryScalar(databaseUrl, `SELECT char_length(google_account_email) FROM public.portal_business_action_calendar_connections WHERE tenant_id='${fixture.tenantGamma}';`), "320");
+  assertFailed(runSql(databaseUrl, asRoleSql("service_role", null, `SELECT public.portal_connect_google_calendar_service(
+    '${nextId()}','${fixture.tenantGamma}','${fixture.actorGamma}','${oversizedGoogleEmail}','primary','America/Sao_Paulo','1//harness-refresh-token-gamma-oversized'
+  );`)), "portal_connect_google_calendar_service rejects a 321-char google_account_email even though its format regex alone would accept it");
+  assert.equal(queryScalar(databaseUrl, `SELECT google_account_email FROM public.portal_business_action_calendar_connections WHERE tenant_id='${fixture.tenantGamma}';`), boundaryGoogleEmail,
+    "the rejected oversized-email reconnect attempt never overwrites the tenant's live connection row");
+
   // -- scheduling flow (tenantAlpha/agentAlpha, auto_confirm_scheduling already true) --
   assert.equal(connect({ tenantId: fixture.tenantAlpha, actorId: fixture.actorAlpha, refreshToken: "1//harness-refresh-token-alpha-scheduling" }).outcome, "connected");
 
@@ -1456,6 +1555,31 @@ function assertBusinessActionCalendarScheduling(databaseUrl) {
   assertFailed(runSql(databaseUrl, asRoleSql("service_role", null,
     `SELECT public.portal_propose_business_meeting_slots_service('${nextId()}','${nextId()}','019f0000-0000-7000-8000-000000009150','${fixture.tenantAlpha}','${fixture.agentAlpha}','${calSession}','${calPresenter}',30,'UTC','[]'::jsonb,null,null);`)),
   "a grant issued for register_lead (from assertBusinessActionAdmissionAndLeads) cannot be spent against propose_meeting_slots");
+
+  // -- ADR-041 defense-in-depth (0055): propose_meeting_slots' contactEmail
+  // gets the same 320-char bound.
+  const proposeBoundaryEmail = `${"p".repeat(307)}@example.test`; // exactly 320 chars
+  const proposeOversizedEmail = `${"p".repeat(308)}@example.test`; // 321 chars
+  assert.equal(proposeBoundaryEmail.length, 320);
+  assert.equal(proposeOversizedEmail.length, 321);
+
+  const proposeBoundaryGrantId = nextId();
+  assert.equal(admitAction({ grantId: proposeBoundaryGrantId, actionKind: "propose_meeting_slots", sessionId: calSession, presenterId: calPresenter }).outcome, "issued");
+  const boundaryProposal = propose({
+    grantId: proposeBoundaryGrantId, sessionId: calSession, presenterId: calPresenter, contactEmail: proposeBoundaryEmail,
+    slots: [{ id: nextId(), startAt: "2026-09-03T14:00:00Z", endAt: "2026-09-03T14:30:00Z" }],
+  });
+  assert.equal(boundaryProposal.outcome, "succeeded", "a 320-char proposal contactEmail still proposes exactly as before -- non-regression");
+  assert.equal(queryScalar(databaseUrl, `SELECT char_length(contact_email) FROM public.portal_business_action_proposals WHERE id='${boundaryProposal.proposalId}';`), "320");
+
+  const proposeOversizedGrantId = nextId();
+  assert.equal(admitAction({ grantId: proposeOversizedGrantId, actionKind: "propose_meeting_slots", sessionId: calSession, presenterId: calPresenter }).outcome, "issued");
+  assertFailed(runSql(databaseUrl, asRoleSql("service_role", null, `SELECT public.portal_propose_business_meeting_slots_service(
+    '${nextId()}','${nextId()}','${proposeOversizedGrantId}','${fixture.tenantAlpha}','${fixture.agentAlpha}','${calSession}','${calPresenter}',
+    30,'America/Sao_Paulo','[{"id":"${nextId()}","startAt":"2026-09-03T15:00:00Z","endAt":"2026-09-03T15:30:00Z"}]'::jsonb,null,'${proposeOversizedEmail}'
+  );`)), "portal_propose_business_meeting_slots_service rejects a 321-char contactEmail even though its format regex alone would accept it");
+  assert.equal(queryScalar(databaseUrl, `SELECT count(*) FROM public.portal_business_action_proposals WHERE tenant_id='${fixture.tenantAlpha}' AND grant_id='${proposeOversizedGrantId}';`), "0",
+    "the rejected oversized-email proposal never persists");
 
   // confirm_meeting_slot requires the meeting_scheduling purpose consent
   // ADR-039 adds -- denied before it is captured, issued once it is.
@@ -1604,6 +1728,45 @@ function assertBusinessActionCalendarScheduling(databaseUrl) {
   const notReconcilable = reconcile({ reservationId: notReconcilableReservation.reservationId, operatorActorId: fixture.actorAlpha, fingerprint: "d".repeat(64), outcome: "released" });
   assert.equal(notReconcilable.outcome, "not_reconcilable");
   assert.equal(queryScalar(databaseUrl, `SELECT state FROM public.portal_business_action_calendar_reservations WHERE id='${notReconcilableReservation.reservationId}';`), "reserved");
+
+  // -- ADR-041 defense-in-depth (0055): confirm_meeting_slot's reserve step
+  // (contactEmail) gets the same 320-char bound. Its own fresh proposal/
+  // slots so it never disturbs the slot bookkeeping any test above depends on.
+  const emailBoundProposeGrant = nextId();
+  assert.equal(admitAction({ grantId: emailBoundProposeGrant, actionKind: "propose_meeting_slots", sessionId: calSession, presenterId: calPresenter }).outcome, "issued");
+  const emailBoundSlotA = nextId();
+  const emailBoundSlotB = nextId();
+  const emailBoundProposal = propose({
+    grantId: emailBoundProposeGrant, sessionId: calSession, presenterId: calPresenter,
+    slots: [
+      { id: emailBoundSlotA, startAt: "2026-09-04T14:00:00Z", endAt: "2026-09-04T14:30:00Z" },
+      { id: emailBoundSlotB, startAt: "2026-09-04T15:00:00Z", endAt: "2026-09-04T15:30:00Z" },
+    ],
+  });
+  assert.equal(emailBoundProposal.outcome, "succeeded");
+
+  const reserveBoundaryEmail = `${"r".repeat(307)}@example.test`; // exactly 320 chars
+  const reserveOversizedEmail = `${"r".repeat(308)}@example.test`; // 321 chars
+  assert.equal(reserveBoundaryEmail.length, 320);
+  assert.equal(reserveOversizedEmail.length, 321);
+
+  const reserveBoundaryGrant = nextId();
+  assert.equal(admitAction({ grantId: reserveBoundaryGrant, actionKind: "confirm_meeting_slot", sessionId: calSession, presenterId: calPresenter }).outcome, "issued");
+  const reserveBoundary = reserve({
+    grantId: reserveBoundaryGrant, sessionId: calSession, presenterId: calPresenter,
+    proposalId: emailBoundProposal.proposalId, slotId: emailBoundSlotA, contactEmail: reserveBoundaryEmail,
+  });
+  assert.equal(reserveBoundary.outcome, "reserved", "a 320-char confirm contactEmail still reserves exactly as before -- non-regression");
+  assert.equal(queryScalar(databaseUrl, `SELECT char_length(contact_email) FROM public.portal_business_action_calendar_reservations WHERE id='${reserveBoundary.reservationId}';`), "320");
+
+  const reserveOversizedGrant = nextId();
+  assert.equal(admitAction({ grantId: reserveOversizedGrant, actionKind: "confirm_meeting_slot", sessionId: calSession, presenterId: calPresenter }).outcome, "issued");
+  assertFailed(runSql(databaseUrl, asRoleSql("service_role", null, `SELECT public.portal_reserve_business_meeting_slot_service(
+    '${nextId()}','${nextId()}','${reserveOversizedGrant}','${fixture.tenantAlpha}','${fixture.agentAlpha}','${calSession}','${calPresenter}',
+    '${emailBoundProposal.proposalId}','${emailBoundSlotB}','${reserveOversizedEmail}',null
+  );`)), "portal_reserve_business_meeting_slot_service rejects a 321-char confirm contactEmail even though its format regex alone would accept it");
+  assert.equal(queryScalar(databaseUrl, `SELECT count(*) FROM public.portal_business_action_calendar_reservations WHERE slot_id='${emailBoundSlotB}';`), "0",
+    "the rejected oversized-email reserve attempt never creates a reservation, leaving the slot free");
 
   // -- cross-tenant isolation: a real reservation id guessed under the wrong tenant is simply not found --
   assertFailed(runSql(databaseUrl, asRoleSql("service_role", null,
