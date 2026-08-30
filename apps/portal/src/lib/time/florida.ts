@@ -19,6 +19,11 @@ export class FloridaTimeError extends Error {
   }
 }
 
+/** Lê as partes nomeadas (`year`/`month`/`day`/`hour`/`minute`/`second`/`weekday`...) de um `Intl.DateTimeFormat` num instante — o mesmo passo repetido por toda função deste arquivo que precisa "que horas são, NAQUELE fuso, NAQUELE instante". */
+function formatPartsRecord(formatter: Intl.DateTimeFormat, atMs: number): Record<string, string> {
+  return Object.fromEntries(formatter.formatToParts(new Date(atMs)).map((part) => [part.type, part.value]));
+}
+
 /** Offset (em minutos) de `timeZone` em relação a UTC, no instante `atMs`. Negativo pra oeste de UTC. */
 function timeZoneOffsetMinutesAt(timeZone: string, atMs: number): number {
   const formatter = new Intl.DateTimeFormat("en-US", {
@@ -31,7 +36,7 @@ function timeZoneOffsetMinutesAt(timeZone: string, atMs: number): number {
     minute: "2-digit",
     second: "2-digit",
   });
-  const parts = Object.fromEntries(formatter.formatToParts(new Date(atMs)).map((part) => [part.type, part.value]));
+  const parts = formatPartsRecord(formatter, atMs);
   const wallClockAsUtcMs = Date.UTC(
     Number(parts.year),
     Number(parts.month) - 1,
@@ -82,4 +87,63 @@ export function wallClockToUtcIso(wallClock: string, timeZone: string): string {
 /** Atalho legado: hora local da Flórida (America/New_York) → UTC. */
 export function floridaWallClockToUtcIso(wallClock: string): string {
   return wallClockToUtcIso(wallClock, TIME_ZONE);
+}
+
+/** Data/hora local decomposta num fuso IANA, num instante UTC específico. */
+export interface WallClockParts {
+  readonly year: number;
+  readonly month: number;
+  readonly day: number;
+  readonly hour: number;
+  readonly minute: number;
+  readonly second: number;
+  /** Dia da semana ISO 8601: 1 = segunda ... 7 = domingo. */
+  readonly isoWeekday: number;
+}
+
+const ISO_WEEKDAY_BY_SHORT_NAME: Readonly<Record<string, number>> = {
+  Mon: 1, Tue: 2, Wed: 3, Thu: 4, Fri: 5, Sat: 6, Sun: 7,
+};
+
+/**
+ * Generalização do MESMO passo que `timeZoneOffsetMinutesAt` já faz pra
+ * calcular offset (pergunta ao `Intl` "que horas são NAQUELE fuso, NAQUELE
+ * instante"), agora devolvendo a data/hora inteira decomposta — inclusive o
+ * dia da semana, que `wallClockToUtcIso`/`timeZoneOffsetMinutesAt` nunca
+ * precisaram até agora (ADR-039, onda 1b-iv: descobrir "hoje é dia útil no
+ * fuso do tenant?" e "que horas são agora, LÁ?" pra montar a janela de busca
+ * de horário comercial). Mesmo cuidado com fuso desconhecido dos outros
+ * exports deste arquivo: nunca falha silenciosamente.
+ */
+export function wallClockPartsAt(atMs: number, timeZone: string): WallClockParts {
+  try {
+    new Intl.DateTimeFormat("en-US", { timeZone });
+  } catch {
+    throw new FloridaTimeError(`unknown IANA time zone: ${timeZone}`);
+  }
+  const formatter = new Intl.DateTimeFormat("en-US", {
+    timeZone,
+    hourCycle: "h23",
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+    second: "2-digit",
+    weekday: "short",
+  });
+  const parts = formatPartsRecord(formatter, atMs);
+  const isoWeekday = ISO_WEEKDAY_BY_SHORT_NAME[parts.weekday ?? ""];
+  if (isoWeekday === undefined) {
+    throw new FloridaTimeError(`unable to resolve the weekday for time zone: ${timeZone}`);
+  }
+  return Object.freeze({
+    year: Number(parts.year),
+    month: Number(parts.month),
+    day: Number(parts.day),
+    hour: Number(parts.hour),
+    minute: Number(parts.minute),
+    second: Number(parts.second),
+    isoWeekday,
+  });
 }
