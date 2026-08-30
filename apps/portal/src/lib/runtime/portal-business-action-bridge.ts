@@ -2,17 +2,23 @@ import { createUuidV7, sha256Canonical } from "@axtro/domain";
 import { createServiceRoleClient } from "../supabase/service.ts";
 
 /**
- * ADR-039 wave 1a. Deliberately independent of portal-channel-runtime-bridge.ts:
- * this module never imports admitPortalChannel/consumePortalChannelGrant/
- * assertPortalChannelActive, which all check PORTAL_RUNTIME_BRIDGE_ENABLED
- * internally -- calling them would recreate the coupling ADR-039 asks this
- * flag to avoid. What it reuses is the durable *evidence* a channel
- * admission already leaves on public.sessions/public.consent_evidence, read
- * by the service RPCs below, never by portal_admit_runtime_channel_service.
+ * ADR-039 wave 1a (register_lead) + ADR-041 (propose_meeting_slots/
+ * confirm_meeting_slot wrappers, migration 0052, "Consequências": "ganha
+ * dois wrappers novos... e sua ACTION_KINDS/PortalBusinessActionKind deixam
+ * de ser um conjunto de um elemento só"). Deliberately independent of
+ * portal-channel-runtime-bridge.ts: this module never imports
+ * admitPortalChannel/consumePortalChannelGrant/assertPortalChannelActive,
+ * which all check PORTAL_RUNTIME_BRIDGE_ENABLED internally -- calling them
+ * would recreate the coupling ADR-039 asks this flag to avoid. What it
+ * reuses is the durable *evidence* a channel admission already leaves on
+ * public.sessions/public.consent_evidence, read by the service RPCs below,
+ * never by portal_admit_runtime_channel_service.
  */
 export const PORTAL_BUSINESS_ACTION_BRIDGE_RPC = Object.freeze({
   admit: "portal_admit_business_action_service",
   register: "portal_register_business_lead_service",
+  propose: "portal_propose_business_meeting_slots_service",
+  reserve: "portal_reserve_business_meeting_slot_service",
 });
 
 const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
@@ -20,14 +26,19 @@ const UUID_V7_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}
 const FINGERPRINT_PATTERN = /^[a-f0-9]{64}$/;
 const EMAIL_PATTERN = /^[^@\s]+@[^@\s]+\.[^@\s]+$/;
 const PHONE_PATTERN = /^[0-9+()\-. ]{6,32}$/;
-const ACTION_KINDS = new Set(["register_lead"]);
+/** Same bound app.is_bounded_timezone (0052) enforces server-side: a plausible IANA-ish zone name, or the literal 'UTC'. */
+const TIMEZONE_PATTERN = /^(UTC|[A-Za-z]+(\/[A-Za-z0-9_+-]+)+)$/;
+const ACTION_KINDS = new Set(["register_lead", "propose_meeting_slots", "confirm_meeting_slot"]);
+const MEETING_DURATIONS_MINUTES = new Set([15, 30, 45, 60]);
 
-export type PortalBusinessActionKind = "register_lead";
+export type PortalBusinessActionKind = "register_lead" | "propose_meeting_slots" | "confirm_meeting_slot";
 
 export type PortalBusinessActionOutcomeCode =
   | "issued"
   | "replayed"
   | "registered"
+  | "proposed"
+  | "reserved"
   | "bridge_disabled"
   | "kill_switch_active"
   | "agent_inactive"
@@ -37,9 +48,19 @@ export type PortalBusinessActionOutcomeCode =
   | "denied_purpose_consent"
   | "grant_expired"
   | "grant_invalid"
+  | "grant_scope_mismatch"
+  | "calendar_not_connected"
+  | "auto_confirm_disabled"
+  | "proposal_not_found"
+  | "proposal_expired"
+  | "slot_not_offered"
+  | "slot_conflict"
   | "service_unavailable";
 
-export type PortalBusinessActionRejectionCode = Exclude<PortalBusinessActionOutcomeCode, "issued" | "replayed" | "registered">;
+export type PortalBusinessActionRejectionCode = Exclude<
+  PortalBusinessActionOutcomeCode,
+  "issued" | "replayed" | "registered" | "proposed" | "reserved"
+>;
 type PortalBusinessActionBridgeEnv = Readonly<{ readonly PORTAL_BUSINESS_ACTION_BRIDGE_ENABLED?: string }>;
 
 export interface BusinessActionGrant {
@@ -85,6 +106,81 @@ export type RegisterBusinessLeadResult =
   | Readonly<{ readonly outcome: "registered"; readonly code: "registered"; readonly leadId: string }>
   | Readonly<{ readonly outcome: "rejected"; readonly code: "bridge_disabled" | "grant_invalid" | "kill_switch_active" | "grant_expired" | "service_unavailable" }>;
 
+/** Application-generated (D-V2-010: this codebase always mints child-row ids client/server side, never asks Postgres for one for an unbounded list). */
+export interface ProposedMeetingSlotInput {
+  readonly id: string;
+  readonly startAt: string;
+  readonly endAt: string;
+}
+
+export interface ProposeBusinessMeetingSlotsInput {
+  readonly grant: BusinessActionGrant;
+  readonly durationMinutes: 15 | 30 | 45 | 60;
+  readonly timezone: string;
+  /** Already computed by the caller (ADR-041: this wrapper only persists, it never queries FreeBusy or does availability math itself). */
+  readonly slots: readonly ProposedMeetingSlotInput[];
+  readonly contactName?: string | null;
+  readonly contactEmail?: string | null;
+  readonly proposalId?: string;
+  readonly receiptId?: string;
+}
+
+export type ProposeBusinessMeetingSlotsResult =
+  | Readonly<{ readonly outcome: "proposed"; readonly code: "proposed"; readonly proposalId: string }>
+  | Readonly<{
+      readonly outcome: "rejected";
+      readonly code: "bridge_disabled" | "grant_invalid" | "kill_switch_active" | "grant_expired" | "grant_scope_mismatch" | "service_unavailable";
+    }>;
+
+export interface ReserveBusinessMeetingSlotInput {
+  readonly grant: BusinessActionGrant;
+  readonly proposalId: string;
+  readonly slotId: string;
+  readonly contactEmail: string;
+  readonly contactName?: string | null;
+  readonly reservationId?: string;
+  readonly receiptId?: string;
+}
+
+/**
+ * "reserved" is a REAL row in portal_business_action_calendar_reservations,
+ * not a Google Calendar event yet -- ADR-041 is explicit that no tenant has
+ * auto_confirm_scheduling=true today, so "reserved" is unreachable in
+ * production right now; it is modeled here (not collapsed into "rejected")
+ * because the RPC itself distinguishes it, and collapsing it would make this
+ * wrapper lie about what the database actually holds. The caller decides how
+ * to talk about "reserved" to the model; this module never assumes it means
+ * "the meeting is booked."
+ */
+export type ReserveBusinessMeetingSlotResult =
+  | Readonly<{
+      readonly outcome: "reserved";
+      readonly code: "reserved";
+      readonly reservationId: string;
+      readonly googleEventId: string;
+      readonly googleCalendarId: string | null;
+      readonly startAt: string;
+      readonly endAt: string;
+      readonly timezone: string;
+    }>
+  | Readonly<{ readonly outcome: "replayed"; readonly code: "replayed"; readonly reservationId: string; readonly state: string; readonly googleEventId: string | null }>
+  | Readonly<{
+      readonly outcome: "rejected";
+      readonly code:
+        | "bridge_disabled"
+        | "grant_invalid"
+        | "kill_switch_active"
+        | "grant_expired"
+        | "grant_scope_mismatch"
+        | "proposal_not_found"
+        | "proposal_expired"
+        | "slot_not_offered"
+        | "calendar_not_connected"
+        | "auto_confirm_disabled"
+        | "slot_conflict"
+        | "service_unavailable";
+    }>;
+
 export interface PortalBusinessActionRpcResult {
   readonly data: unknown;
   readonly error: { readonly message?: string } | null;
@@ -103,6 +199,8 @@ export interface PortalBusinessActionBridgeDependencies {
 export interface PortalBusinessActionBridge {
   admitBusinessAction(input: AdmitBusinessActionInput): Promise<AdmitBusinessActionResult>;
   registerBusinessLead(input: RegisterBusinessLeadInput): Promise<RegisterBusinessLeadResult>;
+  proposeBusinessMeetingSlots(input: ProposeBusinessMeetingSlotsInput): Promise<ProposeBusinessMeetingSlotsResult>;
+  reserveBusinessMeetingSlot(input: ReserveBusinessMeetingSlotInput): Promise<ReserveBusinessMeetingSlotResult>;
 }
 
 export class PortalBusinessActionBridgeInputError extends Error {
@@ -290,7 +388,138 @@ export function createPortalBusinessActionBridge(dependencies: PortalBusinessAct
     }
   };
 
-  return Object.freeze({ admitBusinessAction, registerBusinessLead });
+  const proposeBusinessMeetingSlots = async (input: ProposeBusinessMeetingSlotsInput): Promise<ProposeBusinessMeetingSlotsResult> => {
+    if (!processEnabled(env)) return rejection("bridge_disabled");
+    const grant = checkedGrant(input.grant);
+    if (grant.actionKind !== "propose_meeting_slots") throw new PortalBusinessActionBridgeInputError("grant.actionKind must be propose_meeting_slots");
+    if (!MEETING_DURATIONS_MINUTES.has(input.durationMinutes)) throw new PortalBusinessActionBridgeInputError("durationMinutes is invalid");
+    if (!TIMEZONE_PATTERN.test(input.timezone)) throw new PortalBusinessActionBridgeInputError("timezone is invalid");
+    if (!Array.isArray(input.slots) || input.slots.length < 1 || input.slots.length > 50) throw new PortalBusinessActionBridgeInputError("slots is invalid");
+    const seenSlotIds = new Set<string>();
+    const slots = input.slots.map((slot) => {
+      const id = assertUuidV7(slot.id, "slot.id");
+      if (seenSlotIds.has(id)) throw new PortalBusinessActionBridgeInputError("duplicate slot id in slots");
+      seenSlotIds.add(id);
+      const startMs = Date.parse(slot.startAt);
+      const endMs = Date.parse(slot.endAt);
+      if (!Number.isFinite(startMs) || !Number.isFinite(endMs) || endMs <= startMs) throw new PortalBusinessActionBridgeInputError("slot startAt/endAt is invalid");
+      return { id, startAt: slot.startAt, endAt: slot.endAt };
+    });
+    const contactName = input.contactName === undefined || input.contactName === null ? null : input.contactName.trim();
+    if (contactName !== null && (contactName.length === 0 || contactName.length > 200)) throw new PortalBusinessActionBridgeInputError("contactName is invalid");
+    const contactEmail = input.contactEmail === undefined || input.contactEmail === null ? null : input.contactEmail.trim();
+    if (contactEmail !== null && (contactEmail.length === 0 || !EMAIL_PATTERN.test(contactEmail))) throw new PortalBusinessActionBridgeInputError("contactEmail is invalid");
+
+    try {
+      const receipt = await rpc(client, PORTAL_BUSINESS_ACTION_BRIDGE_RPC.propose, {
+        p_receipt_id: input.receiptId === undefined ? assertUuidV7(idGenerator(), "receiptId") : assertUuidV7(input.receiptId, "receiptId"),
+        p_proposal_id: input.proposalId === undefined ? assertUuidV7(idGenerator(), "proposalId") : assertUuidV7(input.proposalId, "proposalId"),
+        p_grant_id: grant.grantId,
+        p_tenant_id: grant.tenantId,
+        p_agent_id: grant.agentId,
+        p_session_id: grant.sessionId,
+        p_presenter_id: grant.presenterId,
+        p_duration_minutes: input.durationMinutes,
+        p_timezone: input.timezone,
+        p_slots: slots,
+        p_contact_name: contactName,
+        p_contact_email: contactEmail,
+      });
+      if (receipt.outcome === "succeeded") {
+        const proposalId = readString(receipt, "proposalId");
+        if (!proposalId) return rejection("service_unavailable");
+        return Object.freeze({ outcome: "proposed", code: "proposed", proposalId: assertUuidV7(proposalId, "proposalId") });
+      }
+      if (receipt.outcome === "rejected") {
+        const reason = readString(receipt, "reason");
+        if (reason === "kill_switch_active" || reason === "grant_expired" || reason === "grant_scope_mismatch") return rejection(reason);
+        return rejection("grant_invalid");
+      }
+      return rejection("grant_invalid");
+    } catch (error) {
+      if (error instanceof PortalBusinessActionBridgeInputError) throw error;
+      return rejection("service_unavailable");
+    }
+  };
+
+  const reserveBusinessMeetingSlot = async (input: ReserveBusinessMeetingSlotInput): Promise<ReserveBusinessMeetingSlotResult> => {
+    if (!processEnabled(env)) return rejection("bridge_disabled");
+    const grant = checkedGrant(input.grant);
+    if (grant.actionKind !== "confirm_meeting_slot") throw new PortalBusinessActionBridgeInputError("grant.actionKind must be confirm_meeting_slot");
+    const proposalId = assertUuidV7(input.proposalId, "proposalId");
+    const slotId = assertUuidV7(input.slotId, "slotId");
+    const contactEmail = input.contactEmail.trim();
+    if (contactEmail.length === 0 || !EMAIL_PATTERN.test(contactEmail)) throw new PortalBusinessActionBridgeInputError("contactEmail is invalid");
+    const contactName = input.contactName === undefined || input.contactName === null ? null : input.contactName.trim();
+    if (contactName !== null && (contactName.length === 0 || contactName.length > 200)) throw new PortalBusinessActionBridgeInputError("contactName is invalid");
+
+    try {
+      const receipt = await rpc(client, PORTAL_BUSINESS_ACTION_BRIDGE_RPC.reserve, {
+        p_reservation_id: input.reservationId === undefined ? assertUuidV7(idGenerator(), "reservationId") : assertUuidV7(input.reservationId, "reservationId"),
+        p_receipt_id: input.receiptId === undefined ? assertUuidV7(idGenerator(), "receiptId") : assertUuidV7(input.receiptId, "receiptId"),
+        p_grant_id: grant.grantId,
+        p_tenant_id: grant.tenantId,
+        p_agent_id: grant.agentId,
+        p_session_id: grant.sessionId,
+        p_presenter_id: grant.presenterId,
+        p_proposal_id: proposalId,
+        p_slot_id: slotId,
+        p_contact_email: contactEmail,
+        p_contact_name: contactName,
+      });
+      // Never assume success: the reserve RPC's own vocabulary is
+      // reserved/replayed/rejected, never "succeeded" -- and "reserved" is a
+      // durable DB row, not proof any Google Calendar event exists yet
+      // (ADR-041, see the type doc above ReserveBusinessMeetingSlotResult).
+      if (receipt.outcome === "reserved") {
+        const reservationId = readString(receipt, "reservationId");
+        const googleEventId = readString(receipt, "googleEventId");
+        const startAt = readString(receipt, "startAt");
+        const endAt = readString(receipt, "endAt");
+        const timezone = readString(receipt, "timezone");
+        if (!reservationId || !googleEventId || !startAt || !endAt || !timezone) return rejection("service_unavailable");
+        return Object.freeze({
+          outcome: "reserved",
+          code: "reserved",
+          reservationId: assertUuidV7(reservationId, "reservationId"),
+          googleEventId,
+          googleCalendarId: readString(receipt, "googleCalendarId"),
+          startAt,
+          endAt,
+          timezone,
+        });
+      }
+      if (receipt.outcome === "replayed") {
+        const reservationId = readString(receipt, "reservationId");
+        const state = readString(receipt, "state");
+        if (!reservationId || !state) return rejection("service_unavailable");
+        return Object.freeze({ outcome: "replayed", code: "replayed", reservationId: assertUuidV7(reservationId, "reservationId"), state, googleEventId: readString(receipt, "googleEventId") });
+      }
+      if (receipt.outcome === "rejected") {
+        const reason = readString(receipt, "reason");
+        if (
+          reason === "kill_switch_active" ||
+          reason === "grant_expired" ||
+          reason === "grant_scope_mismatch" ||
+          reason === "auto_confirm_disabled" ||
+          reason === "proposal_not_found" ||
+          reason === "proposal_expired" ||
+          reason === "slot_not_offered" ||
+          reason === "calendar_not_connected" ||
+          reason === "slot_conflict"
+        ) {
+          return rejection(reason);
+        }
+        return rejection("grant_invalid");
+      }
+      return rejection("service_unavailable");
+    } catch (error) {
+      if (error instanceof PortalBusinessActionBridgeInputError) throw error;
+      return rejection("service_unavailable");
+    }
+  };
+
+  return Object.freeze({ admitBusinessAction, registerBusinessLead, proposeBusinessMeetingSlots, reserveBusinessMeetingSlot });
 }
 
 /** Production convenience wrappers. Prefer an injected bridge in tests. */
@@ -300,4 +529,12 @@ export async function admitBusinessAction(input: AdmitBusinessActionInput, depen
 
 export async function registerBusinessLead(input: RegisterBusinessLeadInput, dependencies?: PortalBusinessActionBridgeDependencies): Promise<RegisterBusinessLeadResult> {
   return createPortalBusinessActionBridge(dependencies).registerBusinessLead(input);
+}
+
+export async function proposeBusinessMeetingSlots(input: ProposeBusinessMeetingSlotsInput, dependencies?: PortalBusinessActionBridgeDependencies): Promise<ProposeBusinessMeetingSlotsResult> {
+  return createPortalBusinessActionBridge(dependencies).proposeBusinessMeetingSlots(input);
+}
+
+export async function reserveBusinessMeetingSlot(input: ReserveBusinessMeetingSlotInput, dependencies?: PortalBusinessActionBridgeDependencies): Promise<ReserveBusinessMeetingSlotResult> {
+  return createPortalBusinessActionBridge(dependencies).reserveBusinessMeetingSlot(input);
 }

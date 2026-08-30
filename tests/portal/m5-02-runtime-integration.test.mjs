@@ -43,7 +43,11 @@ test("a Recall callback needs a matching durable grant and consumes Tavus immedi
 });
 
 test("provider tool calls cannot mutate the browser scene or report false success", () => {
-  const handler = presentationClient.match(/const handleToolCall[\s\S]*?\n  }, \[\]\);/)?.[0] ?? "";
+  // ADR-041 wave B: handleToolCall now also reads `agentId` (business_action
+  // path, dispatched to the server), so its useCallback dependency array grew
+  // from [] to [agentId] -- the scene branch below is byte-identical to what
+  // it was before that ADR, only the closing bracket text changed.
+  const handler = presentationClient.match(/const handleToolCall[\s\S]*?\n  }, \[agentId\]\);/)?.[0] ?? "";
   assert.match(handler, /Comando de cena recusado/);
   assert.match(handler, /status: "error"/);
   assert.doesNotMatch(handler, /goTo\(/);

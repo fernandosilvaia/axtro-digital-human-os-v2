@@ -13,6 +13,9 @@ import { isTrustedTavusConversationUrl } from "@axtro/provider-tavus";
 
 import type { Deck, DeckSlide, DeckSlideKind } from "@/lib/presentation/deck";
 import { startPresentationConversation, stopPresentationConversation, type VideoChannelConsent } from "@/lib/actions/video-conversation";
+import { classifyToolCallName } from "@/lib/runtime/tool-call-names";
+
+import { dispatchToolCall, type ToolCallMessage } from "./tool-call-dispatcher";
 
 const INITIAL_CONSENT: VideoChannelConsent = {
   disclosure: false,
@@ -169,17 +172,6 @@ type DailyCall = {
   on(event: string, handler: (event: never) => void): unknown;
 };
 
-interface ToolCallMessage {
-  readonly message_type?: string;
-  readonly event_type?: string;
-  readonly conversation_id?: string;
-  readonly properties?: {
-    readonly tool_call_id?: string;
-    readonly name?: string;
-    readonly arguments?: string | Record<string, unknown>;
-  };
-}
-
 export function PresentationRoom({ agentId, agentName }: { agentId: string; agentName: string }) {
   const [phase, setPhase] = useState<"idle" | "starting" | "live" | "ended">("idle");
   const [error, setError] = useState<string | null>(null);
@@ -215,25 +207,60 @@ export function PresentationRoom({ agentId, agentName }: { agentId: string; agen
     if (!currentDeck || !call) return;
     const name = message.properties?.name ?? "";
     const toolCallId = message.properties?.tool_call_id;
-    if (!toolCallId || !["next_slide", "previous_slide", "go_to_slide"].includes(name)) return;
+    if (!toolCallId) return;
 
-    // A mensagem vem do provider e pode conter instruções ou argumentos
-    // adversariais. Não há grant/manifest/receipt verificável no browser,
-    // logo ela não possui autoridade para modificar a cena local.
-    call.sendAppMessage(
-      {
-        message_type: "conversation",
-        event_type: "conversation.tool_result",
-        conversation_id: conversationIdRef.current ?? message.conversation_id ?? "",
-        properties: {
-          tool_call_id: toolCallId,
-          output: `Comando de cena recusado: a apresentação requer o bridge de cenas aprovado pelo servidor. Slide atual: ${slideIndexRef.current + 1} de ${currentDeck.slides.length}.`,
-          status: "error",
+    const category = classifyToolCallName(name);
+
+    if (category === "scene") {
+      // A mensagem vem do provider e pode conter instruções ou argumentos
+      // adversariais. Não há grant/manifest/receipt verificável no browser,
+      // logo ela não possui autoridade para modificar a cena local. ADR-041
+      // não muda este comportamento -- cena continua fora do seu escopo.
+      call.sendAppMessage(
+        {
+          message_type: "conversation",
+          event_type: "conversation.tool_result",
+          conversation_id: conversationIdRef.current ?? message.conversation_id ?? "",
+          properties: {
+            tool_call_id: toolCallId,
+            output: `Comando de cena recusado: a apresentação requer o bridge de cenas aprovado pelo servidor. Slide atual: ${slideIndexRef.current + 1} de ${currentDeck.slides.length}.`,
+            status: "error",
+          },
         },
-      },
-      "*",
-    );
-  }, []);
+        "*",
+      );
+      return;
+    }
+
+    if (category === "business_action") {
+      // ADR-041: register_lead/propose_meeting_slots/confirm_meeting_slot
+      // vão até a Server Action nova pelo dispatcher compartilhado. Sem
+      // commandId (apresentação ainda não terminou de subir) não há uma
+      // chamada viva pra resolver do outro lado -- nada seguro a responder.
+      const commandId = commandIdRef.current;
+      if (commandId === null) return;
+      void dispatchToolCall({ agentId, commandId, mode: "presentation", message }).then((result) => {
+        const activeCall = callRef.current;
+        if (result === null || !activeCall) return;
+        activeCall.sendAppMessage(
+          {
+            message_type: "conversation",
+            event_type: "conversation.tool_result",
+            conversation_id: conversationIdRef.current ?? message.conversation_id ?? "",
+            properties: {
+              tool_call_id: result.toolCallId,
+              output: result.output,
+              status: result.status,
+            },
+          },
+          "*",
+        );
+      });
+      return;
+    }
+
+    // category === "unknown": nenhum tool_result é enviado, igual ao comportamento anterior a esta ADR.
+  }, [agentId]);
 
   const attachTrack = useCallback((track: MediaStreamTrack, isLocal: boolean) => {
     if (track.kind === "video") {
