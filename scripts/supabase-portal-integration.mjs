@@ -154,7 +154,18 @@ try {
   assertRecallDailyPaidAttemptBudget(databaseUrl);
   assertCostEventSchemaVersion(databaseUrl);
   await assertRuntimeChannelBridge(databaseUrl);
-  assertBusinessActionAdmissionAndLeads(databaseUrl);
+  // assertBusinessActionAdmissionAndLeads is `async function` (unlike its
+  // sibling assertBusinessActionCalendarScheduling right below, which is
+  // synchronous) -- missing this `await` let the harness race ahead into
+  // the next assertion before this one's internal awaited steps (including
+  // its kill-switch admission/restore sequence) actually finished, since
+  // Node only yields back to a caller's own continuation at each `await`
+  // point. Found while verifying a kill-switch test fixture fix: reverting
+  // that fix on its own produced a confusing, unrelated-looking failure
+  // inside assertBusinessActionCalendarScheduling instead of the expected
+  // one right here -- exactly the symptom of two assertions running
+  // out of order against the same fixture tenant.
+  await assertBusinessActionAdmissionAndLeads(databaseUrl);
   assertBusinessActionCalendarScheduling(databaseUrl);
 
   console.log("SUPABASE PORTAL INTEGRATION PASSED: migrations 0001-0048 + 0051-0052 + 0055 (0049-0050 applied separately, out of band; 0053-0054 not yet merged), grants, RLS, transcripts, reservations and readiness capability");
@@ -1265,9 +1276,25 @@ async function assertBusinessActionAdmissionAndLeads(databaseUrl) {
   const betaRegistration = register({ leadId: "019f0000-0000-7000-8000-000000009184", receiptId: "019f0000-0000-7000-8000-000000009185", grantId: betaGrantId, contactName: "Carla Prospect", contactEmail: "carla@example.test" });
   assert.equal(betaRegistration.outcome, "succeeded");
 
+  // Latent bug found while implementing the 0055 e-mail-bound migration: this
+  // restore call used to reuse the SAME event id (...9180) as the disable
+  // call above. portal_set_business_action_kill_switch_service's own
+  // idempotency guard (`if exists(select 1 from
+  // portal_business_action_kill_switch_events where id=p_id) then return
+  // true`) then treated the "restore" as a replay of the "disable" and
+  // silently no-op'ed it -- the switch stayed enabled=false even though the
+  // call returned `true` and this assertion never noticed, because it only
+  // checked the return value, never the actual switch state afterward. A
+  // fresh event id here (...9186, never used before in this suite) is what
+  // makes this a genuinely new event instead of a replay; the assertion
+  // right after now also confirms the switch state itself, not just the
+  // RPC's return value.
   assert.equal(queryScalar(databaseUrl, asRoleSql("service_role", null, `SELECT public.portal_set_business_action_kill_switch_service(
-    '019f0000-0000-7000-8000-000000009180','${fixture.tenantAlpha}','${fixture.actorAlpha}',null,'register_lead',true,'incident_resolved'
+    '019f0000-0000-7000-8000-000000009186','${fixture.tenantAlpha}','${fixture.actorAlpha}',null,'register_lead',true,'incident_resolved'
   );`)), "t", "restore the kill switch so it never leaks state into a later test run of this suite");
+  assert.equal(queryJson(databaseUrl, asRoleSql("service_role", null,
+    `SELECT public.portal_business_action_status_service('${fixture.tenantAlpha}','${fixture.agentAlpha}','register_lead');`)).enabled, true,
+    "the restore call above must have actually re-enabled the switch, not silently no-op'ed as a replay of the disable event");
 
   // -- register_lead RPC requires the agent settings/kill switch setters to stay tenant_admin gated --
   assertFailed(runSql(databaseUrl, asRoleSql("service_role", null,
