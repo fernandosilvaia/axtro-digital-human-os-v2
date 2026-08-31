@@ -88,6 +88,8 @@ export function reduceInteractionState(
       return advance(state, event, { status: "failed", active_presenter_id: null, degradation_level: "terminated" });
     case "turn.committed":
       return commitTurn(state, event);
+    case "turn.outcome_recorded":
+      return recordTurnOutcome(state, event);
     case "turn.interrupted":
       return interruptTurn(state, event);
     case "role.updated":
@@ -251,6 +253,32 @@ function commitTurn(state: InteractionAggregateState, event: Extract<AnyInteract
       ...conversationPayload,
       open_questions: [...conversationPayload.open_questions],
       confirmed_facts: conversationPayload.confirmed_facts.map((fact) => ({ ...fact })),
+      updated_at: event.occurred_at,
+    },
+  });
+}
+
+function recordTurnOutcome(
+  state: InteractionAggregateState,
+  event: Extract<AnyInteractionEvent, { event_type: "turn.outcome_recorded" }>,
+): InteractionAggregateState {
+  if (state.session.status !== "active" || state.session.active_presenter_id === null) {
+    throw new InteractionTransitionError("turn.outcome_recorded requires one active presenter");
+  }
+  if (event.payload.generation * 2 !== state.conversation.turn_index) {
+    throw new InteractionTransitionError("turn.outcome_recorded generation does not match the prior content-free exchange state");
+  }
+  const expectedTurnIndex = event.payload.outcome === "succeeded"
+    ? state.conversation.turn_index + 2
+    : state.conversation.turn_index;
+  if (event.payload.resulting_turn_index !== expectedTurnIndex) {
+    throw new InteractionTransitionError(`turn.outcome_recorded expected resulting turn index ${expectedTurnIndex}`);
+  }
+  if (event.payload.outcome === "failed") return advance(state, event, {});
+  return advance(state, event, {
+    conversation: {
+      ...state.conversation,
+      turn_index: expectedTurnIndex,
       updated_at: event.occurred_at,
     },
   });

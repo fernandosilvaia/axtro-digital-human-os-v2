@@ -84,10 +84,12 @@ const ENV = Object.freeze({
   STRIPE_PRICE_ESCALA_OVERAGE: "price_ScaleOver123",
   PROVIDER_EFFECT_RECONCILER_ENABLED: "true",
   PROVIDER_EFFECT_RECONCILE_SECRET: "provider-reconcile-secret-test",
+  PORTAL_BUSINESS_ACTION_BRIDGE_ENABLED: "false",
+  PORTAL_TEXT_PREVIEW_ENABLED: "false",
 });
 
 const CAPABILITIES = Object.freeze({
-  version: 48,
+  version: 50,
   providerEffectReservations: true,
   providerEffectTerminationFence: true,
   tavusStageExpiryConcurrencyFence: true,
@@ -103,6 +105,16 @@ const CAPABILITIES = Object.freeze({
   providerTranscriptService: true,
   authenticatedProviderTranscriptPreclaimBlocked: true,
   authenticatedMeetingBotPreclaimBlocked: true,
+  portalTextPreviewAdmission: true,
+  portalTextPreviewTurnFence: true,
+  portalTextPreviewEgressAuthorization: true,
+  portalTextPreviewProviderFailureReceipt: true,
+  portalTextTranscriptOptIn: true,
+  portalTextPreviewCleanup: true,
+  portalTextPreviewCanonicalOutbox: true,
+  portalTextPreviewSecurityBoundary: true,
+  legacyAuthenticatedChatTranscriptWriterAvailable: true,
+  meetingTerminalNotificationClaim: true,
   aiUsageReservations: true,
   aiUsageReconciliation: true,
   workerHeartbeats: true,
@@ -118,6 +130,19 @@ const CAPABILITIES = Object.freeze({
   runtimeKillSwitches: true,
   runtimeDualOperatorReconciliation: true,
   runtimeBridgeReceiptIntegrity: true,
+});
+
+const BUSINESS_ACTION_CAPABILITIES = Object.freeze({
+  businessActionKillSwitches: true,
+  businessActionGrants: true,
+  businessActionReceipts: true,
+  businessActionLeads: true,
+  businessActionProposals: true,
+  businessActionCalendarReservations: true,
+  businessActionCalendarConnections: true,
+  businessActionCalendarCredentialRead: true,
+  businessActionLiveCallContext: true,
+  businessActionEmailLengthBound: true,
 });
 
 const FRESH_WORKERS = Object.freeze({
@@ -137,10 +162,19 @@ const FRESH_WORKERS = Object.freeze({
   }),
 });
 
-function clientWith(schemaResult, workerResult = { data: FRESH_WORKERS, error: null }, calls = undefined) {
-  return { rpc: async (name) => {
+function clientWith(
+  schemaResult,
+  workerResult = { data: FRESH_WORKERS, error: null },
+  calls = undefined,
+  terminalClaimResult = { data: false, error: null },
+) {
+  return { rpc: async (name, parameters) => {
     calls?.push(name);
     if (name === "portal_schema_capabilities_service") return schemaResult;
+    if (name === "portal_claim_meeting_terminal_notification_service") {
+      assert.deepEqual(parameters, { p_recall_bot_id: "readiness-probe-not-a-uuid" });
+      return terminalClaimResult;
+    }
     assert.equal(name, "portal_worker_readiness_service");
     return workerResult;
   } };
@@ -151,7 +185,7 @@ async function assertNoStore(response) {
   return response.json();
 }
 
-test("readiness returns 200 only for schema 48 capabilities and never caches", async () => {
+test("readiness returns 200 for a compatible base schema and never caches", async () => {
   const response = await handleReadiness({
     env: { ...ENV },
     createClient: () => clientWith({ data: CAPABILITIES, error: null }),
@@ -222,8 +256,8 @@ test("worker readiness RPC errors fail closed after schema validation", async ()
   assert.equal(body.checks.workers, false);
 });
 
-test("readiness requires schema version 48 exactly and never probes workers on mismatch", async () => {
-  for (const version of [42, 43, 44, 45, 46, 47, undefined]) {
+test("readiness rejects unknown or malformed schema versions and never probes workers", async () => {
+  for (const version of [42, 43, 44, 45, 46, 47, 48, 49, 51, 52, 53, 54, 55, 56.5, 57, "56", undefined]) {
     const calls = [];
     const response = await handleReadiness({
       env: { ...ENV },
@@ -240,6 +274,112 @@ test("readiness requires schema version 48 exactly and never probes workers on m
     assert.equal(body.checks.schema, false, `version:${String(version)}`);
     assert.equal(body.checks.workers, false, `version:${String(version)}`);
     assert.deepEqual(calls, ["portal_schema_capabilities_service"], `version:${String(version)}`);
+  }
+});
+
+test("business actions disabled accept only schemas v50 and v56 with the terminal claim", async () => {
+  for (const version of [50, 56]) {
+    const response = await handleReadiness({
+      env: { ...ENV, PORTAL_BUSINESS_ACTION_BRIDGE_ENABLED: "false" },
+      createClient: () => clientWith({ data: { ...CAPABILITIES, version }, error: null }),
+      logError: () => {},
+    });
+    assert.equal(response.status, 200, `version:${version}`);
+  }
+});
+
+test("readiness requires an inert false receipt from the terminal notification claim RPC", async () => {
+  for (const [label, terminalClaimResult] of [
+    ["permission denied", { data: null, error: { code: "42501", message: "permission denied" } }],
+    ["RPC error", { data: null, error: { message: "database unavailable" } }],
+    ["unexpected claim", { data: true, error: null }],
+    ["wrong receipt type", { data: "false", error: null }],
+  ]) {
+    const calls = [];
+    const response = await handleReadiness({
+      env: { ...ENV },
+      createClient: () => clientWith(
+        { data: CAPABILITIES, error: null },
+        { data: FRESH_WORKERS, error: null },
+        calls,
+        terminalClaimResult,
+      ),
+      logError: () => {},
+    });
+    assert.equal(response.status, 503, label);
+    const body = await assertNoStore(response);
+    assert.equal(body.checks.database, false, label);
+    assert.equal(body.checks.schema, true, label);
+    assert.deepEqual(calls, [
+      "portal_schema_capabilities_service",
+      "portal_claim_meeting_terminal_notification_service",
+    ], label);
+  }
+});
+
+test("business actions enabled require v56 and every business-action capability", async () => {
+  const schema = { ...CAPABILITIES, version: 56, ...BUSINESS_ACTION_CAPABILITIES };
+  for (const version of [48, 49, 50, 51, 52, 53, 54, 55]) {
+    const calls = [];
+    const response = await handleReadiness({
+      env: { ...ENV, PORTAL_BUSINESS_ACTION_BRIDGE_ENABLED: "true" },
+      createClient: () => clientWith({ data: { ...schema, version }, error: null }, { data: FRESH_WORKERS, error: null }, calls),
+      logError: () => {},
+    });
+    assert.equal(response.status, 503, `version:${version}`);
+    assert.deepEqual(calls, ["portal_schema_capabilities_service"]);
+  }
+  for (const capability of Object.keys(BUSINESS_ACTION_CAPABILITIES)) {
+    for (const absentValue of [false, undefined]) {
+      const calls = [];
+      const response = await handleReadiness({
+        env: { ...ENV, PORTAL_BUSINESS_ACTION_BRIDGE_ENABLED: "true" },
+        createClient: () => clientWith({ data: { ...schema, [capability]: absentValue }, error: null }, { data: FRESH_WORKERS, error: null }, calls),
+        logError: () => {},
+      });
+      assert.equal(response.status, 503, `${capability}:${String(absentValue)}`);
+      assert.deepEqual(calls, ["portal_schema_capabilities_service"]);
+    }
+  }
+  const response = await handleReadiness({
+    env: { ...ENV, PORTAL_BUSINESS_ACTION_BRIDGE_ENABLED: "true" },
+    createClient: () => clientWith({ data: schema, error: null }),
+    logError: () => {},
+  });
+  assert.equal(response.status, 200);
+});
+
+test("invalid business-action flag fails config readiness before database access", async () => {
+  let clientCreated = false;
+  const response = await handleReadiness({
+    env: { ...ENV, PORTAL_BUSINESS_ACTION_BRIDGE_ENABLED: "enabled" },
+    createClient: () => {
+      clientCreated = true;
+      return clientWith({ data: CAPABILITIES, error: null });
+    },
+    logError: () => {},
+  });
+  assert.equal(response.status, 503);
+  assert.equal(clientCreated, false);
+  const body = await assertNoStore(response);
+  assert.equal(body.checks.business_action_bridge_flag, false);
+});
+
+test("readiness requires the text preview recovery gate to be exactly false before database access", async () => {
+  for (const value of [undefined, "", "true", "TRUE", "False", " false ", "0"]) {
+    let clientCreated = false;
+    const response = await handleReadiness({
+      env: { ...ENV, PORTAL_TEXT_PREVIEW_ENABLED: value },
+      createClient: () => {
+        clientCreated = true;
+        return clientWith({ data: CAPABILITIES, error: null });
+      },
+      logError: () => {},
+    });
+    assert.equal(response.status, 503, String(value));
+    assert.equal(clientCreated, false, String(value));
+    const body = await assertNoStore(response);
+    assert.equal(body.checks.portal_text_preview_recovery_gate, false, String(value));
   }
 });
 
@@ -288,6 +428,16 @@ test("readiness fails closed while any runtime bridge capability is absent", asy
     "runtimeKillSwitches",
     "runtimeDualOperatorReconciliation",
     "runtimeBridgeReceiptIntegrity",
+    "portalTextPreviewAdmission",
+    "portalTextPreviewTurnFence",
+    "portalTextPreviewEgressAuthorization",
+    "portalTextPreviewProviderFailureReceipt",
+    "portalTextTranscriptOptIn",
+    "portalTextPreviewCleanup",
+    "portalTextPreviewCanonicalOutbox",
+    "portalTextPreviewSecurityBoundary",
+    "legacyAuthenticatedChatTranscriptWriterAvailable",
+    "meetingTerminalNotificationClaim",
   ]) {
     for (const absentValue of [false, undefined]) {
       const calls = [];
@@ -537,14 +687,22 @@ test("fake-provider readiness may explicitly disable the billing outbox", async 
       PORTAL_FAKE_PROVIDERS: "1",
       BILLING_USAGE_OUTBOX_ENABLED: "false",
       PROVIDER_EFFECT_RECONCILER_ENABLED: "false",
+      PORTAL_TEXT_PREVIEW_ENABLED: "false",
     },
-    createClient: () => ({ rpc: async (name) => {
+    createClient: () => ({ rpc: async (name, parameters) => {
       calls.push(name);
+      if (name === "portal_claim_meeting_terminal_notification_service") {
+        assert.deepEqual(parameters, { p_recall_bot_id: "readiness-probe-not-a-uuid" });
+        return { data: false, error: null };
+      }
       return { data: CAPABILITIES, error: null };
     } }),
     logError: () => {},
   });
   assert.equal(response.status, 200);
   await assertNoStore(response);
-  assert.deepEqual(calls, ["portal_schema_capabilities_service"]);
+  assert.deepEqual(calls, [
+    "portal_schema_capabilities_service",
+    "portal_claim_meeting_terminal_notification_service",
+  ]);
 });

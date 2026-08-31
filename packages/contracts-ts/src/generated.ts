@@ -1,10 +1,10 @@
 /*
  * GENERATED FILE. DO NOT EDIT.
- * generator: scripts/generate_contract_types.py@1.0.0
- * source: 53 JSON Schema Draft 2020-12 documents under contracts/schemas/
+ * generator: scripts/generate_contract_types.py@1.1.0
+ * source: 54 JSON Schema Draft 2020-12 documents under contracts/schemas/
  */
 
-export const CONTRACT_GENERATOR_VERSION = "1.0.0" as const;
+export const CONTRACT_GENERATOR_VERSION = "1.1.0" as const;
 export interface ContractMetadata {
   schema_id: string;
   schema_version: string;
@@ -937,6 +937,26 @@ export interface TurnCommitted {
   incremental_summary: string;
 }
 
+/** Source: contracts/schemas/turn_outcome_recorded.schema.json; schema: https://schemas.axtro.ai/v2/turn_outcome_recorded.schema.json; version: 2.0.0. */
+export type TurnOutcomeRecorded = {
+  schema_version: "2.0.0";
+  claim_id: string;
+  generation: number;
+  outcome: "succeeded";
+  reason_code: "generation_succeeded";
+  persistence: "disabled" | "persisted";
+  resulting_turn_index: number;
+}
+  | {
+  schema_version: "2.0.0";
+  claim_id: string;
+  generation: number;
+  outcome: "failed";
+  reason_code: "generation_failed" | "generated_reply_invalid" | "provider_response_uncommitted" | "state_issue_failed" | "session_expired" | "worker_lost";
+  persistence: null;
+  resulting_turn_index: number;
+};
+
 /** Source: contracts/schemas/turn_submission.schema.json; schema: https://schemas.axtro.ai/v2/turn_submission.schema.json; version: 2.0.0. */
 export interface TurnSubmission {
   schema_version: "2.0.0";
@@ -1306,6 +1326,12 @@ export const CONTRACT_METADATA = {
     "schema_version": "2.0.0",
     "source_hash": "7f490c188c3b700454ef15aa36503c5e25d9b30d14644a32b962e24653ba4b1d",
     "source_schema": "contracts/schemas/turn_committed.schema.json"
+  },
+  "TurnOutcomeRecorded": {
+    "schema_id": "https://schemas.axtro.ai/v2/turn_outcome_recorded.schema.json",
+    "schema_version": "2.0.0",
+    "source_hash": "bc489b0b0b8d853a2025278951d482dc1612410cf4c3e83401809c03c9d4f288",
+    "source_schema": "contracts/schemas/turn_outcome_recorded.schema.json"
   },
   "TurnSubmission": {
     "schema_id": "https://schemas.axtro.ai/v2/turn_submission.schema.json",

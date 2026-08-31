@@ -13,8 +13,8 @@ from typing import Any
 
 ROOT = Path(__file__).resolve().parents[1]
 SCHEMAS_DIR = ROOT / "contracts" / "schemas"
-EXPECTED_SCHEMA_COUNT = 53
-GENERATOR_VERSION = "1.0.0"
+EXPECTED_SCHEMA_COUNT = 54
+GENERATOR_VERSION = "1.1.0"
 IDENTIFIER = re.compile(r"^[A-Za-z_$][A-Za-z0-9_$]*$")
 
 
@@ -27,6 +27,13 @@ class ContractSchema:
     schema_version: str
     source_hash: str
     document: dict[str, Any]
+
+
+@dataclass(frozen=True)
+class DiscriminatedVariant:
+    discriminator: str
+    value: Any
+    properties: dict[str, Any]
 
 
 def pascal_case(value: str) -> str:
@@ -45,6 +52,91 @@ def py_literal(value: Any) -> str:
     if value is None:
         return "None"
     return repr(value)
+
+
+def variant_suffix(value: Any) -> str:
+    if isinstance(value, bool):
+        return "True" if value else "False"
+    if isinstance(value, (int, float)):
+        return f"Value{str(value).replace('-', 'Minus').replace('.', 'Point')}"
+    suffix = pascal_case(re.sub(r"[^A-Za-z0-9_]+", "_", str(value)))
+    return suffix or "Value"
+
+
+def merge_property_schema(base: Any, override: Any) -> Any:
+    """Preserve base shape while applying a conditional branch narrowing."""
+    if not isinstance(base, dict) or not isinstance(override, dict):
+        return override
+    if any(key in override for key in ("const", "$ref", "oneOf", "anyOf", "enum")):
+        return override
+    if any(key in base for key in ("oneOf", "anyOf")) and "type" in override:
+        return override
+    merged = dict(base)
+    merged.update(override)
+    return merged
+
+
+def discriminated_variants(document: dict[str, Any]) -> list[DiscriminatedVariant] | None:
+    """Return declared exhaustive root-object variants when they are machine-provable."""
+    declared_discriminator = document.get("x-axtro-discriminator")
+    if not isinstance(declared_discriminator, str) or not declared_discriminator:
+        return None
+    properties = document.get("properties")
+    clauses = document.get("allOf")
+    if not isinstance(properties, dict) or not isinstance(clauses, list) or not clauses:
+        return None
+
+    parsed: list[tuple[str, Any, dict[str, Any]]] = []
+    for clause in clauses:
+        if not isinstance(clause, dict) or "else" in clause:
+            return None
+        condition = clause.get("if")
+        consequence = clause.get("then")
+        if not isinstance(condition, dict) or not isinstance(consequence, dict):
+            return None
+        condition_properties = condition.get("properties")
+        consequence_properties = consequence.get("properties")
+        if not isinstance(condition_properties, dict) or len(condition_properties) != 1:
+            return None
+        if not isinstance(consequence_properties, dict):
+            return None
+        discriminator, discriminator_constraint = next(iter(condition_properties.items()))
+        if not isinstance(discriminator_constraint, dict) or "const" not in discriminator_constraint:
+            return None
+        if discriminator not in document.get("required", []):
+            return None
+        parsed.append((discriminator, discriminator_constraint["const"], consequence_properties))
+
+    discriminator = parsed[0][0]
+    if any(candidate != discriminator for candidate, _, _ in parsed):
+        return None
+    if discriminator != declared_discriminator:
+        return None
+    discriminator_schema = properties.get(discriminator)
+    if not isinstance(discriminator_schema, dict):
+        return None
+    if discriminator_schema.get("type") == "boolean":
+        expected_values: list[Any] = [False, True]
+    elif isinstance(discriminator_schema.get("enum"), list):
+        expected_values = discriminator_schema["enum"]
+    elif "const" in discriminator_schema:
+        expected_values = [discriminator_schema["const"]]
+    else:
+        return None
+    encoded_expected = {json_literal(value) for value in expected_values}
+    encoded_actual = {json_literal(value) for _, value, _ in parsed}
+    if len(encoded_actual) != len(parsed) or encoded_actual != encoded_expected:
+        return None
+
+    variants: list[DiscriminatedVariant] = []
+    for _, value, overrides in parsed:
+        variant_properties = {
+            name: merge_property_schema(schema, overrides.get(name, schema))
+            for name, schema in properties.items()
+        }
+        variant_properties[discriminator] = {"const": value}
+        variants.append(DiscriminatedVariant(discriminator, value, variant_properties))
+    return variants
 
 
 def load_contracts() -> list[ContractSchema]:
@@ -238,13 +330,36 @@ def render_typescript(contracts: list[ContractSchema]) -> str:
         "",
     ]
     for contract in contracts:
-        lines.extend(
-            [
-                f"/** Source: {contract.source_schema}; schema: {contract.schema_id}; version: {contract.schema_version}. */",
-                f"export interface {contract.type_name} {ts_type(contract.document, current_document=contract.document, documents_by_id=documents_by_id)}",
-                "",
-            ]
+        lines.append(
+            f"/** Source: {contract.source_schema}; schema: {contract.schema_id}; version: {contract.schema_version}. */",
         )
+        variants = discriminated_variants(contract.document)
+        if variants is None:
+            lines.append(
+                f"export interface {contract.type_name} "
+                f"{ts_type(contract.document, current_document=contract.document, documents_by_id=documents_by_id)}",
+            )
+        else:
+            rendered_variants = []
+            for variant in variants:
+                variant_schema = {
+                    "type": "object",
+                    "properties": variant.properties,
+                    "required": contract.document.get("required", []),
+                }
+                rendered_variants.append(
+                    ts_type(
+                        variant_schema,
+                        current_document=contract.document,
+                        documents_by_id=documents_by_id,
+                    )
+                )
+            lines.append(
+                f"export type {contract.type_name} = "
+                + "\n  | ".join(rendered_variants)
+                + ";",
+            )
+        lines.append("")
     lines.extend([render_metadata(contracts, "typescript"), ""])
     return "\n".join(lines)
 
@@ -255,7 +370,7 @@ def render_python(contracts: list[ContractSchema]) -> str:
         '"""Generated contract type declarations. Do not edit manually."""',
         "from __future__ import annotations",
         "",
-        "from typing import Any, Literal, TypedDict",
+        "from typing import Any, Literal, TypeAlias, TypedDict",
         "",
         f"CONTRACT_GENERATOR_VERSION = {py_literal(GENERATOR_VERSION)}",
         "",
@@ -263,7 +378,18 @@ def render_python(contracts: list[ContractSchema]) -> str:
     for contract in contracts:
         lines.append(f"# Source: {contract.source_schema}; schema: {contract.schema_id}; version: {contract.schema_version}.")
         properties = contract.document.get("properties", {})
-        if not isinstance(properties, dict) or not properties:
+        variants = discriminated_variants(contract.document)
+        if variants is not None:
+            variant_names: list[str] = []
+            for variant in variants:
+                variant_name = f"_{contract.type_name}{pascal_case(variant.discriminator)}{variant_suffix(variant.value)}"
+                variant_names.append(variant_name)
+                lines.append(f"class {variant_name}(TypedDict):")
+                for name, value in variant.properties.items():
+                    lines.append(f"    {name}: {py_type(value, contract.document, documents_by_id)}")
+                lines.append("")
+            lines.append(f"{contract.type_name}: TypeAlias = {' | '.join(variant_names)}")
+        elif not isinstance(properties, dict) or not properties:
             lines.append(f"class {contract.type_name}(TypedDict):")
             lines.append("    pass")
         else:

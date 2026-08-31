@@ -1,0 +1,79 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://schemas.axtro.ai/v2/turn_outcome_recorded.schema.json",
+  "title": "Turn Outcome Recorded",
+  "description": "Content-free canonical outcome for one fenced text generation claim.",
+  "x-axtro-discriminator": "outcome",
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "schema_version": { "type": "string", "const": "2.0.0" },
+    "claim_id": { "type": "string", "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$" },
+    "generation": { "type": "integer", "minimum": 0, "maximum": 10000000 },
+    "outcome": { "type": "string", "enum": ["succeeded", "failed"] },
+    "reason_code": {
+      "type": "string",
+      "enum": [
+        "generation_succeeded",
+        "generation_failed",
+        "generated_reply_invalid",
+        "provider_response_uncommitted",
+        "state_issue_failed",
+        "session_expired",
+        "worker_lost"
+      ]
+    },
+    "persistence": {
+      "oneOf": [
+        { "type": "string", "enum": ["disabled", "persisted"] },
+        { "type": "null" }
+      ]
+    },
+    "resulting_turn_index": { "type": "integer", "minimum": 0 }
+  },
+  "required": [
+    "schema_version",
+    "claim_id",
+    "generation",
+    "outcome",
+    "reason_code",
+    "persistence",
+    "resulting_turn_index"
+  ],
+  "allOf": [
+    {
+      "if": {
+        "properties": { "outcome": { "const": "succeeded" } },
+        "required": ["outcome"]
+      },
+      "then": {
+        "properties": {
+          "reason_code": { "const": "generation_succeeded" },
+          "persistence": { "type": "string", "enum": ["disabled", "persisted"] }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": { "outcome": { "const": "failed" } },
+        "required": ["outcome"]
+      },
+      "then": {
+        "properties": {
+          "reason_code": {
+            "type": "string",
+            "enum": [
+              "generation_failed",
+              "generated_reply_invalid",
+              "provider_response_uncommitted",
+              "state_issue_failed",
+              "session_expired",
+              "worker_lost"
+            ]
+          },
+          "persistence": { "type": "null" }
+        }
+      }
+    }
+  ]
+}

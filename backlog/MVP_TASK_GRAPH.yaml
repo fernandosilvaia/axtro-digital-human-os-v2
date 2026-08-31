@@ -702,3 +702,71 @@ tasks:
       - structured data is visible-content-backed and makes no invented ratings or guarantees
       - AI search crawlers can discover public content while private and training policy remains explicit
     tests: [public build, metadata render, structured data parse, sitemap and robots policy, llms files, keyboard and contrast smoke, desktop and mobile visual evidence]
+  - id: M6-00
+    milestone: M6
+    title: Recover production schema lineage and capability gates
+    lane: release
+    dependencies: [M5-03]
+    objective: Restore the immutable v49 and v50 migrations, publish a forward-only v56 capability repair, and make readiness and release tooling reject incompatible schema and flag combinations before any external effect.
+    primary_files: [database/supabase-only/, apps/portal/src/app/api/ready/, apps/portal/src/app/api/recall/webhook/route.ts, scripts/production-readiness-bootstrap.mjs, scripts/supabase-portal-integration.mjs, tests/, PROGRESS.md]
+    acceptance:
+      - migrations 0049 and 0050 match their historical SHA-256 checksums and the local harness applies every migration from 0001 through 0056 in real numeric order
+      - schema v56 reports the complete legacy, text preview, terminal notification and business-action capability union without dropping capabilities introduced by earlier migrations
+      - readiness accepts only v50 or v56 with the terminal notification claim when business actions are disabled, rejects v48-v49 and v51-v55, and requires v56 plus every business-action capability when enabled
+      - turn.outcome_recorded has a normative schema, generated types, strict parser, deterministic reducer, codec and replay evidence matching the exact v49 PostgreSQL envelope
+      - release bootstrap validates the business-action flag and the exact closed text-preview recovery gate before workers, billing or provider effects
+      - the legacy Portal text preview Server Action owns no auth, database, ledger or provider dependency and the UI exposes no submit control until its complete contract-first bundle returns
+      - terminal Recall redelivery cannot acquire a second v50 notification claim; delivery durability remains a separate task and is not implied by this claim
+      - no remote migration, deployment, secret, paid effect or production flag is changed by this task
+    tests: [migration checksum and contiguous-order contract, PostgreSQL migration harness twice, event contract and replay, readiness compatibility matrix, bootstrap fail-closed matrix, text-preview hard-close, Recall terminal replay idempotency]
+  - id: M6-01
+    milestone: M6
+    title: Deliver terminal meeting notifications through a durable outbox
+    lane: reliability
+    dependencies: [M6-00]
+    objective: Replace claim-before-send notification handling with a tenant-scoped transactional outbox, bounded leasing, retry, terminal receipts and operator-visible failure states.
+    primary_files: [database/supabase-only/, apps/portal/src/app/api/recall/webhook/route.ts, apps/portal/src/lib/email.ts, apps/portal/src/lib/workers/, tests/, docs/adr/, PROGRESS.md]
+    acceptance:
+      - a terminal Recall transition enqueues one stable notification command atomically without claiming delivery before the provider call
+      - worker leases expire safely, retries are bounded, and sent or dead-letter receipts are durable and tenant-scoped
+      - provider ambiguity never becomes an unqualified success and a stable provider idempotency key prevents ordinary replay duplicates
+      - an unknown or permanently absent bot reaches a bounded terminal outcome instead of infinite 503 retries
+      - readiness distinguishes webhook ingestion from notification-worker health and logs contain no recipient address or raw provider response
+    tests: [atomic enqueue, crash before send, crash after provider acceptance, lease expiry, duplicate webhook, provider ambiguity, unknown bot deadline, cross-tenant denial, dead letter and readiness]
+  - id: M6-02
+    milestone: M6
+    title: Restore the privacy-fenced Portal text preview bundle
+    lane: product
+    dependencies: [M6-00, M6-01]
+    objective: Restore the four missing application contracts and the complete contract-first runtime without reopening the legacy Server Action or bypassing disclosure, consent, admission, egress and canonical outbox boundaries.
+    primary_files: [contracts/, packages/contracts-ts/, packages/contracts-py/, apps/portal/src/lib/actions/agent-preview.ts, "apps/portal/src/app/(app)/agentes/[id]/testar/", tests/, docs/adr/, PROGRESS.md]
+    acceptance:
+      - admission, browser command, signed state and action result contracts land together with generated types and negative examples
+      - signed state, disclosure, purpose-scoped consent, tenant isolation, generation fencing and content-free canonical outcomes are enforced end to end
+      - provider processing profile and privacy attestation fail closed and transcript persistence remains explicit opt-in
+      - the feature flag cannot open until the durable event relay, scheduled cleanup and authorized staged rollout gates are green
+    tests: [contract compatibility, signed-state tamper, consent revoke, cross-tenant denial, replay, stale generation, provider ambiguity, transcript opt-in, cleanup and closed rollout gate]
+  - id: M6-03
+    milestone: M6
+    title: Remove shared mutable public demo tenancy
+    lane: security
+    dependencies: [M6-00]
+    objective: Replace automatic public sign-in to a shared tenant with isolated, disposable and non-privileged demonstration state that cannot mutate customer-like resources.
+    primary_files: [apps/portal/src/app/, apps/portal/src/lib/supabase/, database/supabase-only/, tests/e2e/, docs/adr/, PROGRESS.md]
+    acceptance:
+      - anonymous visitors never receive a tenant_admin session or shared mutable identity
+      - demo data is isolated per session, bounded, disposable and excluded from paid provider effects
+      - customer authentication and tenant selection remain fail closed and unchanged
+    tests: [anonymous isolation, no admin role, cross-session separation, no paid effect, cleanup and authenticated tenant regression]
+  - id: M6-04
+    milestone: M6
+    title: Implement deletion, redaction and legal-hold workflow
+    lane: data-governance
+    dependencies: [M6-00]
+    objective: Cover the v49 append-only records and restrictive foreign-key edges with an explicit tenant and data-subject deletion workflow that preserves only authorized content-free evidence.
+    primary_files: [database/supabase-only/, packages/workflows/, tests/database/, docs/adr/, PROGRESS.md]
+    acceptance:
+      - deletion inventory covers every tenant-scoped table, object, cache, embedding, transcript and append-only receipt
+      - legal hold, redaction and irreversible deletion are distinct authorized states with receipts
+      - no tenant data survives outside the documented retention exception and cross-tenant deletion is impossible
+    tests: [full tenant graph, data-subject request, legal hold, retained receipt redaction, object storage, embeddings, retry, cross-tenant denial]

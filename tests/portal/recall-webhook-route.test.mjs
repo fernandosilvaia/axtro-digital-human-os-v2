@@ -114,7 +114,11 @@ const mockSources = new Map([
     export function logError() {}
     export function logEvent() {}
   `],
-  ["@/lib/email", `export async function sendMeetingEndedEmail() {}`],
+  ["@/lib/email", `
+    export async function sendMeetingEndedEmail(input) {
+      globalThis.__recallWebhookTestState.calls.notifications.push(input);
+    }
+  `],
   ["@/lib/transcripts/register", `
     export async function prepareTavusWebhookCallback(id) {
       const state = globalThis.__recallWebhookTestState;
@@ -195,6 +199,9 @@ function freshState() {
     runtimeBindingRejected: false,
     startCameraFailures: 0,
     statusApplied: true,
+    notificationClaimResults: [true],
+    notificationClaimError: null,
+    meetingSession: null,
     completeReceipt: true,
     releaseReceipt: true,
     sentinel: {
@@ -215,7 +222,7 @@ function freshState() {
     calls: {
       rpc: [], recallFactories: 0, tavusFactories: 0, startCamera: [], createConversation: [], endConversation: [],
       beginProviderEffect: [], capabilityBind: [], placeholders: [], commit: [], cleanup: [], providerRelease: [], billingVoid: [], billingActivate: [], reconcile: [], fetchTranscript: [], downloadTranscript: [],
-      stageCapabilities: [], runtimeStatus: [], runtimeDispatch: [], runtimeBindings: [],
+      stageCapabilities: [], runtimeStatus: [], runtimeDispatch: [], runtimeBindings: [], notifications: [],
     },
     nextUuid() {
       uuidCounter += 1;
@@ -233,6 +240,15 @@ function freshState() {
       if (name === "portal_get_meeting_bot_agent_service") return { data: { agentName: "Raissa" }, error: null };
       if (name === "portal_append_transcript_turns_service") return { data: { found: state.transcriptAppendFound }, error: state.transcriptAppendError };
       if (name === "portal_update_meeting_bot_session_status_service") return { data: state.statusReceipt ?? { found: true, applied: state.statusApplied }, error: null };
+      if (name === "portal_claim_meeting_terminal_notification_service") {
+        return {
+          data: state.notificationClaimResults.length > 1
+            ? state.notificationClaimResults.shift()
+            : state.notificationClaimResults[0] ?? false,
+          error: state.notificationClaimError,
+        };
+      }
+      if (name === "portal_list_admin_emails_service") return { data: ["admin@example.test"], error: null };
       if (name === "portal_get_sentinel_attach_service") return { data: { ...state.sentinel }, error: null };
       if (name === "portal_mark_sentinel_conversation_created_service") {
         state.sentinel = { ...state.sentinel, state: "conversation_created", reservationId: args.p_reservation_id, conversationId: args.p_conversation_id, conversationUrl: "https://tavus.daily.co/room-123" };
@@ -253,7 +269,8 @@ function freshState() {
         async maybeSingle() {
           if (table === "agent_video_config") return { data: { tavus_persona_id: "persona-123", language: "english" }, error: null };
           if (table === "agents") return { data: { name: "Raissa" }, error: null };
-          if (table === "meeting_bot_sessions") return { data: null, error: null };
+          if (table === "meeting_bot_sessions") return { data: state.meetingSession, error: null };
+          if (table === "tenants") return { data: { legal_name: "Tenant Test" }, error: null };
           throw new Error(`unexpected table ${table}`);
         },
       };
@@ -551,17 +568,29 @@ test("Recall transcript.done persistence error and found=false remain retryable"
   });
 });
 
-test("signed terminal delivery is durably retained before a meeting session exists", { concurrency: false }, async () => {
+test("terminal retained before session retries, then notifies once after session materialization", { concurrency: false }, async () => {
   const state = freshState();
+  state.notificationClaimResults = [false, true, false];
   state.statusReceipt = { found: false, applied: true, terminalRetained: true };
-  const response = await POST(request("delivery-terminal-before-session", "bot.done"));
-  assert.equal(response.status, 200);
-  assert.deepEqual(await response.json(), { ok: true, handled: false });
+  const first = await POST(request("delivery-terminal-before-session", "bot.done"));
+  assert.equal(first.status, 503);
+  assert.deepEqual(await first.json(), { error: "terminal_notification_not_ready" });
   const statusCall = state.calls.rpc.find((call) => call.name === "portal_update_meeting_bot_session_status_service");
   assert.equal(statusCall.args.p_delivery_id, "delivery-terminal-before-session");
   assert.match(statusCall.args.p_claim_token, /^[0-9a-f-]{36}$/);
   assert.equal(state.calls.createConversation.length, 0);
   assert.equal(state.calls.startCamera.length, 0);
+
+  state.statusReceipt = { found: true, applied: false, terminalRetained: true };
+  state.meetingSession = {
+    tenant_id: "0198a000-0000-7000-8000-000000000001",
+    agent_id: "0198a000-0000-7000-8000-000000000002",
+  };
+  const second = await POST(request("delivery-terminal-after-session", "bot.done"));
+  const third = await POST(request("delivery-terminal-after-notification", "bot.done"));
+  assert.equal(second.status, 200);
+  assert.equal(third.status, 200);
+  assert.equal(state.calls.notifications.length, 1);
 });
 
 test("terminal before camera cleans a known Tavus effect with a standardized receipt", { concurrency: false }, async () => {
@@ -600,6 +629,50 @@ test("terminal replay resumes pending Tavus cleanup even when status was already
   assert.equal(response.status, 200);
   assert.deepEqual(state.calls.endConversation, ["conversation-123"]);
   assert.equal(state.calls.reconcile.at(-1).receiptRef, "tavus:end:conversation-123");
+  assert.equal(state.calls.rpc.filter((call) => call.name === "portal_claim_meeting_terminal_notification_service").length, 1);
+});
+
+test("terminal replay claims notification after cleanup and a later delivery cannot duplicate it", { concurrency: false }, async () => {
+  const state = freshState();
+  state.statusReceipt = {
+    found: true,
+    applied: false,
+    terminalRetained: true,
+    tavusCleanupRequired: true,
+    tavusReservationId: "0198a000-0000-7000-8000-000000000010",
+    tavusConversationId: "conversation-123",
+  };
+  state.notificationClaimResults = [true, false];
+  state.meetingSession = {
+    tenant_id: "0198a000-0000-7000-8000-000000000001",
+    agent_id: "0198a000-0000-7000-8000-000000000002",
+  };
+
+  const first = await POST(request("delivery-terminal-notify-first", "bot.done"));
+  const second = await POST(request("delivery-terminal-notify-second", "bot.done"));
+
+  assert.equal(first.status, 200);
+  assert.equal(second.status, 200);
+  assert.equal(state.calls.notifications.length, 1);
+  assert.equal(state.calls.notifications[0].agentName, "Raissa");
+  assert.equal(state.calls.rpc.filter((call) => call.name === "portal_claim_meeting_terminal_notification_service").length, 2);
+});
+
+test("terminal notification claim failure stays retryable and sends no email", { concurrency: false }, async () => {
+  const state = freshState();
+  state.statusReceipt = { found: true, applied: false, terminalRetained: true };
+  state.notificationClaimError = { message: "claim unavailable" };
+  state.meetingSession = {
+    tenant_id: "0198a000-0000-7000-8000-000000000001",
+    agent_id: "0198a000-0000-7000-8000-000000000002",
+  };
+
+  const response = await POST(request("delivery-terminal-notify-claim-error", "bot.done"));
+
+  assert.equal(response.status, 503);
+  assert.equal((await response.json()).error, "terminal_notification_claim_pending");
+  assert.equal(state.calls.notifications.length, 0);
+  assert.equal(state.calls.rpc.at(-1).name, "portal_release_recall_webhook_service");
 });
 
 test("an immediate persisted conversation starts camera only after signed in_call and activates both reservations", { concurrency: false }, async () => {

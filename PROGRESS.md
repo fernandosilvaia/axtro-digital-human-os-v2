@@ -1,11 +1,11 @@
 # Progresso de implementação
 
-**Estado atual:** M0-M5-03 com código e validação local concluídos; migrations v46-v48 no Supabase de produção. **O artefato Axtro Closer AI Human está publicado e saudável em produção desde 2026-08-20 06:44 UTC** (D-V2-140): `/api/ready` responde `200 {"ok":true}` com os 25 checks verdes, verificado direto via `curl` externo pós-deploy. A promoção realtime continua bloqueada por uma fronteira de mídia P0 não comprovada — isso não mudou.
+**Estado atual:** M0-M6-00 com código e validação local concluídos. A linhagem Supabase local foi recuperada até a 0056, mas o estado hospedado não foi consultado nem confirmado nesta tarefa. O banco e o outbox canônico estão compatíveis com `turn.outcome_recorded`; o preview textual do Portal permanece indisponível até M6-02. A promoção realtime continua bloqueada por uma fronteira de mídia P0 não comprovada.
 
-**Marco atual:** M5 — Production Integrity, Trust and Discovery
-**Tarefa atual:** D-V2-140 — resolvido (deploy saudável); próximo item real é a automação financeira agendada (ver Pendências externas)
-**Última evidência verde:** 2026-08-20: `pnpm test` (1067 Node + 26 Python), `pnpm db:portal:test` (migrations 0001–0048), `pnpm lint`, `pnpm typecheck`, `pnpm contracts:check`, `python3 scripts/validate_all.py`, `git diff --check` e 19 specs de e2e local (`portal.spec.ts` + `public-discovery.spec.ts`) verdes. Deploy `e8a278d9-5f1f-4859-8f56-f75eee34317b`: `[1/1] Healthcheck succeeded!`.
-**Bloqueadores internos:** P0 para promoção realtime — falta prova end-to-end de mídia controlada, cancelamento e descarte de saída tardia de Tavus/Recall.
+**Marco atual:** M6, Production Recovery and Customer Readiness
+**Tarefa atual:** M6-00, recuperação da linhagem Supabase e dos gates de capability (`done`); próxima executável: M6-01.
+**Última evidência verde:** 2026-08-31: `pnpm test` verde com build TypeScript, 1.313 testes Node e 27 Python; `pnpm lint`, `pnpm typecheck`, `UV_CACHE_DIR=.uv-cache uv run pytest`, `python3 scripts/validate_all.py` e `git diff --check` verdes. O harness PostgreSQL 17 aplicou 0001 a 0056 em ordem e passou duas vezes, com checksums históricos conferidos. Nenhuma migration remota, deploy, flag, segredo ou efeito pago foi alterado.
+**Bloqueadores internos:** P0 para promoção realtime: falta prova end-to-end de mídia controlada, cancelamento e descarte de saída tardia de Tavus/Recall. P1 operacional: a claim terminal atual registra aquisição antes da entrega de e-mail e será substituída pela outbox durável de M6-01.
 **Pendências externas:** os workflows agendados do GitHub Actions pra reconciliação de efeitos pagos e dispatch de billing usage continuam pulando toda execução — `PROVIDER_EFFECT_RECONCILE_SCHEDULE_ENABLED`/`BILLING_DISPATCH_SCHEDULE_ENABLED` nunca foram criadas como repo variable (confirmado `gh variable list` vazio, 2026-08-20). Sem isso, nenhum efeito pago/billing usage real é reconciliado ou despachado automaticamente, apesar do app estar no ar — ver `NEEDS_CONNECTION.md`. `PORTAL_RUNTIME_BRIDGE_ENABLED=false` e `PORTAL_PROVIDER_TERMINATION_ENABLED=false` seguem desligadas; a última pré-condição técnica pro canário de terminação (deploy saudável) está resolvida.
 
 **Auditoria 360 concluída (2026-08-18):** baseline reproduzida antes de qualquer patch: `python3 scripts/validate_all.py` (9/9), `pnpm lint`, `pnpm contracts:check`, `pnpm typecheck`, `pnpm test` (1056 Node + 26 Python; os testes de loopback exigiram execução fora do sandbox), e `UV_CACHE_DIR="$PWD/.uv-cache" uv run pytest` (26) verdes. Correções em integridade da bridge, telemetria e descoberta pública foram revalidadas depois do patch; o risco realtime de mídia/turnos reais permanece um bloqueio explícito de promoção, não um falso sinal de cobertura.
@@ -118,8 +118,29 @@
 | `M5-01` | M5 | done | Close production integrity and denial-of-wallet gaps | `M4-04` | Fences Tavus/Recall, UUIDv7, envelopes IA, transcript/RLS, v42/readiness e PostgreSQL real validados; rollout remoto ainda human-gated |
 | `M5-02` | M5 | done | Bridge portal channels to constitutional runtime boundaries | `M5-01` | ADR-038, bridge v43, consentimento/disclosure atômicos, fences/kill switch, contexto não confiável fora do system e testes de aceitação validados; rollout remoto segue human-gated |
 | `M5-03` | M5 | done (código; rollout humano separado) | Ship premium public experience and advanced discovery surfaces | `M5-02` | Copy comercial verificável, canonical/metadata legal/AEO coerentes, `robots` com política explícita, `llms*` no domínio canônico e E2E público sem credenciais (desktop/mobile, teclado, JSON-LD, sitemap/robots/llms) verdes; inspeção visual em 375/768/1024/1440 px sem overflow. |
+| `M6-00` | M6 | done | Recover production schema lineage and capability gates | `M5-03` | 0049/0050 restauradas por checksum, reparo 0056, contrato e replay de `turn.outcome_recorded`, hard-close do preview, harness PostgreSQL 17 duas vezes, 1.313 Node + 27 Python e 9 validadores verdes; nenhuma operação remota. |
+| `M6-01` | M6 | pending | Deliver terminal meeting notifications through a durable outbox | `M6-00` | Bloqueador P1 confirmado: a claim atual registra aquisição antes do envio e pode perder uma notificação após falha transitória. |
+| `M6-02` | M6 | pending | Restore the privacy-fenced Portal text preview bundle | `M6-00`, `M6-01` | Preview textual permanece indisponível até recuperação contract-first completa e gates operacionais autorizados. |
+| `M6-03` | M6 | pending | Remove shared mutable public demo tenancy | `M6-00` | Isolamento de demo pública requer tenant efêmero ou estado imutável por visitante. |
+| `M6-04` | M6 | pending | Implement deletion, redaction and legal-hold workflows | `M6-00` | Registros append-only e arestas `RESTRICT` exigem workflow explícito antes de prometer exclusão completa. |
 
 ## Log de execução
+
+### 2026-08-30, M6-00 iniciado
+
+- Auditoria confirmou que os artefatos históricos 0049 e 0050 desapareceram da árvore atual enquanto migrations 0051 a 0055 permaneceram, quebrando a reprodução local da linhagem que o registro operacional descreve.
+- Escopo fechado: restaurar os blobs imutáveis pelos checksums conhecidos, reparar apenas de forma forward-only em 0056, alinhar readiness/bootstrap e recuperar a claim atômica de notificação terminal do Recall.
+- Baseline anterior ao código: `python3 scripts/validate_all.py` verde. Nenhuma operação remota está autorizada nesta tarefa.
+
+### 2026-08-31, M6-00 concluído localmente
+
+- Restauradas as migrations históricas imutáveis 0049 e 0050 com SHA-256 `79b24e7fdc768a30b02d3596b71799fae484043e37561ddfcd435f46076b3100` e `262e033328175f704f8cfef1cafdcb0a2ef9b9aac7e4cc86f2b33890044c7224`. A 0056 recompõe de forma forward-only as capabilities v49, v50 e de ações de negócio sem reescrever artefato histórico.
+- O evento canônico `turn.outcome_recorded` agora possui schema, exemplos positivos e negativos, tipos TS/Python gerados, parser estrito, reducer, codec PostgreSQL exato, replay determinístico e documentação de arquitetura.
+- O runtime legado do preview textual foi fechado antes de banco, ledger ou provider. UI e Server Action permanecem indisponíveis, e readiness/bootstrap exigem `PORTAL_TEXT_PREVIEW_ENABLED=false` exato. O banco e o outbox estão compatíveis, mas o preview do Portal permanece indisponível até M6-02.
+- O harness PostgreSQL 17 aplicou 0001 a 0056 em ordem e passou duas vezes. A primeira execução revelou isolamento incompleto de fixture após remover uma membership; o harness agora restaura explicitamente a membership antes do cenário seguinte e a segunda execução independente confirmou o reparo.
+- Evidência final: `pnpm test` com build, 1.313 Node e 27 Python; `pnpm lint`; `pnpm typecheck`; `UV_CACHE_DIR=.uv-cache uv run pytest` com 27; `python3 scripts/validate_all.py` com 9 checks, 64 tarefas e 54 contratos; `git diff --check`; checksums históricos. Todos verdes.
+- A claim terminal atual prova aquisição at-most-once, não entrega. M6-01 substitui esse limite por outbox durável com lease, retries, idempotência de provider, receipt e dead letter. M6-03 fecha a demo pública compartilhada e M6-04 fecha exclusão, redação e legal hold.
+- Nenhum banco remoto, deploy, flag, segredo, agenda, efeito pago, compra, push ou merge foi executado.
 
 ### 2026-07-14, M0-01 iniciado
 

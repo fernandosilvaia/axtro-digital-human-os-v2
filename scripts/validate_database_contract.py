@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 from __future__ import annotations
 
+import hashlib
 import re
 import sys
 from pathlib import Path
@@ -23,9 +24,26 @@ EXPECTED = [
     "0012_cost_event_conversation_unit.sql",
 ]
 
+IMMUTABLE_SUPABASE_MIGRATIONS = {
+    "0049_portal_text_preview_admission.sql": "79b24e7fdc768a30b02d3596b71799fae484043e37561ddfcd435f46076b3100",
+    "0050_meeting_terminal_notification_claim.sql": "262e033328175f704f8cfef1cafdcb0a2ef9b9aac7e4cc86f2b33890044c7224",
+}
+
 
 def main() -> int:
     errors: list[str] = []
+    supabase_migrations = sorted(path for path in SUPABASE_MIGRATIONS.glob("[0-9][0-9][0-9][0-9]_*.sql"))
+    supabase_versions = [int(path.name[:4]) for path in supabase_migrations]
+    if supabase_versions != list(range(1, 57)):
+        errors.append("Supabase-only migrations must be one contiguous, unique sequence from 0001 through 0056")
+    for filename, expected_sha256 in IMMUTABLE_SUPABASE_MIGRATIONS.items():
+        path = SUPABASE_MIGRATIONS / filename
+        if not path.exists():
+            errors.append(f"Missing immutable Supabase-only migration {filename}")
+            continue
+        actual_sha256 = hashlib.sha256(path.read_bytes()).hexdigest()
+        if actual_sha256 != expected_sha256:
+            errors.append(f"Immutable Supabase-only migration checksum changed: {filename}")
     for filename in EXPECTED:
         path = MIGRATIONS / filename
         if not path.exists():
@@ -268,6 +286,54 @@ def main() -> int:
         for forbidden_write in ("insert into", "update public.", "delete from"):
             if forbidden_write in live_call_context_sql.lower():
                 errors.append(f"0054 must remain a pure read: found {forbidden_write}")
+    capability_lineage_repair = SUPABASE_MIGRATIONS / "0056_schema_capability_lineage_repair.sql"
+    if not capability_lineage_repair.exists():
+        errors.append("Missing Supabase-only schema capability lineage repair 0056")
+    else:
+        lineage_sql = capability_lineage_repair.read_text(encoding="utf-8")
+        if "begin;" not in lineage_sql or "commit;" not in lineage_sql:
+            errors.append("0056 schema capability lineage repair must have explicit transaction boundaries")
+        for invariant in (
+            "'version',56",
+            "'portalTextPreviewAdmission'",
+            "'portalTextPreviewTurnFence'",
+            "'portalTextPreviewEgressAuthorization'",
+            "'portalTextPreviewProviderFailureReceipt'",
+            "'portalTextTranscriptOptIn'",
+            "'portalTextPreviewCleanup'",
+            "'portalTextPreviewCanonicalOutbox'",
+            "'portalTextPreviewSecurityBoundary'",
+            "'legacyAuthenticatedChatTranscriptWriterAvailable'",
+            "'meetingTerminalNotificationClaim'",
+            "'businessActionKillSwitches'",
+            "'businessActionGrants'",
+            "'businessActionReceipts'",
+            "'businessActionLeads'",
+            "'businessActionProposals'",
+            "'businessActionCalendarReservations'",
+            "'businessActionCalendarConnections'",
+            "'businessActionCalendarCredentialRead'",
+            "'businessActionLiveCallContext'",
+            "'businessActionEmailLengthBound'",
+            "create or replace function app.portal_service_role_only(p_signature text)",
+            "revoke all on function app.portal_service_role_only(text) from public,anon,authenticated,service_role;",
+            "create or replace function app.portal_table_locked_down(p_table regclass)",
+            "revoke all on function app.portal_table_locked_down(regclass) from public,anon,authenticated,service_role;",
+            "app.portal_table_locked_down(to_regclass('public.portal_business_action_receipts'))",
+            "app.portal_service_role_only('public.portal_admit_business_action_service",
+            "app.portal_service_role_only('public.portal_register_business_lead_service",
+            "app.portal_service_role_only('public.portal_propose_business_meeting_slots_service",
+            "app.portal_service_role_only('public.portal_reserve_business_meeting_slot_service",
+            "app.portal_service_role_only('public.portal_connect_google_calendar_service",
+            "app.portal_service_role_only('public.portal_google_calendar_decrypted_refresh_token_service",
+            "app.portal_service_role_only('public.portal_business_action_call_context_service",
+            "char_length(contact_email)<=320",
+            "char_length(google_account_email)<=320",
+            "revoke all on function public.portal_schema_capabilities_service() from public,anon,authenticated;",
+            "grant execute on function public.portal_schema_capabilities_service() to service_role;",
+        ):
+            if invariant not in lineage_sql:
+                errors.append(f"0056 schema capability lineage invariant is missing: {invariant}")
     if "tenant_isolation" not in all_sql:
         errors.append("Tenant isolation policy is missing")
     if "event_document ->> 'tenant_id' IS DISTINCT FROM tenant_id::text" not in all_sql:

@@ -380,9 +380,9 @@ async function attachSentinelCamera(botId: string): Promise<SentinelAttachOutcom
 
 /**
  * Notifica os admins do tenant quando a reunião externa termina (achado da
- * auditoria 2026-08-06) — best-effort, nunca falha o webhook. Só dispara em
- * transição REAL (applied=true na RPC de status): um retry do Recall.ai
- * reentregando o mesmo evento 'ended' não deve mandar um segundo e-mail.
+ * auditoria 2026-08-06), best-effort depois de um claim durável. A claim
+ * atômica no banco, e não `applied`, impede duplicata e permite que uma
+ * reentrega terminal notifique depois que a limpeza pendente for concluída.
  */
 async function notifyMeetingEnded(botId: string, status: "ended" | "failed"): Promise<void> {
   const supabase = createServiceRoleClient();
@@ -624,7 +624,6 @@ export async function POST(request: NextRequest): Promise<Response> {
     }
     const result = data as MeetingStatusReceipt | null;
     const found = result?.found === true;
-    const applied = result?.applied === true;
 
     if (found && status === "in_call" && IN_CALL_EVENTS.has(parsed.event)) {
       try {
@@ -645,11 +644,28 @@ export async function POST(request: NextRequest): Promise<Response> {
       }
     }
 
-    if (applied && (status === "ended" || status === "failed")) {
-      try {
-        await notifyMeetingEnded(parsed.botId, status);
-      } catch (notifyError) {
-        trackError("recall_webhook_notify_failed", notifyError, { bot_id: parsed.botId });
+    if (status === "ended" || status === "failed") {
+      const { data: notificationClaimed, error: notificationClaimError } = await supabase.rpc(
+        "portal_claim_meeting_terminal_notification_service",
+        { p_recall_bot_id: parsed.botId },
+      );
+      if (notificationClaimError || typeof notificationClaimed !== "boolean") {
+        trackError(
+          "recall_webhook_terminal_notification_claim_failed",
+          notificationClaimError ?? new Error("terminal notification claim receipt invalid"),
+          { bot_id: parsed.botId },
+        );
+        return releaseForRetry("terminal_notification_claim_pending");
+      }
+      if (!notificationClaimed && !found) {
+        return releaseForRetry("terminal_notification_not_ready");
+      }
+      if (notificationClaimed) {
+        try {
+          await notifyMeetingEnded(parsed.botId, status);
+        } catch (notifyError) {
+          trackError("recall_webhook_notify_failed", notifyError, { bot_id: parsed.botId });
+        }
       }
     }
 

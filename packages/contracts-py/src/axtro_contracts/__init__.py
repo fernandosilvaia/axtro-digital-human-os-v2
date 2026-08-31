@@ -1,9 +1,9 @@
 """Generated contract type declarations. Do not edit manually."""
 from __future__ import annotations
 
-from typing import Any, Literal, TypedDict
+from typing import Any, Literal, TypeAlias, TypedDict
 
-CONTRACT_GENERATOR_VERSION = '1.0.0'
+CONTRACT_GENERATOR_VERSION = '1.1.0'
 
 # Source: contracts/schemas/action_intent.schema.json; schema: https://schemas.axtro.ai/v2/action_intent.schema.json; version: 2.0.0.
 class ActionIntent(TypedDict):
@@ -748,6 +748,27 @@ class TurnCommitted(TypedDict):
     repair_state: Literal['none', 'clarifying', 'recovering_interruption', 'recovering_tool_failure', 'recovering_connection']
     incremental_summary: str
 
+# Source: contracts/schemas/turn_outcome_recorded.schema.json; schema: https://schemas.axtro.ai/v2/turn_outcome_recorded.schema.json; version: 2.0.0.
+class _TurnOutcomeRecordedOutcomeSucceeded(TypedDict):
+    schema_version: Literal['2.0.0']
+    claim_id: str
+    generation: int
+    outcome: Literal['succeeded']
+    reason_code: Literal['generation_succeeded']
+    persistence: Literal['disabled', 'persisted']
+    resulting_turn_index: int
+
+class _TurnOutcomeRecordedOutcomeFailed(TypedDict):
+    schema_version: Literal['2.0.0']
+    claim_id: str
+    generation: int
+    outcome: Literal['failed']
+    reason_code: Literal['generation_failed', 'generated_reply_invalid', 'provider_response_uncommitted', 'state_issue_failed', 'session_expired', 'worker_lost']
+    persistence: None
+    resulting_turn_index: int
+
+TurnOutcomeRecorded: TypeAlias = _TurnOutcomeRecordedOutcomeSucceeded | _TurnOutcomeRecordedOutcomeFailed
+
 # Source: contracts/schemas/turn_submission.schema.json; schema: https://schemas.axtro.ai/v2/turn_submission.schema.json; version: 2.0.0.
 class TurnSubmission(TypedDict):
     schema_version: Literal['2.0.0']
@@ -1108,6 +1129,12 @@ CONTRACT_METADATA: dict[str, dict[str, str]] = {
     "source_hash": "7f490c188c3b700454ef15aa36503c5e25d9b30d14644a32b962e24653ba4b1d",
     "source_schema": "contracts/schemas/turn_committed.schema.json"
   },
+  "TurnOutcomeRecorded": {
+    "schema_id": "https://schemas.axtro.ai/v2/turn_outcome_recorded.schema.json",
+    "schema_version": "2.0.0",
+    "source_hash": "bc489b0b0b8d853a2025278951d482dc1612410cf4c3e83401809c03c9d4f288",
+    "source_schema": "contracts/schemas/turn_outcome_recorded.schema.json"
+  },
   "TurnSubmission": {
     "schema_id": "https://schemas.axtro.ai/v2/turn_submission.schema.json",
     "schema_version": "2.0.0",
@@ -1191,6 +1218,7 @@ __all__ = [
     'ToolContract',
     'ToolExecutionReceipt',
     'TurnCommitted',
+    'TurnOutcomeRecorded',
     'TurnSubmission',
     'WorkflowCommand',
     'WorkflowEnqueueReceipt',

@@ -1,6 +1,6 @@
 # Contracts
 
-This directory contains the **48 normative JSON Schemas** for Axtro Digital Human OS V2.
+This directory contains the **54 normative JSON Schemas** for Axtro Digital Human OS V2.
 
 - Draft: JSON Schema 2020-12
 - Every object is closed with `additionalProperties: false`.
@@ -10,6 +10,8 @@ This directory contains the **48 normative JSON Schemas** for Axtro Digital Huma
 - `session_state_snapshot` is a restricted, rebuildable cache of the complete interaction aggregate. It is never an authority independent from the canonical timeline.
 - `event_delivery_receipt` is internal operational evidence with canonical trace and correlation identity. It excludes payloads, claim tokens and raw errors by contract.
 - Post-call workflow status and step receipts have conditional state semantics, so terminal, waiting, retry and checkpoint fields cannot be combined arbitrarily.
+- `turn_outcome_recorded` is content-free canonical evidence for a fenced generation claim. Successful outcomes bind the persistence result and resulting turn index; failed outcomes carry only a closed reason code.
+- `x-axtro-discriminator` opts a schema into generated discriminated-union types only when every declared discriminator value has one machine-provable conditional branch.
 
 Run:
 

@@ -19,7 +19,7 @@
 `session.created`, `session.prepared`, `session.activated`, `session.degraded`, `session.completed`, `session.failed`.
 
 ### Conversation
-`turn.started`, `turn.committed`, `turn.interrupted`, `turn.response_started`, `turn.response_completed`.
+`turn.started`, `turn.committed`, `turn.outcome_recorded`, `turn.interrupted`, `turn.response_started`, `turn.response_completed`.
 
 M1-03 materializes `turn.committed` for both the authorized participant and
 the active Presenter. Its explicit payload carries the speaker participant ID,
@@ -27,6 +27,13 @@ speaker role, restricted transcript text, generation ID, and structured
 conversation patch. The reducer accepts a Presenter turn only when its speaker
 matches the active floor. `turn.interrupted` remains a canonical marker after
 the runtime safety lane has fenced the generation.
+
+M6-00 recovers `turn.outcome_recorded`, emitted by the restored Portal text
+preview database lineage. It is content-free and carries only `claim_id`,
+`generation`, `outcome`, a closed `reason_code`, persistence class and
+`resulting_turn_index`. Success advances the turn index by two. Failure
+preserves it. The payload never contains user text, model output, prompt,
+content digest or provider metadata.
 
 ### Presenter and handoff
 `presenter.floor_requested`, `presenter.changed`, `handoff.requested`, `handoff.accepted`, `handoff.expired`.
@@ -50,6 +57,13 @@ M0: transactional outbox plus a deterministic local relay seam. The repository c
 M1-07 adds a deterministic operational relay with one-event `runOnce`, tenant-scoped claims, bounded lease, historically single-use UUIDv7 fencing tokens, retry availability, maximum attempts and PII-free dead letters. The lease deadline is exclusive for acknowledgement and retry completion. The code-owned M1 registry accepts only `session-timeline`; the consumer reconciles tenant, session, event, aggregate version and canonical fingerprint before acknowledgement. The authoritative timeline is its idempotent effect ledger, so redelivery after an acknowledgement crash cannot duplicate state. A dead-lettered predecessor blocks only its aggregate. Receipt and `outbox.relay` telemetry preserve trace and correlation identity without payload; contract-valid trace IDs outside the 32-character W3C profile use a stable versioned hash normalization for spans while receipts retain the original value. The implementation has no broker, network, global tenant scan or PostgreSQL adapter and does not claim persistence across process loss. Workflow commands are not inferred from arbitrary event text; consumers map explicit event type to a future workflow start.
 
 M1-08 keeps that single consumer and adds a narrow composite completion handoff. Its composed factory requires the workflow sink at bootstrap and checks the dedicated `workflow:dispatch` authority before timeline append. The explicit timeline-only factory rejects completion before mutation. The timeline effect is reconciled first; only the exact `session.completed` type can enqueue the closed `post_call_processing@1.0.0` command. The outbox is acknowledged after both idempotent receipts match, and the composed effect hash binds the timeline state hash to the command fingerprint. A crash at either boundary is recoverable without a second command or follow-up guard. This is not generic fanout: another consumer or workflow profile requires per-consumer delivery state, a new contract and architectural review.
+
+The restored Portal text preview migration enqueues `turn.outcome_recorded`
+atomically with its fenced database claim. M6-00 restores producer-consumer
+compatibility only. The application preview runtime remains closed until its
+admission, browser command, signed state and action result contracts return as
+one reviewed bundle. A durable PostgreSQL relay from `events_outbox` to
+`session_timeline` remains a separate production gate.
 
 ## Ordering
 

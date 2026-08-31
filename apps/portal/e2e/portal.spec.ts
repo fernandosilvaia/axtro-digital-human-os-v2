@@ -5,7 +5,7 @@ import { expect, test } from "@playwright/test";
 
 /**
  * Fluxos críticos da UI logada, em modo demonstração (PORTAL_FAKE_PROVIDERS=1):
- * login real → dashboard → agentes (ativar/pausar) → chat determinístico →
+ * login real → dashboard → agentes (ativar/pausar) → preview textual bloqueado →
  * apresentação simulada. As credenciais do usuário demo vêm de .env.local.
  */
 
@@ -144,45 +144,13 @@ test("agentes: lista carrega e admin ativa e pausa um rascunho", async ({ page }
   await expect(brunoRow.getByRole("button", { name: "Ativar" })).toBeVisible({ timeout: 20_000 });
 });
 
-test("chat de teste responde em modo demonstração", async ({ page }) => {
+test("preview textual permanece fechado durante a recuperação contract-first", async ({ page }) => {
   await login(page);
   await page.goto(`/agentes/${RAFAELA_ID}/testar`);
-  await page.fill("#preview-message", "Quero entender como funciona a energia solar para minha casa.");
-  // exact:true — a página de teste também renderiza o botão "Enviar proposta"
-  // (ClosingProposal, D-V2-123) pra TODO agente; sem exact:true o match por
-  // substring quebra em "strict mode violation" (2 botões contêm "Enviar").
-  await page.getByRole("button", { name: "Enviar", exact: true }).click();
-  await expect(page.getByText("modo demonstração", { exact: false }).first()).toBeVisible({ timeout: 30_000 });
-});
-
-test("conversas: histórico de chat aparece na lista e no detalhe (D-V2-107 — caminho de leitura sem cobertura)", async ({ page }) => {
-  // Achado da auditoria 2026-08-11: o histórico de conversa (D-V2-106) não
-  // tinha NENHUM teste e2e cobrindo o caminho de LEITURA (portal_list_
-  // conversation_transcripts, portal_get_conversation_transcript, /conversas
-  // e /conversas/[id]) — só o parser do webhook da Tavus e a montagem de URL
-  // eram testados localmente. Marcador único por execução evita depender da
-  // ordem de outros testes que também tocam o chat/vídeo de teste.
-  await login(page);
-  const marker = `E2E histórico ${Date.now().toString(36)}`;
-  await page.goto(`/agentes/${RAFAELA_ID}/testar`);
-  await page.fill("#preview-message", marker);
-  // exact:true — mesma razão do teste "chat de teste responde em modo demonstração" acima.
-  await page.getByRole("button", { name: "Enviar", exact: true }).click();
-  await expect(page.getByText("modo demonstração", { exact: false }).first()).toBeVisible({ timeout: 30_000 });
-
-  await page.goto("/conversas");
-  await expect(page.getByRole("heading", { name: "Conversas" })).toBeVisible();
-  const row = page.locator("tbody tr").first();
-  await expect(row).toBeVisible({ timeout: 20_000 });
-  await expect(row.getByText("Chat de teste")).toBeVisible();
-
-  await row.getByRole("link", { name: "Ver" }).click();
-  // .first(): a resposta simulada em modo demonstração ecoa os 80 primeiros
-  // caracteres da mensagem no corpo da própria resposta — com o marcador
-  // curto, os dois turnos (pergunta do usuário e resposta do agente) contêm
-  // o texto, então getByText bate em 2 elementos (strict mode violation).
-  await expect(page.getByText(marker).first()).toBeVisible({ timeout: 20_000 });
-  await expect(page.getByText(`Cliente: ${marker}`)).toBeVisible();
+  const preview = page.locator('section[aria-labelledby="text-preview-recovery-title"]');
+  await expect(preview.getByRole("heading", { name: "Proteção de privacidade em restauração" })).toBeVisible();
+  await expect(preview.getByText("Nenhum provider, ledger ou transcript é acionado", { exact: false })).toBeVisible();
+  await expect(preview.locator("form, input, textarea, button")).toHaveCount(0);
 });
 
 test("apresentação simulada abre o deck e navega slides", async ({ page }) => {

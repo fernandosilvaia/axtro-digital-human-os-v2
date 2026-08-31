@@ -5,6 +5,7 @@ import type {
   InteractionSessionState,
   RoleState,
   SalesState,
+  TurnOutcomeRecorded,
 } from "@axtro/contracts-ts";
 
 import { parseCorrelationId, parseSessionId, parseTenantId, parseUuidV7 } from "./ids.js";
@@ -25,6 +26,7 @@ export const INTERACTION_EVENT_TYPES = [
   "session.completed",
   "session.failed",
   "turn.committed",
+  "turn.outcome_recorded",
   "turn.interrupted",
   "role.updated",
   "quality.updated",
@@ -44,6 +46,7 @@ export interface TurnCommittedPayload extends ConversationCommit {
   readonly transcript_text: string;
   readonly generation_id: number | null;
 }
+export type TurnOutcomeRecordedPayload = TurnOutcomeRecorded;
 type QualityDimensionUpdate = Omit<InteractionQualityState["dimensions"][number], "updated_at">;
 interface QualityUpdate {
   dimensions: QualityDimensionUpdate[];
@@ -72,6 +75,7 @@ export interface InteractionEventPayloads {
   "session.completed": Record<string, never>;
   "session.failed": Record<string, never>;
   "turn.committed": TurnCommittedPayload;
+  "turn.outcome_recorded": TurnOutcomeRecordedPayload;
   "turn.interrupted": Record<string, never>;
   "role.updated": RoleSeed;
   "quality.updated": QualityUpdate;
@@ -138,6 +142,17 @@ const REPAIR_STATES = [
   "recovering_connection",
 ] as const;
 const TURN_SPEAKER_ROLES = ["participant", "presenter"] as const;
+const TURN_OUTCOMES = ["succeeded", "failed"] as const;
+const TURN_OUTCOME_REASON_CODES = [
+  "generation_succeeded",
+  "generation_failed",
+  "generated_reply_invalid",
+  "provider_response_uncommitted",
+  "state_issue_failed",
+  "session_expired",
+  "worker_lost",
+] as const;
+const TURN_OUTCOME_PERSISTENCE = ["disabled", "persisted"] as const;
 const EVIDENCE_KINDS = [
   "explicit_user_statement",
   "tool_verified",
@@ -204,6 +219,9 @@ export function parseInteractionEvent(value: unknown): AnyInteractionEvent {
   if (eventType === "turn.committed" && dataClassification !== "restricted") {
     throw new DomainEventValidationError("turn.committed must use restricted data classification");
   }
+  if (eventType === "turn.outcome_recorded" && dataClassification !== "internal") {
+    throw new DomainEventValidationError("turn.outcome_recorded must use internal data classification");
+  }
 
   return {
     schema_version: schemaVersion,
@@ -265,6 +283,8 @@ function parsePayload<T extends InteractionEventType>(
     }
     case "turn.committed":
       return parseConversationCommit(value, schemaVersion) as InteractionEventPayloads[T];
+    case "turn.outcome_recorded":
+      return parseTurnOutcomeRecorded(value, schemaVersion) as InteractionEventPayloads[T];
     case "role.updated":
       return parseRoleSeed(value) as InteractionEventPayloads[T];
     case "quality.updated":
@@ -275,6 +295,63 @@ function parsePayload<T extends InteractionEventType>(
       return { state: parseSalesUpdate(payload.state) } as InteractionEventPayloads[T];
     }
   }
+}
+
+function parseTurnOutcomeRecorded(value: unknown, schemaVersion: SchemaVersion): TurnOutcomeRecordedPayload {
+  const payload = exactRecord(value, "payload for turn.outcome_recorded", [
+    "schema_version",
+    "claim_id",
+    "generation",
+    "outcome",
+    "reason_code",
+    "persistence",
+    "resulting_turn_index",
+  ]);
+  const payloadSchemaVersion = parseSchemaVersion(stringValue(payload.schema_version, "turn outcome.schema_version", 1, 20));
+  if (payloadSchemaVersion !== schemaVersion) {
+    throw new DomainEventValidationError("turn.outcome_recorded payload schema_version must equal event schema_version");
+  }
+  const outcome = enumValue(payload.outcome, TURN_OUTCOMES, "turn outcome.outcome");
+  const reasonCode = enumValue(payload.reason_code, TURN_OUTCOME_REASON_CODES, "turn outcome.reason_code");
+  const persistence = payload.persistence === null
+    ? null
+    : enumValue(payload.persistence, TURN_OUTCOME_PERSISTENCE, "turn outcome.persistence");
+  const claimId = parseUuidV7(payload.claim_id, "turn outcome.claim_id");
+  const generation = boundedIntegerValue(payload.generation, "turn outcome.generation", 0, 10_000_000);
+  const resultingTurnIndex = integerValue(payload.resulting_turn_index, "turn outcome.resulting_turn_index", 0);
+
+  if (outcome === "succeeded") {
+    if (reasonCode !== "generation_succeeded") {
+      throw new DomainEventValidationError("a succeeded turn outcome requires generation_succeeded");
+    }
+    if (persistence === null) {
+      throw new DomainEventValidationError("a succeeded turn outcome requires a persistence mode");
+    }
+    return {
+      schema_version: payloadSchemaVersion,
+      claim_id: claimId,
+      generation,
+      outcome: "succeeded",
+      reason_code: "generation_succeeded",
+      persistence,
+      resulting_turn_index: resultingTurnIndex,
+    };
+  }
+  if (reasonCode === "generation_succeeded") {
+    throw new DomainEventValidationError("generation_succeeded requires a succeeded turn outcome");
+  }
+  if (persistence !== null) {
+    throw new DomainEventValidationError("a failed turn outcome requires null persistence");
+  }
+  return {
+    schema_version: payloadSchemaVersion,
+    claim_id: claimId,
+    generation,
+    outcome: "failed",
+    reason_code: reasonCode,
+    persistence: null,
+    resulting_turn_index: resultingTurnIndex,
+  };
 }
 
 function parseSessionCreated(value: unknown): SessionCreatedPayload {
@@ -565,6 +642,14 @@ function integerValue(value: unknown, label: string, minimum: number): number {
     throw new DomainEventValidationError(`${label} must be an integer of at least ${minimum}`);
   }
   return value;
+}
+
+function boundedIntegerValue(value: unknown, label: string, minimum: number, maximum: number): number {
+  const integer = integerValue(value, label, minimum);
+  if (integer > maximum) {
+    throw new DomainEventValidationError(`${label} must be an integer between ${minimum} and ${maximum}`);
+  }
+  return integer;
 }
 
 function boundedNumber(value: unknown, label: string, minimum: number, maximum: number): number {

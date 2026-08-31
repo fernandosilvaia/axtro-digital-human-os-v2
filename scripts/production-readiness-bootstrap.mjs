@@ -3,8 +3,10 @@
 import { createHash, randomBytes } from "node:crypto";
 import { pathToFileURL } from "node:url";
 
-export const PRODUCTION_BOOTSTRAP_VERSION = "m5-02-v1";
-export const REQUIRED_SCHEMA_VERSION = 48;
+export const PRODUCTION_BOOTSTRAP_VERSION = "m6-00-v1";
+export const FINANCIAL_WORKER_HEARTBEAT_VERSION = "m5-02-v1";
+export const REQUIRED_SCHEMA_VERSION = 56;
+const COMPATIBLE_SCHEMA_VERSIONS = new Set([50, REQUIRED_SCHEMA_VERSION]);
 
 const REQUEST_TIMEOUT_MS = 20_000;
 const MAX_RPC_RESPONSE_BYTES = 64 * 1024;
@@ -34,6 +36,16 @@ const REQUIRED_CAPABILITIES = Object.freeze([
   "providerTranscriptService",
   "authenticatedProviderTranscriptPreclaimBlocked",
   "authenticatedMeetingBotPreclaimBlocked",
+  "portalTextPreviewAdmission",
+  "portalTextPreviewTurnFence",
+  "portalTextPreviewEgressAuthorization",
+  "portalTextPreviewProviderFailureReceipt",
+  "portalTextTranscriptOptIn",
+  "portalTextPreviewCleanup",
+  "portalTextPreviewCanonicalOutbox",
+  "portalTextPreviewSecurityBoundary",
+  "legacyAuthenticatedChatTranscriptWriterAvailable",
+  "meetingTerminalNotificationClaim",
   "billingCheckoutIntents",
   "strictSubscriptionIdentity",
   "legacySubscriptionWriterRevoked",
@@ -48,12 +60,26 @@ const REQUIRED_CAPABILITIES = Object.freeze([
   "runtimeBridgeReceiptIntegrity",
 ]);
 
+const REQUIRED_BUSINESS_ACTION_CAPABILITIES = Object.freeze([
+  "businessActionKillSwitches",
+  "businessActionGrants",
+  "businessActionReceipts",
+  "businessActionLeads",
+  "businessActionProposals",
+  "businessActionCalendarReservations",
+  "businessActionCalendarConnections",
+  "businessActionCalendarCredentialRead",
+  "businessActionLiveCallContext",
+  "businessActionEmailLengthBound",
+]);
+
 const SERVICE_ROLE_RPC_PROBE = Object.freeze({
   p_tenant_id: "019f0000-0000-7000-8000-000000004701",
   p_agent_id: "019f0000-0000-7000-8000-000000004702",
   p_channel_kind: "bootstrap_probe",
   p_capability: "bootstrap_probe",
 });
+const TERMINAL_NOTIFICATION_CLAIM_PROBE = Object.freeze({ p_recall_bot_id: "readiness-probe-not-a-uuid" });
 
 const PRICE_CATALOG = Object.freeze([
   Object.freeze({ env: "STRIPE_PRICE_PILOTO_BASE", amount: 49_700, usageType: "licensed" }),
@@ -206,8 +232,12 @@ function validateEnvironment(env) {
   const meterEventName = normalizedEnv(env, "STRIPE_CONVERSATION_OVERAGE_EVENT_NAME");
   const priceIds = PRICE_CATALOG.map(({ env: name }) => normalizedEnv(env, name));
   const providerMode = normalizedEnv(env, "PORTAL_FAKE_PROVIDERS");
+  const businessActionBridge = normalizedEnv(env, "PORTAL_BUSINESS_ACTION_BRIDGE_ENABLED");
+  const portalTextPreviewRecoveryGate = env.PORTAL_TEXT_PREVIEW_ENABLED === "false";
   if (
     (providerMode !== "" && providerMode !== "0")
+    || (businessActionBridge !== "" && businessActionBridge !== "false" && businessActionBridge !== "true")
+    || !portalTextPreviewRecoveryGate
     || normalizedEnv(env, "BILLING_USAGE_OUTBOX_ENABLED") !== "true"
     || normalizedEnv(env, "PROVIDER_EFFECT_RECONCILER_ENABLED") !== "true"
     || serviceRoleKey.length < 20
@@ -219,7 +249,15 @@ function validateEnvironment(env) {
   ) fail("CONFIG_INVALID");
   const stripeMode = stripeApiMode(stripeSecretKey);
   deploymentId(env);
-  return Object.freeze({ supabaseOrigin, serviceRoleKey, stripeSecretKey, stripeMode, meterEventName, priceIds });
+  return Object.freeze({
+    supabaseOrigin,
+    serviceRoleKey,
+    stripeSecretKey,
+    stripeMode,
+    meterEventName,
+    priceIds,
+    businessActionsEnabled: businessActionBridge === "true",
+  });
 }
 
 async function readBoundedJson(response) {
@@ -259,6 +297,7 @@ async function readBoundedJson(response) {
 function createRpc(configuration, fetchImplementation) {
   const allowedRpcs = new Set([
     "portal_schema_capabilities_service",
+    "portal_claim_meeting_terminal_notification_service",
     "portal_runtime_channel_status_service",
     "portal_billing_usage_backlog_service",
     "portal_provider_effect_reconciliation_backlog_service",
@@ -313,12 +352,17 @@ function createReadOnlyStripeFetch(fetchImplementation) {
   };
 }
 
-function validateSchema(value) {
+function validateSchema(value, businessActionsEnabled) {
   const capabilities = ownRecord(value);
   if (
     !capabilities
-    || capabilities.version !== REQUIRED_SCHEMA_VERSION
+    || !Number.isSafeInteger(capabilities.version)
+    || !COMPATIBLE_SCHEMA_VERSIONS.has(capabilities.version)
     || !REQUIRED_CAPABILITIES.every((capability) => capabilities[capability] === true)
+    || (businessActionsEnabled && (
+      capabilities.version !== REQUIRED_SCHEMA_VERSION
+      || !REQUIRED_BUSINESS_ACTION_CAPABILITIES.every((capability) => capabilities[capability] === true)
+    ))
   ) fail("SCHEMA_CAPABILITY_MISMATCH");
   return capabilities;
 }
@@ -328,6 +372,10 @@ function validateServiceRoleRpcProbe(value) {
   if (!result || Object.keys(result).length !== 1 || result.enabled !== false) {
     fail("SERVICE_ROLE_RPC_PROBE_INVALID");
   }
+}
+
+function validateTerminalNotificationClaimProbe(value) {
+  if (value !== false) fail("TERMINAL_NOTIFICATION_CLAIM_PROBE_INVALID");
 }
 
 function uuidV7(nowMs = Date.now(), entropy = randomBytes(10)) {
@@ -352,7 +400,7 @@ async function recordHeartbeat(rpc, worker, runId, phase, identity, counters) {
     p_worker_kind: worker,
     p_run_id: runId,
     p_phase: phase,
-    p_version: PRODUCTION_BOOTSTRAP_VERSION,
+    p_version: FINANCIAL_WORKER_HEARTBEAT_VERSION,
     p_deployment_id: identity.deploymentId,
     p_config_fingerprint: identity.configFingerprint,
     p_counters: counters,
@@ -367,7 +415,14 @@ export async function runProductionReadinessBootstrap(dependencies = {}) {
   const configuration = validateEnvironment(env);
   const rpc = createRpc(configuration, fetchImplementation);
 
-  validateSchema(await rpc("portal_schema_capabilities_service"));
+  const schema = validateSchema(
+    await rpc("portal_schema_capabilities_service"),
+    configuration.businessActionsEnabled,
+  );
+  validateTerminalNotificationClaimProbe(await rpc(
+    "portal_claim_meeting_terminal_notification_service",
+    TERMINAL_NOTIFICATION_CLAIM_PROBE,
+  ));
   validateServiceRoleRpcProbe(await rpc("portal_runtime_channel_status_service", SERVICE_ROLE_RPC_PROBE));
   const billingBacklog = parseBacklog(
     await rpc("portal_billing_usage_backlog_service"),
@@ -460,7 +515,7 @@ export async function runProductionReadinessBootstrap(dependencies = {}) {
 
   return Object.freeze({
     ok: true,
-    schemaVersion: REQUIRED_SCHEMA_VERSION,
+    schemaVersion: schema.version,
     bootstrapVersion: PRODUCTION_BOOTSTRAP_VERSION,
     deploymentId: billingIdentity.deploymentId,
     stripeMode: configuration.stripeMode,

@@ -4,6 +4,7 @@ import { readFileSync } from "node:fs";
 import test from "node:test";
 
 import {
+  FINANCIAL_WORKER_HEARTBEAT_VERSION,
   PRODUCTION_BOOTSTRAP_VERSION,
   ProductionReadinessBootstrapError,
   financialWorkerIdentity,
@@ -21,6 +22,8 @@ const ENV = Object.freeze({
   RAILWAY_GIT_COMMIT_SHA: "0123456789abcdef0123456789abcdef01234567",
   BILLING_USAGE_OUTBOX_ENABLED: "true",
   PROVIDER_EFFECT_RECONCILER_ENABLED: "true",
+  PORTAL_BUSINESS_ACTION_BRIDGE_ENABLED: "false",
+  PORTAL_TEXT_PREVIEW_ENABLED: "false",
   RECALL_API_REGION: "us-west-2",
   STRIPE_SECRET_KEY: "sk_test_production_bootstrap_20260813",
   STRIPE_CONVERSATION_OVERAGE_EVENT_NAME: "axtro_conversation_overage",
@@ -33,7 +36,7 @@ const ENV = Object.freeze({
 });
 
 const SCHEMA = Object.freeze({
-  version: 48,
+  version: 50,
   providerEffectReservations: true,
   providerEffectTerminationFence: true,
   tavusStageExpiryConcurrencyFence: true,
@@ -52,6 +55,16 @@ const SCHEMA = Object.freeze({
   providerTranscriptService: true,
   authenticatedProviderTranscriptPreclaimBlocked: true,
   authenticatedMeetingBotPreclaimBlocked: true,
+  portalTextPreviewAdmission: true,
+  portalTextPreviewTurnFence: true,
+  portalTextPreviewEgressAuthorization: true,
+  portalTextPreviewProviderFailureReceipt: true,
+  portalTextTranscriptOptIn: true,
+  portalTextPreviewCleanup: true,
+  portalTextPreviewCanonicalOutbox: true,
+  portalTextPreviewSecurityBoundary: true,
+  legacyAuthenticatedChatTranscriptWriterAvailable: true,
+  meetingTerminalNotificationClaim: true,
   billingCheckoutIntents: true,
   strictSubscriptionIdentity: true,
   legacySubscriptionWriterRevoked: true,
@@ -64,6 +77,25 @@ const SCHEMA = Object.freeze({
   runtimeKillSwitches: true,
   runtimeDualOperatorReconciliation: true,
   runtimeBridgeReceiptIntegrity: true,
+});
+
+const BUSINESS_ACTION_CAPABILITIES = Object.freeze({
+  businessActionKillSwitches: true,
+  businessActionGrants: true,
+  businessActionReceipts: true,
+  businessActionLeads: true,
+  businessActionProposals: true,
+  businessActionCalendarReservations: true,
+  businessActionCalendarConnections: true,
+  businessActionCalendarCredentialRead: true,
+  businessActionLiveCallContext: true,
+  businessActionEmailLengthBound: true,
+});
+
+const BUSINESS_ACTION_SCHEMA = Object.freeze({
+  ...SCHEMA,
+  version: 56,
+  ...BUSINESS_ACTION_CAPABILITIES,
 });
 
 const BILLING_BACKLOG = Object.freeze({
@@ -125,6 +157,13 @@ function fakeFetch(options = {}) {
       const rpc = url.pathname.split("/").at(-1);
       const parameters = JSON.parse(init.body);
       if (rpc === "portal_schema_capabilities_service") return json(options.schema ?? SCHEMA);
+      if (rpc === "portal_claim_meeting_terminal_notification_service") {
+        assert.deepEqual(parameters, { p_recall_bot_id: "readiness-probe-not-a-uuid" });
+        if (options.terminalClaimProbeStatus !== undefined) {
+          return json({ error: "terminal notification claim probe denied" }, options.terminalClaimProbeStatus);
+        }
+        return json(Object.hasOwn(options, "terminalClaimProbe") ? options.terminalClaimProbe : false);
+      }
       if (rpc === "portal_runtime_channel_status_service") {
         if (options.runtimeProbeStatus !== undefined) return json({ error: "runtime probe denied" }, options.runtimeProbeStatus);
         return json(Object.hasOwn(options, "runtimeProbe") ? options.runtimeProbe : { enabled: false });
@@ -194,7 +233,7 @@ function isCode(code) {
   return (error) => error instanceof ProductionReadinessBootstrapError && error.code === code;
 }
 
-test("schema v48 capability mismatch fails before the typed RPC probe, backlog, Stripe or heartbeat calls", async () => {
+test("base schema capability mismatch fails before the typed RPC probe, backlog, Stripe or heartbeat calls", async () => {
   for (const capability of [
     "workerHeartbeats",
     "billingCheckoutIntents",
@@ -212,6 +251,16 @@ test("schema v48 capability mismatch fails before the typed RPC probe, backlog, 
     "runtimeKillSwitches",
     "runtimeDualOperatorReconciliation",
     "runtimeBridgeReceiptIntegrity",
+    "portalTextPreviewAdmission",
+    "portalTextPreviewTurnFence",
+    "portalTextPreviewEgressAuthorization",
+    "portalTextPreviewProviderFailureReceipt",
+    "portalTextTranscriptOptIn",
+    "portalTextPreviewCleanup",
+    "portalTextPreviewCanonicalOutbox",
+    "portalTextPreviewSecurityBoundary",
+    "legacyAuthenticatedChatTranscriptWriterAvailable",
+    "meetingTerminalNotificationClaim",
   ]) {
     for (const absentValue of [false, undefined]) {
       const { calls, promise } = run({ schema: { ...SCHEMA, [capability]: absentValue } });
@@ -222,12 +271,75 @@ test("schema v48 capability mismatch fails before the typed RPC probe, backlog, 
   }
 });
 
-test("bootstrap requires schema version 48 exactly before any downstream probe", async () => {
-  for (const version of [42, 43, 44, 45, 46, 47, undefined]) {
+test("bootstrap rejects unknown or malformed schema versions before any downstream probe", async () => {
+  for (const version of [42, 43, 44, 45, 46, 47, 48, 49, 51, 52, 53, 54, 55, 56.5, 57, "56", undefined]) {
     const { calls, promise } = run({ schema: { ...SCHEMA, version } });
     await assert.rejects(promise, isCode("SCHEMA_CAPABILITY_MISMATCH"));
     assert.equal(calls.length, 1, `version:${String(version)}`);
     assert.match(calls[0].url, /portal_schema_capabilities_service$/);
+  }
+});
+
+test("business actions disabled accept only schemas v50 and v56 with the terminal claim", async () => {
+  for (const version of [50, 56]) {
+    const { promise } = run({ schema: { ...SCHEMA, version } });
+    assert.equal((await promise).schemaVersion, version);
+  }
+});
+
+test("bootstrap requires an inert false receipt from the terminal notification claim RPC", async () => {
+  for (const [label, options, code] of [
+    ["permission denied", { terminalClaimProbeStatus: 403 }, "RPC_UNAVAILABLE"],
+    ["unexpected claim", { terminalClaimProbe: true }, "TERMINAL_NOTIFICATION_CLAIM_PROBE_INVALID"],
+    ["wrong receipt type", { terminalClaimProbe: "false" }, "TERMINAL_NOTIFICATION_CLAIM_PROBE_INVALID"],
+    ["null receipt", { terminalClaimProbe: null }, "TERMINAL_NOTIFICATION_CLAIM_PROBE_INVALID"],
+  ]) {
+    const { calls, promise } = run(options);
+    await assert.rejects(promise, isCode(code), label);
+    assert.deepEqual(calls.map((call) => new URL(call.url).pathname), [
+      "/rest/v1/rpc/portal_schema_capabilities_service",
+      "/rest/v1/rpc/portal_claim_meeting_terminal_notification_service",
+    ], label);
+  }
+});
+
+test("business actions enabled require v56 and every repaired business capability before downstream work", async () => {
+  for (const version of [48, 49, 50, 51, 52, 53, 54, 55]) {
+    const { calls, promise } = run({
+      env: { PORTAL_BUSINESS_ACTION_BRIDGE_ENABLED: "true" },
+      schema: { ...BUSINESS_ACTION_SCHEMA, version },
+    });
+    await assert.rejects(promise, isCode("SCHEMA_CAPABILITY_MISMATCH"));
+    assert.equal(calls.length, 1, `version:${version}`);
+  }
+  for (const capability of Object.keys(BUSINESS_ACTION_CAPABILITIES)) {
+    for (const absentValue of [false, undefined]) {
+      const { calls, promise } = run({
+        env: { PORTAL_BUSINESS_ACTION_BRIDGE_ENABLED: "true" },
+        schema: { ...BUSINESS_ACTION_SCHEMA, [capability]: absentValue },
+      });
+      await assert.rejects(promise, isCode("SCHEMA_CAPABILITY_MISMATCH"));
+      assert.equal(calls.length, 1, `${capability}:${String(absentValue)}`);
+    }
+  }
+  const { promise } = run({
+    env: { PORTAL_BUSINESS_ACTION_BRIDGE_ENABLED: "true" },
+    schema: BUSINESS_ACTION_SCHEMA,
+  });
+  assert.equal((await promise).schemaVersion, 56);
+});
+
+test("bootstrap rejects a non-boolean business-action flag before any remote request", async () => {
+  const { calls, promise } = run({ env: { PORTAL_BUSINESS_ACTION_BRIDGE_ENABLED: "enabled" } });
+  await assert.rejects(promise, isCode("CONFIG_INVALID"));
+  assert.equal(calls.length, 0);
+});
+
+test("bootstrap requires the text preview recovery gate to be exactly false before any remote request", async () => {
+  for (const value of [undefined, "", "true", "TRUE", "False", " false ", "0"]) {
+    const { calls, promise } = run({ env: { PORTAL_TEXT_PREVIEW_ENABLED: value } });
+    await assert.rejects(promise, isCode("CONFIG_INVALID"), String(value));
+    assert.equal(calls.length, 0, String(value));
   }
 });
 
@@ -236,6 +348,7 @@ test("typed service-role RPC probe fails closed on PostgREST denial before any s
   await assert.rejects(promise, isCode("RPC_UNAVAILABLE"));
   assert.deepEqual(calls.map((call) => new URL(call.url).pathname), [
     "/rest/v1/rpc/portal_schema_capabilities_service",
+    "/rest/v1/rpc/portal_claim_meeting_terminal_notification_service",
     "/rest/v1/rpc/portal_runtime_channel_status_service",
   ]);
 });
@@ -244,7 +357,7 @@ test("typed service-role RPC probe requires the exact inert response shape", asy
   for (const runtimeProbe of [{ enabled: true }, {}, { enabled: false, capability: "bootstrap_probe" }, null]) {
     const { calls, promise } = run({ runtimeProbe });
     await assert.rejects(promise, isCode("SERVICE_ROLE_RPC_PROBE_INVALID"));
-    assert.equal(calls.length, 2);
+    assert.equal(calls.length, 3);
   }
 });
 
@@ -302,7 +415,7 @@ test("happy path validates all read-only probes then persists exact versioned he
   const { calls, promise } = run();
   assert.deepEqual(await promise, {
     ok: true,
-    schemaVersion: 48,
+    schemaVersion: 50,
     bootstrapVersion: PRODUCTION_BOOTSTRAP_VERSION,
     deploymentId: ENV.RAILWAY_GIT_COMMIT_SHA,
     stripeMode: "test",
@@ -330,7 +443,10 @@ test("happy path validates all read-only probes then persists exact versioned he
     ["provider_effect_reconciler", "started"],
     ["provider_effect_reconciler", "succeeded"],
   ]);
-  assert.ok(heartbeatCalls.every((call) => call.p_version === PRODUCTION_BOOTSTRAP_VERSION));
+  assert.equal(PRODUCTION_BOOTSTRAP_VERSION, "m6-00-v1");
+  assert.equal(FINANCIAL_WORKER_HEARTBEAT_VERSION, "m5-02-v1");
+  assert.notEqual(PRODUCTION_BOOTSTRAP_VERSION, FINANCIAL_WORKER_HEARTBEAT_VERSION);
+  assert.ok(heartbeatCalls.every((call) => call.p_version === FINANCIAL_WORKER_HEARTBEAT_VERSION));
   assert.ok(heartbeatCalls.every((call) => call.p_deployment_id === ENV.RAILWAY_GIT_COMMIT_SHA));
   assert.deepEqual(heartbeatCalls[0].p_counters, {});
   assert.equal(heartbeatCalls[1].p_counters.catalogVerified, true);

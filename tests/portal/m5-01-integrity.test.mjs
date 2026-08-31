@@ -54,7 +54,7 @@ test("all Tavus and Recall creation surfaces use the durable reservation boundar
   assert.doesNotMatch(leadRoute, /count:\s*"exact"/);
 });
 
-test("paid outliers are closed until they own a durable intent and AI validates before dispatch", () => {
+test("paid outliers stay closed and enabled AI surfaces validate before dispatch", () => {
   assert.doesNotMatch(agentVideo, /createTavusVideoConversationPort|\.createPersona\(|attachToolsToPersona\(/);
   assert.match(agentVideo, /durable_persona_intent_required/);
   assert.doesNotMatch(proposalActions, /createProspectCheckoutSession/);
@@ -64,10 +64,9 @@ test("paid outliers are closed until they own a durable intent and AI validates 
   const ingestReservation = resourceActions.indexOf("executeReservedAiUsage({");
   assert.equal(ingestPreflight >= 0 && ingestPreflight < ingestReservation, true,
     "knowledge input must be bounded before its reservation can reach OpenRouter");
-  const previewPreflight = agentPreview.lastIndexOf("prepareEmbeddingQueryForReservedUsage");
-  const previewBegin = agentPreview.indexOf("const retrievalReservationResult = await beginAiUsage({");
-  assert.equal(previewPreflight >= 0 && previewPreflight < previewBegin, true,
-    "chat retrieval input must be bounded before the reservation fence");
+  assert.match(agentPreview, /return \{ reply: null, error: PORTAL_TEXT_PREVIEW_RECOVERY_MESSAGE \};/);
+  assert.doesNotMatch(agentPreview, /beginAiUsage|createOpenRouter|createClient|createServiceRoleClient/,
+    "the recovery gate must have no path to an AI, persistence or provider effect");
   const brainPreflight = brainRoute.lastIndexOf("prepareEmbeddingQueryForReservedUsage");
   const brainBegin = brainRoute.indexOf("const begin = await beginAiUsage({");
   assert.equal(brainPreflight >= 0 && brainPreflight < brainBegin, true,
@@ -268,6 +267,7 @@ test("liveness is independent and readiness requires schema 43 plus real-mode HM
     BILLING_USAGE_OUTBOX_ENABLED: "false",
     PROVIDER_EFFECT_RECONCILER_ENABLED: "true",
     PROVIDER_EFFECT_RECONCILE_SECRET: "z".repeat(24),
+    PORTAL_TEXT_PREVIEW_ENABLED: "false",
   };
   assert.equal(readiness.readinessConfigOk(readiness.readinessConfig(base)), false, "real mode fails closed when durable billing dispatch is disabled");
   for (const broken of [
@@ -303,5 +303,6 @@ test("liveness is independent and readiness requires schema 43 plus real-mode HM
     PORTAL_FAKE_PROVIDERS: "1",
     BILLING_USAGE_OUTBOX_ENABLED: "false",
     PROVIDER_EFFECT_RECONCILER_ENABLED: "false",
+    PORTAL_TEXT_PREVIEW_ENABLED: "false",
   })), true);
 });

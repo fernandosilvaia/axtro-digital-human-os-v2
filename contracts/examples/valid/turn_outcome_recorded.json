@@ -1,0 +1,9 @@
+{
+  "schema_version": "2.0.0",
+  "claim_id": "019f0000-0000-7000-8000-000000000a01",
+  "generation": 1,
+  "outcome": "failed",
+  "reason_code": "provider_response_uncommitted",
+  "persistence": null,
+  "resulting_turn_index": 0
+}

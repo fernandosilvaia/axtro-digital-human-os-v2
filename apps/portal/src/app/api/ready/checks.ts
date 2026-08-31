@@ -29,6 +29,8 @@ export interface ReadinessChecks {
   readonly stripe_price_catalog: boolean;
   readonly provider_effect_reconciler_flag: boolean;
   readonly provider_effect_reconcile_secret: boolean;
+  readonly business_action_bridge_flag: boolean;
+  readonly portal_text_preview_recovery_gate: boolean;
 }
 
 function isHttpsUrl(value: string | undefined): boolean {
@@ -101,6 +103,7 @@ export function readinessConfig(env: NodeJS.ProcessEnv): ReadinessChecks {
   const billingDisabled = fakeMode && billingUsageOutbox === false;
   const providerEffectReconciler = parseOptionalFeatureFlag(env.PROVIDER_EFFECT_RECONCILER_ENABLED);
   const providerEffectReconcilerDisabled = fakeMode && providerEffectReconciler === false;
+  const businessActionBridge = parseOptionalFeatureFlag(env.PORTAL_BUSINESS_ACTION_BRIDGE_ENABLED);
   return {
     supabase_url: isHttpsUrl(env.NEXT_PUBLIC_SUPABASE_URL?.trim()),
     supabase_publishable_key: (env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY ?? "").trim().length > 0,
@@ -127,7 +130,13 @@ export function readinessConfig(env: NodeJS.ProcessEnv): ReadinessChecks {
       && (fakeMode || providerEffectReconciler === true),
     provider_effect_reconcile_secret: providerEffectReconcilerDisabled
       || hasKey(env.PROVIDER_EFFECT_RECONCILE_SECRET, 24),
+    business_action_bridge_flag: businessActionBridge !== null,
+    portal_text_preview_recovery_gate: env.PORTAL_TEXT_PREVIEW_ENABLED === "false",
   };
+}
+
+export function readinessBusinessActionsEnabled(env: NodeJS.ProcessEnv): boolean {
+  return parseOptionalFeatureFlag(env.PORTAL_BUSINESS_ACTION_BRIDGE_ENABLED) === true;
 }
 
 export function readinessRequiresProviderEffectReconciliation(env: NodeJS.ProcessEnv): boolean {

@@ -49,12 +49,16 @@ class ContractGenerationTests(unittest.TestCase):
             self.assertEqual(0, second.returncode, second.stdout + second.stderr)
             self.assertEqual(first_ts, generated_ts.read_bytes())
             self.assertEqual(first_py, generated_py.read_bytes())
-            self.assertEqual(53, generated_ts.read_text(encoding="utf-8").count('"source_schema"'))
+            generated_typescript = generated_ts.read_text(encoding="utf-8")
+            self.assertEqual(54, generated_typescript.count('"source_schema"'))
             generated_python = generated_py.read_text(encoding="utf-8")
             self.assertIn("schema_version", generated_python)
             self.assertIn("class _FakeProviderScenarioRequired(TypedDict):", generated_python)
             self.assertIn("class FakeProviderScenario(_FakeProviderScenarioRequired, total=False):", generated_python)
             self.assertIn("operation: Literal['channel.health'", generated_python)
+            self.assertIn("export type TurnOutcomeRecorded =", generated_typescript)
+            self.assertIn("TurnOutcomeRecorded: TypeAlias =", generated_python)
+            compile(generated_python, str(generated_py), "exec")
 
     def test_every_invalid_example_is_rejected_by_its_source_schema(self) -> None:
         rejected = 0
@@ -66,7 +70,7 @@ class ContractGenerationTests(unittest.TestCase):
             errors = list(Draft202012Validator(schema, registry=registry).iter_errors(example))
             self.assertTrue(errors, f"{example_path.relative_to(ROOT)} unexpectedly passed")
             rejected += 1
-        self.assertEqual(53, rejected)
+        self.assertEqual(54, rejected)
 
     def test_runtime_configuration_contract_rejects_live_mode_and_secret_like_handles(self) -> None:
         schema_path = SCHEMAS / "runtime_configuration.schema.json"
@@ -90,6 +94,37 @@ class ContractGenerationTests(unittest.TestCase):
         }
         for candidate in (participant_with_generation, presenter_without_generation):
             self.assertTrue(list(validator.iter_errors(candidate)), "role and generation unexpectedly passed")
+
+    def test_turn_outcome_recorded_couples_success_failure_and_persistence(self) -> None:
+        schema = json.loads((SCHEMAS / "turn_outcome_recorded.schema.json").read_text(encoding="utf-8"))
+        valid = json.loads((VALID / "turn_outcome_recorded.json").read_text(encoding="utf-8"))
+        validator = Draft202012Validator(schema)
+        self.assertFalse(list(validator.iter_errors(valid)))
+        self.assertEqual("failed", valid["outcome"])
+        self.assertEqual("provider_response_uncommitted", valid["reason_code"])
+        self.assertIsNone(valid["persistence"])
+
+        succeeded = {
+            **valid,
+            "outcome": "succeeded",
+            "reason_code": "generation_succeeded",
+            "persistence": "disabled",
+            "resulting_turn_index": 2,
+        }
+        self.assertFalse(list(validator.iter_errors(succeeded)))
+        mutations = (
+            {**succeeded, "reason_code": "generation_failed"},
+            {**succeeded, "reason_code": "provider_response_uncommitted"},
+            {**succeeded, "persistence": None},
+            {**valid, "reason_code": "generation_succeeded"},
+            {**valid, "persistence": "disabled"},
+            {**valid, "generation": 10000001},
+            {**valid, "resulting_turn_index": -1},
+            {**valid, "reply": "content must not enter the event"},
+            {**valid, "provider_request_id": "opaque-provider-id"},
+        )
+        for candidate in mutations:
+            self.assertTrue(list(validator.iter_errors(candidate)), "crossed turn outcome passed")
 
     def test_context_composition_contract_binds_kind_to_trust_and_provenance(self) -> None:
         schema_path = SCHEMAS / "context_composition.schema.json"

@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import { spawn, spawnSync } from "node:child_process";
-import { existsSync, mkdtempSync, readdirSync, rmSync } from "node:fs";
+import { createHash } from "node:crypto";
+import { existsSync, mkdtempSync, readFileSync, readdirSync, rmSync } from "node:fs";
 import { createServer } from "node:net";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -8,6 +9,7 @@ import process from "node:process";
 import { fileURLToPath } from "node:url";
 
 const database = await import(new URL("../packages/database/dist/index.js", import.meta.url));
+const domain = await import(new URL("../packages/domain/dist/index.js", import.meta.url));
 const repositoryRoot = fileURLToPath(new URL("../", import.meta.url));
 const supabaseMigrationDirectory = join(repositoryRoot, "database", "supabase-only");
 const externalDatabaseUrl = process.env.AXTRO_LOCAL_DATABASE_URL;
@@ -38,6 +40,11 @@ const fixture = Object.freeze({
   transcriptBase: "019f0000-0000-7000-8000-000000001000",
   providerTranscript: "019f0000-0000-7000-8000-000000001100",
 });
+
+function parseCanonicalOutboxInteractionEvent(envelope) {
+  const { payload_json: payloadJson, ...event } = envelope;
+  return domain.parseInteractionEvent({ ...event, payload: JSON.parse(payloadJson) });
+}
 
 let cluster;
 let temporaryDirectory;
@@ -110,22 +117,27 @@ try {
   await assertTerminationFencePhase(databaseUrl, { expectedSchemaVersion: 48, expectTimestampFence: true });
   assertFailed(runFile(databaseUrl, join(supabaseMigrationDirectory, "0040_production_integrity_hardening.sql")), "non-idempotent 0040 cannot be replayed without a migration receipt gate");
   assert.equal(queryScalar(databaseUrl, "SELECT count(*) FROM public.axtro_supabase_test_migrations;"), "48");
+  seedPreV49CanonicalOutboxPayloadShapes(databaseUrl);
+  const textPreviewApplied = applySupabaseMigrations(databaseUrl, 49, 49);
+  assert.deepEqual(textPreviewApplied, ["0049"]);
+  assertPortalTextPreviewCapabilityPhase(databaseUrl);
+  assertSchemaLineageCapabilities(databaseUrl, 49, { textPreview: true, terminalNotification: false, businessActions: false });
+  const terminalNotificationApplied = applySupabaseMigrations(databaseUrl, 50, 50);
+  assert.deepEqual(terminalNotificationApplied, ["0050"]);
+  await assertMeetingTerminalNotificationClaimPhase(databaseUrl);
+  assertSchemaLineageCapabilities(databaseUrl, 50, { textPreview: true, terminalNotification: true, businessActions: false });
   const businessActionApplied = applySupabaseMigrations(databaseUrl, 51, 51);
   assert.deepEqual(businessActionApplied, ["0051"]);
   assertBusinessActionBridgeContractPhase(databaseUrl);
-  assert.equal(queryScalar(databaseUrl, "SELECT count(*) FROM public.axtro_supabase_test_migrations;"), "49");
   const calendarSchedulingApplied = applySupabaseMigrations(databaseUrl, 52, 52);
   assert.deepEqual(calendarSchedulingApplied, ["0052"]);
   assertBusinessActionCalendarSchedulingPhase(databaseUrl);
-  assert.equal(queryScalar(databaseUrl, "SELECT count(*) FROM public.axtro_supabase_test_migrations;"), "50");
   const calendarCredentialReadApplied = applySupabaseMigrations(databaseUrl, 53, 53);
   assert.deepEqual(calendarCredentialReadApplied, ["0053"]);
   assertBusinessActionCalendarCredentialReadPhase(databaseUrl);
-  assert.equal(queryScalar(databaseUrl, "SELECT count(*) FROM public.axtro_supabase_test_migrations;"), "51");
   const liveCallContextApplied = applySupabaseMigrations(databaseUrl, 54, 54);
   assert.deepEqual(liveCallContextApplied, ["0054"]);
   assertBusinessActionLiveCallContextPhase(databaseUrl);
-  assert.equal(queryScalar(databaseUrl, "SELECT count(*) FROM public.axtro_supabase_test_migrations;"), "52");
   // 0055 has no dedicated "phase" assertion function (see assertMigrationCapabilities'
   // comment on why portal_schema_capabilities_service() was deliberately
   // left untouched); its behavior is instead proven as an extension of
@@ -133,7 +145,11 @@ try {
   // below, the same functions that already exercise every RPC it touches.
   const emailLengthBoundApplied = applySupabaseMigrations(databaseUrl, 55, 55);
   assert.deepEqual(emailLengthBoundApplied, ["0055"]);
-  assert.equal(queryScalar(databaseUrl, "SELECT count(*) FROM public.axtro_supabase_test_migrations;"), "53");
+  const lineageRepairApplied = applySupabaseMigrations(databaseUrl, 56, 56);
+  assert.deepEqual(lineageRepairApplied, ["0056"]);
+  assert.equal(queryScalar(databaseUrl, "SELECT count(*) FROM public.axtro_supabase_test_migrations;"), "56");
+  assertSchemaLineageCapabilities(databaseUrl, 56, { textPreview: true, terminalNotification: true, businessActions: true });
+  assertMigrationReceiptLineage(databaseUrl);
 
   assertMigrationCapabilities(databaseUrl);
   assertLeastPrivilege(databaseUrl);
@@ -158,6 +174,7 @@ try {
   assertRecallDailyPaidAttemptBudget(databaseUrl);
   assertCostEventSchemaVersion(databaseUrl);
   await assertRuntimeChannelBridge(databaseUrl);
+  await assertPortalTextPreviewAdmission(databaseUrl);
   // assertBusinessActionAdmissionAndLeads is `async function` (unlike its
   // sibling assertBusinessActionCalendarScheduling right below, which is
   // synchronous) -- missing this `await` let the harness race ahead into
@@ -174,7 +191,7 @@ try {
   assertBusinessActionCalendarCredentialRead(databaseUrl);
   assertBusinessActionLiveCallContext(databaseUrl);
 
-  console.log("SUPABASE PORTAL INTEGRATION PASSED: migrations 0001-0048 + 0051-0055 (0049-0050 applied separately, out of band), grants, RLS, transcripts, reservations and readiness capability");
+  console.log("SUPABASE PORTAL INTEGRATION PASSED: migrations 0001-0056 in contiguous order, immutable checksums, grants, RLS, transcripts, reservations and readiness capability");
 } catch (error) {
   primaryError = error;
   throw error;
@@ -187,10 +204,7 @@ try {
 }
 
 function applySupabaseMigrations(databaseUrl, firstVersion, lastVersion) {
-  const migrations = readdirSync(supabaseMigrationDirectory)
-    .filter((name) => /^\d{4}_.+\.sql$/.test(name))
-    .sort();
-  assert.equal(migrations.length, 53, "the harness must cover every Supabase-only migration through the 0055 email length bound phase (0049-0050 numbers were claimed by an unrelated concurrent migration before 0051 merged)");
+  const migrations = supabaseMigrationInventory();
   const applied = [];
   for (const migration of migrations) {
     const numericVersion = Number(migration.slice(0, 4));
@@ -198,10 +212,77 @@ function applySupabaseMigrations(databaseUrl, firstVersion, lastVersion) {
     const result = runFile(databaseUrl, join(supabaseMigrationDirectory, migration));
     assertSucceeded(result, `Supabase-only migration ${migration}`);
     const version = migration.slice(0, 4);
-    assertSucceeded(runSql(databaseUrl, `INSERT INTO public.axtro_supabase_test_migrations (version, filename) VALUES (${Number(version)}, '${sqlLiteral(migration)}');`), `migration test receipt ${migration}`);
+    const checksum = migrationChecksum(migration);
+    assertSucceeded(runSql(databaseUrl, `INSERT INTO public.axtro_supabase_test_migrations (version, filename, checksum_sha256) VALUES (${Number(version)}, '${sqlLiteral(migration)}', '${checksum}');`), `migration test receipt ${migration}`);
     applied.push(version);
   }
   return applied;
+}
+
+function migrationChecksum(filename) {
+  return createHash("sha256")
+    .update(readFileSync(join(supabaseMigrationDirectory, filename)))
+    .digest("hex");
+}
+
+function supabaseMigrationInventory() {
+  const migrations = readdirSync(supabaseMigrationDirectory)
+    .filter((name) => /^\d{4}_.+\.sql$/.test(name))
+    .sort();
+  assert.equal(migrations.length, 56, "the harness must cover every Supabase-only migration through 0056");
+  assert.deepEqual(
+    migrations.map((migration) => Number(migration.slice(0, 4))),
+    Array.from({ length: 56 }, (_, index) => index + 1),
+    "Supabase-only migration versions must be contiguous and unique from 0001 through 0056",
+  );
+  assert.equal(migrations[48], "0049_portal_text_preview_admission.sql");
+  assert.equal(migrations[49], "0050_meeting_terminal_notification_claim.sql");
+  assert.equal(migrationChecksum(migrations[48]), "79b24e7fdc768a30b02d3596b71799fae484043e37561ddfcd435f46076b3100");
+  assert.equal(migrationChecksum(migrations[49]), "262e033328175f704f8cfef1cafdcb0a2ef9b9aac7e4cc86f2b33890044c7224");
+  return migrations;
+}
+
+function assertMigrationReceiptLineage(databaseUrl) {
+  const expected = supabaseMigrationInventory().map((filename, index) => (
+    `${index + 1}|${filename}|${migrationChecksum(filename)}`
+  ));
+  const actual = queryRows(databaseUrl, `
+    SELECT version::text || '|' || filename || '|' || checksum_sha256
+    FROM public.axtro_supabase_test_migrations
+    ORDER BY version;
+  `);
+  assert.deepEqual(actual, expected, "migration receipts preserve exact name, checksum and numeric order");
+}
+
+function assertSchemaLineageCapabilities(databaseUrl, expectedVersion, expected) {
+  const capabilities = queryJson(databaseUrl, asRoleSql("service_role", null, "SELECT public.portal_schema_capabilities_service();"));
+  assert.equal(capabilities.version, expectedVersion);
+  for (const capability of [
+    "portalTextPreviewAdmission",
+    "portalTextPreviewTurnFence",
+    "portalTextPreviewEgressAuthorization",
+    "portalTextPreviewProviderFailureReceipt",
+    "portalTextTranscriptOptIn",
+    "portalTextPreviewCleanup",
+    "portalTextPreviewCanonicalOutbox",
+    "portalTextPreviewSecurityBoundary",
+    "legacyAuthenticatedChatTranscriptWriterAvailable",
+  ]) assert.equal(capabilities[capability] === true, expected.textPreview, capability);
+  assert.equal(capabilities.meetingTerminalNotificationClaim === true, expected.terminalNotification);
+  if (expected.businessActions) {
+    for (const capability of [
+      "businessActionKillSwitches",
+      "businessActionGrants",
+      "businessActionReceipts",
+      "businessActionLeads",
+      "businessActionProposals",
+      "businessActionCalendarReservations",
+      "businessActionCalendarConnections",
+      "businessActionCalendarCredentialRead",
+      "businessActionLiveCallContext",
+      "businessActionEmailLengthBound",
+    ]) assert.equal(capabilities[capability], true, capability);
+  }
 }
 
 function assertProductionIntegrityMigrationRollback(databaseUrl) {
@@ -686,17 +767,42 @@ async function assertTerminationFencePhase(databaseUrl, { expectedSchemaVersion,
   const raceLeaseToken = "019f0000-0000-7000-8000-000000004644";
   assert.equal(beginTermination(raceReceiptId, raceLeaseToken, { tenantId: tavusTenantId, userId: tavusUserId, actorId: tavusActorId, agentId: tavusAgentId, idempotencyKey: "termination-stage-race", provider: "tavus" }).outcome, "dispatch_granted");
   const raceBarrierLockId = 48_048;
+  const raceBarrierName = expectTimestampFence ? "stage-race-v48-created" : "stage-race-v47-created";
   const raceSettlePromise = runSqlAsync(databaseUrl, asRoleSql("service_role", null, `
     BEGIN;
     SELECT pg_advisory_xact_lock(${raceBarrierLockId});
-    SELECT pg_sleep(0.2);
+    DO $barrier$
+    DECLARE
+      deadline timestamptz := clock_timestamp() + interval '5 seconds';
+    BEGIN
+      LOOP
+        EXIT WHEN EXISTS (
+          SELECT 1 FROM public.axtro_supabase_test_barriers WHERE name='${raceBarrierName}'
+        );
+        IF clock_timestamp() >= deadline THEN
+          RAISE EXCEPTION 'stage race barrier timeout';
+        END IF;
+        PERFORM pg_sleep(0.01);
+      END LOOP;
+    END
+    $barrier$;
     SELECT public.portal_settle_provider_effect_termination_service('${tavusTenantId}','${raceReceiptId}','${raceLeaseToken}','provider_accepted');
     COMMIT;
   `));
   await waitForAdvisoryLockHolder(databaseUrl, raceBarrierLockId);
-  const raceCreate = await runSqlAsync(databaseUrl, asRoleSql("service_role", null,
-    `SELECT public.portal_create_tavus_stage_capability_service('${tavusTenantId}','${tavusAgentId}','${raceReservationId}','${raceTokenHash}','https://tavus.daily.co/stage-race');`));
+  let raceCreate;
+  try {
+    raceCreate = await runSqlAsync(databaseUrl, asRoleSql("service_role", null,
+      `SELECT public.portal_create_tavus_stage_capability_service('${tavusTenantId}','${tavusAgentId}','${raceReservationId}','${raceTokenHash}','https://tavus.daily.co/stage-race');`));
+  } finally {
+    assertSucceeded(runSql(databaseUrl,
+      `INSERT INTO public.axtro_supabase_test_barriers(name) VALUES ('${raceBarrierName}') ON CONFLICT DO NOTHING;`),
+    "release Tavus stage race barrier");
+  }
   const raceSettle = await raceSettlePromise;
+  assertSucceeded(runSql(databaseUrl,
+    `DELETE FROM public.axtro_supabase_test_barriers WHERE name='${raceBarrierName}';`),
+  "clear Tavus stage race barrier");
   assertSucceeded(raceCreate, "Tavus stage creator after the settle transaction has started");
   assert.equal(parseLastJson(raceCreate.stdout).created, true);
   if (!expectTimestampFence) {
@@ -792,10 +898,227 @@ function assertTavusStageSettlementTimestampPhase(databaseUrl) {
   }
 }
 
+function assertPortalTextPreviewCapabilityPhase(databaseUrl) {
+  const serverVersionNum = Number(queryScalar(databaseUrl,
+    "SELECT current_setting('server_version_num');"));
+  assert.ok(Number.isInteger(serverVersionNum)
+      && serverVersionNum >= 170000 && serverVersionNum < 180000,
+  `canonical-envelope fingerprint requires PostgreSQL 17, received ${serverVersionNum}`);
+  assert.equal(queryScalar(databaseUrl, `
+    SELECT md5(regexp_replace(lower(pg_get_constraintdef(oid)),'\\s+','','g'))
+    FROM pg_constraint
+    WHERE conrelid='public.events_outbox'::regclass
+      AND conname='events_outbox_event_document_canonical_check';
+  `), "d9b3dba3ee3f690c55df3d1001446d9b",
+  "PostgreSQL exposes the exact normalized canonical-envelope constraint fingerprint");
+  const capabilities = queryJson(databaseUrl, asRoleSql("service_role", null,
+    "SELECT public.portal_schema_capabilities_service();"));
+  assert.equal(capabilities.version, 49, "0049 publishes the Portal text preview capability version");
+  assert.equal(capabilities.portalTextPreviewAdmission, true);
+  assert.equal(capabilities.portalTextPreviewTurnFence, true);
+  assert.equal(capabilities.portalTextTranscriptOptIn, true);
+  assert.equal(capabilities.portalTextPreviewCleanup, true);
+  assert.equal(capabilities.portalTextPreviewCanonicalOutbox, true);
+  assert.equal(capabilities.portalTextPreviewSecurityBoundary, true);
+  assert.equal(capabilities.portalTextPreviewEgressAuthorization, true);
+  assert.equal(capabilities.portalTextPreviewProviderFailureReceipt, true);
+  assert.equal(capabilities.legacyAuthenticatedChatTranscriptWriterAvailable, true);
+  assert.equal(queryScalar(databaseUrl, `
+    SELECT count(*)
+    FROM (VALUES
+      ('public.portal_begin_ai_usage_reservation_service(app.uuid_v7,app.uuid_v7,app.uuid_v7,app.uuid_v7,app.uuid_v7,text,text,integer,integer,numeric)'::regprocedure),
+      ('public.portal_mark_ai_usage_in_flight_service(app.uuid_v7)'::regprocedure),
+      ('public.portal_commit_ai_usage_service(app.uuid_v7,integer,integer,numeric)'::regprocedure),
+      ('public.portal_release_ai_usage_service(app.uuid_v7,text)'::regprocedure),
+      ('public.portal_mark_ai_usage_unknown_service(app.uuid_v7,text)'::regprocedure)
+    ) AS expected(oid)
+    JOIN pg_proc p ON p.oid=expected.oid
+    WHERE coalesce(p.proconfig,'{}'::text[])
+      @> ARRAY['lock_timeout=2s','statement_timeout=15s'];
+  `), "5", "all AI ledger mutation RPCs publish bounded server-side timeouts");
+  for (const table of [
+    "portal_text_preview_privacy_policies",
+    "portal_text_preview_admissions",
+    "portal_text_preview_turn_claims",
+    "portal_text_preview_egress_authorizations",
+    "portal_text_preview_transcript_writes",
+  ]) {
+    assert.equal(queryScalar(databaseUrl,
+      `SELECT relrowsecurity AND relforcerowsecurity FROM pg_class WHERE oid='public.${table}'::regclass;`), "t",
+    `${table} must enforce RLS before the runtime can use it`);
+  }
+  assert.equal(queryJson(databaseUrl, `
+    BEGIN;
+    ALTER TABLE public.portal_text_preview_admissions NO FORCE ROW LEVEL SECURITY;
+    SELECT public.portal_schema_capabilities_service();
+    ROLLBACK;
+  `).portalTextPreviewSecurityBoundary, false, "RLS mutation closes the capability");
+  assert.equal(queryJson(databaseUrl, `
+    BEGIN;
+    GRANT EXECUTE ON FUNCTION public.portal_complete_text_preview_turn_service(app.uuid_v7,app.uuid_v7,app.uuid_v7,integer,text,text,text,text,text) TO authenticated;
+    SELECT public.portal_schema_capabilities_service();
+    ROLLBACK;
+  `).portalTextPreviewSecurityBoundary, false, "execute-grant mutation closes the capability");
+  assert.equal(queryJson(databaseUrl, `
+    BEGIN;
+    GRANT SELECT ON TABLE public.portal_text_preview_admissions TO authenticated;
+    SELECT public.portal_schema_capabilities_service();
+    ROLLBACK;
+  `).portalTextPreviewSecurityBoundary, false, "direct-table-grant mutation closes the capability");
+  assert.equal(queryJson(databaseUrl, `
+    BEGIN;
+    DROP INDEX public.portal_text_preview_turn_claims_generation_fence_uidx;
+    SELECT public.portal_schema_capabilities_service();
+    ROLLBACK;
+  `).portalTextPreviewTurnFence, false, "generation-fence mutation closes the capability");
+  assert.equal(queryJson(databaseUrl, `
+    BEGIN;
+    ALTER TABLE public.events_outbox DROP CONSTRAINT events_outbox_event_document_canonical_check;
+    SELECT public.portal_schema_capabilities_service();
+    ROLLBACK;
+  `).portalTextPreviewCanonicalOutbox, false, "canonical-envelope mutation closes the capability");
+  assert.equal(queryJson(databaseUrl, `
+    BEGIN;
+    ALTER TABLE public.events_outbox DROP CONSTRAINT events_outbox_event_document_canonical_check;
+    ALTER TABLE public.events_outbox
+      ADD CONSTRAINT events_outbox_event_document_canonical_check CHECK (true);
+    SELECT public.portal_schema_capabilities_service();
+    ROLLBACK;
+  `).portalTextPreviewCanonicalOutbox, false, "CHECK(true) cannot impersonate the canonical-envelope capability");
+  assert.equal(queryJson(databaseUrl, `
+    BEGIN;
+    DO $mutation$
+    DECLARE v_definition text;
+    BEGIN
+      SELECT pg_get_constraintdef(oid) INTO v_definition
+      FROM pg_constraint
+      WHERE conrelid='public.events_outbox'::regclass
+        AND conname='events_outbox_event_document_canonical_check';
+      ALTER TABLE public.events_outbox DROP CONSTRAINT events_outbox_event_document_canonical_check;
+      EXECUTE 'ALTER TABLE public.events_outbox ADD CONSTRAINT events_outbox_event_document_canonical_check '
+        ||v_definition||' NOT VALID';
+    END
+    $mutation$;
+    SELECT public.portal_schema_capabilities_service();
+    ROLLBACK;
+  `).portalTextPreviewCanonicalOutbox, false, "an exact but unvalidated CHECK cannot publish readiness");
+  assert.equal(queryJson(databaseUrl, `
+    BEGIN;
+    GRANT EXECUTE ON FUNCTION app.portal_enqueue_text_preview_event(
+      app.uuid_v7,app.uuid_v7,app.uuid_v7,app.uuid_v7,text,bigint,text,
+      app.uuid_v7,app.uuid_v7,jsonb,timestamptz
+    ) TO service_role;
+    SELECT public.portal_schema_capabilities_service();
+    ROLLBACK;
+  `).portalTextPreviewCanonicalOutbox, false, "direct event-writer grant closes the capability");
+  assert.equal(queryScalar(databaseUrl,
+    "SELECT has_function_privilege('authenticated','public.portal_upsert_conversation_transcript(app.uuid_v7,app.uuid_v7,text,text,jsonb,timestamp with time zone)','EXECUTE');"), "t",
+  "v49 preserves the exact authenticated v48 transcript writer for expand/contract rollback");
+  assert.equal(queryScalar(databaseUrl,
+    "SELECT has_function_privilege('anon','public.portal_upsert_conversation_transcript(app.uuid_v7,app.uuid_v7,text,text,jsonb,timestamp with time zone)','EXECUTE') OR has_function_privilege('service_role','public.portal_upsert_conversation_transcript(app.uuid_v7,app.uuid_v7,text,text,jsonb,timestamp with time zone)','EXECUTE');"), "f",
+  "v49 does not broaden the legacy writer beyond its authenticated caller");
+  assert.deepEqual(queryRows(databaseUrl, `
+    SELECT jsonb_typeof((event_document->>'payload_json')::jsonb)
+    FROM public.events_outbox
+    WHERE id in (
+      '019f0000-0000-7000-8000-000000009480',
+      '019f0000-0000-7000-8000-000000009484'
+    )
+    ORDER BY id;
+  `), ["array", "number"], "v49 keeps valid historical scalar and array payload envelopes");
+  assertFailed(runSql(databaseUrl, `
+    INSERT INTO public.events_outbox(
+      tenant_id,id,event_id,aggregate_type,aggregate_id,aggregate_version,
+      event_type,event_version,event_document,status,attempts,available_at,created_at
+    )
+    SELECT tenant_id,'019f0000-0000-7000-8000-000000009488',
+      '019f0000-0000-7000-8000-00000000abcd',aggregate_type,aggregate_id,
+      aggregate_version,event_type,event_version,
+      event_document||jsonb_build_object(
+        'event_id',upper('019f0000-0000-7000-8000-00000000abcd')
+      ),status,attempts,available_at,created_at
+    FROM public.events_outbox WHERE id='019f0000-0000-7000-8000-000000009480';
+  `), "uppercase UUID strings are rejected for new outbox rows",
+  /events_outbox_event_document_canonical_check/);
+  assertFailed(runSql(databaseUrl, `
+    INSERT INTO public.events_outbox(
+      tenant_id,id,event_id,aggregate_type,aggregate_id,aggregate_version,
+      event_type,event_version,event_document,status,attempts,available_at,created_at
+    )
+    SELECT tenant_id,'019f0000-0000-7000-8000-000000009489',
+      '019f0000-0000-7000-8000-00000000abce',aggregate_type,aggregate_id,
+      aggregate_version,event_type,event_version,
+      event_document||jsonb_build_object(
+        'event_id','019f0000-0000-7000-8000-00000000abce',
+        'occurred_at','2026-08-25'
+      ),status,attempts,available_at,created_at
+    FROM public.events_outbox WHERE id='019f0000-0000-7000-8000-000000009480';
+  `), "date-only timestamps are rejected for new outbox rows",
+  /events_outbox_event_document_canonical_check/);
+  assertFailed(runSql(databaseUrl, `
+    INSERT INTO public.events_outbox(
+      tenant_id,id,event_id,aggregate_type,aggregate_id,aggregate_version,
+      event_type,event_version,event_document,status,attempts,available_at,created_at
+    )
+    SELECT tenant_id,'019f0000-0000-7000-8000-00000000948a',
+      '019f0000-0000-7000-8000-00000000abcf','888',aggregate_id,
+      aggregate_version,'777',event_version,
+      event_document||jsonb_build_object(
+        'schema_version',2,
+        'event_id','019f0000-0000-7000-8000-00000000abcf',
+        'event_type',777,
+        'event_version',event_version::text,
+        'aggregate_type',888,
+        'aggregate_version',aggregate_version::text
+      ),status,attempts,available_at,created_at
+    FROM public.events_outbox WHERE id='019f0000-0000-7000-8000-000000009480';
+  `), "matching SQL columns cannot mask incompatible JSON scalar types",
+  /events_outbox_event_document_canonical_check/);
+}
+
+function seedPreV49CanonicalOutboxPayloadShapes(databaseUrl) {
+  assertSucceeded(runSql(databaseUrl, `
+    INSERT INTO public.events_outbox(
+      tenant_id,id,event_id,aggregate_type,aggregate_id,aggregate_version,
+      event_type,event_version,event_document,status,attempts,available_at,created_at
+    ) VALUES
+    (
+      '${fixture.tenantAlpha}','019f0000-0000-7000-8000-000000009480',
+      '019f0000-0000-7000-8000-000000009481','legacy_fixture',
+      '019f0000-0000-7000-8000-000000009482',1,'legacy.shape',1,
+      jsonb_build_object(
+        'schema_version','2.0.0','event_id','019f0000-0000-7000-8000-000000009481',
+        'event_type','legacy.shape','event_version',1,'aggregate_type','legacy_fixture',
+        'aggregate_id','019f0000-0000-7000-8000-000000009482','aggregate_version',1,
+        'tenant_id','${fixture.tenantAlpha}','session_id',null,'producer','portal.v48.fixture',
+        'trace_id','0123456789abcdef0123456789abcdef',
+        'correlation_id','019f0000-0000-7000-8000-000000009483','causation_id',null,
+        'data_classification','internal','payload_json','[]',
+        'occurred_at','2026-08-25T12:00:00.000Z'
+      ),'pending',0,'2026-08-25T12:00:00.000Z','2026-08-25T12:00:00.000Z'
+    ),
+    (
+      '${fixture.tenantAlpha}','019f0000-0000-7000-8000-000000009484',
+      '019f0000-0000-7000-8000-000000009485','legacy_fixture',
+      '019f0000-0000-7000-8000-000000009486',1,'legacy.shape',1,
+      jsonb_build_object(
+        'schema_version','2.0.0','event_id','019f0000-0000-7000-8000-000000009485',
+        'event_type','legacy.shape','event_version',1,'aggregate_type','legacy_fixture',
+        'aggregate_id','019f0000-0000-7000-8000-000000009486','aggregate_version',1,
+        'tenant_id','${fixture.tenantAlpha}','session_id',null,'producer','portal.v48.fixture',
+        'trace_id','fedcba9876543210fedcba9876543210',
+        'correlation_id','019f0000-0000-7000-8000-000000009487','causation_id',null,
+        'data_classification','internal','payload_json','42',
+        'occurred_at','2026-08-25T12:00:01.000Z'
+      ),'pending',0,'2026-08-25T12:00:01.000Z','2026-08-25T12:00:01.000Z'
+    );
+  `), "seed valid v48 array and scalar outbox envelopes before the v49 global constraint");
+}
+
 function assertMigrationCapabilities(databaseUrl) {
   assert.equal(queryScalar(databaseUrl, "SELECT to_regprocedure('public.portal_schema_capabilities_service()') IS NOT NULL;"), "t");
   const capabilities = queryJson(databaseUrl, asRoleSql("service_role", null, "SELECT public.portal_schema_capabilities_service();"));
-  assert.equal(capabilities.version, 54);
+  assert.equal(capabilities.version, 56);
   assert.equal(capabilities.providerEffectReservations, true);
   assert.equal(capabilities.billingUsageOutbox, true);
   assert.equal(capabilities.recallWebhookDedupe, true);
@@ -836,6 +1159,18 @@ function assertMigrationCapabilities(databaseUrl) {
   assert.equal(capabilities.businessActionCalendarConnections, true);
   assert.equal(capabilities.businessActionCalendarCredentialRead, true);
   assert.equal(capabilities.businessActionLiveCallContext, true);
+  assert.equal(capabilities.businessActionEmailLengthBound, true);
+  assert.equal(capabilities.portalTextPreviewAdmission, true);
+  assert.equal(capabilities.portalTextPreviewTurnFence, true);
+  assert.equal(capabilities.portalTextPreviewEgressAuthorization, true);
+  assert.equal(capabilities.portalTextPreviewProviderFailureReceipt, true);
+  assert.equal(capabilities.portalTextTranscriptOptIn, true);
+  assert.equal(capabilities.portalTextPreviewCleanup, true);
+  assert.equal(capabilities.portalTextPreviewCanonicalOutbox, true);
+  assert.equal(capabilities.portalTextPreviewSecurityBoundary, true);
+  assert.equal(capabilities.legacyAuthenticatedChatTranscriptWriterAvailable, true);
+  assert.equal(capabilities.meetingTerminalNotificationClaim, true);
+  assertBusinessActionCapabilityAclDrift(databaseUrl);
   assert.equal(queryScalar(databaseUrl, "SELECT to_regclass('public.provider_effect_reservations') IS NOT NULL;"), "t");
   assert.equal(queryScalar(databaseUrl, "SELECT to_regclass('public.billing_usage_outbox') IS NOT NULL;"), "t");
   for (const signature of [
@@ -856,6 +1191,122 @@ function assertMigrationCapabilities(databaseUrl) {
   "restore strict subscription ownership index");
   assert.equal(queryJson(databaseUrl, asRoleSql("service_role", null,
     "SELECT public.portal_schema_capabilities_service();")).strictSubscriptionIdentity, true);
+}
+
+async function assertMeetingTerminalNotificationClaimPhase(databaseUrl) {
+  const pendingBotId = "40000000-0000-4000-8000-000000000050";
+  const terminalBotId = "40000000-0000-4000-8000-000000000051";
+  const concurrentBotId = "40000000-0000-4000-8000-000000000052";
+  assertSucceeded(runSql(databaseUrl, `
+    INSERT INTO public.meeting_bot_sessions
+      (id,tenant_id,agent_id,recall_bot_id,meeting_url,status)
+    VALUES
+      ('019f0000-0000-7000-8000-000000005050','${fixture.tenantAlpha}','${fixture.agentAlpha}','${pendingBotId}','https://meet.example.test/pending','in_call'),
+      ('019f0000-0000-7000-8000-000000005051','${fixture.tenantAlpha}','${fixture.agentAlpha}','${terminalBotId}','https://meet.example.test/terminal','ended'),
+      ('019f0000-0000-7000-8000-000000005052','${fixture.tenantAlpha}','${fixture.agentAlpha}','${concurrentBotId}','https://meet.example.test/concurrent','failed');
+  `), "meeting terminal notification claim fixtures");
+
+  const claim = (botId) => queryScalar(databaseUrl, asRoleSql("service_role", null,
+    `SELECT public.portal_claim_meeting_terminal_notification_service('${botId}');`));
+  assert.equal(claim("40000000-0000-4000-8000-000000000099"), "f",
+    "an unknown Recall bot cannot claim a notification");
+  assert.equal(claim(pendingBotId), "f",
+    "a nonterminal meeting cannot claim a terminal notification");
+  assert.equal(claim(terminalBotId), "t",
+    "the first terminal claim atomically consumes the notification slot");
+  assert.equal(claim(terminalBotId), "f",
+    "a replay cannot claim the same terminal notification twice");
+  assert.equal(queryScalar(databaseUrl,
+    `SELECT terminal_notification_claimed_at IS NOT NULL FROM public.meeting_bot_sessions WHERE recall_bot_id='${terminalBotId}';`), "t");
+
+  const concurrentBarrierName = "terminal-notification-claim-v50";
+  const concurrentClaimSql = (lockId) => asRoleSql("service_role", null, `
+    BEGIN;
+    SELECT pg_advisory_xact_lock(${lockId});
+    DO $barrier$
+    DECLARE
+      deadline timestamptz := clock_timestamp() + interval '5 seconds';
+    BEGIN
+      LOOP
+        EXIT WHEN EXISTS (
+          SELECT 1 FROM public.axtro_supabase_test_barriers WHERE name='${concurrentBarrierName}'
+        );
+        IF clock_timestamp() >= deadline THEN
+          RAISE EXCEPTION 'terminal notification claim barrier timeout';
+        END IF;
+        PERFORM pg_sleep(0.01);
+      END LOOP;
+    END
+    $barrier$;
+    SELECT public.portal_claim_meeting_terminal_notification_service('${concurrentBotId}');
+    COMMIT;
+  `);
+  const concurrentClaimPromises = [
+    runSqlAsync(databaseUrl, concurrentClaimSql(50_050)),
+    runSqlAsync(databaseUrl, concurrentClaimSql(50_051)),
+  ];
+  let concurrentClaims;
+  try {
+    await Promise.all([
+      waitForAdvisoryLockHolder(databaseUrl, 50_050),
+      waitForAdvisoryLockHolder(databaseUrl, 50_051),
+    ]);
+    assertSucceeded(runSql(databaseUrl,
+      `INSERT INTO public.axtro_supabase_test_barriers(name) VALUES ('${concurrentBarrierName}') ON CONFLICT DO NOTHING;`),
+    "release terminal notification claim barrier");
+    concurrentClaims = await Promise.all(concurrentClaimPromises);
+  } finally {
+    runSql(databaseUrl,
+      `INSERT INTO public.axtro_supabase_test_barriers(name) VALUES ('${concurrentBarrierName}') ON CONFLICT DO NOTHING;`);
+    await Promise.allSettled(concurrentClaimPromises);
+    runSql(databaseUrl,
+      `DELETE FROM public.axtro_supabase_test_barriers WHERE name='${concurrentBarrierName}';`);
+  }
+  for (const result of concurrentClaims) {
+    assertSucceeded(result, "concurrent terminal notification claim");
+  }
+  const concurrentOutcomes = concurrentClaims.map((result) => (
+    result.stdout.trim().split("\n").filter((line) => line === "t" || line === "f").at(-1)
+  )).sort();
+  assert.deepEqual(concurrentOutcomes, ["f", "t"],
+    "two concurrent connections produce exactly one terminal notification claim winner");
+  assert.equal(queryScalar(databaseUrl,
+    `SELECT count(*) FROM public.meeting_bot_sessions WHERE recall_bot_id='${concurrentBotId}' AND terminal_notification_claimed_at IS NOT NULL;`), "1");
+
+  for (const role of ["anon", "authenticated"]) {
+    assertFailed(runSql(databaseUrl, asRoleSql(role, null,
+      `SELECT public.portal_claim_meeting_terminal_notification_service('${terminalBotId}');`)),
+    `${role} cannot claim a terminal notification`, /permission denied for function portal_claim_meeting_terminal_notification_service/);
+  }
+}
+
+function assertBusinessActionCapabilityAclDrift(databaseUrl) {
+  const probes = [
+    ["businessActionKillSwitches", "public.portal_business_action_status_service(app.uuid_v7,app.uuid_v7,text)"],
+    ["businessActionGrants", "public.portal_admit_business_action_service(app.uuid_v7,app.uuid_v7,app.uuid_v7,app.uuid_v7,app.uuid_v7,text,text,integer)"],
+    ["businessActionLeads", "public.portal_register_business_lead_service(app.uuid_v7,app.uuid_v7,app.uuid_v7,text,text,text,text)"],
+    ["businessActionProposals", "public.portal_propose_business_meeting_slots_service(app.uuid_v7,app.uuid_v7,app.uuid_v7,app.uuid_v7,app.uuid_v7,app.uuid_v7,app.uuid_v7,integer,text,jsonb,text,text)"],
+    ["businessActionCalendarReservations", "public.portal_reserve_business_meeting_slot_service(app.uuid_v7,app.uuid_v7,app.uuid_v7,app.uuid_v7,app.uuid_v7,app.uuid_v7,app.uuid_v7,app.uuid_v7,app.uuid_v7,text,text)"],
+    ["businessActionCalendarConnections", "public.portal_connect_google_calendar_service(app.uuid_v7,app.uuid_v7,app.uuid_v7,text,text,text,text)"],
+    ["businessActionCalendarCredentialRead", "public.portal_google_calendar_decrypted_refresh_token_service(app.uuid_v7)"],
+    ["businessActionLiveCallContext", "public.portal_business_action_call_context_service(app.uuid_v7,app.uuid_v7,text)"],
+  ];
+  for (const [capability, signature] of probes) {
+    for (const role of ["anon", "authenticated"]) {
+      assertSucceeded(runSql(databaseUrl, `GRANT EXECUTE ON FUNCTION ${signature} TO ${role};`), `${capability} ${role} ACL drift fixture`);
+      const drifted = queryJson(databaseUrl, asRoleSql("service_role", null, "SELECT public.portal_schema_capabilities_service();"));
+      assert.equal(drifted[capability], false, `${capability} detects an accidental ${role} grant`);
+      assertSucceeded(runSql(databaseUrl, `REVOKE EXECUTE ON FUNCTION ${signature} FROM ${role};`), `${capability} ${role} ACL restore`);
+      const restored = queryJson(databaseUrl, asRoleSql("service_role", null, "SELECT public.portal_schema_capabilities_service();"));
+      assert.equal(restored[capability], true, `${capability} recovers after ${role} grant removal`);
+    }
+  }
+  assertSucceeded(runSql(databaseUrl, "GRANT SELECT ON TABLE public.portal_business_action_receipts TO authenticated;"), "businessActionReceipts table ACL drift fixture");
+  const tableDrifted = queryJson(databaseUrl, asRoleSql("service_role", null, "SELECT public.portal_schema_capabilities_service();"));
+  assert.equal(tableDrifted.businessActionReceipts, false, "businessActionReceipts detects an accidental authenticated table grant");
+  assertSucceeded(runSql(databaseUrl, "REVOKE SELECT ON TABLE public.portal_business_action_receipts FROM authenticated;"), "businessActionReceipts table ACL restore");
+  const tableRestored = queryJson(databaseUrl, asRoleSql("service_role", null, "SELECT public.portal_schema_capabilities_service();"));
+  assert.equal(tableRestored.businessActionReceipts, true, "businessActionReceipts recovers after table grant removal");
 }
 
 function assertLeastPrivilege(databaseUrl) {
@@ -913,6 +1364,11 @@ function assertLeastPrivilege(databaseUrl) {
     "portal_business_action_grants",
     "portal_business_action_receipts",
     "portal_business_action_leads",
+    "portal_text_preview_privacy_policies",
+    "portal_text_preview_admissions",
+    "portal_text_preview_turn_claims",
+    "portal_text_preview_egress_authorizations",
+    "portal_text_preview_transcript_writes",
   ];
   for (const table of [...m5Tables, "conversation_transcripts", "meeting_bot_sessions"]) {
     assert.equal(queryScalar(databaseUrl, `SELECT relrowsecurity AND relforcerowsecurity FROM pg_class WHERE oid = 'public.${table}'::regclass;`), "t");
@@ -2030,6 +2486,1838 @@ function assertBusinessActionLiveCallContext(databaseUrl) {
   "anon callers cannot resolve live call context directly");
 }
 
+
+async function assertPortalTextPreviewAdmission(databaseUrl) {
+  const essentialProfileFingerprint = "sha256:5f07f0bb93393c7fcd4412516db48f30fb3095fb31e9352cd2cf849b260a5173";
+  const persistedProfileFingerprint = "sha256:5062dd979ac79778052389f27069a16dfa8f33fb175d38181774415b1ff585b8";
+  const providerFingerprint = "sha256:70e60ec32d8a29d0f6264a0545e2ea1d215d02fe164d90dadaa63e99e59472de";
+  const policyFingerprint = `sha256:${"a".repeat(64)}`;
+  const policyId = "019f0000-0000-7000-8000-000000009480";
+  const replacementPolicyFingerprint = `sha256:${"b".repeat(64)}`;
+  const replacementPolicyId = "019f0000-0000-7000-8000-000000009481";
+  const identityHash = "5".repeat(64);
+  const dataUseHash = "6".repeat(64);
+  const defaultIds = Object.freeze({
+    admission: "019f0000-0000-7000-8000-000000009500",
+    session: "019f0000-0000-7000-8000-000000009501",
+    presenter: "019f0000-0000-7000-8000-000000009502",
+    identity: "019f0000-0000-7000-8000-000000009503",
+    dataUse: "019f0000-0000-7000-8000-000000009504",
+    essential: "019f0000-0000-7000-8000-000000009505",
+  });
+  const reservedId = (baseId, slot) => `${(0x0200 + slot).toString(16).padStart(4, "0")}${baseId.slice(4)}`;
+  const admissionSql = ({
+    ids,
+    userId = fixture.userAlpha,
+    agentId = fixture.agentAlpha,
+    clientHash = "1".repeat(64),
+    profileId = "openrouter_portal_text_essential_v1",
+    commandFingerprint = "2".repeat(64),
+    transcriptConsent = null,
+    transcript = null,
+    persistent = false,
+    expectExisting = false,
+    correlationId = ids.admission,
+    profileFingerprint = persistent ? persistedProfileFingerprint : essentialProfileFingerprint,
+  }) => {
+    const reserved = Array.from({ length: 12 }, (_, slot) => reservedId(ids.admission, slot));
+    return asRoleSql("service_role", null, `
+    SELECT public.portal_admit_text_preview_service(
+      '${ids.admission}','${userId}','${agentId}','${ids.session}','${ids.presenter}',
+      '${clientHash}','${profileId}','1.0.0','${profileFingerprint}','${providerFingerprint}',
+      '${commandFingerprint}','${ids.identity}','portal-text-preview-v1','${identityHash}',
+      '${ids.dataUse}','portal-text-preview-v1','${dataUseHash}','${ids.essential}',
+      ${transcriptConsent === null ? "null" : `'${transcriptConsent}'`},
+      ${transcript === null ? "null" : `'${transcript}'`},${persistent},${expectExisting},
+      '0123456789abcdef0123456789abcdef','${correlationId}',
+      '${reserved[0]}','${reserved[1]}','${reserved[2]}','${reserved[3]}',
+      '${reserved[4]}','${reserved[5]}','${reserved[6]}','${reserved[7]}',
+      '${reserved[8]}','${reserved[9]}','${reserved[10]}','${reserved[11]}'
+    );
+  `);
+  };
+  const admit = (input) => queryJson(databaseUrl, admissionSql(input));
+  const provisionPolicy = (tenantId, id = policyId) => queryJson(databaseUrl,
+    asRoleSql("service_role", null, `SELECT public.portal_provision_text_preview_privacy_policy_service(
+      '${id}','${tenantId}','US-FL','1.0.0','${policyFingerprint}',
+      clock_timestamp()-interval '1 minute',clock_timestamp()+interval '30 days'
+    );`));
+
+  assertFailed(runSql(databaseUrl, admissionSql({ ids: defaultIds })),
+    "admission fails closed before a server-owned legal policy exists", /active text preview privacy policy required/);
+  assert.equal(queryScalar(databaseUrl, "SELECT count(*) FROM public.portal_text_preview_admissions;"), "0");
+  assert.deepEqual(provisionPolicy(fixture.tenantAlpha), { outcome: "provisioned", policyId });
+  assert.equal(queryScalar(databaseUrl,
+    `SELECT jurisdiction FROM public.portal_text_preview_privacy_policies WHERE tenant_id='${fixture.tenantAlpha}' AND id='${policyId}';`), "US-FL");
+  assertFailed(runSql(databaseUrl, asRoleSql("authenticated", fixture.userAlpha, `
+    SELECT public.portal_provision_text_preview_privacy_policy_service(
+      '${policyId}','${fixture.tenantAlpha}','US-FL','1.0.0','${policyFingerprint}',now(),now()+interval '1 day'
+    );
+  `)), "authenticated callers cannot provision legal policy");
+
+  const rowsBeforeDefault = queryScalar(databaseUrl, "SELECT count(*) FROM public.conversation_transcripts;");
+  const defaultAdmission = admit({ ids: defaultIds });
+  assert.equal(defaultAdmission.status, "issued");
+  assert.equal(defaultAdmission.ttl_seconds, 3600);
+  assert.equal(defaultAdmission.persistent_transcript, false);
+  assert.equal(defaultAdmission.tenant_id, fixture.tenantAlpha);
+  assert.equal(defaultAdmission.actor_id, fixture.actorAlpha);
+  assert.equal(defaultAdmission.agent_id, fixture.agentAlpha);
+  assert.equal(defaultAdmission.admission_id, defaultIds.admission);
+  assert.equal(defaultAdmission.privacy_policy_id, policyId);
+  assert.equal(defaultAdmission.jurisdiction, "US-FL");
+  assert.equal(defaultAdmission.privacy_policy_version, "1.0.0");
+  assert.equal(defaultAdmission.privacy_policy_fingerprint, policyFingerprint);
+  assert.equal(defaultAdmission.transcript_id, null);
+  assert.equal(defaultAdmission.transcript_consent_id, null);
+  assert.equal(queryScalar(databaseUrl,
+    `SELECT status||':'||state_version::text||':'||disclosure_status||':'||consent_status
+     FROM public.sessions WHERE tenant_id='${fixture.tenantAlpha}' AND id='${defaultIds.session}';`),
+  "active:5:acknowledged:granted", "admission projection reaches the same canonical aggregate version");
+  const admissionEvents = queryJson(databaseUrl, `
+    SELECT jsonb_agg(event_document ORDER BY aggregate_version)
+    FROM public.events_outbox
+    WHERE tenant_id='${fixture.tenantAlpha}'
+      AND aggregate_type='interaction_session'
+      AND aggregate_id='${defaultIds.session}';
+  `);
+  const canonicalEnvelopeKeys = [
+    "aggregate_id", "aggregate_type", "aggregate_version", "causation_id",
+    "correlation_id", "data_classification", "event_id", "event_type",
+    "event_version", "occurred_at", "payload_json", "producer",
+    "schema_version", "session_id", "tenant_id", "trace_id",
+  ];
+  assert.deepEqual(admissionEvents.map((event) => event.event_type), [
+    "session.created", "session.prepared", "disclosure.delivered",
+    "consent.recorded", "session.activated",
+  ]);
+  assert.deepEqual(admissionEvents.map((event) => event.aggregate_version), [1, 2, 3, 4, 5]);
+  assert.deepEqual(admissionEvents.map((event) => parseCanonicalOutboxInteractionEvent(event).event_type), [
+    "session.created", "session.prepared", "disclosure.delivered",
+    "consent.recorded", "session.activated",
+  ], "the compiled domain consumer parses every admission event emitted by PostgreSQL");
+  for (const [index, event] of admissionEvents.entries()) {
+    assert.deepEqual(Object.keys(event).sort(), canonicalEnvelopeKeys);
+    assert.equal(event.schema_version, "2.0.0");
+    assert.equal(event.aggregate_type, "interaction_session");
+    assert.equal(event.aggregate_id, defaultIds.session);
+    assert.equal(event.session_id, defaultIds.session);
+    assert.equal(event.tenant_id, fixture.tenantAlpha);
+    assert.equal(event.producer, "portal.text_preview");
+    assert.equal(event.data_classification, "internal");
+    assert.equal(event.correlation_id, defaultIds.admission);
+    assert.equal(typeof event.payload_json, "string");
+    assert.doesNotThrow(() => JSON.parse(event.payload_json));
+    assert.equal(event.causation_id, index === 0 ? null : admissionEvents[index - 1].event_id);
+  }
+  assert.equal(queryScalar(databaseUrl, `
+    SELECT count(*) FROM public.events_outbox
+    WHERE tenant_id='${fixture.tenantAlpha}' AND aggregate_id='${defaultIds.session}'
+      AND (id=event_id OR status<>'pending' OR attempts<>0 OR published_at is not null);
+  `), "0", "outbox row IDs differ from event IDs and remain pending for the relay");
+  assert.equal(queryScalar(databaseUrl,
+    `SELECT count(*) FROM public.session_timeline WHERE tenant_id='${fixture.tenantAlpha}' AND session_id='${defaultIds.session}';`),
+  "0", "the preview writer never bypasses the relay into session_timeline");
+  assert.equal(queryScalar(databaseUrl, "SELECT count(*) FROM public.conversation_transcripts;"), rowsBeforeDefault,
+    "default-off admission creates no transcript row");
+  assert.equal(queryScalar(databaseUrl,
+    `SELECT count(*) FROM public.consent_evidence WHERE tenant_id='${fixture.tenantAlpha}' AND session_id='${defaultIds.session}' AND consent_type='persistent_transcription';`), "0",
+  "default-off admission creates no optional transcript authority");
+  assertFailed(runSql(databaseUrl, admissionSql({
+    ids: {
+      admission: "019f0000-0000-7000-8000-000000009506",
+      session: "019f0000-0000-7000-8000-000000009507",
+      presenter: "019f0000-0000-7000-8000-000000009508",
+      identity: "019f0000-0000-7000-8000-000000009509",
+      dataUse: "019f0000-0000-7000-8000-00000000950a",
+      essential: "019f0000-0000-7000-8000-00000000950b",
+    },
+    clientHash: "a".repeat(64),
+    correlationId: "019f0000-0000-7000-8000-00000000950c",
+  })), "admission rejects correlation IDs that are not the admission ID", /invalid text preview admission/);
+  for (const [field, value, constraint] of [
+    ["profile_version", "9.9.9", "portal_text_preview_admissions_profile_version_chk"],
+    ["profile_fingerprint", `sha256:${"f".repeat(64)}`, "portal_text_preview_admissions_persistence_chk"],
+    ["provider_configuration_fingerprint", `sha256:${"e".repeat(64)}`, "portal_text_preview_admissions_provider_configuration_chk"],
+  ]) {
+    assertFailed(runSql(databaseUrl, `
+      INSERT INTO public.portal_text_preview_admissions
+      SELECT (jsonb_populate_record(a,'${sqlLiteral(JSON.stringify({ [field]: value }))}'::jsonb)).*
+      FROM public.portal_text_preview_admissions a
+      WHERE a.tenant_id='${fixture.tenantAlpha}' AND a.id='${defaultIds.admission}';
+    `), `direct insert cannot drift ${field}`, new RegExp(constraint));
+  }
+
+  const concurrentIds = [
+    {
+      admission: "019f0000-0000-7000-8000-000000009516",
+      session: "019f0000-0000-7000-8000-000000009517",
+      presenter: "019f0000-0000-7000-8000-000000009518",
+      identity: "019f0000-0000-7000-8000-000000009519",
+      dataUse: "019f0000-0000-7000-8000-00000000951a",
+      essential: "019f0000-0000-7000-8000-00000000951b",
+    },
+    {
+      admission: "019f0000-0000-7000-8000-00000000951c",
+      session: "019f0000-0000-7000-8000-00000000951d",
+      presenter: "019f0000-0000-7000-8000-00000000951e",
+      identity: "019f0000-0000-7000-8000-00000000951f",
+      dataUse: "019f0000-0000-7000-8000-000000009520",
+      essential: "019f0000-0000-7000-8000-000000009521",
+    },
+  ];
+  const concurrentAdmissions = await runConcurrentSqlBehindBarrier(databaseUrl,
+    concurrentIds.map((ids, index) => ({
+      lockId: 49_160 + index,
+      sql: admissionSql({ ids, clientHash: "c".repeat(64) }),
+    })),
+    "text-preview-natural-admission-race");
+  for (const result of concurrentAdmissions) assertSucceeded(result, "concurrent natural admission");
+  const storedConcurrentAdmissionId = queryScalar(databaseUrl,
+    `SELECT id FROM public.portal_text_preview_admissions WHERE tenant_id='${fixture.tenantAlpha}' AND client_session_ref_hash='${"c".repeat(64)}';`);
+  assert.deepEqual(
+    concurrentAdmissions.map((result) => parseLastJson(result.stdout).admission_id),
+    [storedConcurrentAdmissionId, storedConcurrentAdmissionId],
+    "both concurrent admission receipts resolve to the one durable admission",
+  );
+  assert.equal(queryScalar(databaseUrl,
+    `SELECT count(*) FROM public.portal_text_preview_admissions WHERE tenant_id='${fixture.tenantAlpha}' AND client_session_ref_hash='${"c".repeat(64)}';`), "1",
+  "concurrent natural admission creates one durable row");
+
+  const expectedOnlyIds = Object.freeze({
+    admission: "019f0000-0000-7000-8000-000000009522",
+    session: "019f0000-0000-7000-8000-000000009523",
+    presenter: "019f0000-0000-7000-8000-000000009524",
+    identity: "019f0000-0000-7000-8000-000000009525",
+    dataUse: "019f0000-0000-7000-8000-000000009526",
+    essential: "019f0000-0000-7000-8000-000000009527",
+  });
+  const expectedOnlyCounts = queryRows(databaseUrl, `
+    SELECT count(*) FROM public.sessions;
+    SELECT count(*) FROM public.disclosure_records;
+    SELECT count(*) FROM public.consent_evidence;
+    SELECT count(*) FROM public.portal_text_preview_admissions;
+  `);
+  assertFailed(runSql(databaseUrl, admissionSql({
+    ids: expectedOnlyIds,
+    clientHash: "3".repeat(64),
+    expectExisting: true,
+  })), "expect-existing miss fails before any durable insert", /admission expected but not found/);
+  assert.deepEqual(queryRows(databaseUrl, `
+    SELECT count(*) FROM public.sessions;
+    SELECT count(*) FROM public.disclosure_records;
+    SELECT count(*) FROM public.consent_evidence;
+    SELECT count(*) FROM public.portal_text_preview_admissions;
+  `), expectedOnlyCounts, "expect-existing miss has zero inserts across the admission boundary");
+
+  const replay = admit({
+    ids: {
+      admission: "019f0000-0000-7000-8000-000000009510",
+      session: "019f0000-0000-7000-8000-000000009511",
+      presenter: "019f0000-0000-7000-8000-000000009512",
+      identity: "019f0000-0000-7000-8000-000000009513",
+      dataUse: "019f0000-0000-7000-8000-000000009514",
+      essential: "019f0000-0000-7000-8000-000000009515",
+    },
+  });
+  assert.equal(replay.admission_id, defaultIds.admission, "natural replay keeps the original server resources");
+  assert.equal(queryScalar(databaseUrl,
+    `SELECT count(*) FROM public.portal_text_preview_admissions WHERE tenant_id='${fixture.tenantAlpha}' AND client_session_ref_hash='${"1".repeat(64)}';`), "1");
+
+  assertFailed(runSql(databaseUrl, admissionSql({
+    ids: {
+      admission: "019f0000-0000-7000-8000-000000009520",
+      session: "019f0000-0000-7000-8000-000000009521",
+      presenter: "019f0000-0000-7000-8000-000000009522",
+      identity: "019f0000-0000-7000-8000-000000009523",
+      dataUse: "019f0000-0000-7000-8000-000000009524",
+      essential: "019f0000-0000-7000-8000-000000009525",
+    },
+    profileId: "openrouter_portal_text_persisted_v1",
+    transcriptConsent: "019f0000-0000-7000-8000-000000009526",
+    transcript: "019f0000-0000-7000-8000-000000009527",
+    persistent: true,
+    profileFingerprint: persistedProfileFingerprint,
+  })), "semantic admission replay conflict is rejected");
+  assertFailed(runSql(databaseUrl, admissionSql({
+    ids: {
+      admission: "019f0000-0000-7000-8000-000000009530",
+      session: "019f0000-0000-7000-8000-000000009531",
+      presenter: "019f0000-0000-7000-8000-000000009532",
+      identity: "019f0000-0000-7000-8000-000000009533",
+      dataUse: "019f0000-0000-7000-8000-000000009534",
+      essential: "019f0000-0000-7000-8000-000000009535",
+    },
+    agentId: fixture.agentBeta,
+    clientHash: "7".repeat(64),
+  })), "user cannot admit an agent from another tenant");
+  assert.equal(queryScalar(databaseUrl,
+    "SELECT count(*) FROM public.portal_text_preview_admissions WHERE id='019f0000-0000-7000-8000-000000009530';"), "0",
+  "cross-tenant denial writes no admission");
+  assertFailed(runSql(databaseUrl, admissionSql({
+    ids: {
+      admission: "019f0000-0000-7000-8000-000000009536",
+      session: "019f0000-0000-7000-8000-000000009537",
+      presenter: "019f0000-0000-7000-8000-000000009538",
+      identity: "019f0000-0000-7000-8000-000000009539",
+      dataUse: "019f0000-0000-7000-8000-00000000953a",
+      essential: "019f0000-0000-7000-8000-00000000953b",
+    },
+    userId: fixture.userBeta,
+    agentId: fixture.agentBeta,
+    clientHash: "f".repeat(64),
+  })), "a tenant without a legal policy cannot be admitted", /active text preview privacy policy required/);
+  const betaPolicyId = "019f0000-0000-7000-8000-000000009482";
+  const betaIds = Object.freeze({
+    admission: "019f0000-0000-7000-8000-000000009580",
+    session: "019f0000-0000-7000-8000-000000009581",
+    presenter: "019f0000-0000-7000-8000-000000009582",
+    identity: "019f0000-0000-7000-8000-000000009583",
+    dataUse: "019f0000-0000-7000-8000-000000009584",
+    essential: "019f0000-0000-7000-8000-000000009585",
+  });
+  assert.deepEqual(provisionPolicy(fixture.tenantBeta, betaPolicyId),
+    { outcome: "provisioned", policyId: betaPolicyId });
+  assert.equal(admit({
+    ids: betaIds,
+    userId: fixture.userBeta,
+    agentId: fixture.agentBeta,
+    clientHash: "f".repeat(64),
+  }).tenant_id, fixture.tenantBeta);
+  assertFailed(runSql(databaseUrl, asRoleSql("authenticated", fixture.userAlpha, `
+    SELECT public.portal_admit_text_preview_service(
+      '${defaultIds.admission}','${fixture.userAlpha}','${fixture.agentAlpha}','${defaultIds.session}','${defaultIds.presenter}',
+      '${"1".repeat(64)}','openrouter_portal_text_essential_v1','1.0.0','${essentialProfileFingerprint}','${providerFingerprint}',
+      '${"2".repeat(64)}','${defaultIds.identity}','portal-text-preview-v1','${identityHash}',
+      '${defaultIds.dataUse}','portal-text-preview-v1','${dataUseHash}','${defaultIds.essential}',null,null,false,true,
+      '0123456789abcdef0123456789abcdef','${defaultIds.admission}',
+      ${Array.from({ length: 12 }, (_, slot) => `'${reservedId(defaultIds.admission, slot)}'`).join(",")}
+    );
+  `)), "authenticated callers cannot invoke the service admission boundary");
+
+  const grants = new Map();
+  const attemptForClaim = (claimId) => `019e${claimId.slice(4)}`;
+  const acquireSql = (claimId, admissionId, commandRefHash, commandFingerprint, generation) => {
+    const attemptId = attemptForClaim(claimId);
+    const outcomeEventId = `0400${claimId.slice(4)}`;
+    const outcomeOutboxId = `0401${claimId.slice(4)}`;
+    grants.set(claimId, Object.freeze({
+      admissionId, attemptId, commandFingerprint, generation, outcomeEventId, outcomeOutboxId,
+    }));
+    return asRoleSql("service_role", null, `SELECT public.portal_acquire_text_preview_turn_service(
+      '${claimId}','${attemptId}','${admissionId}','${commandRefHash}','${commandFingerprint}',${generation},
+      '${outcomeEventId}','${outcomeOutboxId}'
+    );`);
+  };
+  const acquire = (claimId, admissionId, commandRefHash, commandFingerprint, generation) => queryJson(databaseUrl,
+    acquireSql(claimId, admissionId, commandRefHash, commandFingerprint, generation));
+  const complete = (admissionId, claimId, userTurn, assistantTurn, persistContent = false, options = {}) => {
+    const grant = grants.get(claimId);
+    assert.ok(grant, `missing test grant for ${claimId}`);
+    assert.equal(grant.admissionId, admissionId);
+    const completionFingerprint = options.completionFingerprint ?? `hmac-sha256:${"c".repeat(64)}`;
+    const providerRequestId = Object.hasOwn(options, "providerRequestId") ? options.providerRequestId : null;
+    return queryJson(databaseUrl, asRoleSql("service_role", null,
+      `SELECT public.portal_complete_text_preview_turn_service(
+        '${admissionId}','${claimId}','${grant.attemptId}',${grant.generation},'${grant.commandFingerprint}',
+        '${completionFingerprint}',${providerRequestId === null ? "null" : `'${sqlLiteral(providerRequestId)}'`},
+        ${persistContent ? `'${sqlLiteral(userTurn)}'` : "null"},
+        ${persistContent ? `'${sqlLiteral(assistantTurn)}'` : "null"}
+      );`));
+  };
+  const fail = (claimId, reason, providerRequestId = null, options = {}) => {
+    const grant = grants.get(claimId);
+    assert.ok(grant, `missing test grant for ${claimId}`);
+    const admissionId = options.admissionId ?? grant.admissionId;
+    const attemptId = options.attemptId ?? grant.attemptId;
+    return queryJson(databaseUrl, asRoleSql("service_role", null,
+      `SELECT public.portal_fail_text_preview_turn_service(
+        '${admissionId}','${claimId}','${attemptId}',${grant.generation},'${grant.commandFingerprint}','${reason}',
+        ${providerRequestId === null ? "null" : `'${sqlLiteral(providerRequestId)}'`}
+      );`));
+  };
+  const reconcileProviderResponse = (claimId, providerRequestId, options = {}) => {
+    const grant = grants.get(claimId);
+    assert.ok(grant, `missing test grant for ${claimId}`);
+    const admissionId = options.admissionId ?? grant.admissionId;
+    const attemptId = options.attemptId ?? grant.attemptId;
+    const generation = options.generation ?? grant.generation;
+    return queryJson(databaseUrl, asRoleSql("service_role", null,
+      `SELECT public.portal_reconcile_text_preview_provider_response_service(
+        '${admissionId}','${claimId}','${attemptId}',${generation},'${grant.commandFingerprint}',
+        '${sqlLiteral(providerRequestId)}'
+      );`));
+  };
+  const reservationsByEgress = new Map();
+  const reserveForEgress = (egressId, claimId, kind, options = {}) => {
+    const grant = grants.get(claimId);
+    assert.ok(grant, `missing test grant for ${claimId}`);
+    const reservationId = `0500${egressId.slice(4)}`;
+    const costEventId = `0501${egressId.slice(4)}`;
+    const operation = kind === "embedding" ? "knowledge_query_embedding" : "chat_generation";
+    const maxInput = kind === "embedding" ? 1000 : 20000;
+    const maxOutput = kind === "embedding" ? 0 : 512;
+    const maxCost = kind === "embedding" ? "0.001" : "0.05";
+    const reserved = queryJson(databaseUrl, asRoleSql("service_role", null,
+      `SELECT public.portal_begin_ai_usage_reservation_service(
+        '${reservationId}','${costEventId}','${options.tenantId ?? fixture.tenantAlpha}',
+        '${options.agentId ?? fixture.agentAlpha}',null,
+        'portal-text:${egressId}','${operation}',${maxInput},${maxOutput},${maxCost}
+      );`));
+    assert.ok(["reserved", "replayed"].includes(reserved.outcome),
+      `AI reservation failed for ${egressId}: ${JSON.stringify(reserved)}`);
+    reservationsByEgress.set(egressId, reservationId);
+    return reservationId;
+  };
+  const releaseEgressReservation = (egressId) => {
+    const reservationId = reservationsByEgress.get(egressId);
+    assert.ok(reservationId, `missing AI reservation for ${egressId}`);
+    assert.equal(queryScalar(databaseUrl, asRoleSql("service_role", null,
+      `SELECT public.portal_release_ai_usage_service('${reservationId}','not_dispatched');`)), "t");
+  };
+  const authorizeEgress = (egressId, claimId, kind, options = {}) => {
+    const grant = grants.get(claimId);
+    assert.ok(grant, `missing test grant for ${claimId}`);
+    const admissionId = options.admissionId ?? grant.admissionId;
+    const attemptId = options.attemptId ?? grant.attemptId;
+    const generation = options.generation ?? grant.generation;
+    const reservationId = options.reservationId ?? reserveForEgress(egressId, claimId, kind, options);
+    return queryJson(databaseUrl, asRoleSql("service_role", null,
+      `SELECT public.portal_authorize_text_preview_egress_service(
+        '${egressId}','${admissionId}','${claimId}','${attemptId}',${generation},'${kind}','${reservationId}'
+      );`));
+  };
+  const firstClaim = "019f0000-0000-7000-8000-000000009540";
+  const firstAcquire = acquire(firstClaim, defaultIds.admission, "a".repeat(64), "b".repeat(64), 0);
+  assert.equal(firstAcquire.outcome, "acquired");
+  assert.equal(firstAcquire.claimId, firstClaim);
+  assert.equal(firstAcquire.attemptId, attemptForClaim(firstClaim));
+  assert.equal(firstAcquire.generation, 0);
+  assert.ok(Date.parse(firstAcquire.leaseExpiresAt) > Date.now());
+  const firstEmbeddingEgress = "019f0000-0000-7000-8000-0000000095a0";
+  const boundaryEmbeddingEgress = "019f0000-0000-7000-8000-0000000095cf";
+  assertSucceeded(runSql(databaseUrl, `
+    WITH boundary AS (SELECT clock_timestamp() AS at)
+    UPDATE public.portal_text_preview_turn_claims
+    SET acquired_at=boundary.at-interval '55 seconds',
+        lease_expires_at=boundary.at+interval '35 seconds'
+    FROM boundary
+    WHERE tenant_id='${fixture.tenantAlpha}' AND id='${firstClaim}';
+  `), "set the exact database-clock egress denial boundary");
+  assert.equal(authorizeEgress(boundaryEmbeddingEgress, firstClaim, "embedding").outcome, "expired",
+    "PostgreSQL denies egress when at most the 30-second provider deadline plus five-second margin remains");
+  releaseEgressReservation(boundaryEmbeddingEgress);
+  assert.equal(queryScalar(databaseUrl,
+    `SELECT count(*) FROM public.portal_text_preview_egress_authorizations WHERE claim_id='${firstClaim}';`), "0");
+  assertSucceeded(runSql(databaseUrl, `
+    WITH boundary AS (SELECT clock_timestamp() AS at)
+    UPDATE public.portal_text_preview_turn_claims
+    SET acquired_at=boundary.at-interval '54 seconds',
+        lease_expires_at=boundary.at+interval '36 seconds'
+    FROM boundary
+    WHERE tenant_id='${fixture.tenantAlpha}' AND id='${firstClaim}';
+  `), "set the database-clock egress acceptance side of the boundary");
+  const embeddingGrant = authorizeEgress(firstEmbeddingEgress, firstClaim, "embedding");
+  assert.equal(embeddingGrant.outcome, "authorized");
+  assert.equal(embeddingGrant.egressId, firstEmbeddingEgress);
+  assert.equal(embeddingGrant.kind, "embedding");
+  assert.ok(Date.parse(embeddingGrant.expiresAt) > Date.parse(embeddingGrant.authorizedAt));
+  assert.ok(Date.parse(embeddingGrant.expiresAt) - Date.parse(embeddingGrant.authorizedAt) <= 15_000);
+  assert.equal(queryScalar(databaseUrl,
+    `SELECT state FROM public.ai_usage_reservations WHERE id='${reservationsByEgress.get(firstEmbeddingEgress)}';`),
+  "provider_in_flight", "authorized atomically crosses the AI dispatch fence");
+  assert.equal(authorizeEgress(firstEmbeddingEgress, firstClaim, "embedding", {
+    reservationId: reservationsByEgress.get(firstEmbeddingEgress),
+  }).outcome, "already_authorized",
+    "a lost grant response never authorizes a replayed dispatch");
+  assertSucceeded(runSql(databaseUrl, `
+    WITH boundary AS (SELECT clock_timestamp() AS at)
+    UPDATE public.portal_text_preview_turn_claims
+    SET acquired_at=boundary.at-interval '70 seconds',
+        lease_expires_at=boundary.at+interval '20 seconds'
+    FROM boundary
+    WHERE tenant_id='${fixture.tenantAlpha}' AND id='${firstClaim}';
+  `), "cross the new-dispatch margin while the existing grant remains valid");
+  assert.equal(authorizeEgress("019f0000-0000-7000-8000-0000000095a1", firstClaim, "embedding", {
+    reservationId: reservationsByEgress.get(firstEmbeddingEgress),
+  }).outcome, "already_authorized",
+  "a response-loss retry below the 35-second new-dispatch margin recovers only the still-valid original grant");
+  assert.equal(queryJson(databaseUrl, asRoleSql("service_role", null,
+    `SELECT public.portal_commit_ai_usage_service('${reservationsByEgress.get(firstEmbeddingEgress)}',1,0,null);`)).committed,
+  true, "embedding usage settles before generation authorization");
+  assert.equal(authorizeEgress("019f0000-0000-7000-8000-0000000095a2", firstClaim, "generation", {
+    admissionId: betaIds.admission,
+  }).outcome, "not_authorized", "a cross-tenant admission cannot authorize another tenant claim");
+  releaseEgressReservation("019f0000-0000-7000-8000-0000000095a2");
+  assert.equal(queryScalar(databaseUrl,
+    `SELECT count(*) FROM public.portal_text_preview_egress_authorizations WHERE id='019f0000-0000-7000-8000-0000000095a2';`), "0");
+  assertSucceeded(runSql(databaseUrl, `
+    WITH restored AS (SELECT clock_timestamp() AS at)
+    UPDATE public.portal_text_preview_turn_claims
+    SET acquired_at=restored.at,lease_expires_at=restored.at+interval '90 seconds'
+    FROM restored
+    WHERE tenant_id='${fixture.tenantAlpha}' AND id='${firstClaim}';
+  `), "restore a full claim lease after the exact boundary test");
+  assert.equal(authorizeEgress("019f0000-0000-7000-8000-0000000095a3", firstClaim, "generation").outcome,
+    "authorized", "the separately revalidated generation egress receives its own one-use grant");
+  assert.equal(queryJson(databaseUrl, asRoleSql("service_role", null,
+    `SELECT public.portal_commit_ai_usage_service('${reservationsByEgress.get("019f0000-0000-7000-8000-0000000095a3")}',1,1,null);`)).committed,
+  true, "generation usage settles after the atomic egress grant");
+  assertFailed(runSql(databaseUrl, asRoleSql("service_role", null, `
+    INSERT INTO public.portal_text_preview_egress_authorizations(
+      id,tenant_id,admission_id,claim_id,attempt_id,generation,kind,authorized_at,expires_at
+    ) VALUES (
+      '019f0000-0000-7000-8000-0000000095a4','${fixture.tenantAlpha}','${defaultIds.admission}',
+      '${firstClaim}','${attemptForClaim(firstClaim)}',0,'generation',clock_timestamp(),clock_timestamp()+interval '1 second'
+    );
+  `)), "service role cannot bypass the egress RPC with direct DML");
+  assert.equal(queryJson(databaseUrl, asRoleSql("service_role", null,
+    `SELECT public.portal_fail_text_preview_turn_service(
+      '${betaIds.admission}','${firstClaim}','${attemptForClaim(firstClaim)}',0,'${"b".repeat(64)}','generation_failed'
+      ,null
+    );`)).outcome, "not_authorized", "fail cannot mix a claim with another tenant admission");
+  assert.equal(acquire(firstClaim, defaultIds.admission, "a".repeat(64), "b".repeat(64), 0).outcome, "acquired");
+  assert.equal(acquire("019f0000-0000-7000-8000-000000009541", defaultIds.admission,
+    "c".repeat(64), "d".repeat(64), 0).outcome, "conflict", "generation zero has one in-flight owner");
+  assert.equal(complete(defaultIds.admission, firstClaim, "Não enviar", "Não enviar", true).outcome,
+    "conflict", "default-off completion rejects content before any database write");
+  assert.equal(complete(defaultIds.admission, firstClaim, "", "", false, {
+    providerRequestId: "requisição-não-ascii",
+  }).outcome, "conflict", "provider request IDs are bounded to opaque ASCII");
+  const firstProviderRequestId = `openrouter-request-${firstClaim.slice(-12)}`;
+  assert.deepEqual(complete(defaultIds.admission, firstClaim, "Olá", "Olá, como posso ajudar?", false, {
+    providerRequestId: firstProviderRequestId,
+  }), { outcome: "succeeded", persistence: "disabled", providerRequestId: firstProviderRequestId });
+  assert.deepEqual(complete(defaultIds.admission, firstClaim, "Olá", "Olá, como posso ajudar?", false, {
+    providerRequestId: firstProviderRequestId,
+  }), { outcome: "succeeded", persistence: "disabled", providerRequestId: firstProviderRequestId },
+  "turn completion replays structurally");
+  assert.equal(complete(defaultIds.admission, firstClaim, "Olá", "Olá, como posso ajudar?", false, {
+    completionFingerprint: `hmac-sha256:${"d".repeat(64)}`,
+    providerRequestId: firstProviderRequestId,
+  }).outcome, "conflict", "completion HMAC drift cannot replay a succeeded claim");
+  assert.equal(complete(defaultIds.admission, firstClaim, "Olá", "Olá, como posso ajudar?", false, {
+    providerRequestId: "fake-request-divergent",
+  }).outcome, "conflict", "provider request drift cannot replay a succeeded claim");
+  assert.deepEqual(reconcileProviderResponse(firstClaim, firstProviderRequestId),
+    { outcome: "succeeded", providerRequestId: firstProviderRequestId },
+  "ambiguous transport after a committed completion reconciles to succeeded");
+  const firstOutcomeEvent = queryJson(databaseUrl, `
+    SELECT event_document FROM public.events_outbox
+    WHERE tenant_id='${fixture.tenantAlpha}' AND event_id='${grants.get(firstClaim).outcomeEventId}';
+  `);
+  assert.equal(parseCanonicalOutboxInteractionEvent(firstOutcomeEvent).event_type, "turn.outcome_recorded",
+    "the compiled domain consumer parses a successful PostgreSQL outcome");
+  assert.deepEqual(Object.keys(firstOutcomeEvent).sort(), canonicalEnvelopeKeys);
+  assert.equal(firstOutcomeEvent.aggregate_version, 6);
+  assert.equal(firstOutcomeEvent.causation_id, admissionEvents[4].event_id);
+  assert.equal(firstOutcomeEvent.correlation_id, firstClaim);
+  assert.equal(firstOutcomeEvent.data_classification, "internal");
+  const firstOutcomePayload = JSON.parse(firstOutcomeEvent.payload_json);
+  assert.deepEqual(firstOutcomePayload, {
+    schema_version: "2.0.0",
+    claim_id: firstClaim,
+    generation: 0,
+    outcome: "succeeded",
+    reason_code: "generation_succeeded",
+    persistence: "disabled",
+    resulting_turn_index: 2,
+  });
+  assert.equal(firstOutcomeEvent.payload_json.includes("provider"), false);
+  assert.equal(firstOutcomeEvent.payload_json.includes("Olá"), false);
+  assert.equal(queryScalar(databaseUrl,
+    `SELECT state_version FROM public.sessions WHERE tenant_id='${fixture.tenantAlpha}' AND id='${defaultIds.session}';`),
+  "6", "claim success and canonical outbox advance the projection atomically");
+  assert.equal(acquire(firstClaim, defaultIds.admission, "a".repeat(64), "b".repeat(64), 0).outcome,
+    "already_processed");
+  assert.equal(acquire("019f0000-0000-7000-8000-000000009542", defaultIds.admission,
+    "e".repeat(64), "f".repeat(64), 0).outcome, "stale_generation");
+
+  const failedClaim = "019f0000-0000-7000-8000-000000009543";
+  assert.equal(acquire(failedClaim, defaultIds.admission, "0".repeat(64), "1".repeat(64), 1).outcome, "acquired");
+  assert.equal(fail(failedClaim, "generation_failed").outcome, "failed");
+  const failedOutcomeEvent = queryJson(databaseUrl, `
+    SELECT event_document FROM public.events_outbox
+    WHERE tenant_id='${fixture.tenantAlpha}' AND event_id='${grants.get(failedClaim).outcomeEventId}';
+  `);
+  assert.equal(parseCanonicalOutboxInteractionEvent(failedOutcomeEvent).event_type, "turn.outcome_recorded",
+    "the compiled domain consumer parses a failed PostgreSQL outcome");
+  assert.equal(failedOutcomeEvent.event_type, "turn.outcome_recorded");
+  assert.equal(failedOutcomeEvent.aggregate_version, 7);
+  assert.equal(failedOutcomeEvent.correlation_id, failedClaim);
+  assert.equal(failedOutcomeEvent.causation_id, firstOutcomeEvent.event_id);
+  assert.deepEqual(JSON.parse(failedOutcomeEvent.payload_json), {
+    schema_version: "2.0.0",
+    claim_id: failedClaim,
+    generation: 1,
+    outcome: "failed",
+    reason_code: "generation_failed",
+    persistence: null,
+    resulting_turn_index: 2,
+  });
+  const providerFailureClaim = "019f0000-0000-7000-8000-000000009544";
+  const providerFailureId = "openrouter-response-uncommitted-9544";
+  assert.equal(acquire(providerFailureClaim, defaultIds.admission,
+    "2".repeat(64), "3".repeat(64), 1).outcome, "acquired");
+  const providerFailureEgress = "019f0000-0000-7000-8000-0000000095d0";
+  assert.equal(authorizeEgress(providerFailureEgress, providerFailureClaim, "generation").outcome, "authorized");
+  assert.equal(queryJson(databaseUrl, asRoleSql("service_role", null,
+    `SELECT public.portal_commit_ai_usage_service('${reservationsByEgress.get(providerFailureEgress)}',1,1,null);`)).committed,
+  true, "the provider receipt follows a generation dispatch grant");
+  assert.equal(fail(providerFailureClaim, "provider_response_uncommitted").outcome, "conflict",
+    "provider response failure requires the opaque provider response ID");
+  assert.equal(fail(providerFailureClaim, "generation_failed", providerFailureId).outcome, "conflict",
+    "ordinary failures cannot retain a provider response ID");
+  assert.equal(fail(providerFailureClaim, "provider_response_uncommitted", providerFailureId, {
+    admissionId: betaIds.admission,
+  }).outcome, "not_authorized", "cross-tenant admission cannot record provider evidence");
+  assert.equal(fail(providerFailureClaim, "provider_response_uncommitted", providerFailureId, {
+    attemptId: "019f0000-0000-7000-8000-0000000095af",
+  }).outcome, "conflict", "an old attempt cannot record provider evidence");
+  const providerFailureBefore = queryJson(databaseUrl, `
+    SELECT jsonb_build_object(
+      'stateVersion',(SELECT state_version FROM public.sessions
+        WHERE tenant_id='${fixture.tenantAlpha}' AND id='${defaultIds.session}'),
+      'outboxCount',(SELECT count(*) FROM public.events_outbox
+        WHERE tenant_id='${fixture.tenantAlpha}' AND aggregate_id='${defaultIds.session}')
+    );
+  `);
+  assert.equal(fail(providerFailureClaim, "provider_response_uncommitted", providerFailureId).outcome, "failed");
+  assert.equal(fail(providerFailureClaim, "provider_response_uncommitted", providerFailureId).outcome, "failed",
+    "the exact provider failure receipt replays idempotently");
+  assert.equal(fail(providerFailureClaim, "provider_response_uncommitted", "openrouter-response-divergent").outcome,
+    "conflict", "a divergent provider response ID cannot replay the receipt");
+  assert.deepEqual(reconcileProviderResponse(providerFailureClaim, providerFailureId), {
+    outcome: "failed", reasonCode: "provider_response_uncommitted", providerRequestId: providerFailureId,
+  }, "the reconciliation boundary replays the durable provider failure receipt");
+  assert.equal(reconcileProviderResponse(providerFailureClaim, "openrouter-response-divergent").outcome, "conflict");
+  assert.equal(queryScalar(databaseUrl, `
+    SELECT state||':'||reason_code||':'||provider_request_id
+    FROM public.portal_text_preview_turn_claims
+    WHERE tenant_id='${fixture.tenantAlpha}' AND id='${providerFailureClaim}';
+  `), `failed:provider_response_uncommitted:${providerFailureId}`);
+  const providerFailureEvent = queryJson(databaseUrl, `
+    SELECT event_document FROM public.events_outbox
+    WHERE tenant_id='${fixture.tenantAlpha}'
+      AND event_id='${grants.get(providerFailureClaim).outcomeEventId}';
+  `);
+  assert.equal(parseCanonicalOutboxInteractionEvent(providerFailureEvent).event_type, "turn.outcome_recorded");
+  assert.equal(providerFailureEvent.payload_json.includes(providerFailureId), false,
+    "provider response IDs remain claim evidence and never enter the event payload");
+  assert.equal(JSON.parse(providerFailureEvent.payload_json).reason_code, "provider_response_uncommitted");
+  assert.deepEqual(queryJson(databaseUrl, `
+    SELECT jsonb_build_object(
+      'stateVersion',(SELECT state_version FROM public.sessions
+        WHERE tenant_id='${fixture.tenantAlpha}' AND id='${defaultIds.session}'),
+      'outboxCount',(SELECT count(*) FROM public.events_outbox
+        WHERE tenant_id='${fixture.tenantAlpha}' AND aggregate_id='${defaultIds.session}')
+    );
+  `), {
+    stateVersion: providerFailureBefore.stateVersion + 1,
+    outboxCount: providerFailureBefore.outboxCount + 1,
+  }, "provider response failure updates claim, projection and canonical outbox atomically once");
+  const leaseClaim = "019f0000-0000-7000-8000-000000009545";
+  assert.equal(acquire(leaseClaim, defaultIds.admission, "7".repeat(64), "1".repeat(64), 1).outcome, "acquired");
+  assertSucceeded(runSql(databaseUrl, `
+    UPDATE public.portal_text_preview_turn_claims
+    SET acquired_at=aged.now_at-interval '91 seconds',
+        lease_expires_at=aged.now_at-interval '1 second'
+    FROM (SELECT clock_timestamp() AS now_at) aged
+    WHERE tenant_id='${fixture.tenantAlpha}' AND id='${leaseClaim}';
+  `), "age a local turn lease without breaking its exact ninety-second window");
+  assert.deepEqual(complete(defaultIds.admission, leaseClaim, "Descartar", "Descartada"),
+    { outcome: "failed", reasonCode: "worker_lost" }, "expired owner cannot complete");
+  const workerLostEvent = queryJson(databaseUrl, `
+    SELECT event_document FROM public.events_outbox
+    WHERE tenant_id='${fixture.tenantAlpha}' AND event_id='${grants.get(leaseClaim).outcomeEventId}';
+  `);
+  assert.equal(workerLostEvent.event_type, "turn.outcome_recorded");
+  assert.equal(workerLostEvent.correlation_id, leaseClaim);
+  assert.equal(JSON.parse(workerLostEvent.payload_json).reason_code, "worker_lost");
+  assert.equal(fail(leaseClaim, "generation_failed").outcome, "conflict",
+    "expired owner cannot replace worker_lost with a caller-selected failure");
+  assert.deepEqual(acquire(leaseClaim, defaultIds.admission, "7".repeat(64), "1".repeat(64), 1),
+    { outcome: "failed" }, "same command reference remains terminal after worker loss");
+  const recoveredClaim = "019f0000-0000-7000-8000-000000009546";
+  assert.equal(acquire(recoveredClaim, defaultIds.admission, "6".repeat(64), "2".repeat(64), 1).outcome,
+    "acquired", "a new command reference may retry an unconsumed generation after worker loss");
+  assert.equal(fail(recoveredClaim, "generation_failed").outcome, "failed");
+  const retriedClaim = "019f0000-0000-7000-8000-000000009548";
+  const competingClaim = "019f0000-0000-7000-8000-000000009547";
+  const generationRace = await runConcurrentSqlBehindBarrier(databaseUrl, [
+    { lockId: 49_170, sql: acquireSql(retriedClaim, defaultIds.admission, "8".repeat(64), "3".repeat(64), 1) },
+    { lockId: 49_171, sql: acquireSql(competingClaim, defaultIds.admission, "9".repeat(64), "5".repeat(64), 1) },
+  ], "text-preview-generation-race");
+  for (const result of generationRace) assertSucceeded(result, "same-generation acquire race");
+  const raceOutcomes = generationRace.map((result) => parseLastJson(result.stdout));
+  assert.deepEqual(raceOutcomes.map((result) => result.outcome).sort(), ["acquired", "conflict"],
+    "same-generation concurrency has one winner");
+  const generationWinner = raceOutcomes.find((result) => result.outcome === "acquired").claimId;
+  assert.equal(queryScalar(databaseUrl,
+    `SELECT count(*) FROM public.portal_text_preview_turn_claims WHERE tenant_id='${fixture.tenantAlpha}' AND admission_id='${defaultIds.admission}' AND generation=1 AND state='acquired';`), "1");
+  assert.equal(complete(defaultIds.admission, generationWinner, "Nova tentativa", "Concluída").persistence, "disabled");
+
+  const oldPolicyIds = Object.freeze({
+    admission: "019f0000-0000-7000-8000-000000009550",
+    session: "019f0000-0000-7000-8000-000000009551",
+    presenter: "019f0000-0000-7000-8000-000000009552",
+    identity: "019f0000-0000-7000-8000-000000009553",
+    dataUse: "019f0000-0000-7000-8000-000000009554",
+    essential: "019f0000-0000-7000-8000-000000009555",
+  });
+  admit({ ids: oldPolicyIds, clientHash: "9".repeat(64) });
+  const oldPolicyClaim = "019f0000-0000-7000-8000-000000009556";
+  assert.equal(acquire(oldPolicyClaim, oldPolicyIds.admission,
+    "6".repeat(64), "7".repeat(64), 0).outcome, "acquired");
+  const oldPolicyGenerationEgress = "019f0000-0000-7000-8000-0000000095d1";
+  const oldPolicyProviderId = "openrouter-policy-drift-9556";
+  assert.equal(authorizeEgress(oldPolicyGenerationEgress, oldPolicyClaim, "generation").outcome, "authorized");
+  assert.equal(queryJson(databaseUrl, asRoleSql("service_role", null,
+    `SELECT public.portal_commit_ai_usage_service('${reservationsByEgress.get(oldPolicyGenerationEgress)}',1,1,null);`)).committed,
+  true);
+  assert.deepEqual(queryJson(databaseUrl, asRoleSql("service_role", null, `
+    SELECT public.portal_provision_text_preview_privacy_policy_service(
+      '${replacementPolicyId}','${fixture.tenantAlpha}','US-FL','1.0.1','${replacementPolicyFingerprint}',
+      clock_timestamp(),clock_timestamp()+interval '30 days'
+    );
+  `)), { outcome: "provisioned", policyId: replacementPolicyId });
+  assert.equal(authorizeEgress("019f0000-0000-7000-8000-0000000095a5", oldPolicyClaim, "embedding").outcome,
+    "not_authorized", "policy supersession after acquire blocks the next provider egress");
+  releaseEgressReservation("019f0000-0000-7000-8000-0000000095a5");
+  assert.equal(queryScalar(databaseUrl,
+    `SELECT count(*) FROM public.portal_text_preview_egress_authorizations WHERE claim_id='${oldPolicyClaim}';`), "1");
+  assert.deepEqual(complete(oldPolicyIds.admission, oldPolicyClaim, "Policy antiga", "Não entregar", false, {
+    providerRequestId: oldPolicyProviderId,
+  }), {
+    outcome: "failed", reasonCode: "provider_response_uncommitted", providerRequestId: oldPolicyProviderId,
+  }, "policy drift after generation dispatch preserves the provider receipt without reply content");
+  assert.equal(queryScalar(databaseUrl,
+    `SELECT state||':'||reason_code FROM public.portal_text_preview_turn_claims WHERE id='${oldPolicyClaim}';`),
+  "failed:provider_response_uncommitted");
+  assert.equal(acquire("019f0000-0000-7000-8000-000000009558", oldPolicyIds.admission,
+    "8".repeat(64), "9".repeat(64), 0).outcome, "not_authorized",
+  "a newer active tenant policy invalidates an older admission before generation");
+  assertFailed(runSql(databaseUrl, asRoleSql("service_role", null, `
+    SELECT public.portal_provision_text_preview_privacy_policy_service(
+      '019f0000-0000-7000-8000-000000009557','${fixture.tenantAlpha}','BR','1.0.2',
+      'sha256:${"c".repeat(64)}',now()-interval '2 minutes',now()+interval '1 day'
+    );
+  `)), "policy effective time cannot move backwards", /must advance effective time/);
+
+  const consentIds = Object.freeze({
+    admission: "019f0000-0000-7000-8000-000000009560",
+    session: "019f0000-0000-7000-8000-000000009561",
+    presenter: "019f0000-0000-7000-8000-000000009562",
+    identity: "019f0000-0000-7000-8000-000000009563",
+    dataUse: "019f0000-0000-7000-8000-000000009564",
+    essential: "019f0000-0000-7000-8000-000000009565",
+  });
+  const currentPolicyAdmission = admit({ ids: consentIds, clientHash: "0".repeat(64) });
+  assert.equal(currentPolicyAdmission.privacy_policy_id, replacementPolicyId);
+  const revokedClaim = "019f0000-0000-7000-8000-000000009567";
+  assert.equal(acquire(revokedClaim, consentIds.admission, "4".repeat(64), "5".repeat(64), 0).outcome,
+    "acquired", "the grant exists before the later essential revocation");
+  const revokedGenerationEgress = "019f0000-0000-7000-8000-0000000095d2";
+  const revokedProviderId = "openrouter-consent-drift-9567";
+  assert.equal(authorizeEgress(revokedGenerationEgress, revokedClaim, "generation").outcome, "authorized");
+  assert.equal(queryJson(databaseUrl, asRoleSql("service_role", null,
+    `SELECT public.portal_commit_ai_usage_service('${reservationsByEgress.get(revokedGenerationEgress)}',1,1,null);`)).committed,
+  true);
+  const essentialSubject = queryScalar(databaseUrl,
+    `SELECT subject_ref FROM public.consent_evidence WHERE tenant_id='${fixture.tenantAlpha}' AND id='${consentIds.essential}';`);
+  assertSucceeded(runSql(databaseUrl, `INSERT INTO public.consent_evidence(
+    tenant_id,id,session_id,subject_ref,consent_type,purpose,status,method,jurisdiction,
+    disclosure_version,evidence_hash,captured_at,revoked_at
+  ) VALUES (
+    '${fixture.tenantAlpha}','019f0000-0000-7000-8000-000000009566','${consentIds.session}','${sqlLiteral(essentialSubject)}',
+    'essential_processing','portal_text_preview','revoked','click','US-FL','portal-text-preview-v1',
+    '${"8".repeat(64)}',clock_timestamp(),clock_timestamp()
+  );`), "append a newer essential consent revocation");
+  assert.equal(authorizeEgress("019f0000-0000-7000-8000-0000000095a6", revokedClaim, "embedding").outcome,
+    "not_authorized", "a newer essential revocation blocks embedding after claim acquisition");
+  releaseEgressReservation("019f0000-0000-7000-8000-0000000095a6");
+  assert.equal(queryScalar(databaseUrl,
+    `SELECT count(*) FROM public.portal_text_preview_egress_authorizations WHERE claim_id='${revokedClaim}';`), "1");
+  assert.deepEqual(complete(consentIds.admission, revokedClaim, "Revogado", "Não entregar", false, {
+    providerRequestId: revokedProviderId,
+  }), {
+    outcome: "failed", reasonCode: "provider_response_uncommitted", providerRequestId: revokedProviderId,
+  }, "consent drift after generation dispatch preserves the provider receipt without reply content");
+
+  const guardIds = Object.freeze({
+    admission: "019f0000-0000-7000-8000-000000009570",
+    session: "019f0000-0000-7000-8000-000000009571",
+    presenter: "019f0000-0000-7000-8000-000000009572",
+    identity: "019f0000-0000-7000-8000-000000009573",
+    dataUse: "019f0000-0000-7000-8000-000000009574",
+    essential: "019f0000-0000-7000-8000-000000009575",
+  });
+  admit({ ids: guardIds, clientHash: "a".repeat(63) + "1" });
+  const guardClaim = "019f0000-0000-7000-8000-000000009576";
+  const transferredPresenter = "019f0000-0000-7000-8000-000000009577";
+  assert.equal(acquire(guardClaim, guardIds.admission, "a".repeat(64), "b".repeat(64), 0).outcome, "acquired");
+  const lockTimeoutEgress = "019f0000-0000-7000-8000-0000000095d4";
+  const lockTimeoutReservation = reserveForEgress(lockTimeoutEgress, guardClaim, "embedding");
+  const admissionLockBarrier = "text-preview-admission-lock-timeout";
+  const admissionLockHolder = runSqlAsync(databaseUrl, `
+    BEGIN;
+    SELECT id FROM public.portal_text_preview_admissions
+    WHERE tenant_id='${fixture.tenantAlpha}' AND id='${guardIds.admission}' FOR UPDATE;
+    SELECT pg_advisory_xact_lock(49_180);
+    DO $barrier$
+    DECLARE deadline timestamptz := clock_timestamp() + interval '5 seconds';
+    BEGIN
+      LOOP
+        EXIT WHEN EXISTS (SELECT 1 FROM public.axtro_supabase_test_barriers WHERE name='${admissionLockBarrier}');
+        IF clock_timestamp() >= deadline THEN RAISE EXCEPTION 'admission lock barrier timeout'; END IF;
+        PERFORM pg_sleep(0.01);
+      END LOOP;
+    END
+    $barrier$;
+    COMMIT;
+  `);
+  await waitForAdvisoryLockHolder(databaseUrl, 49_180);
+  const lockWaitStartedAt = Date.now();
+  const timedOutEgress = await runSqlAsync(databaseUrl, asRoleSql("service_role", null,
+    `SELECT public.portal_authorize_text_preview_egress_service(
+      '${lockTimeoutEgress}','${guardIds.admission}','${guardClaim}','${attemptForClaim(guardClaim)}',0,
+      'embedding','${lockTimeoutReservation}'
+    );`));
+  const lockWaitElapsedMs = Date.now() - lockWaitStartedAt;
+  assertSucceeded(runSql(databaseUrl,
+    `INSERT INTO public.axtro_supabase_test_barriers(name) VALUES ('${admissionLockBarrier}') ON CONFLICT DO NOTHING;`),
+  "release preview admission lock holder");
+  assertFailed(timedOutEgress, "bounded preview lock wait", /lock timeout|canceling statement/);
+  assert.ok(lockWaitElapsedMs >= 1_500 && lockWaitElapsedMs < 3_500,
+    `preview lock wait must stay within the 2s lock bound, observed ${lockWaitElapsedMs}ms`);
+  assertSucceeded(await admissionLockHolder, "release the deterministic admission lock holder");
+  assertSucceeded(runSql(databaseUrl,
+    `DELETE FROM public.axtro_supabase_test_barriers WHERE name='${admissionLockBarrier}';`),
+  "clear preview admission lock barrier");
+  assert.equal(queryScalar(databaseUrl,
+    `SELECT state FROM public.ai_usage_reservations WHERE id='${lockTimeoutReservation}';`), "reserved");
+  assert.equal(queryScalar(databaseUrl,
+    `SELECT count(*) FROM public.portal_text_preview_egress_authorizations WHERE id='${lockTimeoutEgress}';`), "0");
+  releaseEgressReservation(lockTimeoutEgress);
+  assertSucceeded(runSql(databaseUrl, `
+    INSERT INTO public.session_participants(
+      tenant_id,id,session_id,participant_type,display_name,joined_at
+    ) VALUES (
+      '${fixture.tenantAlpha}','${transferredPresenter}','${guardIds.session}',
+      'digital_presenter','Transferred presenter',clock_timestamp()
+    );
+    UPDATE public.sessions SET active_presenter_id='${transferredPresenter}'
+    WHERE tenant_id='${fixture.tenantAlpha}' AND id='${guardIds.session}';
+  `), "transfer Presenter after claim acquisition");
+  assert.equal(authorizeEgress("019f0000-0000-7000-8000-0000000095b0", guardClaim, "embedding").outcome,
+    "not_authorized", "Presenter transfer blocks embedding after claim acquisition");
+  releaseEgressReservation("019f0000-0000-7000-8000-0000000095b0");
+  assert.equal(complete(guardIds.admission, guardClaim, "Não usar", "Não usar").outcome,
+    "not_authorized", "Presenter transfer also blocks completion");
+  assertSucceeded(runSql(databaseUrl, `
+    UPDATE public.sessions SET active_presenter_id='${guardIds.presenter}'
+    WHERE tenant_id='${fixture.tenantAlpha}' AND id='${guardIds.session}';
+    UPDATE public.session_participants SET left_at=clock_timestamp()
+    WHERE tenant_id='${fixture.tenantAlpha}' AND id='${transferredPresenter}';
+    UPDATE public.sessions SET active_presenter_id=null
+    WHERE tenant_id='${fixture.tenantAlpha}' AND id='${guardIds.session}';
+  `), "clear Presenter after restoring a single live presenter");
+  assert.equal(authorizeEgress("019f0000-0000-7000-8000-0000000095b1", guardClaim, "generation").outcome,
+    "not_authorized", "cleared Presenter blocks generation after claim acquisition");
+  releaseEgressReservation("019f0000-0000-7000-8000-0000000095b1");
+  assertSucceeded(runSql(databaseUrl, `
+    UPDATE public.sessions SET active_presenter_id='${guardIds.presenter}'
+    WHERE tenant_id='${fixture.tenantAlpha}' AND id='${guardIds.session}';
+    UPDATE public.session_participants SET left_at=clock_timestamp()
+    WHERE tenant_id='${fixture.tenantAlpha}' AND id='${guardIds.presenter}';
+  `), "mark the admitted Presenter as left after claim acquisition");
+  assert.equal(authorizeEgress("019f0000-0000-7000-8000-0000000095b2", guardClaim, "embedding").outcome,
+    "not_authorized", "a left Presenter blocks embedding after claim acquisition");
+  releaseEgressReservation("019f0000-0000-7000-8000-0000000095b2");
+  assertSucceeded(runSql(databaseUrl, `
+    UPDATE public.session_participants SET left_at=null
+    WHERE tenant_id='${fixture.tenantAlpha}' AND id='${guardIds.presenter}';
+    UPDATE public.agents SET status='disabled'
+    WHERE tenant_id='${fixture.tenantAlpha}' AND id='${fixture.agentAlpha}';
+  `), "disable the agent after claim acquisition");
+  assert.equal(authorizeEgress("019f0000-0000-7000-8000-0000000095b3", guardClaim, "generation").outcome,
+    "not_authorized", "a disabled agent blocks generation after claim acquisition");
+  releaseEgressReservation("019f0000-0000-7000-8000-0000000095b3");
+  assert.equal(queryScalar(databaseUrl,
+    `SELECT count(*) FROM public.portal_text_preview_egress_authorizations WHERE claim_id='${guardClaim}';`), "0",
+  "every Presenter and agent derivation failure produces zero egress grants");
+  assertSucceeded(runSql(databaseUrl, `
+    UPDATE public.agents SET status='active'
+    WHERE tenant_id='${fixture.tenantAlpha}' AND id='${fixture.agentAlpha}';
+  `), "restore the agent fixture after derivation checks");
+  const presenterDriftEgress = "019f0000-0000-7000-8000-0000000095d3";
+  const presenterDriftProviderId = "openrouter-presenter-drift-9576";
+  assert.equal(authorizeEgress(presenterDriftEgress, guardClaim, "generation").outcome, "authorized");
+  assert.equal(queryJson(databaseUrl, asRoleSql("service_role", null,
+    `SELECT public.portal_commit_ai_usage_service('${reservationsByEgress.get(presenterDriftEgress)}',1,1,null);`)).committed,
+  true);
+  assertSucceeded(runSql(databaseUrl, `
+    UPDATE public.sessions SET active_presenter_id=null
+    WHERE tenant_id='${fixture.tenantAlpha}' AND id='${guardIds.session}';
+  `), "clear Presenter after generation dispatch");
+  assert.deepEqual(complete(guardIds.admission, guardClaim, "Não usar", "Não usar", false, {
+    providerRequestId: presenterDriftProviderId,
+  }), {
+    outcome: "failed", reasonCode: "provider_response_uncommitted", providerRequestId: presenterDriftProviderId,
+  }, "Presenter drift after generation dispatch preserves the provider receipt without reply content");
+
+  const persistedIds = Object.freeze({
+    admission: "019f0000-0000-7000-8000-000000009600",
+    session: "019f0000-0000-7000-8000-000000009601",
+    presenter: "019f0000-0000-7000-8000-000000009602",
+    identity: "019f0000-0000-7000-8000-000000009603",
+    dataUse: "019f0000-0000-7000-8000-000000009604",
+    essential: "019f0000-0000-7000-8000-000000009605",
+  });
+  const transcriptConsent = "019f0000-0000-7000-8000-000000009606";
+  const transcriptId = "019f0000-0000-7000-8000-000000009607";
+  const persisted = admit({
+    ids: persistedIds,
+    clientHash: "8".repeat(64),
+    profileId: "openrouter_portal_text_persisted_v1",
+    transcriptConsent,
+    transcript: transcriptId,
+    persistent: true,
+    profileFingerprint: persistedProfileFingerprint,
+  });
+  assert.equal(persisted.persistent_transcript, true);
+  assert.equal(persisted.transcript_id, transcriptId);
+  assert.equal(queryScalar(databaseUrl,
+    `SELECT jsonb_array_length(turns) FROM public.conversation_transcripts WHERE tenant_id='${fixture.tenantAlpha}' AND id='${transcriptId}';`), "0");
+
+  const persistedClaim = "019f0000-0000-7000-8000-000000009610";
+  assert.equal(acquire(persistedClaim, persistedIds.admission, "6".repeat(64), "7".repeat(64), 0).outcome, "acquired");
+  const persistedBeforeFailure = queryJson(databaseUrl, `
+    SELECT jsonb_build_object(
+      'stateVersion',(SELECT state_version FROM public.sessions
+        WHERE tenant_id='${fixture.tenantAlpha}' AND id='${persistedIds.session}'),
+      'outboxCount',(SELECT count(*) FROM public.events_outbox
+        WHERE tenant_id='${fixture.tenantAlpha}' AND aggregate_id='${persistedIds.session}')
+    );
+  `);
+  assertSucceeded(runSql(databaseUrl, `
+    CREATE FUNCTION public.axtro_test_reject_text_preview_receipt() RETURNS trigger
+    LANGUAGE plpgsql AS $$ BEGIN RAISE EXCEPTION 'injected receipt failure'; END; $$;
+    CREATE TRIGGER axtro_test_reject_text_preview_receipt
+    BEFORE INSERT ON public.portal_text_preview_transcript_writes
+    FOR EACH ROW EXECUTE FUNCTION public.axtro_test_reject_text_preview_receipt();
+  `), "install local atomicity failure injection");
+  assertFailed(runSql(databaseUrl, asRoleSql("service_role", null, `SELECT public.portal_complete_text_preview_turn_service(
+    '${persistedIds.admission}','${persistedClaim}','${grants.get(persistedClaim).attemptId}',0,'${"7".repeat(64)}',
+    'hmac-sha256:${"c".repeat(64)}',null,'Olá','Como posso ajudar?'
+  );`)), "receipt failure rolls back transcript and claim", /injected receipt failure/);
+  assert.equal(queryScalar(databaseUrl,
+    `SELECT jsonb_array_length(turns) FROM public.conversation_transcripts WHERE tenant_id='${fixture.tenantAlpha}' AND id='${transcriptId}';`), "0");
+  assert.equal(queryScalar(databaseUrl,
+    `SELECT state FROM public.portal_text_preview_turn_claims WHERE tenant_id='${fixture.tenantAlpha}' AND id='${persistedClaim}';`), "acquired");
+  assert.deepEqual(queryJson(databaseUrl, `
+    SELECT jsonb_build_object(
+      'stateVersion',(SELECT state_version FROM public.sessions
+        WHERE tenant_id='${fixture.tenantAlpha}' AND id='${persistedIds.session}'),
+      'outboxCount',(SELECT count(*) FROM public.events_outbox
+        WHERE tenant_id='${fixture.tenantAlpha}' AND aggregate_id='${persistedIds.session}')
+    );
+  `), persistedBeforeFailure, "transcript, claim, projection and outbox roll back as one transaction");
+  assertSucceeded(runSql(databaseUrl, `
+    DROP TRIGGER axtro_test_reject_text_preview_receipt ON public.portal_text_preview_transcript_writes;
+    DROP FUNCTION public.axtro_test_reject_text_preview_receipt();
+  `), "remove local atomicity failure injection");
+  assert.deepEqual(complete(persistedIds.admission, persistedClaim, "Olá", "Como posso ajudar?", true),
+    { outcome: "succeeded", persistence: "saved", providerRequestId: null });
+  assert.deepEqual(complete(persistedIds.admission, persistedClaim, "Olá", "Como posso ajudar?", true),
+    { outcome: "succeeded", persistence: "saved", providerRequestId: null });
+  const ambiguousClaim = "019f0000-0000-7000-8000-000000009611";
+  const ambiguousEgress = "019f0000-0000-7000-8000-000000009612";
+  const ambiguousProviderId = "openrouter-ambiguous-before-commit-9611";
+  assert.equal(acquire(ambiguousClaim, persistedIds.admission,
+    "1".repeat(64), "2".repeat(64), 1).outcome, "acquired");
+  assert.equal(authorizeEgress(ambiguousEgress, ambiguousClaim, "generation").outcome, "authorized");
+  assert.equal(queryJson(databaseUrl, asRoleSql("service_role", null,
+    `SELECT public.portal_commit_ai_usage_service('${reservationsByEgress.get(ambiguousEgress)}',1,1,null);`)).committed,
+  true);
+  assert.deepEqual(reconcileProviderResponse(ambiguousClaim, ambiguousProviderId), {
+    outcome: "failed", reasonCode: "provider_response_uncommitted", providerRequestId: ambiguousProviderId,
+  }, "ambiguous transport before completion creates the durable content-free provider receipt");
+  assert.deepEqual(reconcileProviderResponse(ambiguousClaim, ambiguousProviderId), {
+    outcome: "failed", reasonCode: "provider_response_uncommitted", providerRequestId: ambiguousProviderId,
+  }, "before-commit reconciliation is idempotent");
+  assert.deepEqual(complete(persistedIds.admission, ambiguousClaim, "Nunca gravar", "Nunca gravar", true, {
+    providerRequestId: ambiguousProviderId,
+  }), {
+    outcome: "failed", reasonCode: "provider_response_uncommitted", providerRequestId: ambiguousProviderId,
+  });
+  assert.equal(queryScalar(databaseUrl,
+    `SELECT jsonb_array_length(turns) FROM public.conversation_transcripts WHERE tenant_id='${fixture.tenantAlpha}' AND id='${transcriptId}';`),
+  "2", "reconciliation before completion never appends transcript content");
+  assert.equal(queryScalar(databaseUrl,
+    `SELECT count(*) FROM public.events_outbox WHERE tenant_id='${fixture.tenantAlpha}' AND event_id='${grants.get(ambiguousClaim).outcomeEventId}';`),
+  "1", "ambiguous reconciliation emits exactly one terminal outcome");
+  const lateTranscriptClaim = "019f0000-0000-7000-8000-000000009613";
+  const lateTranscriptEgress = "019f0000-0000-7000-8000-000000009614";
+  const lateTranscriptProviderId = "openrouter-late-transcript-lock-9613";
+  assert.equal(acquire(lateTranscriptClaim, persistedIds.admission,
+    "3".repeat(64), "4".repeat(64), 1).outcome, "acquired");
+  assert.equal(authorizeEgress(lateTranscriptEgress, lateTranscriptClaim, "generation").outcome, "authorized");
+  assert.equal(queryJson(databaseUrl, asRoleSql("service_role", null,
+    `SELECT public.portal_commit_ai_usage_service('${reservationsByEgress.get(lateTranscriptEgress)}',1,1,null);`)).committed,
+  true);
+  assertSucceeded(runSql(databaseUrl, `
+    WITH boundary AS (SELECT clock_timestamp() AS at)
+    UPDATE public.portal_text_preview_turn_claims
+    SET acquired_at=boundary.at-interval '89 seconds',lease_expires_at=boundary.at+interval '1 second'
+    FROM boundary WHERE tenant_id='${fixture.tenantAlpha}' AND id='${lateTranscriptClaim}';
+  `), "move the persisted claim close to lease expiry without breaking its exact window");
+  const transcriptLockBarrier = "text-preview-transcript-lock";
+  const lateCompletionApplication = "axtro-text-preview-late-completion";
+  const transcriptLockHolder = runSqlAsync(databaseUrl, `
+    BEGIN;
+    SELECT id FROM public.conversation_transcripts
+    WHERE tenant_id='${fixture.tenantAlpha}' AND id='${transcriptId}' FOR UPDATE;
+    SELECT pg_advisory_xact_lock(49_181);
+    DO $barrier$
+    DECLARE deadline timestamptz := clock_timestamp() + interval '5 seconds';
+    BEGIN
+      LOOP
+        EXIT WHEN EXISTS (SELECT 1 FROM public.axtro_supabase_test_barriers WHERE name='${transcriptLockBarrier}');
+        IF clock_timestamp() >= deadline THEN RAISE EXCEPTION 'transcript lock barrier timeout'; END IF;
+        PERFORM pg_sleep(0.01);
+      END LOOP;
+    END
+    $barrier$;
+    COMMIT;
+  `);
+  await waitForAdvisoryLockHolder(databaseUrl, 49_181);
+  const lateCompletionPromise = runSqlAsync(databaseUrl, `
+    SET application_name='${lateCompletionApplication}';
+    ${asRoleSql("service_role", null,
+    `SELECT public.portal_complete_text_preview_turn_service(
+      '${persistedIds.admission}','${lateTranscriptClaim}','${attemptForClaim(lateTranscriptClaim)}',1,
+      '${"4".repeat(64)}','hmac-sha256:${"d".repeat(64)}','${lateTranscriptProviderId}',
+      'Não publicar','Não publicar'
+    );`)}
+  `);
+  await waitForBlockedApplicationLocks(databaseUrl, [lateCompletionApplication]);
+  const leaseExpiryDeadline = Date.now() + 3_000;
+  while (queryScalar(databaseUrl,
+    `SELECT lease_expires_at<=clock_timestamp() FROM public.portal_text_preview_turn_claims WHERE id='${lateTranscriptClaim}';`) !== "t") {
+    if (Date.now() >= leaseExpiryDeadline) throw new Error("timed out waiting for preview claim lease expiry");
+    await waitForMilliseconds(10);
+  }
+  assertSucceeded(runSql(databaseUrl,
+    `INSERT INTO public.axtro_supabase_test_barriers(name) VALUES ('${transcriptLockBarrier}') ON CONFLICT DO NOTHING;`),
+  "release preview transcript lock holder");
+  const [lateCompletionResult, releasedTranscriptLock] = await Promise.all([
+    lateCompletionPromise,
+    transcriptLockHolder,
+  ]);
+  assertSucceeded(lateCompletionResult, "late completion waits behind the transcript row lock within the bounded wait");
+  assertSucceeded(releasedTranscriptLock, "release the transcript lock after the claim lease boundary");
+  assertSucceeded(runSql(databaseUrl,
+    `DELETE FROM public.axtro_supabase_test_barriers WHERE name='${transcriptLockBarrier}';`),
+  "clear preview transcript lock barrier");
+  assert.deepEqual(parseLastJson(lateCompletionResult.stdout), {
+    outcome: "failed", reasonCode: "provider_response_uncommitted", providerRequestId: lateTranscriptProviderId,
+  }, "completion refreshes PostgreSQL time after transcript lock wait and cannot succeed past lease expiry");
+  assert.equal(queryScalar(databaseUrl,
+    `SELECT jsonb_array_length(turns) FROM public.conversation_transcripts WHERE tenant_id='${fixture.tenantAlpha}' AND id='${transcriptId}';`),
+  "2", "late completion publishes no transcript content");
+  assert.equal(queryScalar(databaseUrl,
+    `SELECT jsonb_array_length(turns) FROM public.conversation_transcripts WHERE tenant_id='${fixture.tenantAlpha}' AND id='${transcriptId}';`), "2",
+  "one opted-in exchange stores one user and one assistant turn");
+  assert.equal(queryScalar(databaseUrl,
+    `SELECT count(*) FROM public.portal_text_preview_transcript_writes WHERE tenant_id='${fixture.tenantAlpha}' AND claim_id='${persistedClaim}';`), "1",
+  "exchange replay creates one append-only write receipt");
+  assert.equal(queryScalar(databaseUrl,
+    "SELECT count(*) FROM information_schema.columns WHERE table_schema='public' AND table_name='portal_text_preview_transcript_writes' AND column_name='exchange_fingerprint';"), "0",
+  "write receipts retain no plain content digest");
+  assertFailed(runSql(databaseUrl, `INSERT INTO public.portal_text_preview_transcript_writes(
+    claim_id,tenant_id,admission_id,transcript_id,generation
+  ) VALUES ('${persistedClaim}','${fixture.tenantAlpha}','${defaultIds.admission}','${transcriptId}',0);`),
+  "mixed admission and claim receipt is rejected by the composite foreign key");
+
+  const transcriptSubject = queryScalar(databaseUrl,
+    `SELECT subject_ref FROM public.consent_evidence WHERE tenant_id='${fixture.tenantAlpha}' AND id='${transcriptConsent}';`);
+  assertSucceeded(runSql(databaseUrl, `INSERT INTO public.consent_evidence(
+    tenant_id,id,session_id,subject_ref,consent_type,purpose,status,method,jurisdiction,
+    disclosure_version,evidence_hash,captured_at,revoked_at
+  ) VALUES (
+    '${fixture.tenantAlpha}','019f0000-0000-7000-8000-000000009611','${persistedIds.session}','${sqlLiteral(transcriptSubject)}',
+    'persistent_transcription','portal_text_preview','revoked','click','local','portal-text-preview-v1',
+    '${"9".repeat(64)}',clock_timestamp(),clock_timestamp()
+  );`), "append a newer transcript consent revocation");
+  const postRevocationClaim = "019f0000-0000-7000-8000-000000009612";
+  assert.equal(acquire(postRevocationClaim, persistedIds.admission, "8".repeat(64), "9".repeat(64), 1).outcome,
+    "acquired", "optional revocation does not remove the essential text channel");
+  assert.deepEqual(complete(persistedIds.admission, postRevocationClaim, "Não salve", "Entendido", true),
+    { outcome: "succeeded", persistence: "not_saved", providerRequestId: null },
+  "optional revocation preserves essential delivery and blocks transcript persistence");
+  assert.equal(queryScalar(databaseUrl,
+    `SELECT jsonb_array_length(turns) FROM public.conversation_transcripts WHERE tenant_id='${fixture.tenantAlpha}' AND id='${transcriptId}';`), "2");
+  assert.equal(queryScalar(databaseUrl,
+    `SELECT count(*) FROM public.portal_text_preview_transcript_writes WHERE claim_id='${postRevocationClaim}';`), "0");
+  assert.equal(queryScalar(databaseUrl,
+    `SELECT state FROM public.portal_text_preview_turn_claims WHERE id='${postRevocationClaim}';`), "succeeded");
+
+  assert.deepEqual(queryJson(databaseUrl, asRoleSql("service_role", null,
+    `SELECT public.portal_delete_conversation_transcript_service('${fixture.tenantAlpha}','${transcriptId}');`)),
+    { ok: true, id: transcriptId });
+  assert.equal(queryScalar(databaseUrl,
+    `SELECT count(*) FROM public.conversation_transcripts WHERE tenant_id='${fixture.tenantAlpha}' AND id='${transcriptId}';`), "0");
+  assert.equal(queryScalar(databaseUrl,
+    `SELECT count(*) FROM public.portal_text_preview_transcript_writes WHERE claim_id='${persistedClaim}';`), "1",
+  "deletion removes PII while preserving the content-free write receipt");
+
+  const purgeIds = Object.freeze({
+    admission: "019f0000-0000-7000-8000-000000009620",
+    session: "019f0000-0000-7000-8000-000000009621",
+    presenter: "019f0000-0000-7000-8000-000000009622",
+    identity: "019f0000-0000-7000-8000-000000009623",
+    dataUse: "019f0000-0000-7000-8000-000000009624",
+    essential: "019f0000-0000-7000-8000-000000009625",
+  });
+  const purgeConsent = "019f0000-0000-7000-8000-000000009626";
+  const purgeTranscript = "019f0000-0000-7000-8000-000000009627";
+  admit({ ids: purgeIds, clientHash: "d".repeat(64), profileId: "openrouter_portal_text_persisted_v1",
+    profileFingerprint: persistedProfileFingerprint, transcriptConsent: purgeConsent,
+    transcript: purgeTranscript, persistent: true });
+  const purgeClaim = "019f0000-0000-7000-8000-000000009628";
+  assert.equal(acquire(purgeClaim, purgeIds.admission, "d".repeat(64), "e".repeat(64), 0).outcome, "acquired");
+  assert.equal(complete(purgeIds.admission, purgeClaim, "Expurgue", "Expurgarei", true).persistence, "saved");
+  assertSucceeded(runSql(databaseUrl,
+    `UPDATE public.conversation_transcripts SET started_at=now()-interval '31 days',ended_at=now()-interval '31 days' WHERE tenant_id='${fixture.tenantAlpha}' AND id='${purgeTranscript}';`),
+  "age a local transcript for deterministic purge");
+  assert.equal(queryJson(databaseUrl, asRoleSql("service_role", null,
+    "SELECT public.portal_purge_old_conversation_transcripts_service(30);" )).deleted, 1);
+  assert.equal(queryScalar(databaseUrl,
+    `SELECT count(*) FROM public.portal_text_preview_transcript_writes WHERE claim_id='${purgeClaim}';`), "1",
+  "retention purge preserves the content-free write receipt");
+
+  assertSucceeded(runSql(databaseUrl, `
+    ALTER TABLE public.portal_text_preview_admissions DISABLE TRIGGER portal_text_preview_admissions_append_only;
+    WITH boundary AS (SELECT clock_timestamp() AS at)
+    UPDATE public.portal_text_preview_admissions
+    SET issued_at=boundary.at-interval '61 minutes',expires_at=boundary.at-interval '1 minute'
+    FROM boundary
+    WHERE tenant_id='${fixture.tenantAlpha}' AND id IN ('${oldPolicyIds.admission}','${consentIds.admission}');
+    ALTER TABLE public.portal_text_preview_admissions ENABLE TRIGGER portal_text_preview_admissions_append_only;
+    UPDATE public.sessions SET status='completed',ended_at=clock_timestamp()
+    WHERE tenant_id='${fixture.tenantAlpha}' AND id='${oldPolicyIds.session}';
+    UPDATE public.sessions SET status='failed',ended_at=clock_timestamp()
+    WHERE tenant_id='${fixture.tenantAlpha}' AND id='${consentIds.session}';
+  `), "inject completed and failed dangling terminal sessions outside the canonical cleanup path");
+  const poisonRowsBefore = queryJson(databaseUrl, `
+    SELECT jsonb_build_object(
+      'versions',jsonb_agg(state_version ORDER BY id),
+      'outboxCount',(SELECT count(*) FROM public.events_outbox
+        WHERE tenant_id='${fixture.tenantAlpha}' AND aggregate_id IN ('${oldPolicyIds.session}','${consentIds.session}'))
+    ) FROM public.sessions
+    WHERE tenant_id='${fixture.tenantAlpha}' AND id IN ('${oldPolicyIds.session}','${consentIds.session}');
+  `);
+
+  const cleanupIds = Object.freeze({
+    admission: "019f0000-0000-7000-8000-000000009630",
+    session: "019f0000-0000-7000-8000-000000009631",
+    presenter: "019f0000-0000-7000-8000-000000009632",
+    identity: "019f0000-0000-7000-8000-000000009633",
+    dataUse: "019f0000-0000-7000-8000-000000009634",
+    essential: "019f0000-0000-7000-8000-000000009635",
+  });
+  admit({ ids: cleanupIds, clientHash: "e".repeat(64) });
+  const cleanupClaim = "019f0000-0000-7000-8000-000000009636";
+  assert.equal(acquire(cleanupClaim, cleanupIds.admission, "e".repeat(64), "f".repeat(64), 0).outcome, "acquired");
+  const freeCleanupIds = Object.freeze({
+    admission: "019f0000-0000-7000-8000-000000009637",
+    session: "019f0000-0000-7000-8000-000000009638",
+    presenter: "019f0000-0000-7000-8000-000000009639",
+    identity: "019f0000-0000-7000-8000-00000000963a",
+    dataUse: "019f0000-0000-7000-8000-00000000963b",
+    essential: "019f0000-0000-7000-8000-00000000963c",
+  });
+  const freeCleanupClientHash = "01".repeat(32);
+  admit({ ids: freeCleanupIds, clientHash: freeCleanupClientHash });
+  const freeCleanupClaim = "019f0000-0000-7000-8000-00000000963d";
+  assert.equal(acquire(freeCleanupClaim, freeCleanupIds.admission,
+    freeCleanupClientHash, "1".repeat(64), 0).outcome, "acquired");
+  assertSucceeded(runSql(databaseUrl, `
+    ALTER TABLE public.portal_text_preview_admissions DISABLE TRIGGER portal_text_preview_admissions_append_only;
+    UPDATE public.portal_text_preview_admissions
+    SET issued_at=now()-interval '61 minutes',expires_at=now()-interval '1 minute'
+    WHERE tenant_id='${fixture.tenantAlpha}'
+      AND id IN ('${cleanupIds.admission}','${freeCleanupIds.admission}');
+    ALTER TABLE public.portal_text_preview_admissions ENABLE TRIGGER portal_text_preview_admissions_append_only;
+  `), "inject local expiry for terminal cleanup");
+  const occupiedCleanupBefore = queryJson(databaseUrl, `
+    SELECT jsonb_build_object(
+      'claimState',c.state,
+      'sessionStatus',s.status,
+      'sessionVersion',s.state_version,
+      'outboxCount',(SELECT count(*) FROM public.events_outbox e
+        WHERE e.tenant_id=a.tenant_id AND e.aggregate_id=a.session_id)
+    )
+    FROM public.portal_text_preview_admissions a
+    JOIN public.portal_text_preview_turn_claims c
+      ON c.tenant_id=a.tenant_id AND c.admission_id=a.id
+    JOIN public.sessions s ON s.tenant_id=a.tenant_id AND s.id=a.session_id
+    WHERE a.id='${cleanupIds.admission}' AND c.id='${cleanupClaim}';
+  `);
+  const cleanupLockBarrier = "text-preview-cleanup-lock";
+  const cleanupLockHolder = runSqlAsync(databaseUrl, `
+    BEGIN;
+    SELECT pg_advisory_xact_lock(hashtextextended('portal-text-turn:${cleanupIds.admission}',0));
+    SELECT pg_advisory_xact_lock(49_182);
+    DO $barrier$
+    DECLARE deadline timestamptz := clock_timestamp() + interval '5 seconds';
+    BEGIN
+      LOOP
+        EXIT WHEN EXISTS (SELECT 1 FROM public.axtro_supabase_test_barriers WHERE name='${cleanupLockBarrier}');
+        IF clock_timestamp() >= deadline THEN RAISE EXCEPTION 'cleanup lock barrier timeout'; END IF;
+        PERFORM pg_sleep(0.01);
+      END LOOP;
+    END
+    $barrier$;
+    COMMIT;
+  `);
+  await waitForAdvisoryLockHolder(databaseUrl, 49_182);
+  const cleanupResult = queryJson(databaseUrl, asRoleSql("service_role", null,
+    "SELECT public.portal_cleanup_expired_text_preview_sessions_service(100);"));
+  assertSucceeded(runSql(databaseUrl,
+    `INSERT INTO public.axtro_supabase_test_barriers(name) VALUES ('${cleanupLockBarrier}') ON CONFLICT DO NOTHING;`),
+  "release preview cleanup lock holder");
+  assert.deepEqual({
+    outcome: cleanupResult.outcome,
+    sessionsClosed: cleanupResult.sessionsClosed,
+    participantsClosed: cleanupResult.participantsClosed,
+    claimsFailed: cleanupResult.claimsFailed,
+  }, { outcome: "completed", sessionsClosed: 1, participantsClosed: 1, claimsFailed: 1 });
+  assert.equal(cleanupResult.busySkipped, 1,
+    "a contended candidate is bounded and reported without aborting the cleanup batch");
+  assertSucceeded(await cleanupLockHolder, "release preview cleanup advisory lock");
+  assertSucceeded(runSql(databaseUrl,
+    `DELETE FROM public.axtro_supabase_test_barriers WHERE name='${cleanupLockBarrier}';`),
+  "clear preview cleanup lock barrier");
+  assert.ok(cleanupResult.operatorRequired >= 2 && cleanupResult.operatorRequired <= 100,
+    "terminal poison rows and provider receipts remain bounded operator-visible without automatic mutation");
+  assert.deepEqual(queryJson(databaseUrl, `
+    SELECT jsonb_build_object(
+      'claimState',c.state,
+      'sessionStatus',s.status,
+      'sessionVersion',s.state_version,
+      'outboxCount',(SELECT count(*) FROM public.events_outbox e
+        WHERE e.tenant_id=a.tenant_id AND e.aggregate_id=a.session_id)
+    )
+    FROM public.portal_text_preview_admissions a
+    JOIN public.portal_text_preview_turn_claims c
+      ON c.tenant_id=a.tenant_id AND c.admission_id=a.id
+    JOIN public.sessions s ON s.tenant_id=a.tenant_id AND s.id=a.session_id
+    WHERE a.id='${cleanupIds.admission}' AND c.id='${cleanupClaim}';
+  `), occupiedCleanupBefore, "cleanup performs zero mutation on the busy admission");
+  assert.equal(queryScalar(databaseUrl,
+    `SELECT c.state||':'||s.status FROM public.portal_text_preview_turn_claims c
+     JOIN public.portal_text_preview_admissions a ON a.tenant_id=c.tenant_id AND a.id=c.admission_id
+     JOIN public.sessions s ON s.tenant_id=a.tenant_id AND s.id=a.session_id
+     WHERE c.id='${freeCleanupClaim}';`), "failed:completed",
+  "a free candidate progresses in the same cleanup batch");
+  assert.deepEqual(queryJson(databaseUrl, `
+    SELECT jsonb_build_object(
+      'versions',jsonb_agg(state_version ORDER BY id),
+      'outboxCount',(SELECT count(*) FROM public.events_outbox
+        WHERE tenant_id='${fixture.tenantAlpha}' AND aggregate_id IN ('${oldPolicyIds.session}','${consentIds.session}'))
+    ) FROM public.sessions
+    WHERE tenant_id='${fixture.tenantAlpha}' AND id IN ('${oldPolicyIds.session}','${consentIds.session}');
+  `), poisonRowsBefore, "cleanup never auto-mutates dangling completed or failed terminal sessions");
+  const retryCleanup = queryJson(databaseUrl, asRoleSql("service_role", null,
+    "SELECT public.portal_cleanup_expired_text_preview_sessions_service(100);"));
+  assert.equal(retryCleanup.sessionsClosed, 1,
+    "the formerly busy candidate is processed on a later bounded cleanup pass");
+  assert.equal(retryCleanup.busySkipped, 0);
+  assert.equal(queryScalar(databaseUrl,
+    `SELECT state||':'||reason_code FROM public.portal_text_preview_turn_claims WHERE id='${cleanupClaim}';`), "failed:session_expired");
+  assert.equal(queryScalar(databaseUrl,
+    `SELECT status||':'||(active_presenter_id is null)::text||':'||(ended_at is not null)::text FROM public.sessions WHERE tenant_id='${fixture.tenantAlpha}' AND id='${cleanupIds.session}';`),
+    "completed:true:true");
+  const cleanupEvents = queryJson(databaseUrl, `
+    SELECT jsonb_agg(event_document ORDER BY aggregate_version)
+    FROM public.events_outbox
+    WHERE tenant_id='${fixture.tenantAlpha}' AND aggregate_id='${cleanupIds.session}';
+  `);
+  assert.deepEqual(cleanupEvents.map((event) => event.event_type), [
+    "session.created", "session.prepared", "disclosure.delivered",
+    "consent.recorded", "session.activated", "turn.outcome_recorded", "session.completed",
+  ]);
+  assert.deepEqual(cleanupEvents.map((event) => event.aggregate_version), [1, 2, 3, 4, 5, 6, 7]);
+  const parsedCleanupEvents = cleanupEvents.map((event) => parseCanonicalOutboxInteractionEvent(event));
+  assert.deepEqual(parsedCleanupEvents.map((event) => event.event_type), [
+    "session.created", "session.prepared", "disclosure.delivered",
+    "consent.recorded", "session.activated", "turn.outcome_recorded", "session.completed",
+  ], "the compiled domain consumer parses the full PostgreSQL cleanup sequence");
+  assert.deepEqual(
+    domain.replayInteraction(parsedCleanupEvents),
+    domain.replayInteraction(JSON.parse(JSON.stringify(parsedCleanupEvents))),
+    "real PostgreSQL events reduce identically before and after a JSON round trip",
+  );
+  assert.equal(cleanupEvents[5].correlation_id, cleanupClaim);
+  assert.equal(cleanupEvents[6].correlation_id, cleanupIds.admission);
+  assert.equal(cleanupEvents[6].causation_id, cleanupEvents[5].event_id);
+  assert.equal(cleanupEvents[6].event_id, reservedId(cleanupIds.admission, 10));
+  assert.equal(queryScalar(databaseUrl,
+    `SELECT state_version FROM public.sessions WHERE tenant_id='${fixture.tenantAlpha}' AND id='${cleanupIds.session}';`),
+  "7", "cleanup failure and session completion advance projection with canonical events");
+  const idempotentCleanup = queryJson(databaseUrl, asRoleSql("service_role", null,
+    "SELECT public.portal_cleanup_expired_text_preview_sessions_service(100);"));
+  assert.deepEqual({
+    outcome: idempotentCleanup.outcome,
+    sessionsClosed: idempotentCleanup.sessionsClosed,
+    participantsClosed: idempotentCleanup.participantsClosed,
+    claimsFailed: idempotentCleanup.claimsFailed,
+  }, { outcome: "completed", sessionsClosed: 0, participantsClosed: 0, claimsFailed: 0 },
+  "terminal cleanup is idempotent");
+  assert.equal(idempotentCleanup.busySkipped, 0);
+  assert.equal(idempotentCleanup.operatorRequired, retryCleanup.operatorRequired,
+    "bounded operatorRequired telemetry is stable across idempotent cleanup replay");
+
+  const revocationAuthority = Object.freeze({
+    tenantId: "019f0000-0000-7000-8000-00000000000a",
+    agentId: "019f0000-0000-7000-8000-00000000010a",
+    actorId: "019f0000-0000-7000-8000-00000000020a",
+    userId: "10000000-0000-4000-8000-00000000000a",
+  });
+  assertSucceeded(runSql(databaseUrl, `
+    INSERT INTO auth.users(id,email)
+      VALUES ('${revocationAuthority.userId}','portal-revocation-race@example.test');
+    INSERT INTO public.tenants(id,slug,legal_name,status,home_region,default_language,default_timezone)
+      VALUES ('${revocationAuthority.tenantId}','portal-revocation-race','Portal Revocation Race','active','local','en','UTC');
+    INSERT INTO public.agents(tenant_id,id,name,role_type,status,disclosure_profile_id)
+      VALUES ('${revocationAuthority.tenantId}','${revocationAuthority.agentId}','Revocation Race Agent','sales','active','default');
+    INSERT INTO public.user_tenant_memberships(user_id,tenant_id,actor_id,role)
+      VALUES ('${revocationAuthority.userId}','${revocationAuthority.tenantId}','${revocationAuthority.actorId}','tenant_admin');
+  `), "create an isolated authority with no prior financial history for membership revocation");
+  assert.equal(queryScalar(databaseUrl, `
+    SELECT count(*) FROM public.billing_checkout_intents
+    WHERE tenant_id='${revocationAuthority.tenantId}' OR actor_id='${revocationAuthority.actorId}';
+  `), "0", "the revocation race identity has no financial FK dependents");
+  const revocationPolicyId = "019f0000-0000-7000-8000-0000000096af";
+  assert.deepEqual(provisionPolicy(revocationAuthority.tenantId, revocationPolicyId),
+    { outcome: "provisioned", policyId: revocationPolicyId });
+  const revocationIds = Object.freeze({
+    admission: "019f0000-0000-7000-8000-0000000096a0",
+    session: "019f0000-0000-7000-8000-0000000096a1",
+    presenter: "019f0000-0000-7000-8000-0000000096a2",
+    identity: "019f0000-0000-7000-8000-0000000096a3",
+    dataUse: "019f0000-0000-7000-8000-0000000096a4",
+    essential: "019f0000-0000-7000-8000-0000000096a5",
+  });
+  admit({
+    ids: revocationIds,
+    userId: revocationAuthority.userId,
+    agentId: revocationAuthority.agentId,
+    clientHash: "8".repeat(64),
+  });
+  const revocationClaim = "019f0000-0000-7000-8000-0000000096a6";
+  const revocationEgress = "019f0000-0000-7000-8000-0000000096a7";
+  assert.equal(acquire(revocationClaim, revocationIds.admission,
+    "8".repeat(64), "9".repeat(64), 0).outcome, "acquired");
+  const revocationReservation = reserveForEgress(revocationEgress, revocationClaim, "generation", {
+    tenantId: revocationAuthority.tenantId,
+    agentId: revocationAuthority.agentId,
+  });
+  const postRevocationAdmissionIds = Object.freeze({
+    admission: "019f0000-0000-7000-8000-0000000096a8",
+    session: "019f0000-0000-7000-8000-0000000096a9",
+    presenter: "019f0000-0000-7000-8000-0000000096aa",
+    identity: "019f0000-0000-7000-8000-0000000096ab",
+    dataUse: "019f0000-0000-7000-8000-0000000096ac",
+    essential: "019f0000-0000-7000-8000-0000000096ad",
+  });
+  const membershipDeleteBarrier = "text-preview-membership-delete";
+  const membershipAdmissionApplication = "axtro-text-preview-membership-admission";
+  const membershipEgressApplication = "axtro-text-preview-membership-egress";
+  const membershipDelete = runSqlAsync(databaseUrl, `
+    BEGIN;
+    DELETE FROM public.user_tenant_memberships
+    WHERE tenant_id='${revocationAuthority.tenantId}' AND user_id='${revocationAuthority.userId}';
+    SELECT pg_advisory_xact_lock(49_183);
+    DO $barrier$
+    DECLARE deadline timestamptz := clock_timestamp() + interval '5 seconds';
+    BEGIN
+      LOOP
+        EXIT WHEN EXISTS (SELECT 1 FROM public.axtro_supabase_test_barriers WHERE name='${membershipDeleteBarrier}');
+        IF clock_timestamp() >= deadline THEN RAISE EXCEPTION 'membership deletion barrier timeout'; END IF;
+        PERFORM pg_sleep(0.01);
+      END LOOP;
+    END
+    $barrier$;
+    COMMIT;
+  `);
+  await waitForAdvisoryLockHolder(databaseUrl, 49_183);
+  const admissionAfterDeletePromise = runSqlAsync(databaseUrl, `
+    SET application_name='${membershipAdmissionApplication}';
+    ${admissionSql({
+      ids: postRevocationAdmissionIds,
+      userId: revocationAuthority.userId,
+      agentId: revocationAuthority.agentId,
+      clientHash: "9".repeat(64),
+    })}
+  `);
+  const egressAfterDeletePromise = runSqlAsync(databaseUrl, `
+    SET application_name='${membershipEgressApplication}';
+    ${asRoleSql("service_role", null,
+      `SELECT public.portal_authorize_text_preview_egress_service(
+        '${revocationEgress}','${revocationIds.admission}','${revocationClaim}',
+        '${attemptForClaim(revocationClaim)}',0,'generation','${revocationReservation}'
+      );`)}
+  `);
+  await waitForBlockedApplicationLocks(databaseUrl, [
+    membershipAdmissionApplication,
+    membershipEgressApplication,
+  ]);
+  assertSucceeded(runSql(databaseUrl,
+    `INSERT INTO public.axtro_supabase_test_barriers(name) VALUES ('${membershipDeleteBarrier}') ON CONFLICT DO NOTHING;`),
+  "release membership deletion holder");
+  const [membershipDeleteResult, admissionAfterDelete, egressAfterDelete] = await Promise.all([
+    membershipDelete,
+    admissionAfterDeletePromise,
+    egressAfterDeletePromise,
+  ]);
+  assertSucceeded(membershipDeleteResult, "commit the concurrent membership revocation");
+  assertSucceeded(runSql(databaseUrl,
+    `DELETE FROM public.axtro_supabase_test_barriers WHERE name='${membershipDeleteBarrier}';`),
+  "clear membership deletion barrier");
+  assertFailed(admissionAfterDelete,
+    "an admission that observed pre-delete membership must revalidate after its advisory locks",
+    /user is not authorized/);
+  assertSucceeded(egressAfterDelete, "membership revocation egress denial");
+  assert.equal(parseLastJson(egressAfterDelete.stdout).outcome, "not_authorized");
+  assert.equal(queryScalar(databaseUrl,
+    `SELECT state||':'||(provider_dispatched_at is null)::text
+     FROM public.ai_usage_reservations WHERE id='${revocationReservation}';`), "reserved:true",
+  "membership revocation creates no provider-in-flight transition");
+  assert.equal(queryScalar(databaseUrl,
+    `SELECT count(*) FROM public.portal_text_preview_egress_authorizations
+     WHERE id='${revocationEgress}';`), "0", "membership revocation creates no egress receipt");
+  releaseEgressReservation(revocationEgress);
+
+  const suspensionAuthority = Object.freeze({
+    tenantId: "019f0000-0000-7000-8000-00000000000b",
+    agentId: "019f0000-0000-7000-8000-00000000010b",
+    actorId: "019f0000-0000-7000-8000-00000000020b",
+    userId: "10000000-0000-4000-8000-00000000000b",
+  });
+  assertSucceeded(runSql(databaseUrl, `
+    INSERT INTO auth.users(id,email)
+      VALUES ('${suspensionAuthority.userId}','portal-suspension-race@example.test');
+    INSERT INTO public.tenants(id,slug,legal_name,status,home_region,default_language,default_timezone)
+      VALUES ('${suspensionAuthority.tenantId}','portal-suspension-race','Portal Suspension Race','active','local','en','UTC');
+    INSERT INTO public.agents(tenant_id,id,name,role_type,status,disclosure_profile_id)
+      VALUES ('${suspensionAuthority.tenantId}','${suspensionAuthority.agentId}','Suspension Race Agent','sales','active','default');
+    INSERT INTO public.user_tenant_memberships(user_id,tenant_id,actor_id,role)
+      VALUES ('${suspensionAuthority.userId}','${suspensionAuthority.tenantId}','${suspensionAuthority.actorId}','tenant_admin');
+  `), "create an isolated authority with no prior spend history for tenant suspension");
+  assert.equal(queryScalar(databaseUrl, `
+    SELECT count(*) FROM public.billing_checkout_intents
+    WHERE tenant_id='${suspensionAuthority.tenantId}' OR actor_id='${suspensionAuthority.actorId}';
+  `), "0", "the suspension authority has no billing checkout history");
+  assert.equal(queryScalar(databaseUrl, `
+    SELECT count(*) FROM public.ai_usage_reservations
+    WHERE tenant_id='${suspensionAuthority.tenantId}' AND state IN ('provider_in_flight','unknown');
+  `), "0", "the suspension authority has no ambiguous or in-flight AI usage");
+  assert.equal(queryScalar(databaseUrl,
+    `SELECT count(*) FROM public.cost_events WHERE tenant_id='${suspensionAuthority.tenantId}';`),
+  "0", "the suspension authority has no prior cost history");
+  const suspensionPolicyId = "019f0000-0000-7000-8000-0000000096bf";
+  assert.deepEqual(provisionPolicy(suspensionAuthority.tenantId, suspensionPolicyId),
+    { outcome: "provisioned", policyId: suspensionPolicyId });
+  const suspendedIds = Object.freeze({
+    admission: "019f0000-0000-7000-8000-0000000096b0",
+    session: "019f0000-0000-7000-8000-0000000096b1",
+    presenter: "019f0000-0000-7000-8000-0000000096b2",
+    identity: "019f0000-0000-7000-8000-0000000096b3",
+    dataUse: "019f0000-0000-7000-8000-0000000096b4",
+    essential: "019f0000-0000-7000-8000-0000000096b5",
+  });
+  admit({
+    ids: suspendedIds,
+    userId: suspensionAuthority.userId,
+    agentId: suspensionAuthority.agentId,
+    clientHash: "a".repeat(64),
+  });
+  const suspendedClaim = "019f0000-0000-7000-8000-0000000096b6";
+  const suspendedEgress = "019f0000-0000-7000-8000-0000000096b7";
+  assert.equal(acquire(suspendedClaim, suspendedIds.admission,
+    "a".repeat(64), "b".repeat(64), 0).outcome, "acquired");
+  const suspendedReservation = reserveForEgress(suspendedEgress, suspendedClaim, "generation", {
+    tenantId: suspensionAuthority.tenantId,
+    agentId: suspensionAuthority.agentId,
+  });
+  const postSuspensionIds = Object.freeze({
+    admission: "019f0000-0000-7000-8000-0000000096b8",
+    session: "019f0000-0000-7000-8000-0000000096b9",
+    presenter: "019f0000-0000-7000-8000-0000000096ba",
+    identity: "019f0000-0000-7000-8000-0000000096bb",
+    dataUse: "019f0000-0000-7000-8000-0000000096bc",
+    essential: "019f0000-0000-7000-8000-0000000096bd",
+  });
+  const suspensionUpdateApplication = "axtro-portal-tenant-suspension-update";
+  const suspensionAdmissionApplication = "axtro-portal-tenant-suspension-admission";
+  const suspensionEgressApplication = "axtro-portal-tenant-suspension-egress";
+  const suspensionUpdate = runSqlAsync(databaseUrl, `
+    SET application_name='${suspensionUpdateApplication}';
+    BEGIN;
+    UPDATE public.tenants SET status='suspended' WHERE id='${suspensionAuthority.tenantId}';
+    SELECT pg_sleep(1.5);
+    COMMIT;
+  `);
+  await waitForApplicationWait(databaseUrl, suspensionUpdateApplication, "PgSleep");
+  const admissionDuringSuspension = runSqlAsync(databaseUrl, `
+    SET application_name='${suspensionAdmissionApplication}';
+    ${admissionSql({
+      ids: postSuspensionIds,
+      userId: suspensionAuthority.userId,
+      agentId: suspensionAuthority.agentId,
+      clientHash: "b".repeat(64),
+    })}
+  `);
+  const egressDuringSuspension = runSqlAsync(databaseUrl, `
+    SET application_name='${suspensionEgressApplication}';
+    ${asRoleSql("service_role", null,
+      `SELECT public.portal_authorize_text_preview_egress_service(
+        '${suspendedEgress}','${suspendedIds.admission}','${suspendedClaim}',
+        '${attemptForClaim(suspendedClaim)}',0,'generation','${suspendedReservation}'
+      );`)}
+  `);
+  await waitForBlockedApplicationLocks(databaseUrl, [
+    suspensionAdmissionApplication,
+    suspensionEgressApplication,
+  ]);
+  assertSucceeded(await suspensionUpdate, "commit the concurrent tenant suspension");
+  const [admissionAfterSuspension, egressAfterSuspension] = await Promise.all([
+    admissionDuringSuspension,
+    egressDuringSuspension,
+  ]);
+  assertFailed(admissionAfterSuspension,
+    "admission waits for concurrent tenant suspension and then denies stale authority",
+    /user is not authorized/);
+  assertSucceeded(egressAfterSuspension, "tenant suspension egress denial after the row-lock wait");
+  assert.equal(parseLastJson(egressAfterSuspension.stdout).outcome, "not_authorized",
+    "tenant suspension closes the final provider egress boundary");
+  assert.equal(queryScalar(databaseUrl,
+    `SELECT count(*) FROM public.portal_text_preview_admissions
+     WHERE id='${postSuspensionIds.admission}';`), "0",
+  "concurrent suspension creates no new admission authority");
+  assert.equal(queryScalar(databaseUrl,
+    `SELECT state||':'||(provider_dispatched_at is null)::text
+     FROM public.ai_usage_reservations WHERE id='${suspendedReservation}';`), "reserved:true");
+  assert.equal(queryScalar(databaseUrl,
+    `SELECT count(*) FROM public.portal_text_preview_egress_authorizations
+     WHERE id='${suspendedEgress}';`), "0");
+  releaseEgressReservation(suspendedEgress);
+
+  const temporalAuthority = Object.freeze({
+    tenantId: "019f0000-0000-7000-8000-00000000000c",
+    agentId: "019f0000-0000-7000-8000-00000000010c",
+    actorId: "019f0000-0000-7000-8000-00000000020c",
+    userId: "10000000-0000-4000-8000-00000000000c",
+  });
+  assertSucceeded(runSql(databaseUrl, `
+    INSERT INTO auth.users(id,email)
+      VALUES ('${temporalAuthority.userId}','portal-temporal-authority@example.test');
+    INSERT INTO public.tenants(id,slug,legal_name,status,home_region,default_language,default_timezone)
+      VALUES ('${temporalAuthority.tenantId}','portal-temporal-authority','Portal Temporal Authority','active','local','en','UTC');
+    INSERT INTO public.agents(tenant_id,id,name,role_type,status,disclosure_profile_id)
+      VALUES ('${temporalAuthority.tenantId}','${temporalAuthority.agentId}','Temporal Authority Agent','sales','active','default');
+    INSERT INTO public.user_tenant_memberships(user_id,tenant_id,actor_id,role)
+      VALUES ('${temporalAuthority.userId}','${temporalAuthority.tenantId}','${temporalAuthority.actorId}','tenant_admin');
+  `), "create isolated authority for legal-expiry lock races");
+  const temporalPolicyId = "019f0000-0000-7000-8000-00000000970f";
+  assert.deepEqual(provisionPolicy(temporalAuthority.tenantId, temporalPolicyId),
+    { outcome: "provisioned", policyId: temporalPolicyId });
+  const temporalIds = Object.freeze({
+    admission: "019f0000-0000-7000-8000-000000009700",
+    session: "019f0000-0000-7000-8000-000000009701",
+    presenter: "019f0000-0000-7000-8000-000000009702",
+    identity: "019f0000-0000-7000-8000-000000009703",
+    dataUse: "019f0000-0000-7000-8000-000000009704",
+    essential: "019f0000-0000-7000-8000-000000009705",
+  });
+  admit({
+    ids: temporalIds,
+    userId: temporalAuthority.userId,
+    agentId: temporalAuthority.agentId,
+    clientHash: "c".repeat(64),
+  });
+  const temporalClaim = "019f0000-0000-7000-8000-000000009706";
+  assert.equal(acquire(temporalClaim, temporalIds.admission,
+    "c".repeat(64), "d".repeat(64), 0).outcome, "acquired");
+  const temporalEmbeddingEgress = "019f0000-0000-7000-8000-000000009707";
+  const temporalEmbeddingReservation = reserveForEgress(
+    temporalEmbeddingEgress, temporalClaim, "embedding", {
+      tenantId: temporalAuthority.tenantId,
+      agentId: temporalAuthority.agentId,
+    },
+  );
+  const setTemporalLegalExpiry = (interval) => assertSucceeded(runSql(databaseUrl, `
+    ALTER TABLE public.portal_text_preview_privacy_policies
+      DISABLE TRIGGER portal_text_preview_privacy_policies_append_only;
+    ALTER TABLE public.consent_evidence DISABLE TRIGGER consent_evidence_append_only;
+    UPDATE public.portal_text_preview_privacy_policies
+      SET expires_at=clock_timestamp()+interval '${interval}'
+      WHERE tenant_id='${temporalAuthority.tenantId}' AND id='${temporalPolicyId}';
+    UPDATE public.consent_evidence
+      SET expires_at=clock_timestamp()+interval '${interval}'
+      WHERE tenant_id='${temporalAuthority.tenantId}' AND id='${temporalIds.essential}';
+    ALTER TABLE public.consent_evidence ENABLE TRIGGER consent_evidence_append_only;
+    ALTER TABLE public.portal_text_preview_privacy_policies
+      ENABLE TRIGGER portal_text_preview_privacy_policies_append_only;
+  `), `set temporal policy and consent expiry to ${interval}`);
+  setTemporalLegalExpiry("1 second");
+  const authorizeLegalLockApplication = "axtro-portal-authorize-legal-expiry";
+  const authorizeLegalHolderApplication = "axtro-portal-authorize-legal-holder";
+  const authorizeLegalHolder = runSqlAsync(databaseUrl, `
+    SET application_name='${authorizeLegalHolderApplication}';
+    BEGIN;
+    SELECT id FROM public.consent_evidence
+    WHERE tenant_id='${temporalAuthority.tenantId}' AND id='${temporalIds.essential}'
+    FOR UPDATE;
+    SELECT pg_sleep(1.5);
+    COMMIT;
+  `);
+  await waitForApplicationWait(databaseUrl, authorizeLegalHolderApplication, "PgSleep");
+  const authorizeAcrossLegalExpiry = runSqlAsync(databaseUrl, `
+    SET application_name='${authorizeLegalLockApplication}';
+    ${asRoleSql("service_role", null,
+      `SELECT public.portal_authorize_text_preview_egress_service(
+        '${temporalEmbeddingEgress}','${temporalIds.admission}','${temporalClaim}',
+        '${attemptForClaim(temporalClaim)}',0,'embedding','${temporalEmbeddingReservation}'
+      );`)}
+  `);
+  await waitForBlockedApplicationLocks(databaseUrl, [authorizeLegalLockApplication]);
+  const authorizeLegalResult = await authorizeAcrossLegalExpiry;
+  assertSucceeded(await authorizeLegalHolder, "release authorize legal-evidence row lock after expiry");
+  assertSucceeded(authorizeLegalResult, "authorize returns a bounded denial after legal evidence expires");
+  assert.equal(parseLastJson(authorizeLegalResult.stdout).outcome, "not_authorized");
+  assert.equal(queryScalar(databaseUrl,
+    `SELECT state||':'||(provider_dispatched_at is null)::text
+     FROM public.ai_usage_reservations WHERE id='${temporalEmbeddingReservation}';`), "reserved:true",
+  "policy and essential-consent expiry during a row-lock wait cannot cross provider dispatch");
+  assert.equal(queryScalar(databaseUrl,
+    `SELECT count(*) FROM public.portal_text_preview_egress_authorizations
+     WHERE id='${temporalEmbeddingEgress}';`), "0");
+  releaseEgressReservation(temporalEmbeddingEgress);
+
+  setTemporalLegalExpiry("10 minutes");
+  const temporalGenerationEgress = "019f0000-0000-7000-8000-000000009708";
+  const temporalProviderId = "openrouter-legal-expiry-9706";
+  assert.equal(authorizeEgress(temporalGenerationEgress, temporalClaim, "generation", {
+    tenantId: temporalAuthority.tenantId,
+    agentId: temporalAuthority.agentId,
+  }).outcome, "authorized");
+  assert.equal(queryJson(databaseUrl, asRoleSql("service_role", null,
+    `SELECT public.portal_commit_ai_usage_service('${reservationsByEgress.get(temporalGenerationEgress)}',1,1,null);`)).committed,
+  true);
+  setTemporalLegalExpiry("1 second");
+  const completeLegalLockApplication = "axtro-portal-complete-legal-expiry";
+  const completeLegalHolderApplication = "axtro-portal-complete-legal-holder";
+  const completeLegalHolder = runSqlAsync(databaseUrl, `
+    SET application_name='${completeLegalHolderApplication}';
+    BEGIN;
+    SELECT id FROM public.consent_evidence
+    WHERE tenant_id='${temporalAuthority.tenantId}' AND id='${temporalIds.essential}'
+    FOR UPDATE;
+    SELECT pg_sleep(1.5);
+    COMMIT;
+  `);
+  await waitForApplicationWait(databaseUrl, completeLegalHolderApplication, "PgSleep");
+  const completeAcrossLegalExpiry = runSqlAsync(databaseUrl, `
+    SET application_name='${completeLegalLockApplication}';
+    ${asRoleSql("service_role", null,
+      `SELECT public.portal_complete_text_preview_turn_service(
+        '${temporalIds.admission}','${temporalClaim}','${attemptForClaim(temporalClaim)}',0,
+        '${"d".repeat(64)}','hmac-sha256:${"e".repeat(64)}','${temporalProviderId}',null,null
+      );`)}
+  `);
+  await waitForBlockedApplicationLocks(databaseUrl, [completeLegalLockApplication]);
+  const completeLegalResult = await completeAcrossLegalExpiry;
+  assertSucceeded(await completeLegalHolder, "release completion legal-evidence row lock after expiry");
+  assertSucceeded(completeLegalResult, "completion records the provider response after legal expiry");
+  assert.deepEqual(parseLastJson(completeLegalResult.stdout), {
+    outcome: "failed", reasonCode: "provider_response_uncommitted", providerRequestId: temporalProviderId,
+  }, "completion cannot publish success after policy and consent expire during its lock wait");
+  assert.equal(queryScalar(databaseUrl,
+    `SELECT state||':'||reason_code||':'||provider_request_id
+     FROM public.portal_text_preview_turn_claims WHERE id='${temporalClaim}';`),
+  `failed:provider_response_uncommitted:${temporalProviderId}`);
+  assert.equal(queryScalar(databaseUrl,
+    `SELECT count(*) FROM public.events_outbox
+     WHERE tenant_id='${temporalAuthority.tenantId}'
+       AND event_id='${grants.get(temporalClaim).outcomeEventId}';`), "1",
+  "legal expiry produces exactly one content-free terminal outcome");
+
+  const membershipPolicyId = "019f0000-0000-7000-8000-000000009681";
+  const membershipIds = Object.freeze({
+    admission: "019f0000-0000-7000-8000-000000009682",
+    session: "019f0000-0000-7000-8000-000000009683",
+    presenter: "019f0000-0000-7000-8000-000000009684",
+    identity: "019f0000-0000-7000-8000-000000009685",
+    dataUse: "019f0000-0000-7000-8000-000000009686",
+    essential: "019f0000-0000-7000-8000-000000009687",
+  });
+  assert.deepEqual(provisionPolicy(fixture.tenantDelta, membershipPolicyId),
+    { outcome: "provisioned", policyId: membershipPolicyId });
+  const membershipAdmission = admit({
+    ids: membershipIds,
+    userId: fixture.userDelta,
+    agentId: fixture.agentDelta,
+    clientHash: "6".repeat(64),
+  });
+  assert.equal(membershipAdmission.actor_id, fixture.actorDelta);
+  const membershipClaim = "019f0000-0000-7000-8000-000000009688";
+  assert.equal(acquire(membershipClaim, membershipIds.admission,
+    "3".repeat(64), "4".repeat(64), 0).outcome, "acquired");
+  assert.equal(fail(membershipClaim, "generation_failed").outcome, "failed");
+  assertSucceeded(runSql(databaseUrl, `DELETE FROM public.user_tenant_memberships
+    WHERE tenant_id='${fixture.tenantDelta}' AND user_id='${fixture.userDelta}';`),
+  "remove the member after immutable admission evidence exists");
+  assert.equal(queryScalar(databaseUrl, `
+    SELECT count(*) FROM public.portal_text_preview_admissions a
+    JOIN public.portal_text_preview_turn_claims c
+      ON c.tenant_id=a.tenant_id AND c.admission_id=a.id
+    JOIN public.events_outbox e
+      ON e.tenant_id=c.tenant_id AND e.event_id=c.outcome_event_id
+    WHERE a.tenant_id='${fixture.tenantDelta}' AND a.id='${membershipIds.admission}'
+      AND a.actor_id='${fixture.actorDelta}' AND c.id='${membershipClaim}';
+  `), "1", "membership removal preserves actor identity, claim and canonical outcome evidence");
+  assertFailed(runSql(databaseUrl, admissionSql({
+    ids: {
+      admission: "019f0000-0000-7000-8000-000000009689",
+      session: "019f0000-0000-7000-8000-00000000968a",
+      presenter: "019f0000-0000-7000-8000-00000000968b",
+      identity: "019f0000-0000-7000-8000-00000000968c",
+      dataUse: "019f0000-0000-7000-8000-00000000968d",
+      essential: "019f0000-0000-7000-8000-00000000968e",
+    },
+    userId: fixture.userDelta,
+    agentId: fixture.agentAlpha,
+    clientHash: "7".repeat(64),
+  })), "removed membership cannot gain cross-tenant admission", /user is not authorized/);
+  assertSucceeded(runSql(databaseUrl, `INSERT INTO public.user_tenant_memberships(user_id,tenant_id,actor_id,role)
+    VALUES ('${fixture.userDelta}','${fixture.tenantDelta}','${fixture.actorDelta}','tenant_admin');`),
+  "restore the shared tenant-admin fixture after proving membership removal semantics");
+
+  const cleanupRaceIds = Object.freeze({
+    admission: "019f0000-0000-7000-8000-000000009690",
+    session: "019f0000-0000-7000-8000-000000009691",
+    presenter: "019f0000-0000-7000-8000-000000009692",
+    identity: "019f0000-0000-7000-8000-000000009693",
+    dataUse: "019f0000-0000-7000-8000-000000009694",
+    essential: "019f0000-0000-7000-8000-000000009695",
+  });
+  admit({ ids: cleanupRaceIds, clientHash: "5".repeat(64) });
+  const cleanupRaceClaim = "019f0000-0000-7000-8000-000000009696";
+  const cleanupRaceDeniedEgress = "019f0000-0000-7000-8000-000000009697";
+  const cleanupRaceGenerationEgress = "019f0000-0000-7000-8000-000000009698";
+  const cleanupRaceProviderId = "openrouter-cleanup-race-9696";
+  assert.equal(acquire(cleanupRaceClaim, cleanupRaceIds.admission,
+    "5".repeat(64), "6".repeat(64), 0).outcome, "acquired");
+  assertSucceeded(runSql(databaseUrl, `
+    ALTER TABLE public.portal_text_preview_admissions DISABLE TRIGGER portal_text_preview_admissions_append_only;
+    WITH boundary AS (SELECT clock_timestamp() AS at)
+    UPDATE public.portal_text_preview_admissions
+    SET issued_at=boundary.at-interval '59 minutes 25 seconds',
+        expires_at=boundary.at+interval '35 seconds'
+    FROM boundary WHERE tenant_id='${fixture.tenantAlpha}' AND id='${cleanupRaceIds.admission}';
+    ALTER TABLE public.portal_text_preview_admissions ENABLE TRIGGER portal_text_preview_admissions_append_only;
+  `), "set the exact admission egress denial boundary");
+  assert.equal(authorizeEgress(cleanupRaceDeniedEgress, cleanupRaceClaim, "embedding").outcome, "expired",
+    "admission authority with at most 35 seconds remaining cannot start provider work");
+  releaseEgressReservation(cleanupRaceDeniedEgress);
+  assertSucceeded(runSql(databaseUrl, `
+    ALTER TABLE public.portal_text_preview_admissions DISABLE TRIGGER portal_text_preview_admissions_append_only;
+    WITH boundary AS (SELECT clock_timestamp() AS at)
+    UPDATE public.portal_text_preview_admissions
+    SET issued_at=boundary.at-interval '59 minutes 24 seconds',
+        expires_at=boundary.at+interval '36 seconds'
+    FROM boundary WHERE tenant_id='${fixture.tenantAlpha}' AND id='${cleanupRaceIds.admission}';
+    ALTER TABLE public.portal_text_preview_admissions ENABLE TRIGGER portal_text_preview_admissions_append_only;
+  `), "set the admission egress acceptance side of the boundary");
+  assert.equal(authorizeEgress(cleanupRaceGenerationEgress, cleanupRaceClaim, "generation").outcome, "authorized");
+  assertSucceeded(runSql(databaseUrl, `
+    ALTER TABLE public.portal_text_preview_admissions DISABLE TRIGGER portal_text_preview_admissions_append_only;
+    WITH boundary AS (SELECT clock_timestamp() AS at)
+    UPDATE public.portal_text_preview_admissions
+    SET issued_at=boundary.at-interval '61 minutes',expires_at=boundary.at-interval '1 minute'
+    FROM boundary
+    WHERE tenant_id='${fixture.tenantAlpha}' AND id='${cleanupRaceIds.admission}';
+    ALTER TABLE public.portal_text_preview_admissions ENABLE TRIGGER portal_text_preview_admissions_append_only;
+  `), "advance the admission clock beyond expiry after generation dispatch");
+  const inFlightCleanup = queryJson(databaseUrl, asRoleSql("service_role", null,
+    "SELECT public.portal_cleanup_expired_text_preview_sessions_service(100);"));
+  assert.ok(inFlightCleanup.operatorRequired >= 1);
+  assert.equal(queryScalar(databaseUrl, `
+    SELECT c.state||':'||s.status FROM public.portal_text_preview_turn_claims c
+    JOIN public.portal_text_preview_admissions a ON a.tenant_id=c.tenant_id AND a.id=c.admission_id
+    JOIN public.sessions s ON s.tenant_id=a.tenant_id AND s.id=a.session_id
+    WHERE c.tenant_id='${fixture.tenantAlpha}' AND c.id='${cleanupRaceClaim}';
+  `), "acquired:active", "cleanup preserves an in-flight generation claim for provider reconciliation");
+  assert.deepEqual(reconcileProviderResponse(cleanupRaceClaim, cleanupRaceProviderId), {
+    outcome: "failed", reasonCode: "provider_response_uncommitted", providerRequestId: cleanupRaceProviderId,
+  }, "provider response arriving after cleanup remains durable exactly once");
+  assert.equal(queryJson(databaseUrl, asRoleSql("service_role", null,
+    `SELECT public.portal_commit_ai_usage_service('${reservationsByEgress.get(cleanupRaceGenerationEgress)}',1,1,null);`)).committed,
+  true);
+  const postReconcileCleanup = queryJson(databaseUrl, asRoleSql("service_role", null,
+    "SELECT public.portal_cleanup_expired_text_preview_sessions_service(100);"));
+  assert.equal(postReconcileCleanup.sessionsClosed, 1,
+    "cleanup may close the expired session only after the provider response receipt is terminal");
+  assert.equal(queryScalar(databaseUrl,
+    `SELECT state||':'||reason_code||':'||provider_request_id FROM public.portal_text_preview_turn_claims WHERE id='${cleanupRaceClaim}';`),
+  `failed:provider_response_uncommitted:${cleanupRaceProviderId}`);
+
+  const activeBeforeCapRace = Number(queryScalar(databaseUrl, `
+    SELECT count(*) FROM public.portal_text_preview_admissions
+    WHERE tenant_id='${fixture.tenantAlpha}' AND actor_id='${fixture.actorAlpha}' AND expires_at>clock_timestamp();
+  `));
+  const remainingActorCapacity = 16 - activeBeforeCapRace;
+  assert.ok(remainingActorCapacity > 0, "the fixture must leave capacity for a real cap race");
+  const sessionsBeforeCapRace = Number(queryScalar(databaseUrl, "SELECT count(*) FROM public.sessions;"));
+  const outboxBeforeCapRace = Number(queryScalar(databaseUrl, "SELECT count(*) FROM public.events_outbox;"));
+  const capRaceInputs = Array.from({ length: remainingActorCapacity + 3 }, (_, index) => {
+    const base = 0xb000 + index * 8;
+    const uuid = (offset) => `019f0000-0000-7000-8000-${(base + offset).toString(16).padStart(12, "0")}`;
+    return {
+      ids: {
+        admission: uuid(0), session: uuid(1), presenter: uuid(2),
+        identity: uuid(3), dataUse: uuid(4), essential: uuid(5),
+      },
+      clientHash: (0x100 + index).toString(16).padStart(64, "0"),
+    };
+  });
+  const capRace = await runConcurrentSqlBehindBarrier(databaseUrl,
+    capRaceInputs.map((input, index) => ({
+      lockId: 49_200 + index,
+      sql: admissionSql(input),
+    })),
+    "text-preview-actor-cap-race");
+  const capRaceSuccesses = capRace.filter((result) => result.status === 0);
+  const capRaceFailures = capRace.filter((result) => result.status !== 0);
+  assert.equal(capRaceSuccesses.length, remainingActorCapacity,
+    "the actor advisory lock admits exactly the remaining bounded capacity");
+  assert.equal(capRaceFailures.length, 3);
+  for (const result of capRaceFailures) {
+    assertFailed(result, "concurrent actor admission cap", /actor active admission cap reached/);
+  }
+  assert.equal(queryScalar(databaseUrl, `
+    SELECT count(*) FROM public.portal_text_preview_admissions
+    WHERE tenant_id='${fixture.tenantAlpha}' AND actor_id='${fixture.actorAlpha}' AND expires_at>clock_timestamp();
+  `), "16", "concurrent distinct admissions cannot exceed the actor active cap");
+  assert.equal(Number(queryScalar(databaseUrl, "SELECT count(*) FROM public.sessions;")) - sessionsBeforeCapRace,
+    remainingActorCapacity, "cap losers create no partial session projection");
+  assert.equal(Number(queryScalar(databaseUrl, "SELECT count(*) FROM public.events_outbox;")) - outboxBeforeCapRace,
+    remainingActorCapacity * 5, "cap losers create no partial canonical events");
+}
 
 function assertWorkerHeartbeatLifecycle(databaseUrl) {
   const firstBillingRun = "019f0000-0000-7000-8000-000000006500";
@@ -3984,7 +6272,11 @@ function postPortablePreludeSql() {
     CREATE TABLE public.axtro_supabase_test_migrations (
       version integer PRIMARY KEY,
       filename text NOT NULL,
+      checksum_sha256 text NOT NULL CHECK (checksum_sha256 ~ '^[0-9a-f]{64}$'),
       applied_at timestamptz NOT NULL DEFAULT now()
+    );
+    CREATE TABLE public.axtro_supabase_test_barriers (
+      name text PRIMARY KEY
     );
   `;
 }
@@ -4092,6 +6384,85 @@ function runSqlAsync(databaseUrl, sql) {
 
 function waitForMilliseconds(milliseconds) {
   return new Promise((resolve) => setTimeout(resolve, milliseconds));
+}
+
+async function runConcurrentSqlBehindBarrier(databaseUrl, entries, barrierName) {
+  const promises = entries.map(({ lockId, sql }) => runSqlAsync(databaseUrl, `
+    BEGIN;
+    SELECT pg_advisory_xact_lock(${lockId});
+    DO $barrier$
+    DECLARE
+      deadline timestamptz := clock_timestamp() + interval '5 seconds';
+    BEGIN
+      LOOP
+        EXIT WHEN EXISTS (
+          SELECT 1 FROM public.axtro_supabase_test_barriers WHERE name='${sqlLiteral(barrierName)}'
+        );
+        IF clock_timestamp() >= deadline THEN
+          RAISE EXCEPTION 'concurrency barrier timeout';
+        END IF;
+        PERFORM pg_sleep(0.01);
+      END LOOP;
+    END
+    $barrier$;
+    ${sql}
+    COMMIT;
+  `));
+  try {
+    await Promise.all(entries.map(({ lockId }) => waitForAdvisoryLockHolder(databaseUrl, lockId)));
+    assertSucceeded(runSql(databaseUrl,
+      `INSERT INTO public.axtro_supabase_test_barriers(name) VALUES ('${sqlLiteral(barrierName)}') ON CONFLICT DO NOTHING;`),
+    `release ${barrierName} barrier`);
+    return await Promise.all(promises);
+  } finally {
+    runSql(databaseUrl,
+      `INSERT INTO public.axtro_supabase_test_barriers(name) VALUES ('${sqlLiteral(barrierName)}') ON CONFLICT DO NOTHING;`);
+    await Promise.allSettled(promises);
+    runSql(databaseUrl,
+      `DELETE FROM public.axtro_supabase_test_barriers WHERE name='${sqlLiteral(barrierName)}';`);
+  }
+}
+
+async function waitForApplicationWait(databaseUrl, applicationName, waitEvent) {
+  const deadline = Date.now() + 3_000;
+  while (Date.now() < deadline) {
+    const waiting = queryScalar(databaseUrl, `
+      SELECT EXISTS(
+        SELECT 1
+        FROM pg_stat_activity
+        WHERE datname=current_database()
+          AND application_name='${sqlLiteral(applicationName)}'
+          AND state='active'
+          AND wait_event='${sqlLiteral(waitEvent)}'
+      );
+    `);
+    if (waiting === "t") return;
+    assert.equal(waiting, "f", `unexpected application waiter probe for ${applicationName}`);
+    await waitForMilliseconds(10);
+  }
+  throw new Error(`timed out waiting for ${applicationName} on ${waitEvent}`);
+}
+
+async function waitForBlockedApplicationLocks(databaseUrl, applicationNames) {
+  const deadline = Date.now() + 3_000;
+  const expected = [...applicationNames].sort();
+  const namesSql = applicationNames.map((name) => `'${sqlLiteral(name)}'`).join(",");
+  while (Date.now() < deadline) {
+    const blocked = queryRows(databaseUrl, `
+      SELECT DISTINCT a.application_name
+      FROM pg_stat_activity a
+      JOIN pg_locks l ON l.pid=a.pid
+      WHERE a.datname=current_database()
+        AND a.application_name IN (${namesSql})
+        AND a.state='active'
+        AND a.wait_event_type='Lock'
+        AND NOT l.granted
+      ORDER BY a.application_name;
+    `);
+    if (blocked.length === expected.length && blocked.every((name, index) => name === expected[index])) return;
+    await waitForMilliseconds(10);
+  }
+  throw new Error(`timed out waiting for blocked application locks ${expected.join(",")}`);
 }
 
 async function waitForAdvisoryLockHolder(databaseUrl, lockId) {

@@ -10,6 +10,7 @@ import {
 import {
   readinessConfig,
   readinessConfigOk,
+  readinessBusinessActionsEnabled,
   readinessRequiresProviderEffectReconciliation,
   readinessRequiresWorkerHeartbeats,
 } from "./checks.ts";
@@ -17,6 +18,64 @@ import {
 export const dynamic = "force-dynamic";
 
 const READINESS_DATABASE_TIMEOUT_MS = 3_000;
+const MAXIMUM_COMPATIBLE_SCHEMA_VERSION = 56;
+const COMPATIBLE_SCHEMA_VERSIONS = new Set([50, MAXIMUM_COMPATIBLE_SCHEMA_VERSION]);
+const TERMINAL_NOTIFICATION_PROBE = Object.freeze({ p_recall_bot_id: "readiness-probe-not-a-uuid" });
+
+const BASE_SCHEMA_CAPABILITIES = Object.freeze([
+  "providerEffectReservations",
+  "providerEffectTerminationFence",
+  "tavusStageExpiryConcurrencyFence",
+  "serviceRoleAppSchemaUsage",
+  "billingUsageOutbox",
+  "recallWebhookDedupe",
+  "recallTenantBinding",
+  "tavusWebhookCapabilities",
+  "tavusWebhookCapabilityLifecycle",
+  "tavusCustomerDeliveryReceipts",
+  "tavusStageCapabilities",
+  "aiUsageReservations",
+  "aiUsageReconciliation",
+  "workerHeartbeats",
+  "providerTranscriptService",
+  "authenticatedProviderTranscriptPreclaimBlocked",
+  "authenticatedMeetingBotPreclaimBlocked",
+  "portalTextPreviewAdmission",
+  "portalTextPreviewTurnFence",
+  "portalTextPreviewEgressAuthorization",
+  "portalTextPreviewProviderFailureReceipt",
+  "portalTextTranscriptOptIn",
+  "portalTextPreviewCleanup",
+  "portalTextPreviewCanonicalOutbox",
+  "portalTextPreviewSecurityBoundary",
+  "legacyAuthenticatedChatTranscriptWriterAvailable",
+  "meetingTerminalNotificationClaim",
+  "billingCheckoutIntents",
+  "strictSubscriptionIdentity",
+  "legacySubscriptionWriterRevoked",
+  "costEventSchemaVersion",
+  "legacyCostWritersRevoked",
+  "runtimeChannelAdmission",
+  "runtimeChannelGrantFences",
+  "runtimeProviderBindingReceipts",
+  "runtimeSceneReceipts",
+  "runtimeKillSwitches",
+  "runtimeDualOperatorReconciliation",
+  "runtimeBridgeReceiptIntegrity",
+] as const);
+
+const BUSINESS_ACTION_SCHEMA_CAPABILITIES = Object.freeze([
+  "businessActionKillSwitches",
+  "businessActionGrants",
+  "businessActionReceipts",
+  "businessActionLeads",
+  "businessActionProposals",
+  "businessActionCalendarReservations",
+  "businessActionCalendarConnections",
+  "businessActionCalendarCredentialRead",
+  "businessActionLiveCallContext",
+  "businessActionEmailLengthBound",
+] as const);
 
 interface ReadinessRpcResult {
   readonly data: unknown;
@@ -28,7 +87,7 @@ interface ReadinessRpcOperation extends PromiseLike<ReadinessRpcResult> {
 }
 
 interface ReadinessClient {
-  rpc(name: string): ReadinessRpcOperation;
+  rpc(name: string, parameters?: Readonly<Record<string, unknown>>): ReadinessRpcOperation;
 }
 
 export interface ReadinessRouteDependencies {
@@ -104,6 +163,22 @@ export function workerReadinessOk(value: unknown, expected: ExpectedWorkerReadin
     && parseWorkerReadinessRecord(record.providerEffectReconciler, expected.providerEffectReconciler) !== null;
 }
 
+export function schemaReadinessOk(value: unknown, env: NodeJS.ProcessEnv): boolean {
+  const capabilities = ownRecord(value);
+  if (!capabilities) return false;
+  const version = capabilities.version;
+  if (
+    !Number.isInteger(version)
+    || !COMPATIBLE_SCHEMA_VERSIONS.has(Number(version))
+    || !BASE_SCHEMA_CAPABILITIES.every((capability) => capabilities[capability] === true)
+    || (readinessRequiresProviderEffectReconciliation(env)
+      && capabilities.providerEffectReconciliation !== true)
+  ) return false;
+  if (!readinessBusinessActionsEnabled(env)) return true;
+  return version === MAXIMUM_COMPATIBLE_SCHEMA_VERSION
+    && BUSINESS_ACTION_SCHEMA_CAPABILITIES.every((capability) => capabilities[capability] === true);
+}
+
 async function withDeadline<T>(operation: PromiseLike<T>, timeoutMs: number, onTimeout: () => void): Promise<T> {
   let timer: ReturnType<typeof setTimeout> | undefined;
   try {
@@ -143,49 +218,26 @@ export async function handleReadiness(dependencies: ReadinessRouteDependencies =
       throw new Error("invalid readiness database deadline");
     }
     const controller = new AbortController();
-    const query = async (name: string): Promise<ReadinessRpcResult> => {
-      const rpc = supabase.rpc(name);
+    const query = async (
+      name: string,
+      parameters?: Readonly<Record<string, unknown>>,
+    ): Promise<ReadinessRpcResult> => {
+      const rpc = supabase.rpc(name, parameters);
       const cancellableRpc = rpc.abortSignal?.(controller.signal) ?? rpc;
       return Promise.resolve(cancellableRpc);
     };
     const result = await withDeadline((async () => {
       const schema = await query("portal_schema_capabilities_service");
       if (schema.error) throw new Error("portal schema capability RPC failed");
-      const capabilities = ownRecord(schema.data);
-      schemaReady = capabilities !== null
-        && capabilities.version === 48
-        && capabilities.providerEffectReservations === true
-        && capabilities.providerEffectTerminationFence === true
-        && capabilities.tavusStageExpiryConcurrencyFence === true
-        && capabilities.serviceRoleAppSchemaUsage === true
-        && capabilities.billingUsageOutbox === true
-        && capabilities.recallWebhookDedupe === true
-        && capabilities.recallTenantBinding === true
-        && capabilities.tavusWebhookCapabilities === true
-        && capabilities.tavusWebhookCapabilityLifecycle === true
-        && capabilities.tavusCustomerDeliveryReceipts === true
-        && capabilities.tavusStageCapabilities === true
-        && capabilities.aiUsageReservations === true
-        && capabilities.aiUsageReconciliation === true
-        && capabilities.workerHeartbeats === true
-        && capabilities.providerTranscriptService === true
-        && capabilities.authenticatedProviderTranscriptPreclaimBlocked === true
-        && capabilities.authenticatedMeetingBotPreclaimBlocked === true
-        && capabilities.billingCheckoutIntents === true
-        && capabilities.strictSubscriptionIdentity === true
-        && capabilities.legacySubscriptionWriterRevoked === true
-        && capabilities.costEventSchemaVersion === true
-        && capabilities.legacyCostWritersRevoked === true
-        && capabilities.runtimeChannelAdmission === true
-        && capabilities.runtimeChannelGrantFences === true
-        && capabilities.runtimeProviderBindingReceipts === true
-        && capabilities.runtimeSceneReceipts === true
-        && capabilities.runtimeKillSwitches === true
-        && capabilities.runtimeDualOperatorReconciliation === true
-        && capabilities.runtimeBridgeReceiptIntegrity === true
-        && (!readinessRequiresProviderEffectReconciliation(env)
-          || capabilities.providerEffectReconciliation === true);
+      schemaReady = schemaReadinessOk(schema.data, env);
       if (!schemaReady) return { workersReady: false };
+      const terminalClaimProbe = await query(
+        "portal_claim_meeting_terminal_notification_service",
+        TERMINAL_NOTIFICATION_PROBE,
+      );
+      if (terminalClaimProbe.error || terminalClaimProbe.data !== false) {
+        throw new Error("terminal notification claim probe failed");
+      }
       if (!readinessRequiresWorkerHeartbeats(env)) return { workersReady: true };
       const workers = await query("portal_worker_readiness_service");
       if (workers.error) throw new Error("portal worker readiness RPC failed");
