@@ -1,0 +1,134 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://schemas.axtro.ai/v2/portal_public_demo_signed_state_payload.schema.json",
+  "title": "Portal Public Demo Signed State Payload",
+  "description": "Closed, non-authoritative and short-lived state carried only inside the Portal public demo HttpOnly cookie. expires_at must be no more than 900 seconds after issued_at.",
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "schema_version": { "type": "string", "const": "2.0.0" },
+    "fixture_version": { "type": "string", "const": "1.0.0" },
+    "demo_session_id": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$"
+    },
+    "revision": {
+      "type": "integer",
+      "minimum": 0,
+      "maximum": 12,
+      "description": "Accepted transition count. It must equal the number of seen_commands."
+    },
+    "seen_commands": {
+      "type": "array",
+      "maxItems": 12,
+      "uniqueItems": true,
+      "description": "Bounded commands already accepted in this signed lineage. Its length must equal revision; command IDs must be unique and expected_revision must equal the item index.",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "command_id": {
+            "type": "string",
+            "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$"
+          },
+          "expected_revision": { "type": "integer", "minimum": 0, "maximum": 11 },
+          "command": {
+            "type": "string",
+            "enum": [
+              "open_overview",
+              "inspect_agent",
+              "inspect_knowledge",
+              "inspect_conversation",
+              "advance",
+              "reset"
+            ]
+          }
+        },
+        "required": ["command_id", "expected_revision", "command"]
+      }
+    },
+    "surface": {
+      "type": "string",
+      "enum": ["overview", "agent", "knowledge", "conversation"]
+    },
+    "step": {
+      "type": "string",
+      "enum": ["welcome", "context", "conversation", "handoff"]
+    },
+    "issued_at": {
+      "type": "string",
+      "format": "date-time",
+      "pattern": "^[0-9]{4}-(0[1-9]|1[0-2])-(0[1-9]|[12][0-9]|3[01])T([01][0-9]|2[0-3]):[0-5][0-9]:[0-5][0-9]\\.[0-9]{3}Z$"
+    },
+    "expires_at": {
+      "type": "string",
+      "format": "date-time",
+      "pattern": "^[0-9]{4}-(0[1-9]|1[0-2])-(0[1-9]|[12][0-9]|3[01])T([01][0-9]|2[0-3]):[0-5][0-9]:[0-5][0-9]\\.[0-9]{3}Z$"
+    }
+  },
+  "required": [
+    "schema_version",
+    "fixture_version",
+    "demo_session_id",
+    "revision",
+    "seen_commands",
+    "surface",
+    "step",
+    "issued_at",
+    "expires_at"
+  ],
+  "allOf": [
+    {
+      "if": { "properties": { "revision": { "const": 0 } }, "required": ["revision"] },
+      "then": { "properties": { "seen_commands": { "minItems": 0, "maxItems": 0 } } }
+    },
+    {
+      "if": { "properties": { "revision": { "const": 1 } }, "required": ["revision"] },
+      "then": { "properties": { "seen_commands": { "minItems": 1, "maxItems": 1 } } }
+    },
+    {
+      "if": { "properties": { "revision": { "const": 2 } }, "required": ["revision"] },
+      "then": { "properties": { "seen_commands": { "minItems": 2, "maxItems": 2 } } }
+    },
+    {
+      "if": { "properties": { "revision": { "const": 3 } }, "required": ["revision"] },
+      "then": { "properties": { "seen_commands": { "minItems": 3, "maxItems": 3 } } }
+    },
+    {
+      "if": { "properties": { "revision": { "const": 4 } }, "required": ["revision"] },
+      "then": { "properties": { "seen_commands": { "minItems": 4, "maxItems": 4 } } }
+    },
+    {
+      "if": { "properties": { "revision": { "const": 5 } }, "required": ["revision"] },
+      "then": { "properties": { "seen_commands": { "minItems": 5, "maxItems": 5 } } }
+    },
+    {
+      "if": { "properties": { "revision": { "const": 6 } }, "required": ["revision"] },
+      "then": { "properties": { "seen_commands": { "minItems": 6, "maxItems": 6 } } }
+    },
+    {
+      "if": { "properties": { "revision": { "const": 7 } }, "required": ["revision"] },
+      "then": { "properties": { "seen_commands": { "minItems": 7, "maxItems": 7 } } }
+    },
+    {
+      "if": { "properties": { "revision": { "const": 8 } }, "required": ["revision"] },
+      "then": { "properties": { "seen_commands": { "minItems": 8, "maxItems": 8 } } }
+    },
+    {
+      "if": { "properties": { "revision": { "const": 9 } }, "required": ["revision"] },
+      "then": { "properties": { "seen_commands": { "minItems": 9, "maxItems": 9 } } }
+    },
+    {
+      "if": { "properties": { "revision": { "const": 10 } }, "required": ["revision"] },
+      "then": { "properties": { "seen_commands": { "minItems": 10, "maxItems": 10 } } }
+    },
+    {
+      "if": { "properties": { "revision": { "const": 11 } }, "required": ["revision"] },
+      "then": { "properties": { "seen_commands": { "minItems": 11, "maxItems": 11 } } }
+    },
+    {
+      "if": { "properties": { "revision": { "const": 12 } }, "required": ["revision"] },
+      "then": { "properties": { "seen_commands": { "minItems": 12, "maxItems": 12 } } }
+    }
+  ]
+}

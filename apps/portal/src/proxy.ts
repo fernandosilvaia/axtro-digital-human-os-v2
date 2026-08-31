@@ -1,8 +1,15 @@
-import { type NextRequest } from "next/server";
+import { NextResponse, type NextRequest } from "next/server";
 
 import { updateSession } from "@/lib/supabase/middleware";
 
 export async function proxy(request: NextRequest) {
+  const pathname = request.nextUrl.pathname;
+  // Marketing and the isolated demo never read or refresh Supabase cookies.
+  // This keeps the landing static and makes `/demo` a structurally separate
+  // browser-carried simulation. Prefix lookalikes remain protected.
+  if (pathname === "/" || pathname === "/demo" || pathname.startsWith("/demo/")) {
+    return NextResponse.next();
+  }
   return updateSession(request);
 }
 

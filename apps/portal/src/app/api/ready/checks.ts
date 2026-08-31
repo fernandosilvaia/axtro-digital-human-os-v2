@@ -2,6 +2,14 @@ import { isRecallRegion, parseRecallTranscriptDownloadHosts, recallApiBaseUrl } 
 
 import { configuredOpenRouterGenerationModel } from "../../../lib/ai-budget/reservations.ts";
 import { isRecallWebhookSecretConfigured } from "../../../lib/meetings/webhook.ts";
+import {
+  isPublicDemoEdgePolicyAttested,
+  PUBLIC_DEMO_EDGE_POLICY_ATTESTATION_ENV,
+} from "../../../lib/public-demo/edge-policy.ts";
+import {
+  isPublicDemoStateSecretConfigured,
+  PUBLIC_DEMO_STATE_SECRET_ENV,
+} from "../../../lib/public-demo/state-token.ts";
 import { isPortalPublicOriginConfigured } from "../../../lib/public-origin.ts";
 import { portalDeploymentId } from "../../../lib/workers/heartbeat.ts";
 
@@ -34,6 +42,7 @@ export interface ReadinessChecks {
   readonly resend_api_key: boolean;
   readonly business_action_bridge_flag: boolean;
   readonly portal_text_preview_recovery_gate: boolean;
+  readonly public_demo_rollout_gate: boolean;
 }
 
 function isHttpsUrl(value: string | undefined): boolean {
@@ -102,6 +111,15 @@ function hasDeploymentIdentity(env: NodeJS.ProcessEnv): boolean {
   }
 }
 
+function hasValidPublicDemoRolloutGate(env: NodeJS.ProcessEnv): boolean {
+  const secret = env[PUBLIC_DEMO_STATE_SECRET_ENV];
+  const edgePolicyAttestation = env[PUBLIC_DEMO_EDGE_POLICY_ATTESTATION_ENV];
+  const disabled = (secret ?? "") === "" && (edgePolicyAttestation ?? "") === "";
+  return disabled
+    || (isPublicDemoStateSecretConfigured(secret)
+      && isPublicDemoEdgePolicyAttested(edgePolicyAttestation));
+}
+
 export function readinessConfig(env: NodeJS.ProcessEnv): ReadinessChecks {
   const fakeModeValue = (env.PORTAL_FAKE_PROVIDERS ?? "").trim();
   const providerModeValid = fakeModeValue === "" || fakeModeValue === "0" || fakeModeValue === "1";
@@ -150,6 +168,7 @@ export function readinessConfig(env: NodeJS.ProcessEnv): ReadinessChecks {
     resend_api_key: meetingTerminalNotificationsDisabled || fakeMode || hasKey(env.RESEND_API_KEY),
     business_action_bridge_flag: businessActionBridge !== null,
     portal_text_preview_recovery_gate: env.PORTAL_TEXT_PREVIEW_ENABLED === "false",
+    public_demo_rollout_gate: hasValidPublicDemoRolloutGate(env),
   };
 }
 

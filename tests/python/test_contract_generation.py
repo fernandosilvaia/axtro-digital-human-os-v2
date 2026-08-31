@@ -50,7 +50,7 @@ class ContractGenerationTests(unittest.TestCase):
             self.assertEqual(first_ts, generated_ts.read_bytes())
             self.assertEqual(first_py, generated_py.read_bytes())
             generated_typescript = generated_ts.read_text(encoding="utf-8")
-            self.assertEqual(61, generated_typescript.count('"source_schema"'))
+            self.assertEqual(64, generated_typescript.count('"source_schema"'))
             generated_python = generated_py.read_text(encoding="utf-8")
             self.assertIn("schema_version", generated_python)
             self.assertIn("class _FakeProviderScenarioRequired(TypedDict):", generated_python)
@@ -58,6 +58,10 @@ class ContractGenerationTests(unittest.TestCase):
             self.assertIn("operation: Literal['channel.health'", generated_python)
             self.assertIn("export type TurnOutcomeRecorded =", generated_typescript)
             self.assertIn("TurnOutcomeRecorded: TypeAlias =", generated_python)
+            self.assertIn("export type PortalPublicDemoActionResult =", generated_typescript)
+            self.assertIn("PortalPublicDemoActionResult: TypeAlias =", generated_python)
+            self.assertIn('reason_code: "demo_unavailable";', generated_typescript)
+            self.assertIn("seen_commands: Array<{", generated_typescript)
             self.assertIn(
                 "export type MeetingTerminalNotificationDeliveryReceipt =",
                 generated_typescript,
@@ -93,7 +97,7 @@ class ContractGenerationTests(unittest.TestCase):
             errors = list(Draft202012Validator(schema, registry=registry).iter_errors(example))
             self.assertTrue(errors, f"{example_path.relative_to(ROOT)} unexpectedly passed")
             rejected += 1
-        self.assertEqual(61, rejected)
+        self.assertEqual(64, rejected)
 
     def test_portal_text_preview_contracts_bind_privacy_and_browser_authority(self) -> None:
         registry = schema_registry()

@@ -3,9 +3,11 @@
 import { createHash, randomBytes } from "node:crypto";
 import { pathToFileURL } from "node:url";
 
-export const PRODUCTION_BOOTSTRAP_VERSION = "m6-01-v1";
+export const PRODUCTION_BOOTSTRAP_VERSION = "m6-03-v1";
 export const FINANCIAL_WORKER_HEARTBEAT_VERSION = "m5-02-v1";
 export const MEETING_TERMINAL_NOTIFICATION_WORKER_HEARTBEAT_VERSION = "m6-01-v1";
+export const PUBLIC_DEMO_EDGE_POLICY_ATTESTATION =
+  "axtro-public-demo-edge/v3;scope=global;post-start=120/60s;post-command-end=600/60s;get-head-demo=900/60s;concurrency=32;queue=0;reject=429";
 export const REQUIRED_SCHEMA_VERSION = 58;
 const MINIMUM_BUSINESS_ACTION_SCHEMA_VERSION = 56;
 const MEETING_NOTIFICATION_SCHEMA_VERSIONS = new Set([57, REQUIRED_SCHEMA_VERSION]);
@@ -266,6 +268,15 @@ export function meetingTerminalNotificationWorkerIdentity(env) {
   return Object.freeze({ deploymentId: resolvedDeploymentId, configFingerprint });
 }
 
+function hasValidPublicDemoRolloutGate(env) {
+  const secret = env.PORTAL_PUBLIC_DEMO_STATE_SECRET ?? "";
+  const edgePolicyAttestation = env.PORTAL_PUBLIC_DEMO_EDGE_POLICY_ATTESTATION ?? "";
+  if (secret === "" && edgePolicyAttestation === "") return true;
+  return /^[a-f0-9]{64}$/.test(secret)
+    && new Set(Buffer.from(secret, "hex")).size >= 16
+    && edgePolicyAttestation === PUBLIC_DEMO_EDGE_POLICY_ATTESTATION;
+}
+
 function validateEnvironment(env) {
   const supabaseOrigin = parseSupabaseUrl(normalizedEnv(env, "NEXT_PUBLIC_SUPABASE_URL"));
   const serviceRoleKey = normalizedEnv(env, "SUPABASE_SERVICE_ROLE_KEY");
@@ -287,6 +298,7 @@ function validateEnvironment(env) {
       || normalizedEnv(env, "RESEND_API_KEY").length < 8
       || /\s/.test(normalizedEnv(env, "RESEND_API_KEY"))
     ))
+    || !hasValidPublicDemoRolloutGate(env)
     || !portalTextPreviewRecoveryGate
     || normalizedEnv(env, "BILLING_USAGE_OUTBOX_ENABLED") !== "true"
     || normalizedEnv(env, "PROVIDER_EFFECT_RECONCILER_ENABLED") !== "true"

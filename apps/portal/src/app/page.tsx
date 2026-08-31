@@ -2,8 +2,6 @@ import Image from "next/image";
 
 import { RevealOnScroll } from "@/components/reveal-on-scroll";
 import { DemoSubmitButton } from "./demo-button";
-import { signInDemo } from "@/lib/actions/demo";
-import { createClient } from "@/lib/supabase/server";
 import { absoluteUrl, createPageMetadata, SITE_NAME } from "@/lib/site";
 
 export const metadata = createPageMetadata({
@@ -79,7 +77,7 @@ const FAQ_ITEMS = [
   {
     question: "Como funciona a demonstração?",
     answer:
-      "A demonstração abre um workspace compartilhado com dados fictícios. Ela permite conhecer o produto sem cartão; recursos de produção e provedores reais dependem da configuração, do consentimento e da aprovação da empresa.",
+      "A demonstração usa uma simulação isolada com dados sintéticos e estado temporário por visitante. Ela não cria conta, tenant, cobrança ou chamada de provider; recursos reais dependem da configuração, do consentimento e da aprovação da empresa.",
   },
 ] as const;
 
@@ -134,9 +132,7 @@ const STRUCTURED_DATA = [
   },
 ];
 
-export default async function LandingPage() {
-  const user = await getPublicSessionUser();
-
+export default function LandingPage() {
   return (
     <div className="landing landing--closer">
       <header className="landing-nav">
@@ -155,14 +151,8 @@ export default async function LandingPage() {
             <a href="#faq">FAQ</a>
           </nav>
           <nav className="landing-nav-actions" aria-label="Ações de conta">
-            {user ? (
-              <a className="btn btn-primary btn-small" href="/dashboard">Abrir sistema <ArrowIcon /></a>
-            ) : (
-              <>
-                <a className="btn btn-ghost btn-small" href="/login">Entrar</a>
-                <a className="btn btn-primary btn-small" href="/signup">Começar <ArrowIcon /></a>
-              </>
-            )}
+            <a className="btn btn-ghost btn-small" href="/login">Entrar</a>
+            <a className="btn btn-primary btn-small" href="/signup">Começar <ArrowIcon /></a>
           </nav>
         </div>
       </header>
@@ -177,7 +167,7 @@ export default async function LandingPage() {
               disclosure claro e a sua operação no controle da conversa.
             </p>
             <div className="hero-ctas hero-ctas-left">
-              <form action={signInDemo}>
+              <form action="/demo/start" method="post">
                 <DemoSubmitButton className="btn btn-primary btn-large">Assistir à demonstração <ArrowIcon /></DemoSubmitButton>
               </form>
               <a className="btn btn-ghost btn-large" href="#como-funciona">Como funciona <ChevronIcon /></a>
@@ -336,11 +326,11 @@ export default async function LandingPage() {
           <RevealOnScroll className="closing-panel closer-closing-panel">
             <div className="closing-panel-mark"><span className="eyebrow-pulse" /> Próxima conversa</div>
             <h2>Veja como uma conversa em vídeo pode começar com mais clareza.</h2>
-            <p>Entre no workspace de demonstração e conheça o Axtro Closer AI Human com dados fictícios.</p>
-            <form action={signInDemo}>
+            <p>Explore uma simulação isolada do Axtro Closer AI Human com dados sintéticos e sem efeitos reais.</p>
+            <form action="/demo/start" method="post">
               <DemoSubmitButton className="btn btn-light btn-large">Abrir demonstração <ArrowIcon /></DemoSubmitButton>
             </form>
-            <span className="closing-note">Demo compartilhada, dados fictícios, sem cadastro e sem cartão.</span>
+            <span className="closing-note">Sessão isolada, dados sintéticos, sem cadastro, provider ou cartão.</span>
           </RevealOnScroll>
         </section>
       </main>
@@ -356,26 +346,6 @@ export default async function LandingPage() {
       <script type="application/ld+json" dangerouslySetInnerHTML={{ __html: JSON.stringify(STRUCTURED_DATA) }} />
     </div>
   );
-}
-
-/**
- * A página pública continua útil quando a infraestrutura de autenticação está
- * indisponível: a única consequência é mostrar os CTAs de visitante. Rotas
- * protegidas preservam a sua verificação de sessão e nunca usam este fallback.
- */
-async function getPublicSessionUser() {
-  try {
-    const supabase = await createClient();
-    const user = supabase.auth.getUser()
-      .then(({ data, error }) => (error ? null : data.user))
-      .catch(() => null);
-    return await Promise.race([
-      user,
-      new Promise<null>((resolve) => setTimeout(resolve, 1_000)),
-    ]);
-  } catch {
-    return null;
-  }
 }
 
 function ArrowIcon() {

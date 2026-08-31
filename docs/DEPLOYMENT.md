@@ -19,7 +19,8 @@ Este arquivo é o resumo operacional.
 | `TAVUS_API_KEY` / `TAVUS_REPLICA_ID` | sim (vídeo) | Doppler |
 | `RESEND_API_KEY` | recomendada (e-mail de convite) | Doppler — **pendente em produção** |
 | `PORTAL_PUBLIC_URL` | opcional | URL pública |
-| `DEMO_EMAIL` / `DEMO_PASSWORD` | opcional (acesso demo 1-clique) | Doppler |
+| `PORTAL_PUBLIC_DEMO_STATE_SECRET` | sim para `/demo` (32 bytes em hexadecimal minúsculo) | secret manager, exclusivo da demo |
+| `PORTAL_PUBLIC_DEMO_EDGE_POLICY_ATTESTATION` | sim para `/demo`, após aplicar a política v3 exata | configuração de release, valor canônico no runbook |
 | `PORTAL_FAKE_PROVIDERS` | nunca em produção | — |
 
 ## Banco (Supabase `ovctadcrvnfpgxzplupp`)
@@ -31,5 +32,6 @@ Este arquivo é o resumo operacional.
 ## Smoke pós-deploy
 
 1. `curl /api/health` → `ok:true` e checks esperados.
-2. Login demo → dashboard carrega métricas.
-3. `/agentes` → botão Testar abre chat; resposta chega.
+2. `/demo` abre a simulação isolada sem cookie Supabase, tenant ou chamada externa.
+3. Login da conta canário → dashboard carrega métricas do tenant correto.
+4. `/agentes` → botão Testar respeita os gates de provider aprovados para o ambiente.

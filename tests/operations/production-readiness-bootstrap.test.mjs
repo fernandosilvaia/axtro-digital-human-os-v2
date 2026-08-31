@@ -7,11 +7,15 @@ import {
   FINANCIAL_WORKER_HEARTBEAT_VERSION,
   MEETING_TERMINAL_NOTIFICATION_WORKER_HEARTBEAT_VERSION,
   PRODUCTION_BOOTSTRAP_VERSION,
+  PUBLIC_DEMO_EDGE_POLICY_ATTESTATION,
   ProductionReadinessBootstrapError,
   financialWorkerIdentity,
   meetingTerminalNotificationWorkerIdentity,
   runProductionReadinessBootstrap,
 } from "../../scripts/production-readiness-bootstrap.mjs";
+import {
+  PUBLIC_DEMO_EDGE_POLICY_ATTESTATION as RUNTIME_PUBLIC_DEMO_EDGE_POLICY_ATTESTATION,
+} from "../../apps/portal/src/lib/public-demo/edge-policy.ts";
 import {
   portalFinancialWorkerIdentity,
   portalWorkerIdentity,
@@ -425,6 +429,35 @@ test("bootstrap requires the text preview recovery gate to be exactly false befo
   }
 });
 
+test("bootstrap requires the exact edge attestation whenever the public demo secret is present", async () => {
+  const secret = "000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f";
+  assert.equal(PUBLIC_DEMO_EDGE_POLICY_ATTESTATION, RUNTIME_PUBLIC_DEMO_EDGE_POLICY_ATTESTATION);
+  for (const env of [
+    { PORTAL_PUBLIC_DEMO_STATE_SECRET: secret },
+    { PORTAL_PUBLIC_DEMO_EDGE_POLICY_ATTESTATION: PUBLIC_DEMO_EDGE_POLICY_ATTESTATION },
+    {
+      PORTAL_PUBLIC_DEMO_STATE_SECRET: secret,
+      PORTAL_PUBLIC_DEMO_EDGE_POLICY_ATTESTATION: "axtro-public-demo-edge/v0",
+    },
+    {
+      PORTAL_PUBLIC_DEMO_STATE_SECRET: "a".repeat(64),
+      PORTAL_PUBLIC_DEMO_EDGE_POLICY_ATTESTATION: PUBLIC_DEMO_EDGE_POLICY_ATTESTATION,
+    },
+  ]) {
+    const { calls, promise } = run({ env });
+    await assert.rejects(promise, isCode("CONFIG_INVALID"), JSON.stringify(env));
+    assert.equal(calls.length, 0, JSON.stringify(env));
+  }
+
+  const configured = run({
+    env: {
+      PORTAL_PUBLIC_DEMO_STATE_SECRET: secret,
+      PORTAL_PUBLIC_DEMO_EDGE_POLICY_ATTESTATION: PUBLIC_DEMO_EDGE_POLICY_ATTESTATION,
+    },
+  });
+  assert.equal((await configured.promise).schemaVersion, 50);
+});
+
 test("typed service-role RPC probe fails closed on PostgREST denial before any side effect", async () => {
   const { calls, promise } = run({ runtimeProbeStatus: 403 });
   await assert.rejects(promise, isCode("RPC_UNAVAILABLE"));
@@ -561,7 +594,7 @@ test("happy path validates all read-only probes then persists exact versioned he
     ["provider_effect_reconciler", "started"],
     ["provider_effect_reconciler", "succeeded"],
   ]);
-  assert.equal(PRODUCTION_BOOTSTRAP_VERSION, "m6-01-v1");
+  assert.equal(PRODUCTION_BOOTSTRAP_VERSION, "m6-03-v1");
   assert.equal(FINANCIAL_WORKER_HEARTBEAT_VERSION, "m5-02-v1");
   assert.notEqual(PRODUCTION_BOOTSTRAP_VERSION, FINANCIAL_WORKER_HEARTBEAT_VERSION);
   assert.ok(heartbeatCalls.every((call) => call.p_version === FINANCIAL_WORKER_HEARTBEAT_VERSION));

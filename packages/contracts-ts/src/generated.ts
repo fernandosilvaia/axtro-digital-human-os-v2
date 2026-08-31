@@ -1,7 +1,7 @@
 /*
  * GENERATED FILE. DO NOT EDIT.
  * generator: scripts/generate_contract_types.py@1.2.0
- * source: 61 JSON Schema Draft 2020-12 documents under contracts/schemas/
+ * source: 64 JSON Schema Draft 2020-12 documents under contracts/schemas/
  */
 
 export const CONTRACT_GENERATOR_VERSION = "1.2.0" as const;
@@ -585,6 +585,78 @@ export interface PolicyDecision {
   obligations: Array<string>;
   policy_version: string;
   evaluated_at: string;
+  expires_at: string;
+}
+
+/** Source: contracts/schemas/portal_public_demo_action_result.schema.json; schema: https://schemas.axtro.ai/v2/portal_public_demo_action_result.schema.json; version: 2.0.0. */
+export type PortalPublicDemoActionResult = {
+  schema_version: "2.0.0";
+  outcome: "applied";
+  revision: number;
+  surface: "overview" | "agent" | "knowledge" | "conversation";
+  step: "welcome" | "context" | "conversation" | "handoff";
+  commands_remaining: number;
+  reason_code: null;
+}
+  | {
+  schema_version: "2.0.0";
+  outcome: "replayed";
+  revision: number;
+  surface: "overview" | "agent" | "knowledge" | "conversation";
+  step: "welcome" | "context" | "conversation" | "handoff";
+  commands_remaining: number;
+  reason_code: "duplicate_command";
+}
+  | {
+  schema_version: "2.0.0";
+  outcome: "stale";
+  revision: number;
+  surface: "overview" | "agent" | "knowledge" | "conversation";
+  step: "welcome" | "context" | "conversation" | "handoff";
+  commands_remaining: number;
+  reason_code: "revision_mismatch";
+}
+  | {
+  schema_version: "2.0.0";
+  outcome: "expired";
+  revision: null;
+  surface: null;
+  step: null;
+  commands_remaining: null;
+  reason_code: "state_expired";
+}
+  | {
+  schema_version: "2.0.0";
+  outcome: "unavailable";
+  revision: null;
+  surface: null;
+  step: null;
+  commands_remaining: null;
+  reason_code: "demo_unavailable";
+};
+
+/** Source: contracts/schemas/portal_public_demo_command.schema.json; schema: https://schemas.axtro.ai/v2/portal_public_demo_command.schema.json; version: 2.0.0. */
+export interface PortalPublicDemoCommand {
+  schema_version: "2.0.0";
+  command_id: string;
+  expected_revision: number;
+  command: "open_overview" | "inspect_agent" | "inspect_knowledge" | "inspect_conversation" | "advance" | "reset";
+}
+
+/** Source: contracts/schemas/portal_public_demo_signed_state_payload.schema.json; schema: https://schemas.axtro.ai/v2/portal_public_demo_signed_state_payload.schema.json; version: 2.0.0. */
+export interface PortalPublicDemoSignedStatePayload {
+  schema_version: "2.0.0";
+  fixture_version: "1.0.0";
+  demo_session_id: string;
+  revision: number;
+  seen_commands: Array<{
+    command_id: string;
+    expected_revision: number;
+    command: "open_overview" | "inspect_agent" | "inspect_knowledge" | "inspect_conversation" | "advance" | "reset";
+  }>;
+  surface: "overview" | "agent" | "knowledge" | "conversation";
+  step: "welcome" | "context" | "conversation" | "handoff";
+  issued_at: string;
   expires_at: string;
 }
 
@@ -1463,6 +1535,24 @@ export const CONTRACT_METADATA = {
     "schema_version": "2.0.0",
     "source_hash": "4832dfa5d90d69b7365eade438c32da0c4ef86210415974e425e8e6e38684b3b",
     "source_schema": "contracts/schemas/policy_decision.schema.json"
+  },
+  "PortalPublicDemoActionResult": {
+    "schema_id": "https://schemas.axtro.ai/v2/portal_public_demo_action_result.schema.json",
+    "schema_version": "2.0.0",
+    "source_hash": "ea9d740772cc44291b7261b5b41b4ae897c65a5d68dc228183c862c559ec14c9",
+    "source_schema": "contracts/schemas/portal_public_demo_action_result.schema.json"
+  },
+  "PortalPublicDemoCommand": {
+    "schema_id": "https://schemas.axtro.ai/v2/portal_public_demo_command.schema.json",
+    "schema_version": "2.0.0",
+    "source_hash": "405be3fdf7dc24ceff498225db4dbadf4ef8aaa4206662c4ec0c8ac3e3bf10f3",
+    "source_schema": "contracts/schemas/portal_public_demo_command.schema.json"
+  },
+  "PortalPublicDemoSignedStatePayload": {
+    "schema_id": "https://schemas.axtro.ai/v2/portal_public_demo_signed_state_payload.schema.json",
+    "schema_version": "2.0.0",
+    "source_hash": "6c65cd32935c26d1762e6362133342b310d7b16e631d944b7b7f2c7f90e69be7",
+    "source_schema": "contracts/schemas/portal_public_demo_signed_state_payload.schema.json"
   },
   "PortalTextPreviewActionResult": {
     "schema_id": "https://schemas.axtro.ai/v2/portal_text_preview_action_result.schema.json",

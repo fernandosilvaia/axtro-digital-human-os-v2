@@ -1,0 +1,28 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://schemas.axtro.ai/v2/portal_public_demo_command.schema.json",
+  "title": "Portal Public Demo Command",
+  "description": "Closed browser command for the synthetic public demo. Signed state is supplied only by the HttpOnly cookie and is never browser input.",
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "schema_version": { "type": "string", "const": "2.0.0" },
+    "command_id": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$"
+    },
+    "expected_revision": { "type": "integer", "minimum": 0, "maximum": 12 },
+    "command": {
+      "type": "string",
+      "enum": [
+        "open_overview",
+        "inspect_agent",
+        "inspect_knowledge",
+        "inspect_conversation",
+        "advance",
+        "reset"
+      ]
+    }
+  },
+  "required": ["schema_version", "command_id", "expected_revision", "command"]
+}

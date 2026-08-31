@@ -48,11 +48,12 @@ Não afirmar que o produto garante conversão, substitui uma equipe inteira, red
 
 ## Demonstração
 
-A demonstração pública usa uma conta compartilhada e dados fictícios. Ela serve para apresentar o workspace e a direção do produto. Uso com dados reais, credenciais de providers, lançamento para clientes e decisões regulatórias exigem configuração e aprovação próprias.
+A demonstração pública usa uma simulação isolada, dados sintéticos e estado temporário por visitante. Ela não cria conta, tenant, cobrança, transcript ou chamada de provider. Uso com dados reais, credenciais de providers, lançamento para clientes e decisões regulatórias exigem configuração e aprovação próprias.
 
 ## Páginas oficiais
 
 - Home: https://closer.axtroai.com/
+- Demonstração isolada: https://closer.axtroai.com/demo
 - Login: https://closer.axtroai.com/login
 - Criação de conta: https://closer.axtroai.com/signup
 - Política de indexação: https://closer.axtroai.com/robots.txt

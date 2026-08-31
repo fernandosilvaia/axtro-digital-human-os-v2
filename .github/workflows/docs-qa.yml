@@ -5,11 +5,11 @@ on:
   push:
     # Só main: PR já cobre branches de PR — sem o filtro, cada commit numa
     # branch de PR rodava o workflow em DOBRO (push + pull_request), e os dois
-    # runs de e2e mutavam o MESMO tenant demo em paralelo (auditoria 2026-08-02).
+    # runs de e2e mutavam o MESMO tenant de teste em paralelo (auditoria 2026-08-02).
     branches: [main]
   workflow_dispatch:
 
-# Um run por ref: o e2e loga na mesma conta demo e muta as mesmas entidades
+# Um run por ref: o e2e loga na mesma fixture de cliente e muta as mesmas entidades
 # seed — dois runs simultâneos correm um contra o outro com retries: 0.
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
@@ -77,8 +77,8 @@ jobs:
         run: pnpm --filter @axtro/portal run build
 
   e2e-public-discovery:
-    # Não usa sessão, conta demo ou segredo: PRs de fork recebem o mesmo gate
-    # de descoberta que qualquer outro PR, contra o build de produção.
+    # Não usa sessão, conta autenticada ou segredo remoto. O HMAC determinístico
+    # existe somente no processo de teste, então PRs de fork recebem o mesmo gate.
     runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:
@@ -99,14 +99,6 @@ jobs:
       - name: E2E — descoberta pública no build de produção (sem credenciais)
         working-directory: apps/portal
         run: pnpm run e2e:public
-      - name: Upload relatório público do Playwright em caso de falha
-        if: failure()
-        uses: actions/upload-artifact@v4
-        with:
-          name: playwright-public-report
-          path: apps/portal/test-results/
-          retention-days: 7
-          if-no-files-found: ignore
 
   check-e2e-secrets:
     # jobs.<job_id>.if só aceita os contextos github/needs/vars/inputs — não
@@ -122,10 +114,29 @@ jobs:
       has-secrets: ${{ steps.check.outputs.has-secrets }}
     steps:
       - id: check
-        run: echo "has-secrets=${{ secrets.DEMO_PASSWORD != '' }}" >> "$GITHUB_OUTPUT"
+        env:
+          HAS_URL: ${{ secrets.SUPABASE_URL != '' }}
+          HAS_KEY: ${{ secrets.SUPABASE_PUBLISHABLE_KEY != '' }}
+          HAS_EMAIL: ${{ secrets.E2E_TENANT_ADMIN_EMAIL != '' || secrets.DEMO_EMAIL != '' }}
+          HAS_PASSWORD: ${{ secrets.E2E_TENANT_ADMIN_PASSWORD != '' || secrets.DEMO_PASSWORD != '' }}
+        run: |
+          configured=0
+          for value in "$HAS_URL" "$HAS_KEY" "$HAS_EMAIL" "$HAS_PASSWORD"; do
+            if [ "$value" = "true" ]; then configured=$((configured + 1)); fi
+          done
+          if [ "$configured" -ne 0 ] && [ "$configured" -ne 4 ]; then
+            echo "::error::A fixture E2E autenticada está configurada apenas parcialmente. URL, chave, e-mail e senha devem existir juntos."
+            exit 1
+          fi
+          if [ "$configured" -eq 4 ]; then
+            echo "has-secrets=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "has-secrets=false" >> "$GITHUB_OUTPUT"
+          fi
 
   e2e-portal:
-    # Roda só quando os segredos de conta demo existem no repositório
+    # Roda só quando os segredos da fixture autenticada existem no repositório.
+    # DEMO_* permanece apenas como fallback de migração dos nomes antigos.
     # (Settings → Secrets and variables → Actions). Sem eles o job é pulado
     # inteiro (nunca falha por ausência de credencial) — mesmo padrão do
     # resto do projeto: implementar + documentar em NEEDS_CONNECTION.md,
@@ -153,7 +164,7 @@ jobs:
         run: pnpm typecheck
       - name: Install Playwright Chromium
         run: pnpm --filter @axtro/portal exec playwright install --with-deps chromium
-      - name: Write credenciais demo para o e2e (nunca commitadas, só no runner efêmero)
+      - name: Write credenciais da fixture de cliente para o e2e
         working-directory: apps/portal
         run: |
           # Delimitador QUOTADO: o runner substitui as expressões de secrets
@@ -163,23 +174,12 @@ jobs:
           cat > .env.local <<'EOF'
           NEXT_PUBLIC_SUPABASE_URL=${{ secrets.SUPABASE_URL }}
           NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY=${{ secrets.SUPABASE_PUBLISHABLE_KEY }}
-          DEMO_EMAIL=${{ secrets.DEMO_EMAIL }}
-          DEMO_PASSWORD=${{ secrets.DEMO_PASSWORD }}
+          E2E_TENANT_ADMIN_EMAIL=${{ secrets.E2E_TENANT_ADMIN_EMAIL || secrets.DEMO_EMAIL }}
+          E2E_TENANT_ADMIN_PASSWORD=${{ secrets.E2E_TENANT_ADMIN_PASSWORD || secrets.DEMO_PASSWORD }}
           EOF
       - name: E2E — ciclos completos de agente/fonte/convite, SEO e middleware (fake providers)
         working-directory: apps/portal
         run: pnpm run e2e
-      - name: Upload relatório do Playwright em caso de falha
-        if: failure()
-        uses: actions/upload-artifact@v4
-        with:
-          name: playwright-report
-          # test-results/ é onde o reporter default grava screenshot + trace
-          # por teste falho (playwright-report/ só existe com reporter html —
-          # o upload vinha vazio e a primeira falha real ficou sem evidência).
-          path: apps/portal/test-results/
-          retention-days: 7
-          if-no-files-found: ignore
 
   validate-local-migrations:
     runs-on: ubuntu-latest

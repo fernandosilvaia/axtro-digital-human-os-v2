@@ -4,9 +4,10 @@ import { resolve } from "node:path";
 import { expect, test } from "@playwright/test";
 
 /**
- * Fluxos críticos da UI logada, em modo demonstração (PORTAL_FAKE_PROVIDERS=1):
+ * Fluxos críticos de um cliente autenticado com providers fake:
  * login real → dashboard → agentes (ativar/pausar) → preview textual bloqueado →
- * apresentação simulada. As credenciais do usuário demo vêm de .env.local.
+ * apresentação simulada. As credenciais da fixture E2E vêm de .env.local e
+ * nunca participam da demonstração pública.
  */
 
 const envFile = readFileSync(resolve(import.meta.dirname, "../.env.local"), "utf8");
@@ -17,13 +18,30 @@ const env = Object.fromEntries(
     .map((line) => [line.slice(0, line.indexOf("=")), line.slice(line.indexOf("=") + 1)]),
 ) as Record<string, string>;
 
-const DEMO_EMAIL = env.DEMO_EMAIL ?? "";
-const DEMO_PASSWORD = env.DEMO_PASSWORD ?? "";
+const E2E_TENANT_ADMIN_EMAIL = env.E2E_TENANT_ADMIN_EMAIL ?? "";
+const E2E_TENANT_ADMIN_PASSWORD = env.E2E_TENANT_ADMIN_PASSWORD ?? "";
 const RAFAELA_ID = "019f6de0-0000-7000-8000-0000000a0001";
 const BRUNO_NAME = "Bruno — Closer Empresarial";
 
+function authCookiesAreIdentical(
+  left: readonly Readonly<{ name: string; value: string; domain: string; path: string }>[],
+  right: readonly Readonly<{ name: string; value: string; domain: string; path: string }>[],
+): boolean {
+  return left.length === right.length && left.every((cookie, index) => {
+    const candidate = right[index];
+    return candidate !== undefined
+      && candidate.name === cookie.name
+      && candidate.value === cookie.value
+      && candidate.domain === cookie.domain
+      && candidate.path === cookie.path;
+  });
+}
+
 test.beforeAll(() => {
-  test.skip(DEMO_EMAIL.length === 0 || DEMO_PASSWORD.length === 0, "DEMO_EMAIL/DEMO_PASSWORD ausentes em .env.local");
+  test.skip(
+    E2E_TENANT_ADMIN_EMAIL.length === 0 || E2E_TENANT_ADMIN_PASSWORD.length === 0,
+    "E2E_TENANT_ADMIN_EMAIL/E2E_TENANT_ADMIN_PASSWORD ausentes em .env.local",
+  );
 });
 
 test.describe.configure({ mode: "serial" });
@@ -79,10 +97,10 @@ test("rota protegida sem sessão redireciona para login", async ({ page }) => {
   await expect(page).toHaveURL(/\/login/);
 });
 
-test("login do usuário demo leva à central de conversa com progresso e custos explicitamente atribuídos", async ({ page }) => {
+test("login da fixture de cliente leva à central com progresso e custos explicitamente atribuídos", async ({ page }) => {
   await page.goto("/login");
-  await page.fill('input[type="email"]', DEMO_EMAIL);
-  await page.fill('input[type="password"]', DEMO_PASSWORD);
+  await page.fill('input[type="email"]', E2E_TENANT_ADMIN_EMAIL);
+  await page.fill('input[type="password"]', E2E_TENANT_ADMIN_PASSWORD);
   await page.click('button[type="submit"]');
   await page.waitForURL(/\/dashboard/, { timeout: 30_000 });
   await expect(page.getByRole("heading", { name: "Central da sua operação de conversa." })).toBeVisible();
@@ -91,6 +109,42 @@ test("login do usuário demo leva à central de conversa com progresso e custos 
   // T8: painel de custo (ledger de efeitos pagos, M5-01 renomeou de "estimado" para "atribuído").
   await expect(page.getByText("Custo atribuído hoje")).toBeVisible();
   await expect(page.getByText("Ledger estimado/reportado — não é a fatura conciliada")).toBeVisible();
+});
+
+test("demo isolada preserva cookies, tenant e papel do cliente autenticado", async ({ page, context }) => {
+  await login(page);
+  await page.goto("/dashboard");
+
+  const role = await page.locator(".user-chip .role").textContent();
+  const tenantSlug = await page.locator("dl div", { hasText: "Identificador" }).locator("dd").textContent();
+  const authCookiesBefore = (await context.cookies())
+    .filter((cookie) => cookie.name.startsWith("sb-"))
+    .map(({ name, value, domain, path }) => ({ name, value, domain, path }))
+    .sort((left, right) => left.name.localeCompare(right.name));
+  expect(authCookiesBefore.length).toBeGreaterThan(0);
+
+  await page.goto("/");
+  await page.getByRole("button", { name: "Assistir à demonstração" }).click();
+  await expect(page).toHaveURL(/\/demo$/);
+  await page.getByRole("button", { name: /Agente/i }).click();
+  await page.getByRole("button", { name: "Sair da demonstração" }).click();
+  await expect(page).toHaveURL(/\/$/);
+
+  const authCookiesAfter = (await context.cookies())
+    .filter((cookie) => cookie.name.startsWith("sb-"))
+    .map(({ name, value, domain, path }) => ({ name, value, domain, path }))
+    .sort((left, right) => left.name.localeCompare(right.name));
+  expect(
+    authCookiesAreIdentical(authCookiesBefore, authCookiesAfter),
+    "cookies de autenticação devem permanecer idênticos sem imprimir seus valores",
+  ).toBe(true);
+  expect((await context.cookies()).some((cookie) => cookie.name === "axtro_public_demo")).toBe(false);
+
+  await page.goto("/dashboard");
+  const roleAfter = await page.locator(".user-chip .role").textContent();
+  const tenantSlugAfter = await page.locator("dl div", { hasText: "Identificador" }).locator("dd").textContent();
+  expect(roleAfter === role, "papel autenticado deve permanecer idêntico sem imprimir seu valor").toBe(true);
+  expect(tenantSlugAfter === tenantSlug, "tenant deve permanecer idêntico sem imprimir seu identificador").toBe(true);
 });
 
 test("navegação móvel fecha com Escape e mantém o foco dentro do menu", async ({ page }) => {
@@ -139,7 +193,7 @@ test("agentes: lista carrega e admin ativa e pausa um rascunho", async ({ page }
   await brunoRow.getByRole("button", { name: "Ativar" }).click();
   await expect(brunoRow.getByRole("button", { name: "Pausar" })).toBeVisible({ timeout: 20_000 });
 
-  // Reverte para não deixar estado sujo no tenant demo.
+  // Reverte para não deixar estado sujo no tenant isolado de E2E.
   await brunoRow.getByRole("button", { name: "Pausar" }).click();
   await expect(brunoRow.getByRole("button", { name: "Ativar" })).toBeVisible({ timeout: 20_000 });
 });
@@ -194,7 +248,7 @@ test("configurações: seção de plano visível e ciclo completo de convite (cr
   await expect(page.getByRole("link", { name: "Ver todos os planos" })).toBeVisible();
 
   // Convite com e-mail único por execução; revogado ao final pra não deixar
-  // estado sujo no tenant demo (e o envio de e-mail é mock no fake mode).
+  // estado sujo no tenant isolado de E2E (o envio de e-mail é mock no fake mode).
   const inviteEmail = `e2e-${Date.now().toString(36)}@example.com`;
   await page.fill("#invite-email", inviteEmail);
   await page.getByRole("button", { name: "Convidar" }).click();
@@ -283,8 +337,8 @@ async function login(page: import("@playwright/test").Page): Promise<void> {
   await page.goto("/login");
   // Sessão persistida de teste anterior redireciona direto.
   if (page.url().includes("/dashboard")) return;
-  await page.fill('input[type="email"]', DEMO_EMAIL);
-  await page.fill('input[type="password"]', DEMO_PASSWORD);
+  await page.fill('input[type="email"]', E2E_TENANT_ADMIN_EMAIL);
+  await page.fill('input[type="password"]', E2E_TENANT_ADMIN_PASSWORD);
   await page.click('button[type="submit"]');
   await page.waitForURL(/\/dashboard/, { timeout: 30_000 });
 }

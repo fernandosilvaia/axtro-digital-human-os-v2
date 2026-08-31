@@ -6,7 +6,7 @@
 
 - Site: https://closer.axtroai.com/
 - Contexto completo do produto: https://closer.axtroai.com/llms-full.txt
-- Demonstração: https://closer.axtroai.com/
+- Demonstração isolada: https://closer.axtroai.com/demo
 
 ## O que é o Axtro Closer AI Human?
 
@@ -28,7 +28,7 @@ O Axtro Closer AI Human é a experiência comercial do Axtro Digital Human OS. E
 
 ## Limites importantes
 
-O Axtro Closer AI Human não afirma que o agente é humano, garante conversão ou substitui uma equipe inteira. A demonstração pública usa dados fictícios. Recursos de voz, vídeo, integrações e ativação dependem da configuração da conta e dos providers habilitados. A plataforma não substitui revisão humana, aprovação de lançamento ou validação jurídica, regulatória e de privacidade.
+O Axtro Closer AI Human não afirma que o agente é humano, garante conversão ou substitui uma equipe inteira. A demonstração pública é uma simulação isolada com dados sintéticos e sem efeitos reais. Recursos de voz, vídeo, integrações e ativação dependem da configuração da conta e dos providers habilitados. A plataforma não substitui revisão humana, aprovação de lançamento ou validação jurídica, regulatória e de privacidade.
 
 ## Segurança e privacidade
 

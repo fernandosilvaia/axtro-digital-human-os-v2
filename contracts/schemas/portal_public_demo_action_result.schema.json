@@ -1,0 +1,139 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://schemas.axtro.ai/v2/portal_public_demo_action_result.schema.json",
+  "title": "Portal Public Demo Action Result",
+  "description": "Content-free result for a local synthetic demo transition. It is not a tool or provider execution receipt.",
+  "x-axtro-discriminator": "outcome",
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "schema_version": { "type": "string", "const": "2.0.0" },
+    "outcome": {
+      "type": "string",
+      "enum": ["applied", "replayed", "stale", "expired", "unavailable"]
+    },
+    "revision": {
+      "oneOf": [
+        { "type": "integer", "minimum": 0, "maximum": 12 },
+        { "type": "null" }
+      ]
+    },
+    "surface": {
+      "oneOf": [
+        { "type": "string", "enum": ["overview", "agent", "knowledge", "conversation"] },
+        { "type": "null" }
+      ]
+    },
+    "step": {
+      "oneOf": [
+        { "type": "string", "enum": ["welcome", "context", "conversation", "handoff"] },
+        { "type": "null" }
+      ]
+    },
+    "commands_remaining": {
+      "oneOf": [
+        { "type": "integer", "minimum": 0, "maximum": 12 },
+        { "type": "null" }
+      ]
+    },
+    "reason_code": {
+      "oneOf": [
+        {
+          "type": "string",
+          "enum": ["duplicate_command", "revision_mismatch", "state_expired", "demo_unavailable"]
+        },
+        { "type": "null" }
+      ]
+    }
+  },
+  "required": [
+    "schema_version",
+    "outcome",
+    "revision",
+    "surface",
+    "step",
+    "commands_remaining",
+    "reason_code"
+  ],
+  "allOf": [
+    {
+      "if": { "properties": { "outcome": { "const": "applied" } }, "required": ["outcome"] },
+      "then": {
+        "properties": {
+          "revision": { "type": "integer", "minimum": 0, "maximum": 12 },
+          "surface": { "type": "string", "enum": ["overview", "agent", "knowledge", "conversation"] },
+          "step": { "type": "string", "enum": ["welcome", "context", "conversation", "handoff"] },
+          "commands_remaining": { "type": "integer", "minimum": 0, "maximum": 12 },
+          "reason_code": { "type": "null" }
+        }
+      }
+    },
+    {
+      "if": { "properties": { "outcome": { "const": "replayed" } }, "required": ["outcome"] },
+      "then": {
+        "properties": {
+          "revision": { "type": "integer", "minimum": 0, "maximum": 12 },
+          "surface": { "type": "string", "enum": ["overview", "agent", "knowledge", "conversation"] },
+          "step": { "type": "string", "enum": ["welcome", "context", "conversation", "handoff"] },
+          "commands_remaining": { "type": "integer", "minimum": 0, "maximum": 12 },
+          "reason_code": { "type": "string", "const": "duplicate_command" }
+        }
+      }
+    },
+    {
+      "if": { "properties": { "outcome": { "const": "stale" } }, "required": ["outcome"] },
+      "then": {
+        "properties": {
+          "revision": { "type": "integer", "minimum": 0, "maximum": 12 },
+          "surface": { "type": "string", "enum": ["overview", "agent", "knowledge", "conversation"] },
+          "step": { "type": "string", "enum": ["welcome", "context", "conversation", "handoff"] },
+          "commands_remaining": { "type": "integer", "minimum": 0, "maximum": 12 },
+          "reason_code": { "type": "string", "const": "revision_mismatch" }
+        }
+      }
+    },
+    {
+      "if": { "properties": { "outcome": { "const": "expired" } }, "required": ["outcome"] },
+      "then": {
+        "properties": {
+          "revision": { "type": "null" },
+          "surface": { "type": "null" },
+          "step": { "type": "null" },
+          "commands_remaining": { "type": "null" },
+          "reason_code": { "type": "string", "const": "state_expired" }
+        }
+      }
+    },
+    {
+      "if": { "properties": { "outcome": { "const": "unavailable" } }, "required": ["outcome"] },
+      "then": {
+        "properties": {
+          "revision": { "type": "null" },
+          "surface": { "type": "null" },
+          "step": { "type": "null" },
+          "commands_remaining": { "type": "null" },
+          "reason_code": { "type": "string", "const": "demo_unavailable" }
+        }
+      }
+    }
+  ],
+  "if": { "required": ["revision", "commands_remaining"] },
+  "then": {
+    "oneOf": [
+      { "properties": { "revision": { "const": 0 }, "commands_remaining": { "const": 12 } } },
+      { "properties": { "revision": { "const": 1 }, "commands_remaining": { "const": 11 } } },
+      { "properties": { "revision": { "const": 2 }, "commands_remaining": { "const": 10 } } },
+      { "properties": { "revision": { "const": 3 }, "commands_remaining": { "const": 9 } } },
+      { "properties": { "revision": { "const": 4 }, "commands_remaining": { "const": 8 } } },
+      { "properties": { "revision": { "const": 5 }, "commands_remaining": { "const": 7 } } },
+      { "properties": { "revision": { "const": 6 }, "commands_remaining": { "const": 6 } } },
+      { "properties": { "revision": { "const": 7 }, "commands_remaining": { "const": 5 } } },
+      { "properties": { "revision": { "const": 8 }, "commands_remaining": { "const": 4 } } },
+      { "properties": { "revision": { "const": 9 }, "commands_remaining": { "const": 3 } } },
+      { "properties": { "revision": { "const": 10 }, "commands_remaining": { "const": 2 } } },
+      { "properties": { "revision": { "const": 11 }, "commands_remaining": { "const": 1 } } },
+      { "properties": { "revision": { "const": 12 }, "commands_remaining": { "const": 0 } } },
+      { "properties": { "revision": { "type": "null" }, "commands_remaining": { "type": "null" } } }
+    ]
+  }
+}

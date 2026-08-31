@@ -513,6 +513,73 @@ class PolicyDecision(TypedDict):
     evaluated_at: str
     expires_at: str
 
+# Source: contracts/schemas/portal_public_demo_action_result.schema.json; schema: https://schemas.axtro.ai/v2/portal_public_demo_action_result.schema.json; version: 2.0.0.
+class _PortalPublicDemoActionResultOutcomeApplied(TypedDict):
+    schema_version: Literal['2.0.0']
+    outcome: Literal['applied']
+    revision: int
+    surface: Literal['overview', 'agent', 'knowledge', 'conversation']
+    step: Literal['welcome', 'context', 'conversation', 'handoff']
+    commands_remaining: int
+    reason_code: None
+
+class _PortalPublicDemoActionResultOutcomeReplayed(TypedDict):
+    schema_version: Literal['2.0.0']
+    outcome: Literal['replayed']
+    revision: int
+    surface: Literal['overview', 'agent', 'knowledge', 'conversation']
+    step: Literal['welcome', 'context', 'conversation', 'handoff']
+    commands_remaining: int
+    reason_code: Literal['duplicate_command']
+
+class _PortalPublicDemoActionResultOutcomeStale(TypedDict):
+    schema_version: Literal['2.0.0']
+    outcome: Literal['stale']
+    revision: int
+    surface: Literal['overview', 'agent', 'knowledge', 'conversation']
+    step: Literal['welcome', 'context', 'conversation', 'handoff']
+    commands_remaining: int
+    reason_code: Literal['revision_mismatch']
+
+class _PortalPublicDemoActionResultOutcomeExpired(TypedDict):
+    schema_version: Literal['2.0.0']
+    outcome: Literal['expired']
+    revision: None
+    surface: None
+    step: None
+    commands_remaining: None
+    reason_code: Literal['state_expired']
+
+class _PortalPublicDemoActionResultOutcomeUnavailable(TypedDict):
+    schema_version: Literal['2.0.0']
+    outcome: Literal['unavailable']
+    revision: None
+    surface: None
+    step: None
+    commands_remaining: None
+    reason_code: Literal['demo_unavailable']
+
+PortalPublicDemoActionResult: TypeAlias = _PortalPublicDemoActionResultOutcomeApplied | _PortalPublicDemoActionResultOutcomeReplayed | _PortalPublicDemoActionResultOutcomeStale | _PortalPublicDemoActionResultOutcomeExpired | _PortalPublicDemoActionResultOutcomeUnavailable
+
+# Source: contracts/schemas/portal_public_demo_command.schema.json; schema: https://schemas.axtro.ai/v2/portal_public_demo_command.schema.json; version: 2.0.0.
+class PortalPublicDemoCommand(TypedDict):
+    schema_version: Literal['2.0.0']
+    command_id: str
+    expected_revision: int
+    command: Literal['open_overview', 'inspect_agent', 'inspect_knowledge', 'inspect_conversation', 'advance', 'reset']
+
+# Source: contracts/schemas/portal_public_demo_signed_state_payload.schema.json; schema: https://schemas.axtro.ai/v2/portal_public_demo_signed_state_payload.schema.json; version: 2.0.0.
+class PortalPublicDemoSignedStatePayload(TypedDict):
+    schema_version: Literal['2.0.0']
+    fixture_version: Literal['1.0.0']
+    demo_session_id: str
+    revision: int
+    seen_commands: list[dict[str, object]]
+    surface: Literal['overview', 'agent', 'knowledge', 'conversation']
+    step: Literal['welcome', 'context', 'conversation', 'handoff']
+    issued_at: str
+    expires_at: str
+
 # Source: contracts/schemas/portal_text_preview_action_result.schema.json; schema: https://schemas.axtro.ai/v2/portal_text_preview_action_result.schema.json; version: 2.0.0.
 class _PortalTextPreviewActionResultOutcomeSuccess(TypedDict):
     schema_version: Literal['2.0.0']
@@ -1261,6 +1328,24 @@ CONTRACT_METADATA: dict[str, dict[str, str]] = {
     "source_hash": "4832dfa5d90d69b7365eade438c32da0c4ef86210415974e425e8e6e38684b3b",
     "source_schema": "contracts/schemas/policy_decision.schema.json"
   },
+  "PortalPublicDemoActionResult": {
+    "schema_id": "https://schemas.axtro.ai/v2/portal_public_demo_action_result.schema.json",
+    "schema_version": "2.0.0",
+    "source_hash": "ea9d740772cc44291b7261b5b41b4ae897c65a5d68dc228183c862c559ec14c9",
+    "source_schema": "contracts/schemas/portal_public_demo_action_result.schema.json"
+  },
+  "PortalPublicDemoCommand": {
+    "schema_id": "https://schemas.axtro.ai/v2/portal_public_demo_command.schema.json",
+    "schema_version": "2.0.0",
+    "source_hash": "405be3fdf7dc24ceff498225db4dbadf4ef8aaa4206662c4ec0c8ac3e3bf10f3",
+    "source_schema": "contracts/schemas/portal_public_demo_command.schema.json"
+  },
+  "PortalPublicDemoSignedStatePayload": {
+    "schema_id": "https://schemas.axtro.ai/v2/portal_public_demo_signed_state_payload.schema.json",
+    "schema_version": "2.0.0",
+    "source_hash": "6c65cd32935c26d1762e6362133342b310d7b16e631d944b7b7f2c7f90e69be7",
+    "source_schema": "contracts/schemas/portal_public_demo_signed_state_payload.schema.json"
+  },
   "PortalTextPreviewActionResult": {
     "schema_id": "https://schemas.axtro.ai/v2/portal_text_preview_action_result.schema.json",
     "schema_version": "2.0.0",
@@ -1502,6 +1587,9 @@ __all__ = [
     'OperatorReconciliationReceipt',
     'PerceptionSignal',
     'PolicyDecision',
+    'PortalPublicDemoActionResult',
+    'PortalPublicDemoCommand',
+    'PortalPublicDemoSignedStatePayload',
     'PortalTextPreviewActionResult',
     'PortalTextPreviewAdmission',
     'PortalTextPreviewBrowserCommand',

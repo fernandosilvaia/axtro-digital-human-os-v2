@@ -3,8 +3,8 @@ import { defineConfig } from "@playwright/test";
 /**
  * E2E da UI logada (T4). Roda o dev server em porta própria com
  * PORTAL_FAKE_PROVIDERS=1: chat, embeddings e apresentação usam os fakes
- * determinísticos — nenhum provider pago é tocado. Credenciais do usuário
- * demo vêm de apps/portal/.env.local (nunca do repositório).
+ * determinísticos. Nenhum provider pago é tocado. Credenciais da fixture de
+ * cliente E2E vêm de apps/portal/.env.local e nunca da demo pública.
  */
 export default defineConfig({
   testDir: "./e2e",
@@ -18,8 +18,8 @@ export default defineConfig({
     // máquina). No CI (Linux) usa o chromium baixado pelo Playwright, que
     // não tem esse problema — instalado via `playwright install --with-deps`.
     channel: process.env.CI ? undefined : "chrome",
-    screenshot: "only-on-failure",
-    trace: "retain-on-failure",
+    screenshot: "off",
+    trace: "off",
   },
   webServer: {
     // CI valida o BUILD DE PRODUÇÃO (next build && next start): uma classe
@@ -33,6 +33,11 @@ export default defineConfig({
     // local: `next build && next start -p 3100` + spec isolado).
     reuseExistingServer: process.env.PW_REUSE === "1",
     timeout: process.env.CI ? 420_000 : 120_000,
-    env: { PORTAL_FAKE_PROVIDERS: "1" },
+    env: {
+      PORTAL_FAKE_PROVIDERS: "1",
+      PORTAL_PUBLIC_DEMO_STATE_SECRET: "000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f",
+      PORTAL_PUBLIC_DEMO_EDGE_POLICY_ATTESTATION:
+        "axtro-public-demo-edge/v3;scope=global;post-start=120/60s;post-command-end=600/60s;get-head-demo=900/60s;concurrency=32;queue=0;reject=429",
+    },
   },
 });

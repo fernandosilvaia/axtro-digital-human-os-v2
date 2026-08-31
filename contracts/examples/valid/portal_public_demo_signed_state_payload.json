@@ -1,0 +1,17 @@
+{
+  "schema_version": "2.0.0",
+  "fixture_version": "1.0.0",
+  "demo_session_id": "019cae01-74a1-7e20-8e00-000000000301",
+  "revision": 1,
+  "seen_commands": [
+    {
+      "command_id": "019cae01-74a1-7e20-8e00-000000000302",
+      "expected_revision": 0,
+      "command": "inspect_agent"
+    }
+  ],
+  "surface": "agent",
+  "step": "context",
+  "issued_at": "2026-08-31T10:00:00.000Z",
+  "expires_at": "2026-08-31T10:15:00.000Z"
+}

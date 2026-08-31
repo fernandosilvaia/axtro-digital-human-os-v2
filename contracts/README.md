@@ -1,6 +1,6 @@
 # Contracts
 
-This directory contains the **61 normative JSON Schemas** for Axtro Digital Human OS V2.
+This directory contains the **64 normative JSON Schemas** for Axtro Digital Human OS V2.
 
 - Draft: JSON Schema 2020-12
 - Every object is closed with `additionalProperties: false`.

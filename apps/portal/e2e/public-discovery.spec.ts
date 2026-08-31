@@ -149,3 +149,92 @@ test("documentos e endpoints de descoberta são públicos, consistentes e sem su
     expect(document).not.toContain("railway.app");
   }
 });
+
+test("demo pública isola contextos, não autentica e não alcança efeitos externos", async ({ browser }) => {
+  const contextA = await browser.newContext();
+  const contextB = await browser.newContext();
+  const pageA = await contextA.newPage();
+  const pageB = await contextB.newPage();
+  const observedRequests: string[] = [];
+  pageA.on("request", (request) => observedRequests.push(request.url()));
+  pageB.on("request", (request) => observedRequests.push(request.url()));
+
+  try {
+    await pageA.goto("/");
+    await pageA.getByRole("button", { name: "Assistir à demonstração" }).click();
+    await expect(pageA).toHaveURL(/\/demo$/);
+    await expect(pageA.getByRole("heading", { name: /Entenda a operação antes/i })).toBeVisible();
+    await expect(pageA.getByText("Simulação isolada", { exact: true }).first()).toBeVisible();
+
+    const cookiesA = await contextA.cookies();
+    const demoCookieA = cookiesA.find((cookie) => cookie.name === "axtro_public_demo");
+    expect(demoCookieA).toBeDefined();
+    expect(demoCookieA?.httpOnly).toBe(true);
+    expect(demoCookieA?.secure).toBe(true);
+    expect(demoCookieA?.sameSite).toBe("Lax");
+    expect(demoCookieA?.path).toBe("/demo");
+    expect(demoCookieA?.expires).toBeGreaterThan(Date.now() / 1_000);
+    expect(demoCookieA?.expires).toBeLessThanOrEqual(Date.now() / 1_000 + 900);
+    expect(cookiesA.some((cookie) => cookie.name.startsWith("sb-"))).toBe(false);
+
+    await pageA.getByRole("button", { name: /Agente/i }).click();
+    await expect(pageA.getByRole("heading", { name: /Raissa representa/i })).toBeVisible();
+    await pageA.reload();
+    await expect(pageA.getByRole("heading", { name: /Raissa representa/i })).toBeVisible();
+
+    await pageB.goto("/");
+    await pageB.getByRole("button", { name: "Assistir à demonstração" }).click();
+    await expect(pageB).toHaveURL(/\/demo$/);
+    await expect(pageB.getByRole("heading", { name: /Entenda a operação antes/i })).toBeVisible();
+    const cookiesB = await contextB.cookies();
+    const demoCookieB = cookiesB.find((cookie) => cookie.name === "axtro_public_demo");
+    expect(demoCookieB).toBeDefined();
+    expect(
+      demoCookieB?.value !== demoCookieA?.value,
+      "sessões devem usar estados distintos sem imprimir os tokens assinados",
+    ).toBe(true);
+    expect(cookiesB.some((cookie) => cookie.name.startsWith("sb-"))).toBe(false);
+
+    for (const forbiddenText of [
+      "Administrador",
+      "Convidar membro",
+      "Google Calendar",
+      "Ativar agente",
+      "Excluir agente",
+      "Contratar plano",
+    ]) {
+      await expect(pageB.getByText(forbiddenText, { exact: true })).toHaveCount(0);
+    }
+
+    const protectedPage = await contextB.newPage();
+    await protectedPage.goto("/dashboard");
+    await expect(protectedPage).toHaveURL(/\/login/);
+    await protectedPage.close();
+
+    const externalEffectPattern = /supabase|openrouter|tavus|recall|stripe|resend|googleapis/i;
+    expect(observedRequests.filter((url) => externalEffectPattern.test(new URL(url).hostname))).toEqual([]);
+    expect(observedRequests.filter((url) => new URL(url).pathname.startsWith("/api/"))).toEqual([]);
+
+    await pageA.getByRole("button", { name: "Sair da demonstração" }).click();
+    await expect(pageA).toHaveURL(/\/$/);
+    const cookiesAfterExit = await contextA.cookies();
+    expect(cookiesAfterExit.some((cookie) => cookie.name === "axtro_public_demo")).toBe(false);
+  } finally {
+    await contextA.close();
+    await contextB.close();
+  }
+});
+
+test("bypass da demo é exato e prefixos parecidos continuam protegidos", async ({ request }) => {
+  for (const path of ["/demo", "/demo/guia"] as const) {
+    const response = await request.get(path, { maxRedirects: 0 });
+    expect(response.status(), `${path} não pode redirecionar para auth`).not.toBe(307);
+    expect(response.headers().location).toBeUndefined();
+  }
+
+  for (const path of ["/demolition", "/demo.evil", "/demographic", "/dashboard"] as const) {
+    const response = await request.get(path, { maxRedirects: 0 });
+    expect(response.status(), `${path} deve permanecer protegido`).toBe(307);
+    expect(response.headers().location).toMatch(/\/login/);
+  }
+});

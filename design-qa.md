@@ -30,7 +30,7 @@ No actionable P0, P1, or P2 visual differences remain in the source-targeted lan
 - **Spacing and layout rhythm:** The hero retains the left-copy/right-video balance, generous black space, thin divider and CTA hierarchy from the reference. The mobile design reflows copy, actions, proof line, then video frame without overlap.
 - **Colors and visual tokens:** The review confirmed charcoal surfaces, warm red CTA/disclosure accents, low-elevation borders and high readable foreground contrast. No decorative gradients or synthetic dashboard illustration were introduced for the selected direction.
 - **Image quality and asset fidelity:** The source-oriented red studio treatment is preserved while using the local, user-supplied Raissa asset at `/assets/digital-human/raissa-closer-hero.png`; its crop remains sharp and natural on desktop and mobile. The synthetic system image remains lower in the page, where it is not presented as a person.
-- **Copy and affordances:** The hero’s `Assistir à demonstração` control remains a semantic button backed by the existing demo flow; public E2E reaches it by keyboard. The page visibly discloses IA identity and fictitious demo data instead of making unsupported conversion claims.
+- **Copy and affordances:** The hero’s `Assistir à demonstração` control remains a semantic button backed by the isolated synthetic demo flow; public E2E reaches it by keyboard. The page visibly discloses IA identity and synthetic demo data instead of making unsupported conversion claims.
 - **Accessibility and resilience:** Mobile has no overflow; the landing has a descriptive photo alt, visible focus treatment, and progressive reveal behavior that leaves essential content visible without `IntersectionObserver`.
 
 ## Intentional, product-grounded differences
@@ -40,7 +40,7 @@ No actionable P0, P1, or P2 visual differences remain in the source-targeted lan
 
 ## Authenticated dashboard note
 
-The dashboard redesign is verified through type checking, linting and its data/keyboard test contracts. A browser screenshot was not taken from the shared demo account because that would require entering private demo credentials and mutate a protected authenticated session. The supplied visual source is an anonymous landing hero rather than an authenticated dashboard state, so this does not block the source-targeted comparison above.
+The dashboard redesign is verified through type checking, linting and its data/keyboard test contracts. A browser screenshot was not taken from the authenticated E2E tenant because that would require entering private test credentials and mutating a protected customer-like session. The supplied visual source is an anonymous landing hero rather than an authenticated dashboard state, so this does not block the source-targeted comparison above.
 
 ## Comparison history
 

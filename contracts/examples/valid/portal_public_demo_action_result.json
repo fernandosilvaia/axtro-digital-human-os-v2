@@ -1,0 +1,9 @@
+{
+  "schema_version": "2.0.0",
+  "outcome": "applied",
+  "revision": 1,
+  "surface": "agent",
+  "step": "context",
+  "commands_remaining": 11,
+  "reason_code": null
+}
