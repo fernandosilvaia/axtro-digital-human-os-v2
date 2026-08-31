@@ -1,0 +1,15 @@
+{
+  "schema_version": "2.0.0",
+  "admission_id": "019f0000-0000-7000-8000-000000000801",
+  "binding_fingerprint": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+  "profile_id": "openrouter_portal_text_essential_v1",
+  "profile_version": "1.0.0",
+  "profile_fingerprint": "sha256:5f07f0bb93393c7fcd4412516db48f30fb3095fb31e9352cd2cf849b260a5173",
+  "generation": 1,
+  "turns": [
+    { "role": "user", "content": "Como funciona o diagnóstico comercial?" },
+    { "role": "assistant", "content": "Começamos entendendo processo, metas e gargalos atuais." }
+  ],
+  "issued_at": "2026-08-25T14:00:00.000Z",
+  "expires_at": "2026-08-25T15:00:00.000Z"
+}

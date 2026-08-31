@@ -1,0 +1,33 @@
+{
+  "schema_version": "2.0.0",
+  "profile_id": "tavus_raven_video_v1",
+  "profile_version": "1.0.0",
+  "provider_id": "tavus",
+  "channel_kind": "tavus_video",
+  "mode": "video",
+  "recording_mode": "off",
+  "persistent_transcript_mode": "provider_required",
+  "perception_mode": "full",
+  "regional_policy": "unset",
+  "required_consent_purposes": [
+    "persistent_transcription",
+    "behavioral_analysis",
+    "visual_analysis"
+  ],
+  "performed_processing_purposes": [
+    "persistent_transcription",
+    "behavioral_analysis",
+    "visual_analysis"
+  ],
+  "channel_features": [],
+  "essential_only_eligible": false,
+  "reviewed_at": "2026-08-25T12:00:00Z",
+  "review_ttl_hours": 720,
+  "verification_mode": "provider_readback",
+  "verification_ttl_hours": 24,
+  "sources": [
+    "https://docs.tavus.io/sections/conversational-video-interface/quickstart/conversation-recordings",
+    "https://docs.tavus.io/api-reference/conversations/get-conversation",
+    "https://docs.tavus.io/sections/conversational-video-interface/pal/perception"
+  ]
+}

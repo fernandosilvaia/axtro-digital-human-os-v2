@@ -741,13 +741,14 @@ tasks:
     title: Restore the privacy-fenced Portal text preview bundle
     lane: product
     dependencies: [M6-00, M6-01]
-    objective: Restore the four missing application contracts and the complete contract-first runtime without reopening the legacy Server Action or bypassing disclosure, consent, admission, egress and canonical outbox boundaries.
-    primary_files: [contracts/, packages/contracts-ts/, packages/contracts-py/, apps/portal/src/lib/actions/agent-preview.ts, "apps/portal/src/app/(app)/agentes/[id]/testar/", tests/, docs/adr/, PROGRESS.md]
+    objective: Restore the five missing application and provider-profile contracts plus a locally executable contract-first runtime without reopening the legacy Server Action or bypassing disclosure, consent, admission, egress and canonical outbox boundaries.
+    primary_files: [contracts/, packages/contracts-ts/, packages/contracts-py/, database/supabase-only/, apps/portal/src/lib/agent-preview/, apps/portal/src/lib/actions/agent-preview.ts, "apps/portal/src/app/(app)/agentes/[id]/testar/", packages/provider-openrouter/, tests/, docs/adr/, PROGRESS.md]
     acceptance:
-      - admission, browser command, signed state and action result contracts land together with generated types and negative examples
+      - admission, browser command, signed state, action result and provider processing profile contracts land together with generated types and negative examples
       - signed state, disclosure, purpose-scoped consent, tenant isolation, generation fencing and content-free canonical outcomes are enforced end to end
       - provider processing profile and privacy attestation fail closed and transcript persistence remains explicit opt-in
-      - the feature flag cannot open until the durable event relay, scheduled cleanup and authorized staged rollout gates are green
+      - a forward-only repair derives admission identity from authenticated authority, caps exchanges in PostgreSQL and adds tenant-composite transcript references without changing migration 0049
+      - the public Server Action and UI remain hard-closed, and the feature flag cannot open until M6-06 proves the durable event relay, scheduled cleanup and authorized staged rollout gates
     tests: [contract compatibility, signed-state tamper, consent revoke, cross-tenant denial, replay, stale generation, provider ambiguity, transcript opt-in, cleanup and closed rollout gate]
   - id: M6-03
     milestone: M6
@@ -788,3 +789,22 @@ tasks:
       - content-free outbox and receipts have an explicit indexed retention or rollup policy plus a bounded operator queue for ambiguous and dead-letter items
       - no automatic schedule or customer traffic is enabled until capacity, cost, retention and delivery SLO gates are green
     tests: [tenant flood and fairness, final budget slot concurrency, quota versus rate limit, circuit breaker, delayed retry distribution, duplicate and out-of-order webhook, delivered and failed reconciliation, backlog SLO, retention plan and operator queue]
+  - id: M6-06
+    milestone: M6
+    title: Operationalize and safely roll out Portal text preview
+    lane: release
+    dependencies: [M6-02, M6-03, M6-04]
+    objective: Add the durable asynchronous, privacy, cost and rollout controls required before any customer or public-demo text preview can reach a real provider.
+    primary_files: [contracts/, database/supabase-only/, packages/events/, apps/event-relay/, apps/portal/src/lib/workers/, apps/portal/src/app/api/ready/, packages/provider-openrouter/, .github/workflows/, tests/, docs/operations/, PROGRESS.md]
+    acceptance:
+      - a tenant-scoped PostgreSQL relay moves canonical outbox events to session_timeline exactly once under crash, replay, lease expiry and poison-event conditions
+      - cleanup is scheduled, bounded, tenant-fair and observable through fresh heartbeats, backlog SLOs and operator-visible failure receipts
+      - ambiguous provider effects enter an append-only reconciliation queue and can be resolved without rewriting the historical claim
+      - cancellation and late provider output can never produce a reply, state token, transcript or second terminal transition after authority expires
+      - a deployment-bound privacy attestation, approved model and rate card, per-actor and per-tenant USD budgets, global capacity, circuit breaker and cost reconciliation are green before every real egress
+      - every physical provider attempt, including a retry, has a unique durable attempt identity and revalidates cancellation, egress TTL, privacy, rate card, remaining budget, global capacity and circuit breaker before dispatch
+      - admission and outbox amplification are bounded by per-actor, per-tenant and global quotas before mutation, with tenant-fair backlog handling and no paid retry hidden behind one reservation
+      - cost evidence links tenant, actor, session, claim, reservation, attempt, provider request and rate-card version, then reconciles provider invoice plus declared compute, storage, relay, cleanup and dead-letter overhead without double counting
+      - rollout is allowlisted per tenant, excludes the public demo from paid egress, advances through explicit canary gates and closes automatically when any compound readiness signal is missing or stale
+      - no remote schedule, migration, flag, secret or provider traffic is enabled without explicit operator authorization
+    tests: [PostgreSQL relay crash and replay, aggregate ordering, poison event and DLQ, cross-tenant denial, cleanup fairness and contention, heartbeat freshness, backlog SLO, ambiguity resolution, cancellation and late output, privacy attestation rotation, per-attempt retry budget concurrency, provider invoice reconciliation, admission and outbox flood fairness, per-actor and tenant budget, global circuit breaker, demo exclusion, canary rollback and compound release gate]

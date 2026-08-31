@@ -28,14 +28,18 @@ IMMUTABLE_SUPABASE_MIGRATIONS = {
     "0049_portal_text_preview_admission.sql": "79b24e7fdc768a30b02d3596b71799fae484043e37561ddfcd435f46076b3100",
     "0050_meeting_terminal_notification_claim.sql": "262e033328175f704f8cfef1cafdcb0a2ef9b9aac7e4cc86f2b33890044c7224",
 }
+LATEST_SUPABASE_VERSION = 58
 
 
 def main() -> int:
     errors: list[str] = []
     supabase_migrations = sorted(path for path in SUPABASE_MIGRATIONS.glob("[0-9][0-9][0-9][0-9]_*.sql"))
     supabase_versions = [int(path.name[:4]) for path in supabase_migrations]
-    if supabase_versions != list(range(1, 58)):
-        errors.append("Supabase-only migrations must be one contiguous, unique sequence from 0001 through 0057")
+    if supabase_versions != list(range(1, LATEST_SUPABASE_VERSION + 1)):
+        errors.append(
+            "Supabase-only migrations must be one contiguous, unique sequence "
+            f"from 0001 through {LATEST_SUPABASE_VERSION:04d}"
+        )
     for filename, expected_sha256 in IMMUTABLE_SUPABASE_MIGRATIONS.items():
         path = SUPABASE_MIGRATIONS / filename
         if not path.exists():
@@ -364,6 +368,35 @@ def main() -> int:
         ):
             if invariant not in notification_sql:
                 errors.append(f"0057 meeting notification invariant is missing: {invariant}")
+    text_preview_authority_repair = SUPABASE_MIGRATIONS / "0058_portal_text_preview_authority_repair.sql"
+    if not text_preview_authority_repair.exists():
+        errors.append("Missing Supabase-only text preview authority repair 0058")
+    else:
+        authority_sql = text_preview_authority_repair.read_text(encoding="utf-8")
+        if "begin;" not in authority_sql or "commit;" not in authority_sql:
+            errors.append("0058 text preview authority repair must have explicit transaction boundaries")
+        for invariant in (
+            "portal text preview historical generation outside 0..9 requires operator reconciliation",
+            "v_user_id:=auth.uid();",
+            "persistent text preview admission remains closed until M6-04",
+            "from public,anon,authenticated,service_role",
+            "check (generation between 0 and 9) not valid",
+            "foreign key (tenant_id,transcript_id)",
+            "on delete set null (transcript_id) not valid",
+            "app.prevent_text_preview_reference_mutation()",
+            "app.portal_external_roles_revoked",
+            "c.confdelsetcols=array[",
+            "'version',58",
+            "'portalTextPreviewAuthorityRepair'",
+        ):
+            if invariant not in authority_sql:
+                errors.append(f"0058 text preview authority invariant is missing: {invariant}")
+        if re.search(
+            r"grant\s+execute\s+on\s+function\s+public\.portal_admit_text_preview_authenticated",
+            authority_sql,
+            re.IGNORECASE,
+        ):
+            errors.append("0058 recovered admission must remain owner-only in M6-02")
     if "tenant_isolation" not in all_sql:
         errors.append("Tenant isolation policy is missing")
     if "event_document ->> 'tenant_id' IS DISTINCT FROM tenant_id::text" not in all_sql:

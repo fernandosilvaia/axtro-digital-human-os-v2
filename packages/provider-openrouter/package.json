@@ -9,5 +9,7 @@
       "import": "./dist/index.js"
     }
   },
-  "dependencies": {}
+  "dependencies": {
+    "@axtro/contracts-ts": "workspace:*"
+  }
 }

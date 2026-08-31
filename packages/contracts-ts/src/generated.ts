@@ -1,7 +1,7 @@
 /*
  * GENERATED FILE. DO NOT EDIT.
  * generator: scripts/generate_contract_types.py@1.2.0
- * source: 56 JSON Schema Draft 2020-12 documents under contracts/schemas/
+ * source: 61 JSON Schema Draft 2020-12 documents under contracts/schemas/
  */
 
 export const CONTRACT_GENERATOR_VERSION = "1.2.0" as const;
@@ -588,6 +588,117 @@ export interface PolicyDecision {
   expires_at: string;
 }
 
+/** Source: contracts/schemas/portal_text_preview_action_result.schema.json; schema: https://schemas.axtro.ai/v2/portal_text_preview_action_result.schema.json; version: 2.0.0. */
+export type PortalTextPreviewActionResult = {
+  schema_version: "2.0.0";
+  outcome: "success";
+  reply: string;
+  error: null;
+  stateToken: string;
+  persistence: "disabled" | "saved" | "not_saved";
+}
+  | {
+  schema_version: "2.0.0";
+  outcome: "failure";
+  reply: null;
+  error: string;
+  stateToken: null;
+  persistence: "disabled" | "not_saved";
+};
+
+/** Source: contracts/schemas/portal_text_preview_admission.schema.json; schema: https://schemas.axtro.ai/v2/portal_text_preview_admission.schema.json; version: 2.0.0. */
+export type PortalTextPreviewAdmission = {
+  schema_version: "2.0.0";
+  admission_id: string;
+  tenant_id: string;
+  actor_id: string;
+  agent_id: string;
+  session_id: string;
+  presenter_id: string;
+  profile_id: "openrouter_portal_text_essential_v1";
+  profile_version: "1.0.0";
+  profile_fingerprint: "sha256:5f07f0bb93393c7fcd4412516db48f30fb3095fb31e9352cd2cf849b260a5173";
+  provider_configuration_fingerprint: "sha256:70e60ec32d8a29d0f6264a0545e2ea1d215d02fe164d90dadaa63e99e59472de";
+  client_session_ref_hash: string;
+  command_fingerprint: string;
+  identity_disclosure_id: string;
+  data_use_disclosure_id: string;
+  essential_consent_id: string;
+  privacy_policy_id: string;
+  jurisdiction: string;
+  privacy_policy_version: string;
+  privacy_policy_fingerprint: string;
+  transcript_consent_id: null;
+  transcript_id: null;
+  persistent_transcript: false;
+  status: "issued" | "expired";
+  ttl_seconds: 3600;
+  issued_at: string;
+  expires_at: string;
+}
+  | {
+  schema_version: "2.0.0";
+  admission_id: string;
+  tenant_id: string;
+  actor_id: string;
+  agent_id: string;
+  session_id: string;
+  presenter_id: string;
+  profile_id: "openrouter_portal_text_persisted_v1";
+  profile_version: "1.0.0";
+  profile_fingerprint: "sha256:5062dd979ac79778052389f27069a16dfa8f33fb175d38181774415b1ff585b8";
+  provider_configuration_fingerprint: "sha256:70e60ec32d8a29d0f6264a0545e2ea1d215d02fe164d90dadaa63e99e59472de";
+  client_session_ref_hash: string;
+  command_fingerprint: string;
+  identity_disclosure_id: string;
+  data_use_disclosure_id: string;
+  essential_consent_id: string;
+  privacy_policy_id: string;
+  jurisdiction: string;
+  privacy_policy_version: string;
+  privacy_policy_fingerprint: string;
+  transcript_consent_id: string;
+  transcript_id: string;
+  persistent_transcript: true;
+  status: "issued" | "expired";
+  ttl_seconds: 3600;
+  issued_at: string;
+  expires_at: string;
+};
+
+/** Source: contracts/schemas/portal_text_preview_browser_command.schema.json; schema: https://schemas.axtro.ai/v2/portal_text_preview_browser_command.schema.json; version: 2.0.0. */
+export interface PortalTextPreviewBrowserCommand {
+  schema_version: "2.0.0";
+  agentId: string;
+  clientConversationId: string;
+  commandId: string;
+  userMessage: string;
+  stateToken: (string) | (null);
+  aiIdentityAcknowledged: true;
+  essentialProcessingAccepted: true;
+  persistentTranscript: boolean;
+}
+
+/** Source: contracts/schemas/portal_text_preview_signed_state_payload.schema.json; schema: https://schemas.axtro.ai/v2/portal_text_preview_signed_state_payload.schema.json; version: 2.0.0. */
+export interface PortalTextPreviewSignedStatePayload {
+  schema_version: "2.0.0";
+  admission_id: string;
+  binding_fingerprint: string;
+  profile_id: "openrouter_portal_text_essential_v1" | "openrouter_portal_text_persisted_v1";
+  profile_version: "1.0.0";
+  profile_fingerprint: string;
+  generation: number;
+  turns: Array<({
+    role: "user";
+    content: string;
+  }) | ({
+    role: "assistant";
+    content: string;
+  })>;
+  issued_at: string;
+  expires_at: string;
+}
+
 /** Source: contracts/schemas/post_call_workflow_command.schema.json; schema: https://schemas.axtro.ai/v2/post_call_workflow_command.schema.json; version: 2.0.0. */
 export interface PostCallWorkflowCommand {
   schema_version: "2.0.0";
@@ -727,6 +838,29 @@ export interface ProviderCapability {
 export interface ProviderEffectTerminationResult {
   schema_version: "2.0.0";
   outcome: "accepted" | "disabled" | "in_progress" | "retry_after" | "operator_required" | "not_started" | "not_stoppable" | "retryable_failure";
+}
+
+/** Source: contracts/schemas/provider_processing_profile.schema.json; schema: https://schemas.axtro.ai/v2/provider_processing_profile.schema.json; version: 2.0.0. */
+export interface ProviderProcessingProfile {
+  schema_version: "2.0.0";
+  profile_id: string;
+  profile_version: string;
+  provider_id: string;
+  channel_kind: "portal_text" | "tavus_video" | "recall_meeting";
+  mode: "text" | "video" | "presentation" | "external_meeting";
+  recording_mode: "off" | "participant_opt_in" | "automatic";
+  persistent_transcript_mode: "off" | "application_opt_in" | "provider_required" | "hard_delete_after_call";
+  perception_mode: "off" | "full";
+  regional_policy: "eu" | "unset";
+  required_consent_purposes: Array<"recording" | "persistent_transcription" | "behavioral_analysis" | "visual_analysis">;
+  performed_processing_purposes: Array<"recording" | "persistent_transcription" | "behavioral_analysis" | "visual_analysis">;
+  channel_features: Array<"scene_presentation">;
+  essential_only_eligible: boolean;
+  reviewed_at: string;
+  review_ttl_hours: number;
+  verification_mode: "code_owned" | "provider_readback";
+  verification_ttl_hours: number;
+  sources: Array<string>;
 }
 
 /** Source: contracts/schemas/provider_registry_entry.schema.json; schema: https://schemas.axtro.ai/v2/provider_registry_entry.schema.json; version: 2.0.0. */
@@ -1330,6 +1464,30 @@ export const CONTRACT_METADATA = {
     "source_hash": "4832dfa5d90d69b7365eade438c32da0c4ef86210415974e425e8e6e38684b3b",
     "source_schema": "contracts/schemas/policy_decision.schema.json"
   },
+  "PortalTextPreviewActionResult": {
+    "schema_id": "https://schemas.axtro.ai/v2/portal_text_preview_action_result.schema.json",
+    "schema_version": "2.0.0",
+    "source_hash": "dbe118fb8d8c6ad9019d74ab22099116060bcefb1d133b78d490402312532ea3",
+    "source_schema": "contracts/schemas/portal_text_preview_action_result.schema.json"
+  },
+  "PortalTextPreviewAdmission": {
+    "schema_id": "https://schemas.axtro.ai/v2/portal_text_preview_admission.schema.json",
+    "schema_version": "2.0.0",
+    "source_hash": "7991b463bd1fd87ba7a8666e0a24ed5658e0eafcb146969d10fe1967a558d885",
+    "source_schema": "contracts/schemas/portal_text_preview_admission.schema.json"
+  },
+  "PortalTextPreviewBrowserCommand": {
+    "schema_id": "https://schemas.axtro.ai/v2/portal_text_preview_browser_command.schema.json",
+    "schema_version": "2.0.0",
+    "source_hash": "6459fab48dd15e3330ec9beaab2dc0e94e7417109eaaea369d170d095e052cba",
+    "source_schema": "contracts/schemas/portal_text_preview_browser_command.schema.json"
+  },
+  "PortalTextPreviewSignedStatePayload": {
+    "schema_id": "https://schemas.axtro.ai/v2/portal_text_preview_signed_state_payload.schema.json",
+    "schema_version": "2.0.0",
+    "source_hash": "c141a591a5fecd850918c5a1af7d8cdf49322cfd038cb2a1a4f2bb717087617a",
+    "source_schema": "contracts/schemas/portal_text_preview_signed_state_payload.schema.json"
+  },
   "PostCallWorkflowCommand": {
     "schema_id": "https://schemas.axtro.ai/v2/post_call_workflow_command.schema.json",
     "schema_version": "2.0.0",
@@ -1365,6 +1523,12 @@ export const CONTRACT_METADATA = {
     "schema_version": "2.0.0",
     "source_hash": "237787f98aaad567d64b8a7cd74fa86bc5722295418ae964a2cdc21b82e4f816",
     "source_schema": "contracts/schemas/provider_effect_termination_result.schema.json"
+  },
+  "ProviderProcessingProfile": {
+    "schema_id": "https://schemas.axtro.ai/v2/provider_processing_profile.schema.json",
+    "schema_version": "2.0.0",
+    "source_hash": "51f53cd19191572db66000ee72cb69440a1e7aa6ca0d5d2acbc8ddb1d8566c9b",
+    "source_schema": "contracts/schemas/provider_processing_profile.schema.json"
   },
   "ProviderRegistryEntry": {
     "schema_id": "https://schemas.axtro.ai/v2/provider_registry_entry.schema.json",

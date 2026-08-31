@@ -163,6 +163,14 @@ try {
   assert.equal(queryScalar(databaseUrl, "SELECT count(*) FROM public.axtro_supabase_test_migrations;"), "57");
   assertSchemaLineageCapabilities(databaseUrl, 57, { textPreview: true, terminalNotification: false, businessActions: true });
   await assertMeetingTerminalNotificationOutboxPhase(databaseUrl);
+  const preV58TextPreview = seedPreV58PortalTextPreviewOrphanReference(databaseUrl);
+  assertPortalTextPreviewGenerationPreflightRollback(databaseUrl, preV58TextPreview);
+  const v57Capabilities = queryJson(databaseUrl, asRoleSql("service_role", null,
+    "SELECT public.portal_schema_capabilities_service();"));
+  const textPreviewAuthorityRepairApplied = applySupabaseMigrations(databaseUrl, 58, 58);
+  assert.deepEqual(textPreviewAuthorityRepairApplied, ["0058"]);
+  assertPortalTextPreviewAuthorityRepairPhase(databaseUrl, v57Capabilities, preV58TextPreview);
+  assertSchemaLineageCapabilities(databaseUrl, 58, { textPreview: true, terminalNotification: false, businessActions: true });
   assertMigrationReceiptLineage(databaseUrl);
 
   assertMigrationCapabilities(databaseUrl);
@@ -205,7 +213,7 @@ try {
   assertBusinessActionCalendarCredentialRead(databaseUrl);
   assertBusinessActionLiveCallContext(databaseUrl);
 
-  console.log("SUPABASE PORTAL INTEGRATION PASSED: migrations 0001-0057 in contiguous order, immutable checksums, grants, RLS, transcripts, reservations and readiness capability");
+  console.log("SUPABASE PORTAL INTEGRATION PASSED: migrations 0001-0058 in contiguous order, immutable checksums, grants, RLS, transcripts, reservations and readiness capability");
 } catch (error) {
   primaryError = error;
   throw error;
@@ -243,14 +251,15 @@ function supabaseMigrationInventory() {
   const migrations = readdirSync(supabaseMigrationDirectory)
     .filter((name) => /^\d{4}_.+\.sql$/.test(name))
     .sort();
-  assert.equal(migrations.length, 57, "the harness must cover every Supabase-only migration through 0057");
+  assert.equal(migrations.length, 58, "the harness must cover every Supabase-only migration through 0058");
   assert.deepEqual(
     migrations.map((migration) => Number(migration.slice(0, 4))),
-    Array.from({ length: 57 }, (_, index) => index + 1),
-    "Supabase-only migration versions must be contiguous and unique from 0001 through 0057",
+    Array.from({ length: 58 }, (_, index) => index + 1),
+    "Supabase-only migration versions must be contiguous and unique from 0001 through 0058",
   );
   assert.equal(migrations[48], "0049_portal_text_preview_admission.sql");
   assert.equal(migrations[49], "0050_meeting_terminal_notification_claim.sql");
+  assert.equal(migrations[57], "0058_portal_text_preview_authority_repair.sql");
   assert.equal(migrationChecksum(migrations[48]), "79b24e7fdc768a30b02d3596b71799fae484043e37561ddfcd435f46076b3100");
   assert.equal(migrationChecksum(migrations[49]), "262e033328175f704f8cfef1cafdcb0a2ef9b9aac7e4cc86f2b33890044c7224");
   return migrations;
@@ -1090,6 +1099,291 @@ function assertPortalTextPreviewCapabilityPhase(databaseUrl) {
   /events_outbox_event_document_canonical_check/);
 }
 
+function seedPreV58PortalTextPreviewOrphanReference(databaseUrl) {
+  const ids = Object.freeze({
+    policy: "019f0000-0000-7000-8000-0000000097b0",
+    admission: "019f0000-0000-7000-8000-0000000097b1",
+    session: "019f0000-0000-7000-8000-0000000097b2",
+    presenter: "019f0000-0000-7000-8000-0000000097b3",
+    identity: "019f0000-0000-7000-8000-0000000097b4",
+    dataUse: "019f0000-0000-7000-8000-0000000097b5",
+    essential: "019f0000-0000-7000-8000-0000000097b6",
+    transcriptConsent: "019f0000-0000-7000-8000-0000000097b7",
+    transcript: "019f0000-0000-7000-8000-0000000097b8",
+    claim: "019f0000-0000-7000-8000-0000000097b9",
+    attempt: "019e0000-0000-7000-8000-0000000097b9",
+    outcomeEvent: "019f0000-0000-7000-8000-0000000097ba",
+    outcomeOutbox: "019f0000-0000-7000-8000-0000000097bb",
+  });
+  const eventIds = Array.from({ length: 12 }, (_, index) => (
+    `019f0000-0000-7000-8000-${(0x97c0 + index).toString(16).padStart(12, "0")}`
+  ));
+  const profileFingerprint = "sha256:5062dd979ac79778052389f27069a16dfa8f33fb175d38181774415b1ff585b8";
+  const providerFingerprint = "sha256:70e60ec32d8a29d0f6264a0545e2ea1d215d02fe164d90dadaa63e99e59472de";
+  const commandFingerprint = "7".repeat(64);
+  assert.deepEqual(queryJson(databaseUrl, `
+    SELECT public.portal_provision_text_preview_privacy_policy_service(
+      '${ids.policy}','${fixture.tenantAlpha}','US-FL','1.0.0','sha256:${"8".repeat(64)}',
+      clock_timestamp()-interval '1 minute',clock_timestamp()+interval '30 days'
+    );
+  `), { outcome: "provisioned", policyId: ids.policy });
+  const admission = queryJson(databaseUrl, `
+    SELECT public.portal_admit_text_preview_service(
+      '${ids.admission}','${fixture.userAlpha}','${fixture.agentAlpha}','${ids.session}','${ids.presenter}',
+      '${"6".repeat(64)}','openrouter_portal_text_persisted_v1','1.0.0','${profileFingerprint}',
+      '${providerFingerprint}','${commandFingerprint}','${ids.identity}','portal-text-preview-v1','${"4".repeat(64)}',
+      '${ids.dataUse}','portal-text-preview-v1','${"5".repeat(64)}','${ids.essential}',
+      '${ids.transcriptConsent}','${ids.transcript}',true,false,
+      '0123456789abcdef0123456789abcdef','${ids.admission}',
+      ${eventIds.map((id) => `'${id}'`).join(",")}
+    );
+  `);
+  assert.equal(admission.persistent_transcript, true);
+  assert.equal(queryJson(databaseUrl, `
+    SELECT public.portal_acquire_text_preview_turn_service(
+      '${ids.claim}','${ids.attempt}','${ids.admission}','${"9".repeat(64)}','${commandFingerprint}',0,
+      '${ids.outcomeEvent}','${ids.outcomeOutbox}'
+    );
+  `).outcome, "acquired");
+  assert.deepEqual(queryJson(databaseUrl, `
+    SELECT public.portal_complete_text_preview_turn_service(
+      '${ids.admission}','${ids.claim}','${ids.attempt}',0,'${commandFingerprint}',
+      'hmac-sha256:${"a".repeat(64)}',null,'legacy orphan user turn','legacy orphan assistant turn'
+    );
+  `), { outcome: "succeeded", persistence: "saved", providerRequestId: null });
+  assert.deepEqual(queryJson(databaseUrl, `
+    SELECT public.portal_delete_conversation_transcript_service(
+      '${fixture.tenantAlpha}','${ids.transcript}'
+    );
+  `), { ok: true, id: ids.transcript });
+  assert.equal(queryScalar(databaseUrl, `
+    SELECT (a.transcript_id='${ids.transcript}') AND (w.transcript_id='${ids.transcript}')
+      AND NOT EXISTS(
+        SELECT 1 FROM public.conversation_transcripts t
+        WHERE t.tenant_id=a.tenant_id AND t.id=a.transcript_id
+      )
+    FROM public.portal_text_preview_admissions a
+    JOIN public.portal_text_preview_transcript_writes w
+      ON w.tenant_id=a.tenant_id AND w.admission_id=a.id
+    WHERE a.id='${ids.admission}' AND w.claim_id='${ids.claim}';
+  `), "t", "v57 permits a valid content-free receipt to retain an orphan transcript identifier");
+  return Object.freeze({ ...ids, commandFingerprint, eventIds });
+}
+
+function assertPortalTextPreviewGenerationPreflightRollback(databaseUrl, preV58) {
+  const generationTenClaim = "019f0000-0000-7000-8000-0000000097d0";
+  assertSucceeded(runSql(databaseUrl, `
+    WITH observed AS (SELECT clock_timestamp() AS at)
+    INSERT INTO public.portal_text_preview_turn_claims(
+      id,attempt_id,tenant_id,admission_id,actor_id,agent_id,generation,
+      command_ref_hash,command_fingerprint,outcome_event_id,outcome_outbox_id,
+      state,reason_code,acquired_at,lease_expires_at,finished_at
+    )
+    SELECT '${generationTenClaim}','019e0000-0000-7000-8000-0000000097d0',
+      a.tenant_id,a.id,a.actor_id,a.agent_id,10,
+      '${"b".repeat(64)}','${"c".repeat(64)}',
+      '019f0000-0000-7000-8000-0000000097d1','019f0000-0000-7000-8000-0000000097d2',
+      'failed','generation_failed',observed.at,observed.at+interval '90 seconds',observed.at
+    FROM public.portal_text_preview_admissions a CROSS JOIN observed
+    WHERE a.id='${preV58.admission}';
+  `), "seed a synthetic v57 generation-10 receipt for migration rollback proof");
+  assertFailed(runFile(databaseUrl, join(supabaseMigrationDirectory,
+    "0058_portal_text_preview_authority_repair.sql")),
+  "v58 refuses historical generation 10 without rewriting evidence",
+  /historical generation outside 0\.\.9 requires operator reconciliation/);
+  assert.equal(queryScalar(databaseUrl,
+    `SELECT count(*) FROM public.portal_text_preview_turn_claims WHERE id='${generationTenClaim}';`), "1",
+  "failed preflight preserves the historical row that blocked migration");
+  assert.equal(queryScalar(databaseUrl,
+    "SELECT to_regprocedure('public.portal_admit_text_preview_authenticated(app.uuid_v7,app.uuid_v7,app.uuid_v7,app.uuid_v7,text,text,text,text,text,text,app.uuid_v7,text,text,app.uuid_v7,text,text,app.uuid_v7,app.uuid_v7,app.uuid_v7,boolean,boolean,text,app.uuid_v7,app.uuid_v7,app.uuid_v7,app.uuid_v7,app.uuid_v7,app.uuid_v7,app.uuid_v7,app.uuid_v7,app.uuid_v7,app.uuid_v7,app.uuid_v7,app.uuid_v7,app.uuid_v7)') IS NULL;"),
+  "t", "failed preflight leaves no partial admission wrapper");
+  assert.equal(queryScalar(databaseUrl,
+    "SELECT to_regprocedure('app.portal_acquire_text_preview_turn_v49(app.uuid_v7,app.uuid_v7,app.uuid_v7,text,text,integer,app.uuid_v7,app.uuid_v7)') IS NULL;"),
+  "t", "failed preflight leaves no partial function move");
+  assert.equal(queryJson(databaseUrl, asRoleSql("service_role", null,
+    "SELECT public.portal_schema_capabilities_service();")).version, 57,
+  "failed preflight preserves the complete v57 capability document");
+  assert.equal(queryScalar(databaseUrl, `
+    SELECT has_function_privilege('service_role',p.oid,'EXECUTE')
+    FROM pg_proc p JOIN pg_namespace n ON n.oid=p.pronamespace
+    WHERE n.nspname='public' AND p.proname='portal_admit_text_preview_service';
+  `), "t", "failed preflight rolls back the historical admission revoke");
+  assert.equal(queryScalar(databaseUrl, `
+    SELECT regexp_replace(lower(pg_get_constraintdef(oid)),'[\\s()]','','g')
+    FROM pg_constraint
+    WHERE conrelid='public.portal_text_preview_turn_claims'::regclass
+      AND conname='portal_text_preview_turn_claims_generation_chk';
+  `), "checkgeneration>=0andgeneration<=10000000",
+  "failed preflight preserves the v49 generation constraint exactly");
+  assert.equal(queryScalar(databaseUrl,
+    "SELECT count(*) FROM public.axtro_supabase_test_migrations;"), "57",
+  "failed preflight receives no migration receipt");
+  assertSucceeded(runSql(databaseUrl,
+    `DELETE FROM public.portal_text_preview_turn_claims WHERE id='${generationTenClaim}';`),
+  "remove only the synthetic generation-10 test fixture before the real migration");
+}
+
+function assertPortalTextPreviewAuthorityRepairPhase(databaseUrl, v57Capabilities, preV58) {
+  const capabilities = queryJson(databaseUrl, asRoleSql("service_role", null,
+    "SELECT public.portal_schema_capabilities_service();"));
+  assert.equal(capabilities.version, 58);
+  assert.equal(capabilities.portalTextPreviewAdmission, true);
+  assert.equal(capabilities.portalTextPreviewAuthorityRepair, true);
+  assert.equal(capabilities.portalTextPreviewSecurityBoundary, true);
+  assert.equal(capabilities.portalTextTranscriptOptIn, true);
+
+  const v58Overrides = new Set([
+    "version",
+    "portalTextPreviewAdmission",
+    "portalTextPreviewSecurityBoundary",
+    "portalTextTranscriptOptIn",
+  ]);
+  for (const [key, value] of Object.entries(v57Capabilities)) {
+    if (!v58Overrides.has(key)) {
+      assert.deepEqual(capabilities[key], value, `v58 preserves the v57 capability union member ${key}`);
+    }
+  }
+
+  assert.equal(queryScalar(databaseUrl, `
+    SELECT p.proargnames::text
+    FROM pg_proc p JOIN pg_namespace n ON n.oid=p.pronamespace
+    WHERE n.nspname='public' AND p.proname='portal_admit_text_preview_authenticated';
+  `), "{p_admission_id,p_agent_id,p_session_id,p_presenter_id,p_client_session_ref_hash,p_profile_id,p_profile_version,p_profile_fingerprint,p_provider_configuration_fingerprint,p_command_fingerprint,p_identity_disclosure_id,p_identity_disclosure_version,p_identity_disclosure_hash,p_data_use_disclosure_id,p_data_use_disclosure_version,p_data_use_disclosure_hash,p_essential_consent_id,p_transcript_consent_id,p_transcript_id,p_persistent_transcript,p_expect_existing,p_trace_id,p_correlation_id,p_session_created_event_id,p_session_created_outbox_id,p_session_prepared_event_id,p_session_prepared_outbox_id,p_disclosure_event_id,p_disclosure_outbox_id,p_consent_event_id,p_consent_outbox_id,p_activated_event_id,p_activated_outbox_id,p_cleanup_event_id,p_cleanup_outbox_id}",
+  "the PostgREST admission boundary exposes no user_id or tenant_id argument");
+
+  for (const functionName of [
+    "portal_admit_text_preview_authenticated",
+    "portal_admit_text_preview_service",
+  ]) {
+    assert.equal(queryScalar(databaseUrl, `
+      SELECT NOT has_function_privilege('anon',p.oid,'EXECUTE')
+        AND NOT has_function_privilege('authenticated',p.oid,'EXECUTE')
+        AND NOT has_function_privilege('service_role',p.oid,'EXECUTE')
+        AND NOT EXISTS(
+          SELECT 1 FROM aclexplode(coalesce(p.proacl,acldefault('f',p.proowner))) acl
+          WHERE acl.grantee=0 AND acl.privilege_type='EXECUTE'
+        )
+      FROM pg_proc p JOIN pg_namespace n ON n.oid=p.pronamespace
+      WHERE n.nspname='public' AND p.proname='${functionName}';
+    `), "t", `${functionName} remains owner-only through M6-02`);
+  }
+  assert.equal(queryScalar(databaseUrl, `
+    SELECT position('ifp_persistent_transcriptistrue' in normalized)>0
+      AND position('ifp_persistent_transcriptistrue' in normalized)
+        < position('returnpublic.portal_admit_text_preview_service' in normalized)
+    FROM (
+      SELECT regexp_replace(lower(pg_get_functiondef(p.oid)),'\\s+','','g') normalized
+      FROM pg_proc p JOIN pg_namespace n ON n.oid=p.pronamespace
+      WHERE n.nspname='public' AND p.proname='portal_admit_text_preview_authenticated'
+    ) definition;
+  `), "t", "persistent admission is rejected before the historical owner-only primitive");
+
+  for (const [table, constraint] of [
+    ["portal_text_preview_turn_claims", "portal_text_preview_turn_claims_generation_chk"],
+    ["portal_text_preview_egress_authorizations", "portal_text_preview_egress_generation_chk"],
+    ["portal_text_preview_transcript_writes", "portal_text_preview_transcript_writes_generation_chk"],
+  ]) {
+    assert.equal(queryScalar(databaseUrl, `
+      SELECT convalidated
+        AND regexp_replace(lower(pg_get_constraintdef(oid)),'[\\s()]','','g')='checkgeneration>=0andgeneration<=9'
+      FROM pg_constraint
+      WHERE conrelid='public.${table}'::regclass AND conname='${constraint}';
+    `), "t", `${table} enforces the zero-through-nine exchange fence`);
+  }
+
+  for (const functionName of [
+    "portal_acquire_text_preview_turn_service",
+    "portal_authorize_text_preview_egress_service",
+    "portal_complete_text_preview_turn_service",
+    "portal_reconcile_text_preview_provider_response_service",
+    "portal_fail_text_preview_turn_service",
+  ]) {
+    assert.equal(queryScalar(databaseUrl, `
+      SELECT position('notbetween0and9' in regexp_replace(lower(pg_get_functiondef(p.oid)),'[\\s()]','','g'))>0
+      FROM pg_proc p JOIN pg_namespace n ON n.oid=p.pronamespace
+      WHERE n.nspname='public' AND p.proname='${functionName}';
+    `), "t", `${functionName} rejects generation 10 before entering its v49 implementation`);
+  }
+
+  assert.equal(queryScalar(databaseUrl, `
+    SELECT count(*)
+    FROM pg_constraint c
+    WHERE c.conname in (
+      'portal_text_preview_admissions_transcript_fkey',
+      'portal_text_preview_writes_transcript_fkey'
+    )
+      AND c.contype='f'
+      AND c.convalidated
+      AND c.confrelid='public.conversation_transcripts'::regclass
+      AND c.confdeltype='n';
+  `), "2", "both preview transcript references are validated, tenant-composite and deletion-safe");
+  assert.equal(queryScalar(databaseUrl, `
+    SELECT count(*) FROM pg_trigger
+    WHERE tgname in (
+      'portal_text_preview_admissions_append_only',
+      'portal_text_preview_transcript_writes_append_only'
+    )
+      AND NOT tgisinternal
+      AND tgenabled in ('O','A')
+      AND tgfoid='app.prevent_text_preview_reference_mutation()'::regprocedure;
+  `), "2", "append-only evidence permits only FK-driven transcript unlinking");
+  assert.equal(queryScalar(databaseUrl, `
+    SELECT (a.transcript_id is null) AND (w.transcript_id is null)
+      AND NOT EXISTS(
+        SELECT 1 FROM public.conversation_transcripts t
+        WHERE t.tenant_id=a.tenant_id AND t.id='${preV58.transcript}'
+      )
+    FROM public.portal_text_preview_admissions a
+    JOIN public.portal_text_preview_transcript_writes w
+      ON w.tenant_id=a.tenant_id AND w.admission_id=a.id
+    WHERE a.id='${preV58.admission}' AND w.claim_id='${preV58.claim}';
+  `), "t", "v58 normalizes only the orphan identifiers and preserves both evidence rows");
+
+  assert.equal(queryJson(databaseUrl, `
+    BEGIN;
+    GRANT EXECUTE ON FUNCTION public.portal_admit_text_preview_authenticated(
+      app.uuid_v7,app.uuid_v7,app.uuid_v7,app.uuid_v7,text,text,text,text,text,text,
+      app.uuid_v7,text,text,app.uuid_v7,text,text,app.uuid_v7,app.uuid_v7,app.uuid_v7,
+      boolean,boolean,text,app.uuid_v7,app.uuid_v7,app.uuid_v7,app.uuid_v7,app.uuid_v7,
+      app.uuid_v7,app.uuid_v7,app.uuid_v7,app.uuid_v7,app.uuid_v7,app.uuid_v7,app.uuid_v7,app.uuid_v7
+    ) TO authenticated;
+    SELECT public.portal_schema_capabilities_service();
+    ROLLBACK;
+  `).portalTextPreviewAdmission, false,
+  "capability closes if the future admission boundary receives an early grant");
+  assert.equal(queryJson(databaseUrl, `
+    BEGIN;
+    GRANT EXECUTE ON FUNCTION public.portal_admit_text_preview_service(
+      app.uuid_v7,uuid,app.uuid_v7,app.uuid_v7,app.uuid_v7,text,text,text,text,text,text,
+      app.uuid_v7,text,text,app.uuid_v7,text,text,app.uuid_v7,app.uuid_v7,app.uuid_v7,
+      boolean,boolean,text,app.uuid_v7,app.uuid_v7,app.uuid_v7,app.uuid_v7,app.uuid_v7,
+      app.uuid_v7,app.uuid_v7,app.uuid_v7,app.uuid_v7,app.uuid_v7,app.uuid_v7,app.uuid_v7,app.uuid_v7
+    ) TO service_role;
+    SELECT public.portal_schema_capabilities_service();
+    ROLLBACK;
+  `).portalTextPreviewAuthorityRepair, false,
+  "capability closes if the arbitrary-user historical admission regains a grant");
+  assert.equal(queryJson(databaseUrl, `
+    BEGIN;
+    ALTER TABLE public.portal_text_preview_transcript_writes
+      DROP CONSTRAINT portal_text_preview_writes_transcript_fkey;
+    SELECT public.portal_schema_capabilities_service();
+    ROLLBACK;
+  `).portalTextTranscriptOptIn, false,
+  "capability closes if either exact tenant-composite transcript reference drifts");
+  assert.equal(queryJson(databaseUrl, `
+    BEGIN;
+    DROP TRIGGER portal_text_preview_transcript_writes_append_only
+      ON public.portal_text_preview_transcript_writes;
+    CREATE TRIGGER portal_text_preview_transcript_writes_append_only
+      BEFORE UPDATE OR DELETE ON public.portal_text_preview_transcript_writes
+      FOR EACH ROW EXECUTE FUNCTION app.prevent_mutation();
+    SELECT public.portal_schema_capabilities_service();
+    ROLLBACK;
+  `).portalTextTranscriptOptIn, false,
+  "capability closes if the narrow orphan-unlink trigger drifts");
+}
+
 function seedPreV49CanonicalOutboxPayloadShapes(databaseUrl) {
   assertSucceeded(runSql(databaseUrl, `
     INSERT INTO public.events_outbox(
@@ -1132,7 +1426,7 @@ function seedPreV49CanonicalOutboxPayloadShapes(databaseUrl) {
 function assertMigrationCapabilities(databaseUrl) {
   assert.equal(queryScalar(databaseUrl, "SELECT to_regprocedure('public.portal_schema_capabilities_service()') IS NOT NULL;"), "t");
   const capabilities = queryJson(databaseUrl, asRoleSql("service_role", null, "SELECT public.portal_schema_capabilities_service();"));
-  assert.equal(capabilities.version, 57);
+  assert.equal(capabilities.version, 58);
   assert.equal(capabilities.providerEffectReservations, true);
   assert.equal(capabilities.billingUsageOutbox, true);
   assert.equal(capabilities.recallWebhookDedupe, true);
@@ -2091,6 +2385,7 @@ function assertLeastPrivilege(databaseUrl) {
     "portal_upsert_tenant_subscription_service(",
     "portal_log_ai_usage_service(",
     "portal_log_video_usage_service(",
+    "portal_admit_text_preview_service(",
   ]);
   const serviceFunctions = queryRows(databaseUrl, `
     SELECT p.oid::regprocedure::text
@@ -3286,7 +3581,7 @@ async function assertPortalTextPreviewAdmission(databaseUrl) {
     essential: "019f0000-0000-7000-8000-000000009505",
   });
   const reservedId = (baseId, slot) => `${(0x0200 + slot).toString(16).padStart(4, "0")}${baseId.slice(4)}`;
-  const admissionSql = ({
+  const admissionCallExpression = ({
     ids,
     userId = fixture.userAlpha,
     agentId = fixture.agentAlpha,
@@ -3299,11 +3594,10 @@ async function assertPortalTextPreviewAdmission(databaseUrl) {
     expectExisting = false,
     correlationId = ids.admission,
     profileFingerprint = persistent ? persistedProfileFingerprint : essentialProfileFingerprint,
-  }) => {
+  }, historical = false) => {
     const reserved = Array.from({ length: 12 }, (_, slot) => reservedId(ids.admission, slot));
-    return asRoleSql("service_role", null, `
-    SELECT public.portal_admit_text_preview_service(
-      '${ids.admission}','${userId}','${agentId}','${ids.session}','${ids.presenter}',
+    return `public.${historical ? "portal_admit_text_preview_service" : "portal_admit_text_preview_authenticated"}(
+      '${ids.admission}',${historical ? `'${userId}',` : ""}'${agentId}','${ids.session}','${ids.presenter}',
       '${clientHash}','${profileId}','1.0.0','${profileFingerprint}','${providerFingerprint}',
       '${commandFingerprint}','${ids.identity}','portal-text-preview-v1','${identityHash}',
       '${ids.dataUse}','portal-text-preview-v1','${dataUseHash}','${ids.essential}',
@@ -3313,19 +3607,34 @@ async function assertPortalTextPreviewAdmission(databaseUrl) {
       '${reserved[0]}','${reserved[1]}','${reserved[2]}','${reserved[3]}',
       '${reserved[4]}','${reserved[5]}','${reserved[6]}','${reserved[7]}',
       '${reserved[8]}','${reserved[9]}','${reserved[10]}','${reserved[11]}'
-    );
-  `);
+    )`;
   };
+  const ownerJwtAdmissionSql = (input, historical = false) => `
+    WITH jwt_authority AS MATERIALIZED (
+      SELECT set_config('request.jwt.claim.sub','${input.userId ?? fixture.userAlpha}',true)
+    )
+    SELECT ${admissionCallExpression(input, historical)} FROM jwt_authority;
+  `;
+  const admissionSql = (input) => ownerJwtAdmissionSql(input);
+  const historicalAdmissionSql = (input) => ownerJwtAdmissionSql(input, true);
   const admit = (input) => queryJson(databaseUrl, admissionSql(input));
+  const admitHistorical = (input) => queryJson(databaseUrl, historicalAdmissionSql(input));
   const provisionPolicy = (tenantId, id = policyId) => queryJson(databaseUrl,
     asRoleSql("service_role", null, `SELECT public.portal_provision_text_preview_privacy_policy_service(
       '${id}','${tenantId}','US-FL','1.0.0','${policyFingerprint}',
       clock_timestamp()-interval '1 minute',clock_timestamp()+interval '30 days'
     );`));
 
-  assertFailed(runSql(databaseUrl, admissionSql({ ids: defaultIds })),
+  const admissionsBeforeMissingPolicy = queryScalar(databaseUrl,
+    "SELECT count(*) FROM public.portal_text_preview_admissions;");
+  assertFailed(runSql(databaseUrl, admissionSql({
+    ids: defaultIds,
+    userId: fixture.userBeta,
+    agentId: fixture.agentBeta,
+  })),
     "admission fails closed before a server-owned legal policy exists", /active text preview privacy policy required/);
-  assert.equal(queryScalar(databaseUrl, "SELECT count(*) FROM public.portal_text_preview_admissions;"), "0");
+  assert.equal(queryScalar(databaseUrl, "SELECT count(*) FROM public.portal_text_preview_admissions;"),
+    admissionsBeforeMissingPolicy, "failed admission does not disturb retained v57 evidence");
   assert.deepEqual(provisionPolicy(fixture.tenantAlpha), { outcome: "provisioned", policyId });
   assert.equal(queryScalar(databaseUrl,
     `SELECT jurisdiction FROM public.portal_text_preview_privacy_policies WHERE tenant_id='${fixture.tenantAlpha}' AND id='${policyId}';`), "US-FL");
@@ -3334,6 +3643,57 @@ async function assertPortalTextPreviewAdmission(databaseUrl) {
       '${policyId}','${fixture.tenantAlpha}','US-FL','1.0.0','${policyFingerprint}',now(),now()+interval '1 day'
     );
   `)), "authenticated callers cannot provision legal policy");
+  assertFailed(runSql(databaseUrl, asRoleSql("service_role", null,
+    `SELECT ${admissionCallExpression({ ids: defaultIds })};`)),
+  "service_role cannot invoke the authenticated admission boundary", /permission denied for function portal_admit_text_preview_authenticated/);
+  assertFailed(runSql(databaseUrl, asRoleSql("authenticated", fixture.userAlpha,
+    `SELECT ${admissionCallExpression({ ids: defaultIds })};`)),
+  "authenticated cannot invoke the owner-only admission boundary", /permission denied for function portal_admit_text_preview_authenticated/);
+  assertFailed(runSql(databaseUrl, asRoleSql("anon", null,
+    `SELECT ${admissionCallExpression({ ids: defaultIds })};`)),
+  "anon cannot invoke the owner-only admission boundary", /permission denied for function portal_admit_text_preview_authenticated/);
+  assertFailed(runSql(databaseUrl,
+    `SELECT ${admissionCallExpression({ ids: defaultIds })};`),
+  "owner invocation still requires a transaction-local auth.uid", /authentication required/);
+
+  const closedPersistenceIds = Object.freeze({
+    admission: "019f0000-0000-7000-8000-0000000094d0",
+    session: "019f0000-0000-7000-8000-0000000094d1",
+    presenter: "019f0000-0000-7000-8000-0000000094d2",
+    identity: "019f0000-0000-7000-8000-0000000094d3",
+    dataUse: "019f0000-0000-7000-8000-0000000094d4",
+    essential: "019f0000-0000-7000-8000-0000000094d5",
+  });
+  const closedPersistenceBefore = queryJson(databaseUrl, `
+    SELECT jsonb_build_object(
+      'sessions',(SELECT count(*) FROM public.sessions),
+      'disclosures',(SELECT count(*) FROM public.disclosure_records),
+      'consents',(SELECT count(*) FROM public.consent_evidence),
+      'transcripts',(SELECT count(*) FROM public.conversation_transcripts),
+      'admissions',(SELECT count(*) FROM public.portal_text_preview_admissions),
+      'outbox',(SELECT count(*) FROM public.events_outbox)
+    );
+  `);
+  assertFailed(runSql(databaseUrl, admissionSql({
+    ids: closedPersistenceIds,
+    clientHash: "4".repeat(64),
+    profileId: "openrouter_portal_text_persisted_v1",
+    profileFingerprint: persistedProfileFingerprint,
+    transcriptConsent: "019f0000-0000-7000-8000-0000000094d6",
+    transcript: "019f0000-0000-7000-8000-0000000094d7",
+    persistent: true,
+  })), "M6-02 hard-closes persisted admission before the historical primitive",
+  /persistent text preview admission remains closed until M6-04/);
+  assert.deepEqual(queryJson(databaseUrl, `
+    SELECT jsonb_build_object(
+      'sessions',(SELECT count(*) FROM public.sessions),
+      'disclosures',(SELECT count(*) FROM public.disclosure_records),
+      'consents',(SELECT count(*) FROM public.consent_evidence),
+      'transcripts',(SELECT count(*) FROM public.conversation_transcripts),
+      'admissions',(SELECT count(*) FROM public.portal_text_preview_admissions),
+      'outbox',(SELECT count(*) FROM public.events_outbox)
+    );
+  `), closedPersistenceBefore, "closed persisted admission performs zero writes");
 
   const rowsBeforeDefault = queryScalar(databaseUrl, "SELECT count(*) FROM public.conversation_transcripts;");
   const defaultAdmission = admit({ ids: defaultIds });
@@ -3667,6 +4027,51 @@ async function assertPortalTextPreviewAdmission(databaseUrl) {
         '${egressId}','${admissionId}','${claimId}','${attemptId}',${generation},'${kind}','${reservationId}'
       );`));
   };
+  const cappedClaim = "019f0000-0000-7000-8000-00000000953f";
+  const cappedAttempt = attemptForClaim(cappedClaim);
+  const cappedBefore = queryJson(databaseUrl, `
+    SELECT jsonb_build_object(
+      'claims',(SELECT count(*) FROM public.portal_text_preview_turn_claims),
+      'reservations',(SELECT count(*) FROM public.ai_usage_reservations),
+      'egress',(SELECT count(*) FROM public.portal_text_preview_egress_authorizations),
+      'outbox',(SELECT count(*) FROM public.events_outbox)
+    );
+  `);
+  assert.equal(acquire(cappedClaim, defaultIds.admission,
+    "a".repeat(63) + "0", "b".repeat(63) + "0", 10).outcome, "conflict",
+  "zero-indexed generation 10 is the blocked eleventh exchange");
+  assert.equal(queryJson(databaseUrl, asRoleSql("service_role", null, `
+    SELECT public.portal_authorize_text_preview_egress_service(
+      '019f0000-0000-7000-8000-00000000953e','${defaultIds.admission}','${cappedClaim}',
+      '${cappedAttempt}',10,'generation','019f0000-0000-7000-8000-00000000953d'
+    );
+  `)).outcome, "conflict");
+  assert.equal(queryJson(databaseUrl, asRoleSql("service_role", null, `
+    SELECT public.portal_complete_text_preview_turn_service(
+      '${defaultIds.admission}','${cappedClaim}','${cappedAttempt}',10,
+      '${"b".repeat(63) + "0"}','hmac-sha256:${"c".repeat(64)}',null,null,null
+    );
+  `)).outcome, "conflict");
+  assert.equal(queryJson(databaseUrl, asRoleSql("service_role", null, `
+    SELECT public.portal_reconcile_text_preview_provider_response_service(
+      '${defaultIds.admission}','${cappedClaim}','${cappedAttempt}',10,
+      '${"b".repeat(63) + "0"}','generation-cap-provider-id'
+    );
+  `)).outcome, "conflict");
+  assert.equal(queryJson(databaseUrl, asRoleSql("service_role", null, `
+    SELECT public.portal_fail_text_preview_turn_service(
+      '${defaultIds.admission}','${cappedClaim}','${cappedAttempt}',10,
+      '${"b".repeat(63) + "0"}','generation_failed',null
+    );
+  `)).outcome, "conflict");
+  assert.deepEqual(queryJson(databaseUrl, `
+    SELECT jsonb_build_object(
+      'claims',(SELECT count(*) FROM public.portal_text_preview_turn_claims),
+      'reservations',(SELECT count(*) FROM public.ai_usage_reservations),
+      'egress',(SELECT count(*) FROM public.portal_text_preview_egress_authorizations),
+      'outbox',(SELECT count(*) FROM public.events_outbox)
+    );
+  `), cappedBefore, "generation 10 is rejected before claim, ledger, egress or event mutation");
   const firstClaim = "019f0000-0000-7000-8000-000000009540";
   const firstAcquire = acquire(firstClaim, defaultIds.admission, "a".repeat(64), "b".repeat(64), 0);
   assert.equal(firstAcquire.outcome, "acquired");
@@ -4156,7 +4561,7 @@ async function assertPortalTextPreviewAdmission(databaseUrl) {
   });
   const transcriptConsent = "019f0000-0000-7000-8000-000000009606";
   const transcriptId = "019f0000-0000-7000-8000-000000009607";
-  const persisted = admit({
+  const persisted = admitHistorical({
     ids: persistedIds,
     clientHash: "8".repeat(64),
     profileId: "openrouter_portal_text_persisted_v1",
@@ -4169,6 +4574,25 @@ async function assertPortalTextPreviewAdmission(databaseUrl) {
   assert.equal(persisted.transcript_id, transcriptId);
   assert.equal(queryScalar(databaseUrl,
     `SELECT jsonb_array_length(turns) FROM public.conversation_transcripts WHERE tenant_id='${fixture.tenantAlpha}' AND id='${transcriptId}';`), "0");
+  const foreignTranscriptId = "019f0000-0000-7000-8000-00000000960f";
+  assertSucceeded(runSql(databaseUrl, `
+    INSERT INTO public.conversation_transcripts(
+      id,tenant_id,agent_id,surface,external_ref,turns,started_at
+    ) VALUES (
+      '${foreignTranscriptId}','${fixture.tenantBeta}','${fixture.agentBeta}',
+      'chat','cross-tenant-preview-transcript','[]'::jsonb,now()
+    );
+  `), "create a foreign-tenant transcript for composite-reference denial");
+  assertFailed(runSql(databaseUrl, `
+    BEGIN;
+    ALTER TABLE public.portal_text_preview_admissions
+      DISABLE TRIGGER portal_text_preview_admissions_append_only;
+    UPDATE public.portal_text_preview_admissions
+      SET transcript_id='${foreignTranscriptId}'
+      WHERE tenant_id='${fixture.tenantAlpha}' AND id='${persistedIds.admission}';
+    COMMIT;
+  `), "an admission cannot reference another tenant transcript",
+  /portal_text_preview_admissions_transcript_fkey/);
 
   const persistedClaim = "019f0000-0000-7000-8000-000000009610";
   assert.equal(acquire(persistedClaim, persistedIds.admission, "6".repeat(64), "7".repeat(64), 0).outcome, "acquired");
@@ -4312,6 +4736,16 @@ async function assertPortalTextPreviewAdmission(databaseUrl) {
   assert.equal(queryScalar(databaseUrl,
     `SELECT count(*) FROM public.portal_text_preview_transcript_writes WHERE tenant_id='${fixture.tenantAlpha}' AND claim_id='${persistedClaim}';`), "1",
   "exchange replay creates one append-only write receipt");
+  assertFailed(runSql(databaseUrl, `
+    BEGIN;
+    ALTER TABLE public.portal_text_preview_transcript_writes
+      DISABLE TRIGGER portal_text_preview_transcript_writes_append_only;
+    UPDATE public.portal_text_preview_transcript_writes
+      SET transcript_id='${foreignTranscriptId}'
+      WHERE tenant_id='${fixture.tenantAlpha}' AND claim_id='${persistedClaim}';
+    COMMIT;
+  `), "a write receipt cannot reference another tenant transcript",
+  /portal_text_preview_writes_transcript_fkey/);
   assert.equal(queryScalar(databaseUrl,
     "SELECT count(*) FROM information_schema.columns WHERE table_schema='public' AND table_name='portal_text_preview_transcript_writes' AND column_name='exchange_fingerprint';"), "0",
   "write receipts retain no plain content digest");
@@ -4351,6 +4785,39 @@ async function assertPortalTextPreviewAdmission(databaseUrl) {
   assert.equal(queryScalar(databaseUrl,
     `SELECT count(*) FROM public.portal_text_preview_transcript_writes WHERE claim_id='${persistedClaim}';`), "1",
   "deletion removes PII while preserving the content-free write receipt");
+  assert.equal(queryScalar(databaseUrl, `
+    SELECT (a.transcript_id is null) AND (w.transcript_id is null)
+    FROM public.portal_text_preview_admissions a
+    JOIN public.portal_text_preview_transcript_writes w
+      ON w.tenant_id=a.tenant_id AND w.admission_id=a.id
+    WHERE a.tenant_id='${fixture.tenantAlpha}' AND a.id='${persistedIds.admission}'
+      AND w.claim_id='${persistedClaim}';
+  `), "t", "documented deletion unlinks both composite references without deleting evidence");
+  const deletedReplayBefore = queryJson(databaseUrl, `
+    SELECT jsonb_build_object(
+      'admissions',(SELECT count(*) FROM public.portal_text_preview_admissions),
+      'transcripts',(SELECT count(*) FROM public.conversation_transcripts),
+      'outbox',(SELECT count(*) FROM public.events_outbox)
+    );
+  `);
+  assertFailed(runSql(databaseUrl, admissionSql({
+    ids: persistedIds,
+    clientHash: "8".repeat(64),
+    profileId: "openrouter_portal_text_persisted_v1",
+    transcriptConsent,
+    transcript: transcriptId,
+    persistent: true,
+    expectExisting: true,
+    profileFingerprint: persistedProfileFingerprint,
+  })), "deleted persisted admission cannot replay a contract-invalid receipt",
+  /persistent text preview admission remains closed until M6-04/);
+  assert.deepEqual(queryJson(databaseUrl, `
+    SELECT jsonb_build_object(
+      'admissions',(SELECT count(*) FROM public.portal_text_preview_admissions),
+      'transcripts',(SELECT count(*) FROM public.conversation_transcripts),
+      'outbox',(SELECT count(*) FROM public.events_outbox)
+    );
+  `), deletedReplayBefore, "closed replay after deletion produces no contract or database mutation");
 
   const purgeIds = Object.freeze({
     admission: "019f0000-0000-7000-8000-000000009620",
@@ -4362,7 +4829,7 @@ async function assertPortalTextPreviewAdmission(databaseUrl) {
   });
   const purgeConsent = "019f0000-0000-7000-8000-000000009626";
   const purgeTranscript = "019f0000-0000-7000-8000-000000009627";
-  admit({ ids: purgeIds, clientHash: "d".repeat(64), profileId: "openrouter_portal_text_persisted_v1",
+  admitHistorical({ ids: purgeIds, clientHash: "d".repeat(64), profileId: "openrouter_portal_text_persisted_v1",
     profileFingerprint: persistedProfileFingerprint, transcriptConsent: purgeConsent,
     transcript: purgeTranscript, persistent: true });
   const purgeClaim = "019f0000-0000-7000-8000-000000009628";
@@ -4376,6 +4843,14 @@ async function assertPortalTextPreviewAdmission(databaseUrl) {
   assert.equal(queryScalar(databaseUrl,
     `SELECT count(*) FROM public.portal_text_preview_transcript_writes WHERE claim_id='${purgeClaim}';`), "1",
   "retention purge preserves the content-free write receipt");
+  assert.equal(queryScalar(databaseUrl, `
+    SELECT (a.transcript_id is null) AND (w.transcript_id is null)
+    FROM public.portal_text_preview_admissions a
+    JOIN public.portal_text_preview_transcript_writes w
+      ON w.tenant_id=a.tenant_id AND w.admission_id=a.id
+    WHERE a.tenant_id='${fixture.tenantAlpha}' AND a.id='${purgeIds.admission}'
+      AND w.claim_id='${purgeClaim}';
+  `), "t", "retention purge unlinks both composite references without deleting evidence");
 
   assertSucceeded(runSql(databaseUrl, `
     ALTER TABLE public.portal_text_preview_admissions DISABLE TRIGGER portal_text_preview_admissions_append_only;

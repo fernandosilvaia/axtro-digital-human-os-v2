@@ -1,28 +1,27 @@
 "use server";
 
-export interface PreviewTurn {
-  readonly role: "user" | "assistant";
-  readonly content: string;
-}
-
-export interface AgentPreviewResult {
-  readonly reply: string | null;
-  readonly error: string | null;
-}
+import type {
+  PortalTextPreviewActionResult,
+  PortalTextPreviewBrowserCommand,
+} from "@axtro/contracts-ts";
 
 const PORTAL_TEXT_PREVIEW_RECOVERY_MESSAGE =
   "O preview de texto está temporariamente indisponível enquanto a proteção de privacidade é restaurada.";
 
 /**
- * ADR-042 keeps the legacy text preview closed until its complete contract-first
- * runtime is restored. This action intentionally owns no auth, database, ledger
- * or provider dependency, so configuration cannot reopen the legacy path.
+ * ADR-044 keeps the public preview closed until M6-06 proves every operational
+ * rollout gate. This action intentionally owns no auth, database, ledger or
+ * provider dependency, so configuration cannot reopen the legacy path.
  */
 export async function sendAgentPreviewMessage(
-  _agentId: string,
-  _history: readonly PreviewTurn[],
-  _userMessage: string,
-  _transcriptId?: string,
-): Promise<AgentPreviewResult> {
-  return { reply: null, error: PORTAL_TEXT_PREVIEW_RECOVERY_MESSAGE };
+  _command: PortalTextPreviewBrowserCommand,
+): Promise<PortalTextPreviewActionResult> {
+  return Object.freeze({
+    schema_version: "2.0.0",
+    outcome: "failure",
+    reply: null,
+    error: PORTAL_TEXT_PREVIEW_RECOVERY_MESSAGE,
+    stateToken: null,
+    persistence: "disabled",
+  });
 }

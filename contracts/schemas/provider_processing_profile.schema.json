@@ -1,0 +1,203 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://schemas.axtro.ai/v2/provider_processing_profile.schema.json",
+  "title": "Provider Processing Profile",
+  "description": "Dated, server-owned declaration of processing a channel provider necessarily performs before admission.",
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "schema_version": { "type": "string", "const": "2.0.0" },
+    "profile_id": { "type": "string", "pattern": "^[a-z][a-z0-9._-]{2,119}$" },
+    "profile_version": { "type": "string", "pattern": "^[0-9]+\\.[0-9]+\\.[0-9]+$" },
+    "provider_id": { "type": "string", "pattern": "^[a-z][a-z0-9._-]{1,79}$" },
+    "channel_kind": { "type": "string", "enum": ["portal_text", "tavus_video", "recall_meeting"] },
+    "mode": { "type": "string", "enum": ["text", "video", "presentation", "external_meeting"] },
+    "recording_mode": { "type": "string", "enum": ["off", "participant_opt_in", "automatic"] },
+    "persistent_transcript_mode": { "type": "string", "enum": ["off", "application_opt_in", "provider_required", "hard_delete_after_call"] },
+    "perception_mode": { "type": "string", "enum": ["off", "full"] },
+    "regional_policy": { "type": "string", "enum": ["eu", "unset"] },
+    "required_consent_purposes": {
+      "type": "array",
+      "uniqueItems": true,
+      "maxItems": 4,
+      "items": { "type": "string", "enum": ["recording", "persistent_transcription", "behavioral_analysis", "visual_analysis"] }
+    },
+    "performed_processing_purposes": {
+      "type": "array",
+      "uniqueItems": true,
+      "maxItems": 4,
+      "items": { "type": "string", "enum": ["recording", "persistent_transcription", "behavioral_analysis", "visual_analysis"] }
+    },
+    "channel_features": {
+      "type": "array",
+      "uniqueItems": true,
+      "maxItems": 1,
+      "items": { "type": "string", "enum": ["scene_presentation"] }
+    },
+    "essential_only_eligible": { "type": "boolean" },
+    "reviewed_at": {
+      "type": "string",
+      "format": "date-time",
+      "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}Z$"
+    },
+    "review_ttl_hours": { "type": "integer", "minimum": 1, "maximum": 8760 },
+    "verification_mode": { "type": "string", "enum": ["code_owned", "provider_readback"] },
+    "verification_ttl_hours": { "type": "integer", "minimum": 1, "maximum": 8760 },
+    "sources": {
+      "type": "array",
+      "minItems": 1,
+      "maxItems": 10,
+      "uniqueItems": true,
+      "items": { "type": "string", "format": "uri", "pattern": "^https://", "maxLength": 500 }
+    }
+  },
+  "required": [
+    "schema_version",
+    "profile_id",
+    "profile_version",
+    "provider_id",
+    "channel_kind",
+    "mode",
+    "recording_mode",
+    "persistent_transcript_mode",
+    "perception_mode",
+    "regional_policy",
+    "required_consent_purposes",
+    "performed_processing_purposes",
+    "channel_features",
+    "essential_only_eligible",
+    "reviewed_at",
+    "review_ttl_hours",
+    "verification_mode",
+    "verification_ttl_hours",
+    "sources"
+  ],
+  "allOf": [
+    {
+      "if": {
+        "properties": { "essential_only_eligible": { "const": true } },
+        "required": ["essential_only_eligible"]
+      },
+      "then": {
+        "properties": {
+          "recording_mode": { "const": "off" },
+          "persistent_transcript_mode": { "const": "off" },
+          "perception_mode": { "const": "off" },
+          "channel_kind": { "const": "portal_text" },
+          "mode": { "const": "text" },
+          "required_consent_purposes": { "maxItems": 0 },
+          "performed_processing_purposes": { "maxItems": 0 },
+          "channel_features": { "maxItems": 0 }
+        }
+      }
+    },
+    {
+      "if": { "properties": { "channel_kind": { "const": "portal_text" } } },
+      "then": {
+        "properties": {
+          "mode": { "const": "text" },
+          "provider_id": { "not": { "enum": ["tavus", "recall"] } }
+        }
+      }
+    },
+    {
+      "if": { "properties": { "channel_kind": { "const": "tavus_video" } } },
+      "then": {
+        "properties": {
+          "provider_id": { "const": "tavus" },
+          "mode": { "enum": ["video", "presentation"] },
+          "persistent_transcript_mode": { "enum": ["provider_required", "hard_delete_after_call"] },
+          "verification_mode": { "const": "provider_readback" }
+        }
+      }
+    },
+    {
+      "if": { "properties": { "channel_kind": { "const": "recall_meeting" } } },
+      "then": {
+        "properties": {
+          "provider_id": { "const": "recall" },
+          "mode": { "const": "external_meeting" },
+          "verification_mode": { "const": "provider_readback" }
+        }
+      }
+    },
+    {
+      "if": { "properties": { "provider_id": { "const": "tavus" } } },
+      "then": { "properties": { "channel_kind": { "const": "tavus_video" } } }
+    },
+    {
+      "if": { "properties": { "provider_id": { "const": "recall" } } },
+      "then": { "properties": { "channel_kind": { "const": "recall_meeting" } } }
+    },
+    {
+      "if": { "properties": { "mode": { "const": "presentation" } } },
+      "then": { "properties": { "channel_features": { "contains": { "const": "scene_presentation" } } } },
+      "else": { "properties": { "channel_features": { "maxItems": 0 } } }
+    },
+    {
+      "if": { "properties": { "recording_mode": { "const": "off" } } },
+      "then": {
+        "properties": {
+          "required_consent_purposes": { "not": { "contains": { "const": "recording" } } },
+          "performed_processing_purposes": { "not": { "contains": { "const": "recording" } } }
+        }
+      },
+      "else": {
+        "properties": {
+          "required_consent_purposes": { "contains": { "const": "recording" } },
+          "performed_processing_purposes": { "contains": { "const": "recording" } }
+        }
+      }
+    },
+    {
+      "if": { "properties": { "persistent_transcript_mode": { "const": "off" } } },
+      "then": {
+        "properties": {
+          "required_consent_purposes": { "not": { "contains": { "const": "persistent_transcription" } } },
+          "performed_processing_purposes": { "not": { "contains": { "const": "persistent_transcription" } } }
+        }
+      },
+      "else": {
+        "properties": {
+          "required_consent_purposes": { "contains": { "const": "persistent_transcription" } },
+          "performed_processing_purposes": { "contains": { "const": "persistent_transcription" } }
+        }
+      }
+    },
+    {
+      "if": { "properties": { "perception_mode": { "const": "off" } } },
+      "then": {
+        "properties": {
+          "required_consent_purposes": {
+            "allOf": [
+              { "not": { "contains": { "const": "behavioral_analysis" } } },
+              { "not": { "contains": { "const": "visual_analysis" } } }
+            ]
+          },
+          "performed_processing_purposes": {
+            "allOf": [
+              { "not": { "contains": { "const": "behavioral_analysis" } } },
+              { "not": { "contains": { "const": "visual_analysis" } } }
+            ]
+          }
+        }
+      },
+      "else": {
+        "properties": {
+          "required_consent_purposes": {
+            "allOf": [
+              { "contains": { "const": "behavioral_analysis" } },
+              { "contains": { "const": "visual_analysis" } }
+            ]
+          },
+          "performed_processing_purposes": {
+            "allOf": [
+              { "contains": { "const": "behavioral_analysis" } },
+              { "contains": { "const": "visual_analysis" } }
+            ]
+          }
+        }
+      }
+    }
+  ]
+}

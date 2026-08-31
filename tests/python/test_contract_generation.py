@@ -50,7 +50,7 @@ class ContractGenerationTests(unittest.TestCase):
             self.assertEqual(first_ts, generated_ts.read_bytes())
             self.assertEqual(first_py, generated_py.read_bytes())
             generated_typescript = generated_ts.read_text(encoding="utf-8")
-            self.assertEqual(56, generated_typescript.count('"source_schema"'))
+            self.assertEqual(61, generated_typescript.count('"source_schema"'))
             generated_python = generated_py.read_text(encoding="utf-8")
             self.assertIn("schema_version", generated_python)
             self.assertIn("class _FakeProviderScenarioRequired(TypedDict):", generated_python)
@@ -70,6 +70,17 @@ class ContractGenerationTests(unittest.TestCase):
                 "class _MeetingTerminalNotificationDeliveryReceiptOutcomeProviderAccepted(TypedDict):",
                 generated_python,
             )
+            self.assertIn("export type PortalTextPreviewAdmission =", generated_typescript)
+            self.assertIn("export type PortalTextPreviewActionResult =", generated_typescript)
+            self.assertIn(
+                "class _PortalTextPreviewAdmissionPersistentTranscriptFalse(TypedDict):",
+                generated_python,
+            )
+            self.assertIn(
+                "class _PortalTextPreviewActionResultOutcomeSuccess(TypedDict):",
+                generated_python,
+            )
+            self.assertIn("export interface ProviderProcessingProfile", generated_typescript)
             compile(generated_python, str(generated_py), "exec")
 
     def test_every_invalid_example_is_rejected_by_its_source_schema(self) -> None:
@@ -82,7 +93,53 @@ class ContractGenerationTests(unittest.TestCase):
             errors = list(Draft202012Validator(schema, registry=registry).iter_errors(example))
             self.assertTrue(errors, f"{example_path.relative_to(ROOT)} unexpectedly passed")
             rejected += 1
-        self.assertEqual(56, rejected)
+        self.assertEqual(61, rejected)
+
+    def test_portal_text_preview_contracts_bind_privacy_and_browser_authority(self) -> None:
+        registry = schema_registry()
+
+        admission_schema = json.loads(
+            (SCHEMAS / "portal_text_preview_admission.schema.json").read_text(encoding="utf-8")
+        )
+        admission = json.loads(
+            (VALID / "portal_text_preview_admission.json").read_text(encoding="utf-8")
+        )
+        admission_validator = Draft202012Validator(admission_schema, registry=registry)
+        self.assertFalse(list(admission_validator.iter_errors(admission)))
+        persistence_escalation = {
+            **admission,
+            "persistent_transcript": True,
+        }
+        self.assertTrue(list(admission_validator.iter_errors(persistence_escalation)))
+
+        command_schema = json.loads(
+            (SCHEMAS / "portal_text_preview_browser_command.schema.json").read_text(encoding="utf-8")
+        )
+        command = json.loads(
+            (VALID / "portal_text_preview_browser_command.json").read_text(encoding="utf-8")
+        )
+        command_validator = Draft202012Validator(command_schema, registry=registry)
+        for mutation in (
+            {**command, "aiIdentityAcknowledged": False},
+            {**command, "essentialProcessingAccepted": False},
+            {**command, "history": []},
+            {**command, "transcriptId": "caller-controlled"},
+        ):
+            self.assertTrue(list(command_validator.iter_errors(mutation)))
+
+        result_schema = json.loads(
+            (SCHEMAS / "portal_text_preview_action_result.schema.json").read_text(encoding="utf-8")
+        )
+        result = json.loads(
+            (VALID / "portal_text_preview_action_result.json").read_text(encoding="utf-8")
+        )
+        result_validator = Draft202012Validator(result_schema, registry=registry)
+        crossed_failure = {
+            **result,
+            "outcome": "failure",
+            "error": "generation_failed",
+        }
+        self.assertTrue(list(result_validator.iter_errors(crossed_failure)))
 
     def test_runtime_configuration_contract_rejects_live_mode_and_secret_like_handles(self) -> None:
         schema_path = SCHEMAS / "runtime_configuration.schema.json"

@@ -1,0 +1,101 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://schemas.axtro.ai/v2/portal_text_preview_signed_state_payload.schema.json",
+  "title": "Portal Text Preview Signed State Payload",
+  "description": "Bounded server-owned conversation state carried only inside an authenticated ptsv1 token.",
+  "type": "object",
+  "additionalProperties": false,
+  "$defs": {
+    "user_turn": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "role": { "type": "string", "const": "user" },
+        "content": { "type": "string", "minLength": 1, "maxLength": 2000 }
+      },
+      "required": ["role", "content"]
+    },
+    "assistant_turn": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "role": { "type": "string", "const": "assistant" },
+        "content": { "type": "string", "minLength": 1, "maxLength": 4000 }
+      },
+      "required": ["role", "content"]
+    },
+    "turn": {
+      "oneOf": [
+        { "$ref": "#/$defs/user_turn" },
+        { "$ref": "#/$defs/assistant_turn" }
+      ]
+    }
+  },
+  "properties": {
+    "schema_version": { "type": "string", "const": "2.0.0" },
+    "admission_id": { "$ref": "https://schemas.axtro.ai/v2/tool_execution_receipt.schema.json#/properties/execution_id" },
+    "binding_fingerprint": { "type": "string", "pattern": "^sha256:[0-9a-f]{64}$" },
+    "profile_id": {
+      "type": "string",
+      "enum": ["openrouter_portal_text_essential_v1", "openrouter_portal_text_persisted_v1"]
+    },
+    "profile_version": { "type": "string", "const": "1.0.0" },
+    "profile_fingerprint": { "type": "string", "pattern": "^sha256:[0-9a-f]{64}$" },
+    "generation": { "type": "integer", "minimum": 0, "maximum": 10 },
+    "turns": {
+      "type": "array",
+      "minItems": 0,
+      "maxItems": 20,
+      "prefixItems": [
+        { "$ref": "#/$defs/user_turn" },
+        { "$ref": "#/$defs/assistant_turn" },
+        { "$ref": "#/$defs/user_turn" },
+        { "$ref": "#/$defs/assistant_turn" },
+        { "$ref": "#/$defs/user_turn" },
+        { "$ref": "#/$defs/assistant_turn" },
+        { "$ref": "#/$defs/user_turn" },
+        { "$ref": "#/$defs/assistant_turn" },
+        { "$ref": "#/$defs/user_turn" },
+        { "$ref": "#/$defs/assistant_turn" },
+        { "$ref": "#/$defs/user_turn" },
+        { "$ref": "#/$defs/assistant_turn" },
+        { "$ref": "#/$defs/user_turn" },
+        { "$ref": "#/$defs/assistant_turn" },
+        { "$ref": "#/$defs/user_turn" },
+        { "$ref": "#/$defs/assistant_turn" },
+        { "$ref": "#/$defs/user_turn" },
+        { "$ref": "#/$defs/assistant_turn" },
+        { "$ref": "#/$defs/user_turn" },
+        { "$ref": "#/$defs/assistant_turn" }
+      ],
+      "items": { "$ref": "#/$defs/turn" }
+    },
+    "issued_at": { "type": "string", "format": "date-time" },
+    "expires_at": { "type": "string", "format": "date-time" }
+  },
+  "required": [
+    "schema_version",
+    "admission_id",
+    "binding_fingerprint",
+    "profile_id",
+    "profile_version",
+    "profile_fingerprint",
+    "generation",
+    "turns",
+    "issued_at",
+    "expires_at"
+  ],
+  "allOf": [
+    { "if": { "properties": { "generation": { "const": 0 } }, "required": ["generation"] }, "then": { "properties": { "turns": { "minItems": 0, "maxItems": 0 } } } },
+    { "if": { "properties": { "generation": { "const": 1 } }, "required": ["generation"] }, "then": { "properties": { "turns": { "minItems": 2, "maxItems": 2 } } } },
+    { "if": { "properties": { "generation": { "const": 2 } }, "required": ["generation"] }, "then": { "properties": { "turns": { "minItems": 4, "maxItems": 4 } } } },
+    { "if": { "properties": { "generation": { "const": 3 } }, "required": ["generation"] }, "then": { "properties": { "turns": { "minItems": 6, "maxItems": 6 } } } },
+    { "if": { "properties": { "generation": { "const": 4 } }, "required": ["generation"] }, "then": { "properties": { "turns": { "minItems": 8, "maxItems": 8 } } } },
+    { "if": { "properties": { "generation": { "const": 5 } }, "required": ["generation"] }, "then": { "properties": { "turns": { "minItems": 10, "maxItems": 10 } } } },
+    { "if": { "properties": { "generation": { "const": 6 } }, "required": ["generation"] }, "then": { "properties": { "turns": { "minItems": 12, "maxItems": 12 } } } },
+    { "if": { "properties": { "generation": { "const": 7 } }, "required": ["generation"] }, "then": { "properties": { "turns": { "minItems": 14, "maxItems": 14 } } } },
+    { "if": { "properties": { "generation": { "const": 8 } }, "required": ["generation"] }, "then": { "properties": { "turns": { "minItems": 16, "maxItems": 16 } } } },
+    { "if": { "properties": { "generation": { "const": 9 } }, "required": ["generation"] }, "then": { "properties": { "turns": { "minItems": 18, "maxItems": 18 } } } },
+    { "if": { "properties": { "generation": { "const": 10 } }, "required": ["generation"] }, "then": { "properties": { "turns": { "minItems": 20, "maxItems": 20 } } } }
+  ]
+}

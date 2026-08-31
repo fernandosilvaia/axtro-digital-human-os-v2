@@ -21,8 +21,9 @@ import {
 export const dynamic = "force-dynamic";
 
 const READINESS_DATABASE_TIMEOUT_MS = 3_000;
-const MAXIMUM_COMPATIBLE_SCHEMA_VERSION = 57;
-const COMPATIBLE_SCHEMA_VERSIONS = new Set([50, 56, MAXIMUM_COMPATIBLE_SCHEMA_VERSION]);
+const MAXIMUM_COMPATIBLE_SCHEMA_VERSION = 58;
+const MEETING_NOTIFICATION_SCHEMA_VERSIONS = new Set([57, MAXIMUM_COMPATIBLE_SCHEMA_VERSION]);
+const COMPATIBLE_SCHEMA_VERSIONS = new Set([50, 56, ...MEETING_NOTIFICATION_SCHEMA_VERSIONS]);
 
 const BASE_SCHEMA_CAPABILITIES = Object.freeze([
   "providerEffectReservations",
@@ -206,12 +207,15 @@ export function schemaReadinessOk(value: unknown, env: NodeJS.ProcessEnv): boole
     || (readinessRequiresProviderEffectReconciliation(env)
       && capabilities.providerEffectReconciliation !== true)
   ) return false;
-  const isNotificationOutboxSchema = version === 57
+  const isNotificationOutboxSchema = MEETING_NOTIFICATION_SCHEMA_VERSIONS.has(Number(version))
     && capabilities.meetingTerminalNotificationClaim === false
     && MEETING_NOTIFICATION_SCHEMA_CAPABILITIES.every((capability) => capabilities[capability] === true);
   const isLegacyNotificationSchema = (version === 50 || version === 56)
     && capabilities.meetingTerminalNotificationClaim === true;
   if (!isNotificationOutboxSchema && !isLegacyNotificationSchema) return false;
+  if (version === MAXIMUM_COMPATIBLE_SCHEMA_VERSION && capabilities.portalTextPreviewAuthorityRepair !== true) {
+    return false;
+  }
   if (readinessMeetingTerminalNotificationsEnabled(env) && !isNotificationOutboxSchema) return false;
   if (!readinessBusinessActionsEnabled(env)) return true;
   return Number(version) >= 56

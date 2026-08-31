@@ -52,6 +52,7 @@ test("generate envia o payload fechado ao endpoint fixo e devolve texto e usage"
   assert.equal(result.text, "Olá! Posso ajudar com a proposta.");
   assert.equal(result.model, "anthropic/claude-haiku-4.5");
   assert.deepEqual(result.usage, { inputTokens: 42, outputTokens: 17 });
+  assert.equal(result.providerRequestId, null);
   assert.equal(calls.length, 1);
   assert.equal(calls[0].url, "https://openrouter.ai/api/v1/chat/completions");
   const body = JSON.parse(calls[0].init.body);
@@ -60,6 +61,131 @@ test("generate envia o payload fechado ao endpoint fixo e devolve texto e usage"
   assert.deepEqual(body.usage, { include: true });
   assert.equal(calls[0].init.headers.Authorization, `Bearer ${API_KEY}`);
   assert.equal(calls[0].init.headers["HTTP-Referer"], "https://portal.example");
+});
+
+test("privacy-fenced generation sends the exact routing object and preserves the opaque response id", async () => {
+  const order = [];
+  const { calls, implementation } = fakeFetch(async () => {
+    order.push("fetch");
+    return new Response(JSON.stringify(completionPayload({ id: "gen-preview-001" })), { status: 200 });
+  });
+  const port = provider.createOpenRouterTextGenerationPort({
+    apiKey: API_KEY,
+    fetchImplementation: implementation,
+    privacy: {
+      routingConfiguration: provider.OPENROUTER_PRIVACY_ROUTING_CONFIGURATION,
+      revalidateBeforeDispatch: () => order.push("preflight"),
+    },
+  });
+
+  const result = await port.generate(request());
+
+  assert.deepEqual(order, ["preflight", "fetch"]);
+  assert.equal(result.providerRequestId, "gen-preview-001");
+  assert.deepEqual(JSON.parse(calls[0].init.body).provider, {
+    data_collection: "deny",
+    zdr: true,
+    allow_fallbacks: false,
+    require_parameters: true,
+  });
+});
+
+test("privacy preflight is revalidated before a 429 retry and can fence the second dispatch", async () => {
+  let preflights = 0;
+  const { calls, implementation } = fakeFetch(async () =>
+    new Response("rate limited", { status: 429, headers: { "retry-after": "0" } }));
+  const port = provider.createOpenRouterTextGenerationPort({
+    apiKey: API_KEY,
+    fetchImplementation: implementation,
+    privacy: {
+      routingConfiguration: provider.OPENROUTER_PRIVACY_ROUTING_CONFIGURATION,
+      revalidateBeforeDispatch: () => {
+        preflights += 1;
+        if (preflights === 2) throw new Error("attestation expired");
+      },
+    },
+  });
+
+  await assert.rejects(() => port.generate(request()), /attestation expired/);
+  assert.equal(preflights, 2);
+  assert.equal(calls.length, 1);
+});
+
+test("privacy mode rejects drift and requires an opaque response id", async () => {
+  assert.throws(
+    () => provider.createOpenRouterTextGenerationPort({
+      apiKey: API_KEY,
+      privacy: {
+        routingConfiguration: { provider: { data_collection: "deny", zdr: true } },
+        revalidateBeforeDispatch: () => {},
+      },
+    }),
+    (error) => error.code === "invalid_request",
+  );
+
+  const { implementation } = fakeFetch(async () =>
+    new Response(JSON.stringify(completionPayload()), { status: 200 }));
+  const port = provider.createOpenRouterTextGenerationPort({
+    apiKey: API_KEY,
+    fetchImplementation: implementation,
+    privacy: {
+      routingConfiguration: provider.OPENROUTER_PRIVACY_ROUTING_CONFIGURATION,
+      revalidateBeforeDispatch: () => {},
+    },
+  });
+  await assert.rejects(
+    () => port.generate(request()),
+    (error) => error.code === "malformed_provider_response",
+  );
+
+  const oversized = fakeFetch(async () =>
+    new Response(JSON.stringify(completionPayload({ id: "p".repeat(129) })), { status: 200 }));
+  const oversizedPort = provider.createOpenRouterTextGenerationPort({
+    apiKey: API_KEY,
+    fetchImplementation: oversized.implementation,
+    privacy: {
+      routingConfiguration: provider.OPENROUTER_PRIVACY_ROUTING_CONFIGURATION,
+      revalidateBeforeDispatch: () => {},
+    },
+  });
+  await assert.rejects(
+    () => oversizedPort.generate(request()),
+    (error) => error.code === "malformed_provider_response",
+  );
+});
+
+test("privacy routing is snapshotted so caller mutation cannot relax a later dispatch", async () => {
+  const routingConfiguration = {
+    provider: {
+      data_collection: "deny",
+      zdr: true,
+      allow_fallbacks: false,
+      require_parameters: true,
+    },
+  };
+  const { calls, implementation } = fakeFetch(async () =>
+    new Response(JSON.stringify(completionPayload({ id: "gen-preview-immutable" })), { status: 200 }));
+  const port = provider.createOpenRouterTextGenerationPort({
+    apiKey: API_KEY,
+    fetchImplementation: implementation,
+    privacy: {
+      routingConfiguration,
+      revalidateBeforeDispatch: () => {},
+    },
+  });
+  routingConfiguration.provider.data_collection = "allow";
+  routingConfiguration.provider.zdr = false;
+  routingConfiguration.provider.allow_fallbacks = true;
+  routingConfiguration.provider.require_parameters = false;
+
+  await port.generate(request());
+
+  assert.deepEqual(JSON.parse(calls[0].init.body).provider, {
+    data_collection: "deny",
+    zdr: true,
+    allow_fallbacks: false,
+    require_parameters: true,
+  });
 });
 
 test("usage.cost reportado pelo provider vira reportedCostUsd; valor absurdo ou inválido é descartado", async () => {

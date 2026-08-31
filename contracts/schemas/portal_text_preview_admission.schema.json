@@ -1,0 +1,123 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://schemas.axtro.ai/v2/portal_text_preview_admission.schema.json",
+  "title": "Portal Text Preview Admission",
+  "description": "Durable, server-owned admission evidence for one disclosed Portal text preview session.",
+  "x-axtro-discriminator": "persistent_transcript",
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "schema_version": { "type": "string", "const": "2.0.0" },
+    "admission_id": { "$ref": "https://schemas.axtro.ai/v2/tool_execution_receipt.schema.json#/properties/execution_id" },
+    "tenant_id": { "$ref": "https://schemas.axtro.ai/v2/tool_execution_receipt.schema.json#/properties/tenant_id" },
+    "actor_id": { "$ref": "https://schemas.axtro.ai/v2/tool_execution_receipt.schema.json#/properties/intent_id" },
+    "agent_id": { "$ref": "https://schemas.axtro.ai/v2/tool_execution_receipt.schema.json#/properties/intent_id" },
+    "session_id": { "$ref": "https://schemas.axtro.ai/v2/tool_execution_receipt.schema.json#/properties/intent_id" },
+    "presenter_id": { "$ref": "https://schemas.axtro.ai/v2/tool_execution_receipt.schema.json#/properties/intent_id" },
+    "profile_id": {
+      "type": "string",
+      "enum": [
+        "openrouter_portal_text_essential_v1",
+        "openrouter_portal_text_persisted_v1"
+      ]
+    },
+    "profile_version": { "type": "string", "const": "1.0.0" },
+    "profile_fingerprint": { "type": "string", "pattern": "^sha256:[0-9a-f]{64}$" },
+    "provider_configuration_fingerprint": {
+      "type": "string",
+      "const": "sha256:70e60ec32d8a29d0f6264a0545e2ea1d215d02fe164d90dadaa63e99e59472de"
+    },
+    "client_session_ref_hash": { "type": "string", "pattern": "^[0-9a-f]{64}$" },
+    "command_fingerprint": { "type": "string", "pattern": "^[0-9a-f]{64}$" },
+    "identity_disclosure_id": { "$ref": "https://schemas.axtro.ai/v2/tool_execution_receipt.schema.json#/properties/execution_id" },
+    "data_use_disclosure_id": { "$ref": "https://schemas.axtro.ai/v2/tool_execution_receipt.schema.json#/properties/execution_id" },
+    "essential_consent_id": { "$ref": "https://schemas.axtro.ai/v2/tool_execution_receipt.schema.json#/properties/execution_id" },
+    "privacy_policy_id": { "$ref": "https://schemas.axtro.ai/v2/tool_execution_receipt.schema.json#/properties/execution_id" },
+    "jurisdiction": {
+      "type": "string",
+      "pattern": "^[A-Z]{2}(?:-[A-Z0-9]{1,3})?$"
+    },
+    "privacy_policy_version": { "type": "string", "pattern": "^[0-9]+\\.[0-9]+\\.[0-9]+$" },
+    "privacy_policy_fingerprint": { "type": "string", "pattern": "^sha256:[0-9a-f]{64}$" },
+    "transcript_consent_id": {
+      "anyOf": [
+        { "$ref": "https://schemas.axtro.ai/v2/tool_execution_receipt.schema.json#/properties/execution_id" },
+        { "type": "null" }
+      ]
+    },
+    "transcript_id": {
+      "anyOf": [
+        { "$ref": "https://schemas.axtro.ai/v2/tool_execution_receipt.schema.json#/properties/execution_id" },
+        { "type": "null" }
+      ]
+    },
+    "persistent_transcript": { "type": "boolean" },
+    "status": { "type": "string", "enum": ["issued", "expired"] },
+    "ttl_seconds": { "type": "integer", "const": 3600 },
+    "issued_at": { "type": "string", "format": "date-time" },
+    "expires_at": { "type": "string", "format": "date-time" }
+  },
+  "required": [
+    "schema_version",
+    "admission_id",
+    "tenant_id",
+    "actor_id",
+    "agent_id",
+    "session_id",
+    "presenter_id",
+    "profile_id",
+    "profile_version",
+    "profile_fingerprint",
+    "provider_configuration_fingerprint",
+    "client_session_ref_hash",
+    "command_fingerprint",
+    "identity_disclosure_id",
+    "data_use_disclosure_id",
+    "essential_consent_id",
+    "privacy_policy_id",
+    "jurisdiction",
+    "privacy_policy_version",
+    "privacy_policy_fingerprint",
+    "transcript_consent_id",
+    "transcript_id",
+    "persistent_transcript",
+    "status",
+    "ttl_seconds",
+    "issued_at",
+    "expires_at"
+  ],
+  "allOf": [
+    {
+      "if": {
+        "properties": { "persistent_transcript": { "const": false } },
+        "required": ["persistent_transcript"]
+      },
+      "then": {
+        "properties": {
+          "profile_id": { "const": "openrouter_portal_text_essential_v1" },
+          "profile_fingerprint": {
+            "const": "sha256:5f07f0bb93393c7fcd4412516db48f30fb3095fb31e9352cd2cf849b260a5173"
+          },
+          "transcript_consent_id": { "type": "null" },
+          "transcript_id": { "type": "null" }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": { "persistent_transcript": { "const": true } },
+        "required": ["persistent_transcript"]
+      },
+      "then": {
+        "properties": {
+          "profile_id": { "const": "openrouter_portal_text_persisted_v1" },
+          "profile_fingerprint": {
+            "const": "sha256:5062dd979ac79778052389f27069a16dfa8f33fb175d38181774415b1ff585b8"
+          },
+          "transcript_consent_id": { "$ref": "https://schemas.axtro.ai/v2/tool_execution_receipt.schema.json#/properties/execution_id" },
+          "transcript_id": { "$ref": "https://schemas.axtro.ai/v2/tool_execution_receipt.schema.json#/properties/execution_id" }
+        }
+      }
+    }
+  ]
+}

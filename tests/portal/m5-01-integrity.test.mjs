@@ -64,7 +64,10 @@ test("paid outliers stay closed and enabled AI surfaces validate before dispatch
   const ingestReservation = resourceActions.indexOf("executeReservedAiUsage({");
   assert.equal(ingestPreflight >= 0 && ingestPreflight < ingestReservation, true,
     "knowledge input must be bounded before its reservation can reach OpenRouter");
-  assert.match(agentPreview, /return \{ reply: null, error: PORTAL_TEXT_PREVIEW_RECOVERY_MESSAGE \};/);
+  assert.match(
+    agentPreview,
+    /return Object\.freeze\(\{[\s\S]*outcome: "failure"[\s\S]*reply: null[\s\S]*error: PORTAL_TEXT_PREVIEW_RECOVERY_MESSAGE[\s\S]*stateToken: null[\s\S]*persistence: "disabled"/,
+  );
   assert.doesNotMatch(agentPreview, /beginAiUsage|createOpenRouter|createClient|createServiceRoleClient/,
     "the recovery gate must have no path to an AI, persistence or provider effect");
   const brainPreflight = brainRoute.lastIndexOf("prepareEmbeddingQueryForReservedUsage");

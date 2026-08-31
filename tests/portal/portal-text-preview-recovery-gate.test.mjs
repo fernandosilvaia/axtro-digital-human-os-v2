@@ -12,10 +12,15 @@ const readiness = await readFile(new URL("apps/portal/src/app/api/ready/checks.t
 const bootstrap = await readFile(new URL("scripts/production-readiness-bootstrap.mjs", root), "utf8");
 const envExample = await readFile(new URL("apps/portal/.env.example", root), "utf8");
 
-test("legacy text preview is a dependency-free fail-closed Server Action", () => {
+test("public text preview is a contract-typed fail-closed Server Action", () => {
   assert.match(action, /export async function sendAgentPreviewMessage/);
-  assert.match(action, /return \{ reply: null, error: PORTAL_TEXT_PREVIEW_RECOVERY_MESSAGE \};/);
-  assert.doesNotMatch(action, /^import\s/m);
+  assert.match(action, /PortalTextPreviewBrowserCommand/);
+  assert.match(action, /Promise<PortalTextPreviewActionResult>/);
+  assert.match(action, /outcome: "failure"/);
+  assert.match(action, /error: PORTAL_TEXT_PREVIEW_RECOVERY_MESSAGE/);
+  assert.match(action, /stateToken: null/);
+  assert.match(action, /persistence: "disabled"/);
+  assert.doesNotMatch(action, /^import(?!\s+type)\s/m);
   assert.doesNotMatch(action, /process\.env|fetch\(|\.rpc\(|createClient|createServiceRoleClient|beginAiUsage|createOpenRouter|fetchAgents|fetchTenantOverview/);
 });
 

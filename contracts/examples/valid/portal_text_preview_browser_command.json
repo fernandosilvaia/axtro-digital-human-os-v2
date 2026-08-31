@@ -1,0 +1,11 @@
+{
+  "schema_version": "2.0.0",
+  "agentId": "019f0000-0000-7000-8000-000000000101",
+  "clientConversationId": "019f0000-0000-4000-8000-000000000901",
+  "commandId": "019f0000-0000-4000-8000-000000000902",
+  "userMessage": "Quero entender como o agente pode apoiar meu time comercial.",
+  "stateToken": null,
+  "aiIdentityAcknowledged": true,
+  "essentialProcessingAccepted": true,
+  "persistentTranscript": false
+}

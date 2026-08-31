@@ -6,9 +6,14 @@ import { pathToFileURL } from "node:url";
 export const PRODUCTION_BOOTSTRAP_VERSION = "m6-01-v1";
 export const FINANCIAL_WORKER_HEARTBEAT_VERSION = "m5-02-v1";
 export const MEETING_TERMINAL_NOTIFICATION_WORKER_HEARTBEAT_VERSION = "m6-01-v1";
-export const REQUIRED_SCHEMA_VERSION = 57;
+export const REQUIRED_SCHEMA_VERSION = 58;
 const MINIMUM_BUSINESS_ACTION_SCHEMA_VERSION = 56;
-const COMPATIBLE_SCHEMA_VERSIONS = new Set([50, MINIMUM_BUSINESS_ACTION_SCHEMA_VERSION, REQUIRED_SCHEMA_VERSION]);
+const MEETING_NOTIFICATION_SCHEMA_VERSIONS = new Set([57, REQUIRED_SCHEMA_VERSION]);
+const COMPATIBLE_SCHEMA_VERSIONS = new Set([
+  50,
+  MINIMUM_BUSINESS_ACTION_SCHEMA_VERSION,
+  ...MEETING_NOTIFICATION_SCHEMA_VERSIONS,
+]);
 
 const REQUEST_TIMEOUT_MS = 20_000;
 const MAX_RPC_RESPONSE_BYTES = 64 * 1024;
@@ -401,7 +406,7 @@ function createReadOnlyStripeFetch(fetchImplementation) {
 function validateSchema(value, businessActionsEnabled, meetingTerminalNotificationsEnabled) {
   const capabilities = ownRecord(value);
   const version = capabilities?.version;
-  const meetingNotificationSchemaReady = version === REQUIRED_SCHEMA_VERSION
+  const meetingNotificationSchemaReady = MEETING_NOTIFICATION_SCHEMA_VERSIONS.has(version)
     ? capabilities.meetingTerminalNotificationClaim === false
       && REQUIRED_MEETING_NOTIFICATION_CAPABILITIES.every((capability) => capabilities[capability] === true)
     : (version === 50 || version === MINIMUM_BUSINESS_ACTION_SCHEMA_VERSION)
@@ -412,7 +417,8 @@ function validateSchema(value, businessActionsEnabled, meetingTerminalNotificati
     || !COMPATIBLE_SCHEMA_VERSIONS.has(version)
     || !REQUIRED_CAPABILITIES.every((capability) => capabilities[capability] === true)
     || !meetingNotificationSchemaReady
-    || (meetingTerminalNotificationsEnabled && version !== REQUIRED_SCHEMA_VERSION)
+    || (version === REQUIRED_SCHEMA_VERSION && capabilities.portalTextPreviewAuthorityRepair !== true)
+    || (meetingTerminalNotificationsEnabled && !MEETING_NOTIFICATION_SCHEMA_VERSIONS.has(version))
     || (businessActionsEnabled && (
       version < MINIMUM_BUSINESS_ACTION_SCHEMA_VERSION
       || !REQUIRED_BUSINESS_ACTION_CAPABILITIES.every((capability) => capabilities[capability] === true)

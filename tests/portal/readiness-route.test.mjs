@@ -164,6 +164,12 @@ const MEETING_NOTIFICATION_CAPABILITIES = Object.freeze({
   meetingTerminalNotificationWorkerHeartbeat: true,
 });
 
+const AUTHORITY_REPAIR_CAPABILITIES = Object.freeze({
+  ...MEETING_NOTIFICATION_CAPABILITIES,
+  version: 58,
+  portalTextPreviewAuthorityRepair: true,
+});
+
 const FRESH_WORKERS = Object.freeze({
   billingUsage: Object.freeze({
     lastSucceededAt: "2026-08-13T12:00:00.000Z",
@@ -283,7 +289,7 @@ test("worker readiness RPC errors fail closed after schema validation", async ()
 });
 
 test("readiness rejects unknown or malformed schema versions and never probes workers", async () => {
-  for (const version of [42, 43, 44, 45, 46, 47, 48, 49, 51, 52, 53, 54, 55, 56.5, 57, "56", undefined]) {
+  for (const version of [42, 43, 44, 45, 46, 47, 48, 49, 51, 52, 53, 54, 55, 56.5, 57, 58, "56", undefined]) {
     const calls = [];
     const response = await handleReadiness({
       env: { ...ENV },
@@ -303,7 +309,7 @@ test("readiness rejects unknown or malformed schema versions and never probes wo
   }
 });
 
-test("business actions disabled accept bridge schemas v50, v56 and the v57 outbox", async () => {
+test("business actions disabled accept bridge schemas v50, v56 and the v57/v58 outbox", async () => {
   for (const version of [50, 56]) {
     const response = await handleReadiness({
       env: { ...ENV, PORTAL_BUSINESS_ACTION_BRIDGE_ENABLED: "false" },
@@ -321,6 +327,16 @@ test("business actions disabled accept bridge schemas v50, v56 and the v57 outbo
     logError: () => {},
   });
   assert.equal(response.status, 200);
+
+  const authorityRepair = await handleReadiness({
+    env: { ...ENV, PORTAL_BUSINESS_ACTION_BRIDGE_ENABLED: "false" },
+    createClient: () => clientWith(
+      { data: { ...CAPABILITIES, ...AUTHORITY_REPAIR_CAPABILITIES }, error: null },
+      { data: FRESH_WORKERS_V57, error: null },
+    ),
+    logError: () => {},
+  });
+  assert.equal(authorityRepair.status, 200);
 });
 
 test("v57 exige claim antiga false e todas as capabilities do outbox", async () => {
@@ -334,6 +350,31 @@ test("v57 exige claim antiga false e todas as capabilities do outbox", async () 
         { [capability]: false },
         { [capability]: undefined },
       ]),
+  ]) {
+    const calls = [];
+    const response = await handleReadiness({
+      env: { ...ENV },
+      createClient: () => clientWith(
+        { data: { ...schema, ...patch }, error: null },
+        { data: FRESH_WORKERS_V57, error: null },
+        calls,
+      ),
+      logError: () => {},
+    });
+    assert.equal(response.status, 503, JSON.stringify(patch));
+    assert.deepEqual(calls, ["portal_schema_capabilities_service"]);
+  }
+});
+
+test("v58 exige a união v57 e a capability de authority repair", async () => {
+  const schema = { ...CAPABILITIES, ...AUTHORITY_REPAIR_CAPABILITIES };
+  for (const patch of [
+    { portalTextPreviewAuthorityRepair: false },
+    { portalTextPreviewAuthorityRepair: undefined },
+    { meetingTerminalNotificationClaim: true },
+    ...Object.keys(MEETING_NOTIFICATION_CAPABILITIES)
+      .filter((capability) => capability !== "version" && capability !== "meetingTerminalNotificationClaim")
+      .map((capability) => ({ [capability]: false })),
   ]) {
     const calls = [];
     const response = await handleReadiness({
@@ -364,7 +405,7 @@ test("v57 com outbox desligado não exige heartbeat do worker dormente", async (
   assert.equal(body.checks.meeting_notification_worker, true);
 });
 
-test("outbox habilitado exige v57 e um heartbeat de notificação fresco e separado", async () => {
+test("outbox habilitado exige v57 ou v58 e um heartbeat de notificação fresco e separado", async () => {
   const enabledEnv = {
     ...ENV,
     MEETING_TERMINAL_NOTIFICATION_OUTBOX_ENABLED: "true",
@@ -417,6 +458,17 @@ test("outbox habilitado exige v57 e um heartbeat de notificação fresco e separ
   });
   assert.equal(ready.status, 200);
   assert.equal((await assertNoStore(ready)).checks.meeting_notification_worker, true);
+
+  const readyV58 = await handleReadiness({
+    env: enabledEnv,
+    createClient: () => clientWith(
+      { data: { ...CAPABILITIES, ...AUTHORITY_REPAIR_CAPABILITIES }, error: null },
+      { data: FRESH_WORKERS_V57, error: null },
+    ),
+    logError: () => {},
+  });
+  assert.equal(readyV58.status, 200);
+  assert.equal((await assertNoStore(readyV58)).checks.meeting_notification_worker, true);
 });
 
 test("fake mode permite outbox habilitado sem credencial Resend e sem heartbeat", async () => {
@@ -470,7 +522,7 @@ test("meeting notification readiness flags fail closed before database access", 
   }
 });
 
-test("business actions enabled require v56 or v57 and every business-action capability", async () => {
+test("business actions enabled require v56, v57 or v58 and every business-action capability", async () => {
   const schema = { ...CAPABILITIES, version: 56, ...BUSINESS_ACTION_CAPABILITIES };
   for (const version of [48, 49, 50, 51, 52, 53, 54, 55]) {
     const calls = [];
@@ -510,6 +562,16 @@ test("business actions enabled require v56 or v57 and every business-action capa
     logError: () => {},
   });
   assert.equal(v57.status, 200);
+
+  const v58 = await handleReadiness({
+    env: { ...ENV, PORTAL_BUSINESS_ACTION_BRIDGE_ENABLED: "true" },
+    createClient: () => clientWith(
+      { data: { ...schema, ...AUTHORITY_REPAIR_CAPABILITIES }, error: null },
+      { data: FRESH_WORKERS_V57, error: null },
+    ),
+    logError: () => {},
+  });
+  assert.equal(v58.status, 200);
 });
 
 test("invalid business-action flag fails config readiness before database access", async () => {

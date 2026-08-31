@@ -15,6 +15,13 @@
  * - fetch injetável: os testes cobrem o adapter sem rede.
  */
 
+import {
+  openRouterPrivacyRoutingConfigurationFingerprint,
+  type OpenRouterPrivacyRoutingConfiguration,
+} from "./processing-profile.js";
+
+export * from "./processing-profile.js";
+
 export interface TextGenerationMessage {
   readonly role: "system" | "user" | "assistant";
   readonly content: string;
@@ -41,6 +48,8 @@ export interface TextGenerationResult {
   readonly text: string;
   readonly model: string;
   readonly usage: TextGenerationUsage;
+  /** Opaque provider identity used only by durable completion/reconciliation. */
+  readonly providerRequestId: string | null;
 }
 
 export type TextGenerationErrorCode =
@@ -74,6 +83,14 @@ export interface OpenRouterAdapterOptions {
   /** Identificação de app enviada ao OpenRouter (headers de atribuição). */
   readonly appUrl?: string;
   readonly appTitle?: string;
+  /**
+   * Opt-in fence for the Portal preview. Existing generation and embedding
+   * callers remain unchanged until M6-06 authorizes their rollout.
+   */
+  readonly privacy?: Readonly<{
+    readonly routingConfiguration: OpenRouterPrivacyRoutingConfiguration;
+    readonly revalidateBeforeDispatch: () => void | Promise<void>;
+  }>;
 }
 
 const ENDPOINT = "https://openrouter.ai/api/v1/chat/completions";
@@ -106,8 +123,10 @@ async function fetchWithRateLimitRetry(
   init: { readonly method: string; readonly headers: Record<string, string>; readonly body: string },
   timeoutMs: number,
   providerLabel: string,
+  revalidateBeforeDispatch?: () => void | Promise<void>,
 ): Promise<RateLimitRetryAttempt> {
   for (let attempt = 1; attempt <= 2; attempt++) {
+    await revalidateBeforeDispatch?.();
     const controller = new AbortController();
     const timer = setTimeout(() => controller.abort(), timeoutMs);
     let response: Response;
@@ -154,6 +173,29 @@ export function createOpenRouterTextGenerationPort(options: OpenRouterAdapterOpt
   }
   const timeoutMs = options.timeoutMs ?? DEFAULT_TIMEOUT_MS;
   const fetchImplementation = options.fetchImplementation ?? fetch;
+  const configuredPrivacy = options.privacy;
+  let privacy: OpenRouterAdapterOptions["privacy"];
+  if (configuredPrivacy !== undefined) {
+    if (typeof configuredPrivacy.revalidateBeforeDispatch !== "function") {
+      throw new TextGenerationError("invalid_request", "OpenRouter privacy revalidator is not configured");
+    }
+    try {
+      openRouterPrivacyRoutingConfigurationFingerprint(configuredPrivacy.routingConfiguration);
+    } catch {
+      throw new TextGenerationError("invalid_request", "OpenRouter privacy routing is invalid");
+    }
+    privacy = Object.freeze({
+      routingConfiguration: Object.freeze({
+        provider: Object.freeze({
+          data_collection: "deny",
+          zdr: true,
+          allow_fallbacks: false,
+          require_parameters: true,
+        }),
+      }),
+      revalidateBeforeDispatch: configuredPrivacy.revalidateBeforeDispatch,
+    });
+  }
 
   return Object.freeze({
     providerId: "openrouter",
@@ -175,6 +217,9 @@ export function createOpenRouterTextGenerationPort(options: OpenRouterAdapterOpt
             model: request.model,
             messages: request.messages.map((message) => ({ role: message.role, content: message.content })),
             max_tokens: request.maxOutputTokens,
+            ...(privacy === undefined ? {} : {
+              provider: privacy.routingConfiguration.provider,
+            }),
             // Pede o custo faturado real na resposta (usage.cost) — evita
             // dupla manutenção de preço de tabela no SQL pro caminho de chat
             // e cobre qualquer OPENROUTER_MODEL configurado (0027).
@@ -183,6 +228,7 @@ export function createOpenRouterTextGenerationPort(options: OpenRouterAdapterOpt
         },
         timeoutMs,
         "OpenRouter",
+        privacy?.revalidateBeforeDispatch,
       );
 
       // O timer segue vivo até o corpo ser consumido — headers rápidos com
@@ -202,7 +248,14 @@ export function createOpenRouterTextGenerationPort(options: OpenRouterAdapterOpt
           }
           throw new TextGenerationError("malformed_provider_response", "OpenRouter returned non-JSON output");
         }
-        return parseCompletion(payload);
+        const completion = parseCompletion(payload);
+        if (privacy !== undefined && completion.providerRequestId === null) {
+          throw new TextGenerationError(
+            "malformed_provider_response",
+            "OpenRouter privacy-fenced response has no provider request identity",
+          );
+        }
+        return completion;
       } finally {
         clearTimer();
       }
@@ -393,10 +446,15 @@ function parseCompletion(payload: unknown): TextGenerationResult {
   const outputTokens = normalizeTokenCount(usageRecord.completion_tokens);
   const reportedCostUsd = normalizeReportedCost(usageRecord.cost);
   const model = typeof record.model === "string" && record.model.length > 0 ? record.model : "openrouter/unknown";
+  const providerRequestId = typeof record.id === "string"
+    && /^[!-~]{1,128}$/.test(record.id)
+    ? record.id
+    : null;
 
   return Object.freeze({
     text,
     model,
+    providerRequestId,
     usage: Object.freeze({
       inputTokens,
       outputTokens,

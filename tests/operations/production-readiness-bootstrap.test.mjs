@@ -119,6 +119,12 @@ const OUTBOX_SCHEMA = Object.freeze({
   ...MEETING_NOTIFICATION_CAPABILITIES,
 });
 
+const AUTHORITY_REPAIR_SCHEMA = Object.freeze({
+  ...OUTBOX_SCHEMA,
+  version: 58,
+  portalTextPreviewAuthorityRepair: true,
+});
+
 const BILLING_BACKLOG = Object.freeze({
   pending: 0,
   oldestAgeSeconds: 0,
@@ -303,7 +309,7 @@ test("base schema capability mismatch fails before the typed RPC probe, backlog,
 });
 
 test("bootstrap rejects unknown or malformed schema versions before any downstream probe", async () => {
-  for (const version of [42, 43, 44, 45, 46, 47, 48, 49, 51, 52, 53, 54, 55, 56.5, 57, "56", undefined]) {
+  for (const version of [42, 43, 44, 45, 46, 47, 48, 49, 51, 52, 53, 54, 55, 56.5, 57, 58, "56", undefined]) {
     const { calls, promise } = run({ schema: { ...SCHEMA, version } });
     await assert.rejects(promise, isCode("SCHEMA_CAPABILITY_MISMATCH"));
     assert.equal(calls.length, 1, `version:${String(version)}`);
@@ -311,19 +317,37 @@ test("bootstrap rejects unknown or malformed schema versions before any downstre
   }
 });
 
-test("business actions disabled accept legacy bridge schemas and the v57 notification outbox", async () => {
+test("business actions disabled accept legacy bridge schemas and the v57/v58 notification outbox", async () => {
   for (const version of [50, 56]) {
     const { promise } = run({ schema: { ...SCHEMA, version } });
     assert.equal((await promise).schemaVersion, version);
   }
   const { promise } = run({ schema: OUTBOX_SCHEMA });
   assert.equal((await promise).schemaVersion, 57);
+  const authorityRepair = run({ schema: AUTHORITY_REPAIR_SCHEMA });
+  assert.equal((await authorityRepair.promise).schemaVersion, 58);
 });
 
 test("v57 requires every outbox capability and the disabled legacy claim contract", async () => {
   for (const capability of Object.keys(MEETING_NOTIFICATION_CAPABILITIES)) {
     const invalidValue = capability === "meetingTerminalNotificationClaim" ? true : false;
     const { calls, promise } = run({ schema: { ...OUTBOX_SCHEMA, [capability]: invalidValue } });
+    await assert.rejects(promise, isCode("SCHEMA_CAPABILITY_MISMATCH"), capability);
+    assert.equal(calls.length, 1, capability);
+  }
+});
+
+test("v58 requires the v57 capability union plus the authority repair proof", async () => {
+  for (const absentValue of [false, undefined]) {
+    const { calls, promise } = run({
+      schema: { ...AUTHORITY_REPAIR_SCHEMA, portalTextPreviewAuthorityRepair: absentValue },
+    });
+    await assert.rejects(promise, isCode("SCHEMA_CAPABILITY_MISMATCH"));
+    assert.equal(calls.length, 1, String(absentValue));
+  }
+  for (const capability of Object.keys(MEETING_NOTIFICATION_CAPABILITIES)) {
+    const invalidValue = capability === "meetingTerminalNotificationClaim" ? true : false;
+    const { calls, promise } = run({ schema: { ...AUTHORITY_REPAIR_SCHEMA, [capability]: invalidValue } });
     await assert.rejects(promise, isCode("SCHEMA_CAPABILITY_MISMATCH"), capability);
     assert.equal(calls.length, 1, capability);
   }
@@ -358,6 +382,11 @@ test("business actions enabled require v56 and every repaired business capabilit
     schema: { ...OUTBOX_SCHEMA, ...BUSINESS_ACTION_CAPABILITIES },
   });
   assert.equal((await outbox.promise).schemaVersion, 57);
+  const authorityRepair = run({
+    env: { PORTAL_BUSINESS_ACTION_BRIDGE_ENABLED: "true" },
+    schema: { ...AUTHORITY_REPAIR_SCHEMA, ...BUSINESS_ACTION_CAPABILITIES },
+  });
+  assert.equal((await authorityRepair.promise).schemaVersion, 58);
 });
 
 test("bootstrap rejects a non-boolean business-action flag before any remote request", async () => {
@@ -543,30 +572,32 @@ test("happy path validates all read-only probes then persists exact versioned he
   assert.equal(heartbeatCalls[3].p_counters.operatorRequired, 0);
 });
 
-test("enabled v57 bootstrap validates notification readiness without fabricating worker health", async () => {
+test("enabled v57/v58 bootstrap validates notification readiness without fabricating worker health", async () => {
   const env = {
     ...ENV,
     MEETING_TERMINAL_NOTIFICATION_OUTBOX_ENABLED: "true",
     MEETING_TERMINAL_NOTIFICATION_DISPATCH_SECRET: "meeting-notification-production-secret",
     RESEND_API_KEY: "re_production_bootstrap",
   };
-  const { calls, promise } = run({ env, schema: OUTBOX_SCHEMA });
-  const result = await promise;
-  assert.equal(result.schemaVersion, 57);
-  assert.equal(result.heartbeats, 2);
-  assert.equal(calls.some((call) => call.url.includes("api.resend.com")), false);
+  for (const schema of [OUTBOX_SCHEMA, AUTHORITY_REPAIR_SCHEMA]) {
+    const { calls, promise } = run({ env, schema });
+    const result = await promise;
+    assert.equal(result.schemaVersion, schema.version);
+    assert.equal(result.heartbeats, 2);
+    assert.equal(calls.some((call) => call.url.includes("api.resend.com")), false);
 
-  const heartbeatCalls = calls
-    .filter((call) => call.url.endsWith("portal_record_worker_heartbeat_service"))
-    .map((call) => JSON.parse(call.body));
-  assert.deepEqual(heartbeatCalls.map((call) => [call.p_worker_kind, call.p_phase]), [
-    ["billing_usage", "started"],
-    ["billing_usage", "succeeded"],
-    ["provider_effect_reconciler", "started"],
-    ["provider_effect_reconciler", "succeeded"],
-  ]);
-  assert.ok(heartbeatCalls.every((call) => call.p_version === FINANCIAL_WORKER_HEARTBEAT_VERSION));
-  assert.equal(heartbeatCalls.some((call) => call.p_worker_kind === "meeting_terminal_notification"), false);
+    const heartbeatCalls = calls
+      .filter((call) => call.url.endsWith("portal_record_worker_heartbeat_service"))
+      .map((call) => JSON.parse(call.body));
+    assert.deepEqual(heartbeatCalls.map((call) => [call.p_worker_kind, call.p_phase]), [
+      ["billing_usage", "started"],
+      ["billing_usage", "succeeded"],
+      ["provider_effect_reconciler", "started"],
+      ["provider_effect_reconciler", "succeeded"],
+    ]);
+    assert.ok(heartbeatCalls.every((call) => call.p_version === FINANCIAL_WORKER_HEARTBEAT_VERSION));
+    assert.equal(heartbeatCalls.some((call) => call.p_worker_kind === "meeting_terminal_notification"), false);
+  }
 });
 
 test("an explicitly configured live Stripe catalog is verified with read-only GETs", async () => {

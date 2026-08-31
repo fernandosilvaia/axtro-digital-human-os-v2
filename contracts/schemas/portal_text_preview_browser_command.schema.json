@@ -1,0 +1,35 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://schemas.axtro.ai/v2/portal_text_preview_browser_command.schema.json",
+  "title": "Portal Text Preview Browser Command",
+  "description": "Closed browser-owned input for one disclosed text preview turn. Conversation history and transcript identifiers are server-owned and cannot be supplied by the caller.",
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "schema_version": { "type": "string", "const": "2.0.0" },
+    "agentId": { "type": "string", "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$" },
+    "clientConversationId": { "type": "string", "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$" },
+    "commandId": { "type": "string", "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$" },
+    "userMessage": { "type": "string", "minLength": 1, "maxLength": 2000, "pattern": ".*\\S.*" },
+    "stateToken": {
+      "oneOf": [
+        { "type": "string", "minLength": 51, "maxLength": 98304, "pattern": "^ptsv1\\.[A-Za-z0-9_-]+\\.[A-Za-z0-9_-]+$" },
+        { "type": "null" }
+      ]
+    },
+    "aiIdentityAcknowledged": { "type": "boolean", "const": true },
+    "essentialProcessingAccepted": { "type": "boolean", "const": true },
+    "persistentTranscript": { "type": "boolean" }
+  },
+  "required": [
+    "schema_version",
+    "agentId",
+    "clientConversationId",
+    "commandId",
+    "userMessage",
+    "stateToken",
+    "aiIdentityAcknowledged",
+    "essentialProcessingAccepted",
+    "persistentTranscript"
+  ]
+}

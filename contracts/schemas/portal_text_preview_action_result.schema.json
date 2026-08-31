@@ -1,0 +1,62 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://schemas.axtro.ai/v2/portal_text_preview_action_result.schema.json",
+  "title": "Portal Text Preview Action Result",
+  "description": "Closed result returned to the browser after one fenced text preview command.",
+  "x-axtro-discriminator": "outcome",
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "schema_version": { "type": "string", "const": "2.0.0" },
+    "outcome": { "type": "string", "enum": ["success", "failure"] },
+    "reply": {
+      "oneOf": [
+        { "type": "string", "minLength": 1, "maxLength": 4000 },
+        { "type": "null" }
+      ]
+    },
+    "error": {
+      "oneOf": [
+        { "type": "string", "minLength": 1, "maxLength": 1000 },
+        { "type": "null" }
+      ]
+    },
+    "stateToken": {
+      "oneOf": [
+        { "type": "string", "minLength": 51, "maxLength": 98304, "pattern": "^ptsv1\\.[A-Za-z0-9_-]+\\.[A-Za-z0-9_-]+$" },
+        { "type": "null" }
+      ]
+    },
+    "persistence": { "type": "string", "enum": ["disabled", "saved", "not_saved"] }
+  },
+  "required": ["schema_version", "outcome", "reply", "error", "stateToken", "persistence"],
+  "allOf": [
+    {
+      "if": {
+        "properties": { "outcome": { "const": "success" } },
+        "required": ["outcome"]
+      },
+      "then": {
+        "properties": {
+          "reply": { "type": "string", "minLength": 1, "maxLength": 4000 },
+          "error": { "type": "null" },
+          "stateToken": { "type": "string", "minLength": 51, "maxLength": 98304, "pattern": "^ptsv1\\.[A-Za-z0-9_-]+\\.[A-Za-z0-9_-]+$" }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": { "outcome": { "const": "failure" } },
+        "required": ["outcome"]
+      },
+      "then": {
+        "properties": {
+          "reply": { "type": "null" },
+          "error": { "type": "string", "minLength": 1, "maxLength": 1000 },
+          "stateToken": { "type": "null" },
+          "persistence": { "type": "string", "enum": ["disabled", "not_saved"] }
+        }
+      }
+    }
+  ]
+}

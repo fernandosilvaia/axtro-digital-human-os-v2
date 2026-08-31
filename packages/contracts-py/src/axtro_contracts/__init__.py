@@ -513,6 +513,111 @@ class PolicyDecision(TypedDict):
     evaluated_at: str
     expires_at: str
 
+# Source: contracts/schemas/portal_text_preview_action_result.schema.json; schema: https://schemas.axtro.ai/v2/portal_text_preview_action_result.schema.json; version: 2.0.0.
+class _PortalTextPreviewActionResultOutcomeSuccess(TypedDict):
+    schema_version: Literal['2.0.0']
+    outcome: Literal['success']
+    reply: str
+    error: None
+    stateToken: str
+    persistence: Literal['disabled', 'saved', 'not_saved']
+
+class _PortalTextPreviewActionResultOutcomeFailure(TypedDict):
+    schema_version: Literal['2.0.0']
+    outcome: Literal['failure']
+    reply: None
+    error: str
+    stateToken: None
+    persistence: Literal['disabled', 'not_saved']
+
+PortalTextPreviewActionResult: TypeAlias = _PortalTextPreviewActionResultOutcomeSuccess | _PortalTextPreviewActionResultOutcomeFailure
+
+# Source: contracts/schemas/portal_text_preview_admission.schema.json; schema: https://schemas.axtro.ai/v2/portal_text_preview_admission.schema.json; version: 2.0.0.
+class _PortalTextPreviewAdmissionPersistentTranscriptFalse(TypedDict):
+    schema_version: Literal['2.0.0']
+    admission_id: str
+    tenant_id: str
+    actor_id: str
+    agent_id: str
+    session_id: str
+    presenter_id: str
+    profile_id: Literal['openrouter_portal_text_essential_v1']
+    profile_version: Literal['1.0.0']
+    profile_fingerprint: Literal['sha256:5f07f0bb93393c7fcd4412516db48f30fb3095fb31e9352cd2cf849b260a5173']
+    provider_configuration_fingerprint: Literal['sha256:70e60ec32d8a29d0f6264a0545e2ea1d215d02fe164d90dadaa63e99e59472de']
+    client_session_ref_hash: str
+    command_fingerprint: str
+    identity_disclosure_id: str
+    data_use_disclosure_id: str
+    essential_consent_id: str
+    privacy_policy_id: str
+    jurisdiction: str
+    privacy_policy_version: str
+    privacy_policy_fingerprint: str
+    transcript_consent_id: None
+    transcript_id: None
+    persistent_transcript: Literal[False]
+    status: Literal['issued', 'expired']
+    ttl_seconds: Literal[3600]
+    issued_at: str
+    expires_at: str
+
+class _PortalTextPreviewAdmissionPersistentTranscriptTrue(TypedDict):
+    schema_version: Literal['2.0.0']
+    admission_id: str
+    tenant_id: str
+    actor_id: str
+    agent_id: str
+    session_id: str
+    presenter_id: str
+    profile_id: Literal['openrouter_portal_text_persisted_v1']
+    profile_version: Literal['1.0.0']
+    profile_fingerprint: Literal['sha256:5062dd979ac79778052389f27069a16dfa8f33fb175d38181774415b1ff585b8']
+    provider_configuration_fingerprint: Literal['sha256:70e60ec32d8a29d0f6264a0545e2ea1d215d02fe164d90dadaa63e99e59472de']
+    client_session_ref_hash: str
+    command_fingerprint: str
+    identity_disclosure_id: str
+    data_use_disclosure_id: str
+    essential_consent_id: str
+    privacy_policy_id: str
+    jurisdiction: str
+    privacy_policy_version: str
+    privacy_policy_fingerprint: str
+    transcript_consent_id: str
+    transcript_id: str
+    persistent_transcript: Literal[True]
+    status: Literal['issued', 'expired']
+    ttl_seconds: Literal[3600]
+    issued_at: str
+    expires_at: str
+
+PortalTextPreviewAdmission: TypeAlias = _PortalTextPreviewAdmissionPersistentTranscriptFalse | _PortalTextPreviewAdmissionPersistentTranscriptTrue
+
+# Source: contracts/schemas/portal_text_preview_browser_command.schema.json; schema: https://schemas.axtro.ai/v2/portal_text_preview_browser_command.schema.json; version: 2.0.0.
+class PortalTextPreviewBrowserCommand(TypedDict):
+    schema_version: Literal['2.0.0']
+    agentId: str
+    clientConversationId: str
+    commandId: str
+    userMessage: str
+    stateToken: (str) | (None)
+    aiIdentityAcknowledged: Literal[True]
+    essentialProcessingAccepted: Literal[True]
+    persistentTranscript: bool
+
+# Source: contracts/schemas/portal_text_preview_signed_state_payload.schema.json; schema: https://schemas.axtro.ai/v2/portal_text_preview_signed_state_payload.schema.json; version: 2.0.0.
+class PortalTextPreviewSignedStatePayload(TypedDict):
+    schema_version: Literal['2.0.0']
+    admission_id: str
+    binding_fingerprint: str
+    profile_id: Literal['openrouter_portal_text_essential_v1', 'openrouter_portal_text_persisted_v1']
+    profile_version: Literal['1.0.0']
+    profile_fingerprint: str
+    generation: int
+    turns: list[(dict[str, object]) | (dict[str, object])]
+    issued_at: str
+    expires_at: str
+
 # Source: contracts/schemas/post_call_workflow_command.schema.json; schema: https://schemas.axtro.ai/v2/post_call_workflow_command.schema.json; version: 2.0.0.
 class PostCallWorkflowCommand(TypedDict):
     schema_version: Literal['2.0.0']
@@ -623,6 +728,28 @@ class ProviderCapability(TypedDict):
 class ProviderEffectTerminationResult(TypedDict):
     schema_version: Literal['2.0.0']
     outcome: Literal['accepted', 'disabled', 'in_progress', 'retry_after', 'operator_required', 'not_started', 'not_stoppable', 'retryable_failure']
+
+# Source: contracts/schemas/provider_processing_profile.schema.json; schema: https://schemas.axtro.ai/v2/provider_processing_profile.schema.json; version: 2.0.0.
+class ProviderProcessingProfile(TypedDict):
+    schema_version: Literal['2.0.0']
+    profile_id: str
+    profile_version: str
+    provider_id: str
+    channel_kind: Literal['portal_text', 'tavus_video', 'recall_meeting']
+    mode: Literal['text', 'video', 'presentation', 'external_meeting']
+    recording_mode: Literal['off', 'participant_opt_in', 'automatic']
+    persistent_transcript_mode: Literal['off', 'application_opt_in', 'provider_required', 'hard_delete_after_call']
+    perception_mode: Literal['off', 'full']
+    regional_policy: Literal['eu', 'unset']
+    required_consent_purposes: list[Literal['recording', 'persistent_transcription', 'behavioral_analysis', 'visual_analysis']]
+    performed_processing_purposes: list[Literal['recording', 'persistent_transcription', 'behavioral_analysis', 'visual_analysis']]
+    channel_features: list[Literal['scene_presentation']]
+    essential_only_eligible: bool
+    reviewed_at: str
+    review_ttl_hours: int
+    verification_mode: Literal['code_owned', 'provider_readback']
+    verification_ttl_hours: int
+    sources: list[str]
 
 # Source: contracts/schemas/provider_registry_entry.schema.json; schema: https://schemas.axtro.ai/v2/provider_registry_entry.schema.json; version: 2.0.0.
 class ProviderRegistryEntry(TypedDict):
@@ -1134,6 +1261,30 @@ CONTRACT_METADATA: dict[str, dict[str, str]] = {
     "source_hash": "4832dfa5d90d69b7365eade438c32da0c4ef86210415974e425e8e6e38684b3b",
     "source_schema": "contracts/schemas/policy_decision.schema.json"
   },
+  "PortalTextPreviewActionResult": {
+    "schema_id": "https://schemas.axtro.ai/v2/portal_text_preview_action_result.schema.json",
+    "schema_version": "2.0.0",
+    "source_hash": "dbe118fb8d8c6ad9019d74ab22099116060bcefb1d133b78d490402312532ea3",
+    "source_schema": "contracts/schemas/portal_text_preview_action_result.schema.json"
+  },
+  "PortalTextPreviewAdmission": {
+    "schema_id": "https://schemas.axtro.ai/v2/portal_text_preview_admission.schema.json",
+    "schema_version": "2.0.0",
+    "source_hash": "7991b463bd1fd87ba7a8666e0a24ed5658e0eafcb146969d10fe1967a558d885",
+    "source_schema": "contracts/schemas/portal_text_preview_admission.schema.json"
+  },
+  "PortalTextPreviewBrowserCommand": {
+    "schema_id": "https://schemas.axtro.ai/v2/portal_text_preview_browser_command.schema.json",
+    "schema_version": "2.0.0",
+    "source_hash": "6459fab48dd15e3330ec9beaab2dc0e94e7417109eaaea369d170d095e052cba",
+    "source_schema": "contracts/schemas/portal_text_preview_browser_command.schema.json"
+  },
+  "PortalTextPreviewSignedStatePayload": {
+    "schema_id": "https://schemas.axtro.ai/v2/portal_text_preview_signed_state_payload.schema.json",
+    "schema_version": "2.0.0",
+    "source_hash": "c141a591a5fecd850918c5a1af7d8cdf49322cfd038cb2a1a4f2bb717087617a",
+    "source_schema": "contracts/schemas/portal_text_preview_signed_state_payload.schema.json"
+  },
   "PostCallWorkflowCommand": {
     "schema_id": "https://schemas.axtro.ai/v2/post_call_workflow_command.schema.json",
     "schema_version": "2.0.0",
@@ -1169,6 +1320,12 @@ CONTRACT_METADATA: dict[str, dict[str, str]] = {
     "schema_version": "2.0.0",
     "source_hash": "237787f98aaad567d64b8a7cd74fa86bc5722295418ae964a2cdc21b82e4f816",
     "source_schema": "contracts/schemas/provider_effect_termination_result.schema.json"
+  },
+  "ProviderProcessingProfile": {
+    "schema_id": "https://schemas.axtro.ai/v2/provider_processing_profile.schema.json",
+    "schema_version": "2.0.0",
+    "source_hash": "51f53cd19191572db66000ee72cb69440a1e7aa6ca0d5d2acbc8ddb1d8566c9b",
+    "source_schema": "contracts/schemas/provider_processing_profile.schema.json"
   },
   "ProviderRegistryEntry": {
     "schema_id": "https://schemas.axtro.ai/v2/provider_registry_entry.schema.json",
@@ -1345,12 +1502,17 @@ __all__ = [
     'OperatorReconciliationReceipt',
     'PerceptionSignal',
     'PolicyDecision',
+    'PortalTextPreviewActionResult',
+    'PortalTextPreviewAdmission',
+    'PortalTextPreviewBrowserCommand',
+    'PortalTextPreviewSignedStatePayload',
     'PostCallWorkflowCommand',
     'PostCallWorkflowResult',
     'PostCallWorkflowStatus',
     'PreCallBriefing',
     'ProviderCapability',
     'ProviderEffectTerminationResult',
+    'ProviderProcessingProfile',
     'ProviderRegistryEntry',
     'RolePackManifest',
     'RoleState',

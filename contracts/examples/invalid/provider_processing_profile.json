@@ -1,0 +1,21 @@
+{
+  "schema_version": "2.0.0",
+  "profile_id": "unsafe-essential-tavus",
+  "profile_version": "1.0.0",
+  "provider_id": "tavus",
+  "channel_kind": "tavus_video",
+  "mode": "video",
+  "recording_mode": "automatic",
+  "persistent_transcript_mode": "provider_required",
+  "perception_mode": "full",
+  "regional_policy": "unset",
+  "required_consent_purposes": ["persistent_transcription"],
+  "performed_processing_purposes": ["persistent_transcription", "unknown_capability"],
+  "channel_features": ["scene_presentation"],
+  "essential_only_eligible": true,
+  "reviewed_at": "not-a-date",
+  "review_ttl_hours": 0,
+  "verification_mode": "provider_readback",
+  "verification_ttl_hours": 0,
+  "sources": []
+}
