@@ -1,0 +1,83 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://schemas.axtro.ai/v2/meeting_terminal_notification_command.schema.json",
+  "title": "Meeting Terminal Notification Command",
+  "description": "Restricted, tenant-scoped command leased by the meeting terminal notification worker.",
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "schema_version": { "type": "string", "const": "2.0.0" },
+    "command_id": { "type": "string", "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$" },
+    "tenant_id": { "type": "string", "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$" },
+    "meeting_session_id": { "type": "string", "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$" },
+    "terminal_status": { "type": "string", "enum": ["ended", "failed"] },
+    "template_version": { "type": "integer", "const": 1 },
+    "provider": { "type": "string", "const": "resend" },
+    "provider_idempotency_key": {
+      "type": "string",
+      "pattern": "^meeting-terminal:v1:[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$",
+      "maxLength": 256
+    },
+    "attempt": { "type": "integer", "minimum": 1, "maximum": 8 },
+    "dispatch_deadline_at": { "type": "string", "format": "date-time" },
+    "recipient_emails": {
+      "type": "array",
+      "minItems": 1,
+      "maxItems": 50,
+      "uniqueItems": true,
+      "items": { "type": "string", "format": "email", "maxLength": 320 }
+    },
+    "workspace_name": { "type": "string", "minLength": 1, "maxLength": 160 },
+    "agent_name": { "type": "string", "minLength": 1, "maxLength": 160 },
+    "payload_frozen": { "type": "boolean" },
+    "subject": {
+      "oneOf": [
+        { "type": "string", "minLength": 1, "maxLength": 200 },
+        { "type": "null" }
+      ]
+    },
+    "html": {
+      "oneOf": [
+        { "type": "string", "minLength": 1, "maxLength": 20000 },
+        { "type": "null" }
+      ]
+    },
+    "payload_fingerprint": {
+      "oneOf": [
+        { "type": "string", "pattern": "^[0-9a-f]{64}$" },
+        { "type": "null" }
+      ]
+    },
+    "data_classification": { "type": "string", "const": "restricted" }
+  },
+  "required": [
+    "schema_version", "command_id", "tenant_id", "meeting_session_id",
+    "terminal_status", "template_version", "provider",
+    "provider_idempotency_key", "attempt", "dispatch_deadline_at",
+    "recipient_emails", "workspace_name", "agent_name", "payload_frozen",
+    "subject", "html", "payload_fingerprint", "data_classification"
+  ],
+  "allOf": [
+    {
+      "if": { "properties": { "payload_frozen": { "const": true } }, "required": ["payload_frozen"] },
+      "then": {
+        "properties": {
+          "subject": { "type": "string", "minLength": 1, "maxLength": 200 },
+          "html": { "type": "string", "minLength": 1, "maxLength": 20000 },
+          "payload_fingerprint": { "type": "string", "pattern": "^[0-9a-f]{64}$" }
+        }
+      }
+    },
+    {
+      "if": { "properties": { "payload_frozen": { "const": false } }, "required": ["payload_frozen"] },
+      "then": {
+        "properties": {
+          "subject": { "type": "null" },
+          "html": { "type": "null" },
+          "payload_fingerprint": { "type": "null" }
+        }
+      }
+    }
+  ],
+  "x-axtro-discriminator": "payload_frozen"
+}

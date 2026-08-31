@@ -3,10 +3,12 @@
 import { createHash, randomBytes } from "node:crypto";
 import { pathToFileURL } from "node:url";
 
-export const PRODUCTION_BOOTSTRAP_VERSION = "m6-00-v1";
+export const PRODUCTION_BOOTSTRAP_VERSION = "m6-01-v1";
 export const FINANCIAL_WORKER_HEARTBEAT_VERSION = "m5-02-v1";
-export const REQUIRED_SCHEMA_VERSION = 56;
-const COMPATIBLE_SCHEMA_VERSIONS = new Set([50, REQUIRED_SCHEMA_VERSION]);
+export const MEETING_TERMINAL_NOTIFICATION_WORKER_HEARTBEAT_VERSION = "m6-01-v1";
+export const REQUIRED_SCHEMA_VERSION = 57;
+const MINIMUM_BUSINESS_ACTION_SCHEMA_VERSION = 56;
+const COMPATIBLE_SCHEMA_VERSIONS = new Set([50, MINIMUM_BUSINESS_ACTION_SCHEMA_VERSION, REQUIRED_SCHEMA_VERSION]);
 
 const REQUEST_TIMEOUT_MS = 20_000;
 const MAX_RPC_RESPONSE_BYTES = 64 * 1024;
@@ -45,7 +47,6 @@ const REQUIRED_CAPABILITIES = Object.freeze([
   "portalTextPreviewCanonicalOutbox",
   "portalTextPreviewSecurityBoundary",
   "legacyAuthenticatedChatTranscriptWriterAvailable",
-  "meetingTerminalNotificationClaim",
   "billingCheckoutIntents",
   "strictSubscriptionIdentity",
   "legacySubscriptionWriterRevoked",
@@ -58,6 +59,14 @@ const REQUIRED_CAPABILITIES = Object.freeze([
   "runtimeKillSwitches",
   "runtimeDualOperatorReconciliation",
   "runtimeBridgeReceiptIntegrity",
+]);
+
+const REQUIRED_MEETING_NOTIFICATION_CAPABILITIES = Object.freeze([
+  "meetingTerminalNotificationOutbox",
+  "meetingTerminalNotificationAtomicEnqueue",
+  "meetingTerminalNotificationLegacyClaimDisabled",
+  "meetingTerminalNotificationBoundedUnknown",
+  "meetingTerminalNotificationWorkerHeartbeat",
 ]);
 
 const REQUIRED_BUSINESS_ACTION_CAPABILITIES = Object.freeze([
@@ -79,8 +88,6 @@ const SERVICE_ROLE_RPC_PROBE = Object.freeze({
   p_channel_kind: "bootstrap_probe",
   p_capability: "bootstrap_probe",
 });
-const TERMINAL_NOTIFICATION_CLAIM_PROBE = Object.freeze({ p_recall_bot_id: "readiness-probe-not-a-uuid" });
-
 const PRICE_CATALOG = Object.freeze([
   Object.freeze({ env: "STRIPE_PRICE_PILOTO_BASE", amount: 49_700, usageType: "licensed" }),
   Object.freeze({ env: "STRIPE_PRICE_PILOTO_OVERAGE", amount: 3_000, usageType: "metered" }),
@@ -120,6 +127,17 @@ const AI_BACKLOG_KEYS = Object.freeze([
   "oldestProviderInFlightAgeSeconds",
   "oldestUnknownAgeSeconds",
   "receiptCount",
+]);
+const MEETING_NOTIFICATION_BACKLOG_KEYS = Object.freeze([
+  "pending",
+  "delivering",
+  "retryWait",
+  "ambiguous",
+  "providerAccepted",
+  "simulated",
+  "deadLetter",
+  "suppressed",
+  "oldestDispatchableAgeSeconds",
 ]);
 
 export class ProductionReadinessBootstrapError extends Error {
@@ -225,6 +243,24 @@ export function financialWorkerIdentity(worker, env) {
   return Object.freeze({ deploymentId: resolvedDeploymentId, configFingerprint });
 }
 
+export function meetingTerminalNotificationWorkerIdentity(env) {
+  const resolvedDeploymentId = deploymentId(env);
+  const configFingerprint = fingerprint({
+    schema: "meeting-terminal-notification-worker-config/v1",
+    worker: "meeting_terminal_notification",
+    providerMode: "real",
+    enabled: normalizedEnv(env, "MEETING_TERMINAL_NOTIFICATION_OUTBOX_ENABLED"),
+    provider: "resend",
+    templateVersion: 1,
+    batchLimit: 4,
+    leaseSeconds: 60,
+    providerTimeoutMs: 10_000,
+    idempotencyWindowHours: 23,
+  });
+  if (!CONFIG_FINGERPRINT_PATTERN.test(configFingerprint)) fail("CONFIG_INVALID");
+  return Object.freeze({ deploymentId: resolvedDeploymentId, configFingerprint });
+}
+
 function validateEnvironment(env) {
   const supabaseOrigin = parseSupabaseUrl(normalizedEnv(env, "NEXT_PUBLIC_SUPABASE_URL"));
   const serviceRoleKey = normalizedEnv(env, "SUPABASE_SERVICE_ROLE_KEY");
@@ -233,10 +269,19 @@ function validateEnvironment(env) {
   const priceIds = PRICE_CATALOG.map(({ env: name }) => normalizedEnv(env, name));
   const providerMode = normalizedEnv(env, "PORTAL_FAKE_PROVIDERS");
   const businessActionBridge = normalizedEnv(env, "PORTAL_BUSINESS_ACTION_BRIDGE_ENABLED");
+  const meetingTerminalNotificationOutbox = env.MEETING_TERMINAL_NOTIFICATION_OUTBOX_ENABLED ?? "";
+  const meetingTerminalNotificationsEnabled = meetingTerminalNotificationOutbox === "true";
   const portalTextPreviewRecoveryGate = env.PORTAL_TEXT_PREVIEW_ENABLED === "false";
   if (
     (providerMode !== "" && providerMode !== "0")
     || (businessActionBridge !== "" && businessActionBridge !== "false" && businessActionBridge !== "true")
+    || !["", "false", "true"].includes(meetingTerminalNotificationOutbox)
+    || (meetingTerminalNotificationsEnabled && (
+      normalizedEnv(env, "MEETING_TERMINAL_NOTIFICATION_DISPATCH_SECRET").length < 24
+      || /\s/.test(normalizedEnv(env, "MEETING_TERMINAL_NOTIFICATION_DISPATCH_SECRET"))
+      || normalizedEnv(env, "RESEND_API_KEY").length < 8
+      || /\s/.test(normalizedEnv(env, "RESEND_API_KEY"))
+    ))
     || !portalTextPreviewRecoveryGate
     || normalizedEnv(env, "BILLING_USAGE_OUTBOX_ENABLED") !== "true"
     || normalizedEnv(env, "PROVIDER_EFFECT_RECONCILER_ENABLED") !== "true"
@@ -257,6 +302,7 @@ function validateEnvironment(env) {
     meterEventName,
     priceIds,
     businessActionsEnabled: businessActionBridge === "true",
+    meetingTerminalNotificationsEnabled,
   });
 }
 
@@ -297,11 +343,11 @@ async function readBoundedJson(response) {
 function createRpc(configuration, fetchImplementation) {
   const allowedRpcs = new Set([
     "portal_schema_capabilities_service",
-    "portal_claim_meeting_terminal_notification_service",
     "portal_runtime_channel_status_service",
     "portal_billing_usage_backlog_service",
     "portal_provider_effect_reconciliation_backlog_service",
     "portal_ai_usage_reconciliation_backlog_service",
+    "portal_meeting_terminal_notification_backlog_service",
     "portal_record_worker_heartbeat_service",
   ]);
   return async (name, parameters = {}) => {
@@ -352,15 +398,23 @@ function createReadOnlyStripeFetch(fetchImplementation) {
   };
 }
 
-function validateSchema(value, businessActionsEnabled) {
+function validateSchema(value, businessActionsEnabled, meetingTerminalNotificationsEnabled) {
   const capabilities = ownRecord(value);
+  const version = capabilities?.version;
+  const meetingNotificationSchemaReady = version === REQUIRED_SCHEMA_VERSION
+    ? capabilities.meetingTerminalNotificationClaim === false
+      && REQUIRED_MEETING_NOTIFICATION_CAPABILITIES.every((capability) => capabilities[capability] === true)
+    : (version === 50 || version === MINIMUM_BUSINESS_ACTION_SCHEMA_VERSION)
+      && capabilities.meetingTerminalNotificationClaim === true;
   if (
     !capabilities
-    || !Number.isSafeInteger(capabilities.version)
-    || !COMPATIBLE_SCHEMA_VERSIONS.has(capabilities.version)
+    || !Number.isSafeInteger(version)
+    || !COMPATIBLE_SCHEMA_VERSIONS.has(version)
     || !REQUIRED_CAPABILITIES.every((capability) => capabilities[capability] === true)
+    || !meetingNotificationSchemaReady
+    || (meetingTerminalNotificationsEnabled && version !== REQUIRED_SCHEMA_VERSION)
     || (businessActionsEnabled && (
-      capabilities.version !== REQUIRED_SCHEMA_VERSION
+      version < MINIMUM_BUSINESS_ACTION_SCHEMA_VERSION
       || !REQUIRED_BUSINESS_ACTION_CAPABILITIES.every((capability) => capabilities[capability] === true)
     ))
   ) fail("SCHEMA_CAPABILITY_MISMATCH");
@@ -372,10 +426,6 @@ function validateServiceRoleRpcProbe(value) {
   if (!result || Object.keys(result).length !== 1 || result.enabled !== false) {
     fail("SERVICE_ROLE_RPC_PROBE_INVALID");
   }
-}
-
-function validateTerminalNotificationClaimProbe(value) {
-  if (value !== false) fail("TERMINAL_NOTIFICATION_CLAIM_PROBE_INVALID");
 }
 
 function uuidV7(nowMs = Date.now(), entropy = randomBytes(10)) {
@@ -400,7 +450,9 @@ async function recordHeartbeat(rpc, worker, runId, phase, identity, counters) {
     p_worker_kind: worker,
     p_run_id: runId,
     p_phase: phase,
-    p_version: FINANCIAL_WORKER_HEARTBEAT_VERSION,
+    p_version: worker === "meeting_terminal_notification"
+      ? MEETING_TERMINAL_NOTIFICATION_WORKER_HEARTBEAT_VERSION
+      : FINANCIAL_WORKER_HEARTBEAT_VERSION,
     p_deployment_id: identity.deploymentId,
     p_config_fingerprint: identity.configFingerprint,
     p_counters: counters,
@@ -418,11 +470,8 @@ export async function runProductionReadinessBootstrap(dependencies = {}) {
   const schema = validateSchema(
     await rpc("portal_schema_capabilities_service"),
     configuration.businessActionsEnabled,
+    configuration.meetingTerminalNotificationsEnabled,
   );
-  validateTerminalNotificationClaimProbe(await rpc(
-    "portal_claim_meeting_terminal_notification_service",
-    TERMINAL_NOTIFICATION_CLAIM_PROBE,
-  ));
   validateServiceRoleRpcProbe(await rpc("portal_runtime_channel_status_service", SERVICE_ROLE_RPC_PROBE));
   const billingBacklog = parseBacklog(
     await rpc("portal_billing_usage_backlog_service"),
@@ -442,6 +491,14 @@ export async function runProductionReadinessBootstrap(dependencies = {}) {
     ["reserved", "providerInFlight", "unknown", "unknownMaxTokens", "unknownMaxCostUsd", "oldestProviderInFlightAgeSeconds", "oldestUnknownAgeSeconds"],
     "AI_BACKLOG_NOT_CLEAN",
   );
+  const meetingNotificationBacklog = configuration.meetingTerminalNotificationsEnabled
+    ? parseBacklog(
+        await rpc("portal_meeting_terminal_notification_backlog_service"),
+        MEETING_NOTIFICATION_BACKLOG_KEYS,
+        ["ambiguous", "deadLetter"],
+        "MEETING_NOTIFICATION_BACKLOG_NOT_CLEAN",
+      )
+    : null;
 
   const stripeCatalog = Object.freeze({
     eventName: configuration.meterEventName,
@@ -480,7 +537,10 @@ export async function runProductionReadinessBootstrap(dependencies = {}) {
   const runIdFactory = dependencies.runIdFactory ?? (() => uuidV7());
   const billingRunId = runIdFactory("billing_usage");
   const providerRunId = runIdFactory("provider_effect_reconciler");
-  if (!UUID_V7_PATTERN.test(billingRunId) || !UUID_V7_PATTERN.test(providerRunId)) fail("RUN_ID_GENERATION_FAILED");
+  if (
+    !UUID_V7_PATTERN.test(billingRunId)
+    || !UUID_V7_PATTERN.test(providerRunId)
+  ) fail("RUN_ID_GENERATION_FAILED");
   const billingCounters = Object.freeze({
     catalogVerified: true,
     leased: 0,
@@ -507,7 +567,6 @@ export async function runProductionReadinessBootstrap(dependencies = {}) {
     unknown: providerBacklog.unknown,
     cleanupPending: providerBacklog.cleanupPending,
   });
-
   await recordHeartbeat(rpc, "billing_usage", billingRunId, "started", billingIdentity, {});
   await recordHeartbeat(rpc, "billing_usage", billingRunId, "succeeded", billingIdentity, billingCounters);
   await recordHeartbeat(rpc, "provider_effect_reconciler", providerRunId, "started", providerIdentity, {});

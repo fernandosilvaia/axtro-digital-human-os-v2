@@ -1,10 +1,10 @@
 /*
  * GENERATED FILE. DO NOT EDIT.
- * generator: scripts/generate_contract_types.py@1.1.0
- * source: 54 JSON Schema Draft 2020-12 documents under contracts/schemas/
+ * generator: scripts/generate_contract_types.py@1.2.0
+ * source: 56 JSON Schema Draft 2020-12 documents under contracts/schemas/
  */
 
-export const CONTRACT_GENERATOR_VERSION = "1.1.0" as const;
+export const CONTRACT_GENERATOR_VERSION = "1.2.0" as const;
 export interface ContractMetadata {
   schema_id: string;
   schema_version: string;
@@ -408,6 +408,141 @@ export interface InteractionSessionState {
   started_at: string | null;
   updated_at: string;
 }
+
+/** Source: contracts/schemas/meeting_terminal_notification_command.schema.json; schema: https://schemas.axtro.ai/v2/meeting_terminal_notification_command.schema.json; version: 2.0.0. */
+export type MeetingTerminalNotificationCommand = {
+  schema_version: "2.0.0";
+  command_id: string;
+  tenant_id: string;
+  meeting_session_id: string;
+  terminal_status: "ended" | "failed";
+  template_version: 1;
+  provider: "resend";
+  provider_idempotency_key: string;
+  attempt: number;
+  dispatch_deadline_at: string;
+  recipient_emails: Array<string>;
+  workspace_name: string;
+  agent_name: string;
+  payload_frozen: true;
+  subject: string;
+  html: string;
+  payload_fingerprint: string;
+  data_classification: "restricted";
+}
+  | {
+  schema_version: "2.0.0";
+  command_id: string;
+  tenant_id: string;
+  meeting_session_id: string;
+  terminal_status: "ended" | "failed";
+  template_version: 1;
+  provider: "resend";
+  provider_idempotency_key: string;
+  attempt: number;
+  dispatch_deadline_at: string;
+  recipient_emails: Array<string>;
+  workspace_name: string;
+  agent_name: string;
+  payload_frozen: false;
+  subject: null;
+  html: null;
+  payload_fingerprint: null;
+  data_classification: "restricted";
+};
+
+/** Source: contracts/schemas/meeting_terminal_notification_delivery_receipt.schema.json; schema: https://schemas.axtro.ai/v2/meeting_terminal_notification_delivery_receipt.schema.json; version: 2.0.0. */
+export type MeetingTerminalNotificationDeliveryReceipt = {
+  schema_version: "2.0.0";
+  tenant_id: string;
+  notification_id: string;
+  meeting_session_id: string;
+  attempt: number;
+  recipient_count: number;
+  outcome: "provider_accepted";
+  failure_code: null;
+  provider_receipt_digest: string;
+  observed_at: string;
+  data_classification: "internal";
+}
+  | {
+  schema_version: "2.0.0";
+  tenant_id: string;
+  notification_id: string;
+  meeting_session_id: string;
+  attempt: number;
+  recipient_count: number;
+  outcome: "simulated";
+  failure_code: null;
+  provider_receipt_digest: string;
+  observed_at: string;
+  data_classification: "internal";
+}
+  | {
+  schema_version: "2.0.0";
+  tenant_id: string;
+  notification_id: string;
+  meeting_session_id: string;
+  attempt: number;
+  recipient_count: number;
+  outcome: "retry_scheduled";
+  failure_code: "provider_rate_limited" | "provider_unavailable" | "provider_not_configured";
+  provider_receipt_digest: null;
+  observed_at: string;
+  data_classification: "internal";
+}
+  | {
+  schema_version: "2.0.0";
+  tenant_id: string;
+  notification_id: string;
+  meeting_session_id: string;
+  attempt: number;
+  recipient_count: number;
+  outcome: "dead_lettered";
+  failure_code: "payload_invalid" | "recipient_invalid" | "recipient_authority_changed" | "provider_rejected" | "idempotency_conflict" | "attempt_budget_exhausted" | "idempotency_window_expired";
+  provider_receipt_digest: null;
+  observed_at: string;
+  data_classification: "internal";
+}
+  | {
+  schema_version: "2.0.0";
+  tenant_id: string;
+  notification_id: string;
+  meeting_session_id: string;
+  attempt: number;
+  recipient_count: number;
+  outcome: "ambiguous";
+  failure_code: "provider_timeout" | "transport_unknown" | "provider_receipt_invalid";
+  provider_receipt_digest: null;
+  observed_at: string;
+  data_classification: "internal";
+}
+  | {
+  schema_version: "2.0.0";
+  tenant_id: string;
+  notification_id: string;
+  meeting_session_id: string;
+  attempt: number;
+  recipient_count: number;
+  outcome: "lease_expired";
+  failure_code: "lease_expired";
+  provider_receipt_digest: null;
+  observed_at: string;
+  data_classification: "internal";
+}
+  | {
+  schema_version: "2.0.0";
+  tenant_id: string;
+  notification_id: string;
+  meeting_session_id: string;
+  attempt: number;
+  recipient_count: 0;
+  outcome: "suppressed";
+  failure_code: "no_recipients";
+  provider_receipt_digest: null;
+  observed_at: string;
+  data_classification: "internal";
+};
 
 /** Source: contracts/schemas/operator_reconciliation_receipt.schema.json; schema: https://schemas.axtro.ai/v2/operator_reconciliation_receipt.schema.json; version: 2.0.0. */
 export interface OperatorReconciliationReceipt {
@@ -1164,6 +1299,18 @@ export const CONTRACT_METADATA = {
     "schema_version": "2.0.0",
     "source_hash": "641554550db45bed0f891b726e5b92344d23be5d51308183b136dbb36090bac8",
     "source_schema": "contracts/schemas/interaction_session_state.schema.json"
+  },
+  "MeetingTerminalNotificationCommand": {
+    "schema_id": "https://schemas.axtro.ai/v2/meeting_terminal_notification_command.schema.json",
+    "schema_version": "2.0.0",
+    "source_hash": "3ac79fb2328de8cb85cfa46cf3323af52d72db7432f8bf726d0e20de091433ce",
+    "source_schema": "contracts/schemas/meeting_terminal_notification_command.schema.json"
+  },
+  "MeetingTerminalNotificationDeliveryReceipt": {
+    "schema_id": "https://schemas.axtro.ai/v2/meeting_terminal_notification_delivery_receipt.schema.json",
+    "schema_version": "2.0.0",
+    "source_hash": "ee88c29276a3e4ee41322239cbba919e7e774047bed3c4c60e30c9147b2127a3",
+    "source_schema": "contracts/schemas/meeting_terminal_notification_delivery_receipt.schema.json"
   },
   "OperatorReconciliationReceipt": {
     "schema_id": "https://schemas.axtro.ai/v2/operator_reconciliation_receipt.schema.json",

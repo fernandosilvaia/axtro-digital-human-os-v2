@@ -34,8 +34,8 @@ def main() -> int:
     errors: list[str] = []
     supabase_migrations = sorted(path for path in SUPABASE_MIGRATIONS.glob("[0-9][0-9][0-9][0-9]_*.sql"))
     supabase_versions = [int(path.name[:4]) for path in supabase_migrations]
-    if supabase_versions != list(range(1, 57)):
-        errors.append("Supabase-only migrations must be one contiguous, unique sequence from 0001 through 0056")
+    if supabase_versions != list(range(1, 58)):
+        errors.append("Supabase-only migrations must be one contiguous, unique sequence from 0001 through 0057")
     for filename, expected_sha256 in IMMUTABLE_SUPABASE_MIGRATIONS.items():
         path = SUPABASE_MIGRATIONS / filename
         if not path.exists():
@@ -334,6 +334,36 @@ def main() -> int:
         ):
             if invariant not in lineage_sql:
                 errors.append(f"0056 schema capability lineage invariant is missing: {invariant}")
+    meeting_notification_outbox = SUPABASE_MIGRATIONS / "0057_meeting_terminal_notification_outbox.sql"
+    if not meeting_notification_outbox.exists():
+        errors.append("Missing Supabase-only meeting terminal notification outbox 0057")
+    else:
+        notification_sql = meeting_notification_outbox.read_text(encoding="utf-8")
+        if "begin;" not in notification_sql or "commit;" not in notification_sql:
+            errors.append("0057 meeting terminal notification outbox must have explicit transaction boundaries")
+        for invariant in (
+            "meeting_terminal_notification_outbox",
+            "meeting_terminal_notification_payloads",
+            "meeting_terminal_notification_attempt_receipts",
+            "force row level security",
+            "portal_enqueue_meeting_terminal_notification",
+            "portal_lease_meeting_terminal_notifications_service",
+            "portal_begin_meeting_terminal_notification_dispatch_service",
+            "portal_ack_meeting_terminal_notification_service",
+            "portal_fail_meeting_terminal_notification_service",
+            "portal_meeting_terminal_notification_backlog_service",
+            "portal_cleanup_meeting_terminal_notifications_service",
+            "orphaned_deadline",
+            "meeting_terminal_notification",
+            "'version',57",
+            "'meetingTerminalNotificationOutbox'",
+            "'meetingTerminalNotificationAtomicEnqueue'",
+            "'meetingTerminalNotificationLegacyClaimDisabled'",
+            "'meetingTerminalNotificationBoundedUnknown'",
+            "'meetingTerminalNotificationWorkerHeartbeat'",
+        ):
+            if invariant not in notification_sql:
+                errors.append(f"0057 meeting notification invariant is missing: {invariant}")
     if "tenant_isolation" not in all_sql:
         errors.append("Tenant isolation policy is missing")
     if "event_document ->> 'tenant_id' IS DISTINCT FROM tenant_id::text" not in all_sql:

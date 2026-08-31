@@ -1,0 +1,20 @@
+{
+  "schema_version": "2.0.0",
+  "command_id": "018f1e2d-3c4b-7a01-8c9d-001122334455",
+  "tenant_id": "018f1e2d-3c4b-7a02-8c9d-001122334456",
+  "meeting_session_id": "018f1e2d-3c4b-7a01-8c9d-001122334455",
+  "terminal_status": "ended",
+  "template_version": 1,
+  "provider": "resend",
+  "provider_idempotency_key": "meeting-terminal:v1:018f1e2d-3c4b-7a01-8c9d-001122334455",
+  "attempt": 1,
+  "dispatch_deadline_at": "2026-08-31T23:00:00Z",
+  "recipient_emails": ["admin@example.test"],
+  "workspace_name": "Axtro Demo",
+  "agent_name": "Raissa",
+  "payload_frozen": false,
+  "subject": null,
+  "html": null,
+  "payload_fingerprint": null,
+  "data_classification": "restricted"
+}

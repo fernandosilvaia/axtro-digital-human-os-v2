@@ -46,6 +46,13 @@ function parseCanonicalOutboxInteractionEvent(envelope) {
   return domain.parseInteractionEvent({ ...event, payload: JSON.parse(payloadJson) });
 }
 
+function meetingNotificationPayloadFingerprint(recipients, subject, html, idempotencyKey) {
+  const canonical = [recipients.join("\n"), subject, html, idempotencyKey]
+    .map((value) => `${Array.from(value).length}:${value};`)
+    .join("");
+  return createHash("sha256").update(canonical, "utf8").digest("hex");
+}
+
 let cluster;
 let temporaryDirectory;
 let baseDatabaseUrl;
@@ -147,8 +154,15 @@ try {
   assert.deepEqual(emailLengthBoundApplied, ["0055"]);
   const lineageRepairApplied = applySupabaseMigrations(databaseUrl, 56, 56);
   assert.deepEqual(lineageRepairApplied, ["0056"]);
-  assert.equal(queryScalar(databaseUrl, "SELECT count(*) FROM public.axtro_supabase_test_migrations;"), "56");
   assertSchemaLineageCapabilities(databaseUrl, 56, { textPreview: true, terminalNotification: true, businessActions: true });
+  const preV57MeetingState = seedPreV57MeetingState(databaseUrl);
+  const meetingNotificationOutboxApplied = applySupabaseMigrations(databaseUrl, 57, 57);
+  assert.deepEqual(meetingNotificationOutboxApplied, ["0057"]);
+  assertPreV57HistoricalTerminalWasNotBackfilled(databaseUrl, preV57MeetingState.historicalSessionId);
+  assertPreV57ReservationMismatchIsQuarantined(databaseUrl, preV57MeetingState.mismatch);
+  assert.equal(queryScalar(databaseUrl, "SELECT count(*) FROM public.axtro_supabase_test_migrations;"), "57");
+  assertSchemaLineageCapabilities(databaseUrl, 57, { textPreview: true, terminalNotification: false, businessActions: true });
+  await assertMeetingTerminalNotificationOutboxPhase(databaseUrl);
   assertMigrationReceiptLineage(databaseUrl);
 
   assertMigrationCapabilities(databaseUrl);
@@ -191,7 +205,7 @@ try {
   assertBusinessActionCalendarCredentialRead(databaseUrl);
   assertBusinessActionLiveCallContext(databaseUrl);
 
-  console.log("SUPABASE PORTAL INTEGRATION PASSED: migrations 0001-0056 in contiguous order, immutable checksums, grants, RLS, transcripts, reservations and readiness capability");
+  console.log("SUPABASE PORTAL INTEGRATION PASSED: migrations 0001-0057 in contiguous order, immutable checksums, grants, RLS, transcripts, reservations and readiness capability");
 } catch (error) {
   primaryError = error;
   throw error;
@@ -229,11 +243,11 @@ function supabaseMigrationInventory() {
   const migrations = readdirSync(supabaseMigrationDirectory)
     .filter((name) => /^\d{4}_.+\.sql$/.test(name))
     .sort();
-  assert.equal(migrations.length, 56, "the harness must cover every Supabase-only migration through 0056");
+  assert.equal(migrations.length, 57, "the harness must cover every Supabase-only migration through 0057");
   assert.deepEqual(
     migrations.map((migration) => Number(migration.slice(0, 4))),
-    Array.from({ length: 56 }, (_, index) => index + 1),
-    "Supabase-only migration versions must be contiguous and unique from 0001 through 0056",
+    Array.from({ length: 57 }, (_, index) => index + 1),
+    "Supabase-only migration versions must be contiguous and unique from 0001 through 0057",
   );
   assert.equal(migrations[48], "0049_portal_text_preview_admission.sql");
   assert.equal(migrations[49], "0050_meeting_terminal_notification_claim.sql");
@@ -1118,7 +1132,7 @@ function seedPreV49CanonicalOutboxPayloadShapes(databaseUrl) {
 function assertMigrationCapabilities(databaseUrl) {
   assert.equal(queryScalar(databaseUrl, "SELECT to_regprocedure('public.portal_schema_capabilities_service()') IS NOT NULL;"), "t");
   const capabilities = queryJson(databaseUrl, asRoleSql("service_role", null, "SELECT public.portal_schema_capabilities_service();"));
-  assert.equal(capabilities.version, 56);
+  assert.equal(capabilities.version, 57);
   assert.equal(capabilities.providerEffectReservations, true);
   assert.equal(capabilities.billingUsageOutbox, true);
   assert.equal(capabilities.recallWebhookDedupe, true);
@@ -1158,6 +1172,11 @@ function assertMigrationCapabilities(databaseUrl) {
   assert.equal(capabilities.businessActionCalendarReservations, true);
   assert.equal(capabilities.businessActionCalendarConnections, true);
   assert.equal(capabilities.businessActionCalendarCredentialRead, true);
+  assert.equal(capabilities.meetingTerminalNotificationOutbox, true);
+  assert.equal(capabilities.meetingTerminalNotificationAtomicEnqueue, true);
+  assert.equal(capabilities.meetingTerminalNotificationLegacyClaimDisabled, true);
+  assert.equal(capabilities.meetingTerminalNotificationBoundedUnknown, true);
+  assert.equal(capabilities.meetingTerminalNotificationWorkerHeartbeat, true);
   assert.equal(capabilities.businessActionLiveCallContext, true);
   assert.equal(capabilities.businessActionEmailLengthBound, true);
   assert.equal(capabilities.portalTextPreviewAdmission, true);
@@ -1169,7 +1188,7 @@ function assertMigrationCapabilities(databaseUrl) {
   assert.equal(capabilities.portalTextPreviewCanonicalOutbox, true);
   assert.equal(capabilities.portalTextPreviewSecurityBoundary, true);
   assert.equal(capabilities.legacyAuthenticatedChatTranscriptWriterAvailable, true);
-  assert.equal(capabilities.meetingTerminalNotificationClaim, true);
+  assert.equal(capabilities.meetingTerminalNotificationClaim, false);
   assertBusinessActionCapabilityAclDrift(databaseUrl);
   assert.equal(queryScalar(databaseUrl, "SELECT to_regclass('public.provider_effect_reservations') IS NOT NULL;"), "t");
   assert.equal(queryScalar(databaseUrl, "SELECT to_regclass('public.billing_usage_outbox') IS NOT NULL;"), "t");
@@ -1280,6 +1299,764 @@ async function assertMeetingTerminalNotificationClaimPhase(databaseUrl) {
   }
 }
 
+function seedPreV57MeetingState(databaseUrl) {
+  const historicalSessionId = "019f0000-0000-7000-8000-000000005799";
+  const mismatch = Object.freeze({
+    sessionId: "019f0000-0000-7000-8000-000000005798",
+    reservationId: "019f0000-0000-7000-8000-000000002798",
+    sessionBotId: "40000000-0000-4000-8000-000000005798",
+    reservationBotId: "40000000-0000-4000-8000-000000005797",
+    deliveryId: "webhook-pre-v57-reservation-mismatch",
+    deliveryToken: "019f0000-0000-7000-8000-000000006798",
+  });
+  assert.equal(queryScalar(databaseUrl,
+    "SELECT to_regclass('public.meeting_terminal_notification_outbox') is null;"), "t");
+  assertSucceeded(runSql(databaseUrl, `
+    INSERT INTO public.provider_effect_reservations(
+      id,tenant_id,agent_id,idempotency_key,provider_id,effect_kind,cap_bucket,state,
+      cost_event_id,provider_request_ref,provider_ref,max_duration_seconds,
+      estimated_cost_usd,cost_rate_card_ref,cost_rate_card_as_of,committed_at
+    ) VALUES (
+      '${mismatch.reservationId}','${fixture.tenantAlpha}','${fixture.agentAlpha}',
+      'pre-v57-recall-mismatch-5798','recall','recall_bot','recall_bot_active','committed',
+      '019f0000-0000-7000-8000-000000003798','ppr_prev57mismatch5798',
+      '${mismatch.reservationBotId}',600,0.01,'harness.recall',now(),now()
+    );
+    INSERT INTO public.meeting_bot_sessions
+      (id,tenant_id,agent_id,recall_bot_id,meeting_url,status,ended_at)
+    VALUES
+      ('${historicalSessionId}','${fixture.tenantAlpha}','${fixture.agentAlpha}',
+       '40000000-0000-4000-8000-000000005799',
+       'https://meet.example.test/historical-v57','ended',now()-interval '1 hour');
+    INSERT INTO public.meeting_bot_sessions(
+      id,tenant_id,agent_id,recall_bot_id,meeting_url,status,recall_reservation_id
+    ) VALUES (
+      '${mismatch.sessionId}','${fixture.tenantAlpha}','${fixture.agentAlpha}',
+      '${mismatch.sessionBotId}','https://meet.example.test/pre-v57-mismatch','in_call',
+      '${mismatch.reservationId}'
+    );
+  `), "pre-v57 terminal and mismatched reservation fixtures");
+  assert.equal(queryScalar(databaseUrl, `
+    SELECT terminal_notification_claimed_at is null
+    FROM public.meeting_bot_sessions WHERE id='${historicalSessionId}';
+  `), "t");
+  return Object.freeze({ historicalSessionId, mismatch });
+}
+
+function assertPreV57HistoricalTerminalWasNotBackfilled(databaseUrl, sessionId) {
+  assert.equal(queryScalar(databaseUrl, `
+    SELECT terminal_notification_claimed_at is not null
+    FROM public.meeting_bot_sessions WHERE id='${sessionId}';
+  `), "t", "pre-v57 terminal history is fenced as an unknown legacy delivery");
+  for (const table of [
+    "meeting_terminal_notification_outbox",
+    "meeting_terminal_notification_payloads",
+    "meeting_terminal_notification_attempt_receipts",
+  ]) {
+    assert.equal(queryScalar(databaseUrl, `SELECT count(*) FROM public.${table};`), "0",
+      `${table} receives no historical backfill`);
+  }
+}
+
+function assertPreV57ReservationMismatchIsQuarantined(databaseUrl, mismatch) {
+  assert.equal(queryJson(databaseUrl, asRoleSql("service_role", null, `
+    SELECT public.portal_claim_recall_webhook_service(
+      '${mismatch.deliveryId}','${"9".repeat(64)}','${mismatch.deliveryToken}'
+    );
+  `)).outcome, "claimed");
+  assert.deepEqual(queryJson(databaseUrl, asRoleSql("service_role", null, `
+    SELECT public.portal_update_meeting_bot_session_status_service(
+      '${mismatch.sessionBotId}','ended','${mismatch.deliveryId}','${mismatch.deliveryToken}'
+    );
+  `)), {
+    found: false,
+    applied: false,
+    terminalRetained: true,
+    notificationOutboxEnqueued: false,
+    terminalFinalized: true,
+  }, "a pre-v57 session with a foreign Recall provider_ref is quarantined before terminal mutation");
+  assert.equal(queryScalar(databaseUrl, `
+    SELECT status FROM public.meeting_bot_sessions WHERE id='${mismatch.sessionId}';
+  `), "in_call", "reservation mismatch cannot terminalize the historical session");
+  assert.equal(queryScalar(databaseUrl, `
+    SELECT (tenant_id is null)::text||':'||terminal_resolution
+    FROM public.recall_webhook_deliveries WHERE delivery_id='${mismatch.deliveryId}';
+  `), "true:reservation_mismatch");
+  assert.equal(queryScalar(databaseUrl, `
+    SELECT count(*) FROM public.meeting_terminal_notification_outbox
+    WHERE meeting_session_id='${mismatch.sessionId}';
+  `), "0", "reservation mismatch creates no notification command");
+  assert.equal(queryScalar(databaseUrl, asRoleSql("service_role", null, `
+    SELECT public.portal_complete_recall_webhook_service(
+      '${mismatch.deliveryId}','${mismatch.deliveryToken}'
+    );
+  `)), "t");
+  assertSucceeded(runSql(databaseUrl, `
+    UPDATE public.provider_effect_reservations SET
+      state='completed',completed_at=now(),customer_delivery_state='voided',
+      customer_voided_at=now(),customer_delivery_receipt_kind='provider_terminal',
+      customer_delivery_receipt_ref='recall:quarantined:${mismatch.sessionBotId}',
+      customer_delivery_receipt_at=now(),updated_at=now()
+    WHERE id='${mismatch.reservationId}';
+  `), "close the isolated mismatch fixture after proving quarantine");
+}
+
+async function assertMeetingTerminalNotificationOutboxPhase(databaseUrl) {
+  const enqueueTerminalFixture = ({ sessionId, botId, deliveryId, deliveryToken, status = "ended" }) => {
+    const suffix = Number(sessionId.slice(-6));
+    const reservationId = `019f0000-0000-7000-8000-${String(270000 + suffix).padStart(12, "0")}`;
+    const costEventId = `019f0000-0000-7000-8000-${String(370000 + suffix).padStart(12, "0")}`;
+    assertSucceeded(runSql(databaseUrl, `
+      INSERT INTO public.provider_effect_reservations(
+        id,tenant_id,agent_id,idempotency_key,provider_id,effect_kind,cap_bucket,state,
+        cost_event_id,provider_request_ref,provider_ref,max_duration_seconds,
+        estimated_cost_usd,cost_rate_card_ref,cost_rate_card_as_of,committed_at
+      ) VALUES (
+        '${reservationId}','${fixture.tenantAlpha}','${fixture.agentAlpha}',
+        'meeting-notification-${sessionId.slice(-6)}','recall','recall_bot','recall_bot_active','committed',
+        '${costEventId}','ppr_notification${sessionId.slice(-6)}','${botId}',
+        600,0.01,'harness.recall',now(),now()
+      );
+      INSERT INTO public.meeting_bot_sessions
+        (id,tenant_id,agent_id,recall_bot_id,meeting_url,status,recall_reservation_id)
+      VALUES
+        ('${sessionId}','${fixture.tenantAlpha}','${fixture.agentAlpha}','${botId}',
+         'https://meet.example.test/${sessionId.slice(-6)}','in_call','${reservationId}');
+    `), `meeting notification session fixture ${sessionId}`);
+    assert.equal(queryJson(databaseUrl, asRoleSql("service_role", null, `
+      SELECT public.portal_claim_recall_webhook_service(
+        '${deliveryId}','${"7".repeat(64)}','${deliveryToken}'
+      );
+    `)).outcome, "claimed");
+    const receipt = queryJson(databaseUrl, asRoleSql("service_role", null, `
+      SELECT public.portal_update_meeting_bot_session_status_service(
+        '${botId}','${status}','${deliveryId}','${deliveryToken}'
+      );
+    `));
+    assert.equal(receipt.found, true);
+    assert.equal(receipt.notificationOutboxEnqueued, true);
+    assert.equal(receipt.terminalFinalized, true);
+    assert.equal(queryScalar(databaseUrl, asRoleSql("service_role", null, `
+      SELECT public.portal_complete_recall_webhook_service('${deliveryId}','${deliveryToken}');
+    `)), "t");
+    return receipt;
+  };
+
+  const leaseOne = (leaseToken) => {
+    const commands = queryJson(databaseUrl, asRoleSql("service_role", null, `
+      SELECT public.portal_lease_meeting_terminal_notifications_service('${leaseToken}',1,60);
+    `));
+    assert.equal(commands.length, 1, `lease ${leaseToken} must acquire exactly one command`);
+    return commands[0];
+  };
+
+  const beginDispatch = (command, leaseToken, subject, html) => {
+    const fingerprint = meetingNotificationPayloadFingerprint(
+      command.recipient_emails,subject,html,command.provider_idempotency_key,
+    );
+    assert.deepEqual(queryJson(databaseUrl, asRoleSql("service_role", null, `
+      SELECT public.portal_begin_meeting_terminal_notification_dispatch_service(
+        '${command.tenant_id}','${command.command_id}','${leaseToken}',
+        '${sqlLiteral(subject)}','${sqlLiteral(html)}','${fingerprint}'
+      );
+    `)), { begun: true, terminal: false, failureCode: null });
+    return fingerprint;
+  };
+
+  const mainSessionId = "019f0000-0000-7000-8000-000000005700";
+  const mainBotId = "40000000-0000-4000-8000-000000005700";
+  const mainDeliveryId = "webhook-meeting-notification-main-v57";
+  const mainDeliveryToken = "019f0000-0000-7000-8000-000000006700";
+  enqueueTerminalFixture({
+    sessionId: mainSessionId,
+    botId: mainBotId,
+    deliveryId: mainDeliveryId,
+    deliveryToken: mainDeliveryToken,
+  });
+  assert.equal(queryScalar(databaseUrl, `
+    SELECT status||':'||terminal_status||':'||provider_idempotency_key
+    FROM public.meeting_terminal_notification_outbox WHERE id='${mainSessionId}';
+  `), `pending:ended:meeting-terminal:v1:${mainSessionId}`);
+  assert.equal(queryScalar(databaseUrl, `
+    SELECT terminal_resolution||':'||(terminal_resolved_at is not null)::text
+    FROM public.recall_webhook_deliveries WHERE delivery_id='${mainDeliveryId}';
+  `), "matched_session:true");
+  assert.equal(queryScalar(databaseUrl, `
+    SELECT recipient_emails::text||':'||workspace_name||':'||agent_name
+    FROM public.meeting_terminal_notification_payloads WHERE notification_id='${mainSessionId}';
+  `), "{alpha@example.test}:Portal Harness Alpha:Harness Agent Alpha");
+  assert.equal(queryScalar(databaseUrl, asRoleSql("service_role", null, `
+    SELECT public.portal_claim_meeting_terminal_notification_service('${mainBotId}');
+  `)), "f", "the v57 compatibility claim is permanently inert");
+
+  assertFailed(runSql(databaseUrl, `
+    UPDATE public.meeting_terminal_notification_payloads
+    SET recipient_emails=ARRAY['alpha@example.test',NULL]::text[]
+    WHERE notification_id='${mainSessionId}';
+  `), "notification payload rejects null recipient elements", /meeting_terminal_notification_payload_email_chk/);
+
+  const leaseTokens = [
+    "019f0000-0000-7000-8000-000000006701",
+    "019f0000-0000-7000-8000-000000006702",
+  ];
+  const leaseResults = await runConcurrentSqlBehindBarrier(databaseUrl, leaseTokens.map((leaseToken, index) => ({
+    lockId: 57_100 + index,
+    sql: asRoleSql("service_role", null, `
+      SELECT public.portal_lease_meeting_terminal_notifications_service('${leaseToken}',1,60);
+    `),
+  })), "meeting-notification-lease-v57");
+  leaseResults.forEach((result) => assertSucceeded(result, "concurrent meeting notification lease"));
+  const leasedCommands = leaseResults.map((result) => parseLastJson(result.stdout));
+  assert.deepEqual(leasedCommands.map((commands) => commands.length).sort(), [0, 1]);
+  const winnerIndex = leasedCommands.findIndex((commands) => commands.length === 1);
+  const command = leasedCommands[winnerIndex][0];
+  const winningLeaseToken = leaseTokens[winnerIndex];
+  assert.equal(command.command_id, mainSessionId);
+  assert.equal(command.payload_frozen, false);
+  assert.deepEqual(command.recipient_emails, ["alpha@example.test"]);
+
+  assert.deepEqual(queryJson(databaseUrl, asRoleSql("service_role", null, `
+    SELECT public.portal_begin_meeting_terminal_notification_dispatch_service(
+      '${fixture.tenantBeta}','${mainSessionId}','${winningLeaseToken}',
+      'wrong tenant','<p>wrong tenant</p>','${"0".repeat(64)}'
+    );
+  `)), { begun: false, terminal: false, failureCode: null },
+  "cross-tenant begin cannot acquire another tenant's command");
+  assertFailed(runSql(databaseUrl, asRoleSql("service_role", null, `
+    SELECT public.portal_begin_meeting_terminal_notification_dispatch_service(
+      '${fixture.tenantAlpha}','${mainSessionId}','${winningLeaseToken}',
+      'Meeting terminal harness','<p>Harness notification</p>','${"0".repeat(64)}'
+    );
+  `)), "invalid meeting notification fingerprint", /provider payload fingerprint mismatch/);
+  assert.equal(queryScalar(databaseUrl, `
+    SELECT frozen_at is null FROM public.meeting_terminal_notification_payloads
+    WHERE notification_id='${mainSessionId}';
+  `), "t", "a rejected fingerprint cannot freeze payload data");
+
+  const subject = "Meeting terminal harness";
+  const html = "<p>Harness notification</p>";
+  const fingerprint = beginDispatch(command, winningLeaseToken, subject, html);
+  assert.deepEqual(queryJson(databaseUrl, asRoleSql("service_role", null, `
+    SELECT public.portal_begin_meeting_terminal_notification_dispatch_service(
+      '${fixture.tenantAlpha}','${mainSessionId}','${winningLeaseToken}',
+      '${subject}','${html}','${fingerprint}'
+    );
+  `)), { begun: true, terminal: false, failureCode: null },
+  "an exact begin replay preserves the frozen payload");
+  const alteredSubject = `${subject} changed`;
+  const alteredFingerprint = meetingNotificationPayloadFingerprint(
+    command.recipient_emails,alteredSubject,html,command.provider_idempotency_key,
+  );
+  assertFailed(runSql(databaseUrl, asRoleSql("service_role", null, `
+    SELECT public.portal_begin_meeting_terminal_notification_dispatch_service(
+      '${fixture.tenantAlpha}','${mainSessionId}','${winningLeaseToken}',
+      '${alteredSubject}','${html}','${alteredFingerprint}'
+    );
+  `)), "frozen meeting notification conflict", /frozen provider payload conflict/);
+  assertFailed(runSql(databaseUrl, `
+    UPDATE public.meeting_terminal_notification_payloads SET workspace_name='mutated'
+    WHERE notification_id='${mainSessionId}';
+  `), "frozen meeting notification direct mutation", /frozen meeting notification payload is immutable/);
+
+  assert.deepEqual(queryJson(databaseUrl, asRoleSql("service_role", null, `
+    SELECT public.portal_fail_meeting_terminal_notification_service(
+      '${fixture.tenantBeta}','${mainSessionId}','${winningLeaseToken}','provider_unavailable',5
+    );
+  `)), { settled: false }, "cross-tenant fail cannot settle another tenant's command");
+  assert.equal(queryScalar(databaseUrl, asRoleSql("service_role", null, `
+    SELECT public.portal_ack_meeting_terminal_notification_service(
+      '${fixture.tenantBeta}','${mainSessionId}','${winningLeaseToken}','${"b".repeat(64)}',false
+    );
+  `)), "f");
+  assert.equal(queryScalar(databaseUrl, asRoleSql("service_role", null, `
+    SELECT public.portal_ack_meeting_terminal_notification_service(
+      '${fixture.tenantAlpha}','${mainSessionId}','019f0000-0000-7000-8000-000000006799','${"b".repeat(64)}',false
+    );
+  `)), "f");
+  assertFailed(runSql(databaseUrl, asRoleSql("service_role", null, `
+    SELECT public.portal_ack_meeting_terminal_notification_service(
+      '${fixture.tenantAlpha}','${mainSessionId}','${winningLeaseToken}','${"b".repeat(64)}',NULL::boolean
+    );
+  `)), "NULL simulation flag is rejected before acknowledgement mutation", /invalid provider receipt digest/);
+  assert.equal(queryScalar(databaseUrl, `
+    SELECT status||':'||count(r.*)::text
+    FROM public.meeting_terminal_notification_outbox o
+    LEFT JOIN public.meeting_terminal_notification_attempt_receipts r
+      ON r.tenant_id=o.tenant_id AND r.notification_id=o.id
+    WHERE o.id='${mainSessionId}' GROUP BY o.status;
+  `), "delivering:0", "rejected acknowledgement cannot mutate outbox or receipt state");
+  assert.equal(queryScalar(databaseUrl, asRoleSql("service_role", null, `
+    SELECT public.portal_ack_meeting_terminal_notification_service(
+      '${fixture.tenantAlpha}','${mainSessionId}','${winningLeaseToken}','${"b".repeat(64)}',false
+    );
+  `)), "t");
+  assert.equal(queryScalar(databaseUrl, `
+    SELECT status||':'||attempts::text||':'||(lease_token is null)::text||':'||provider_receipt_digest
+    FROM public.meeting_terminal_notification_outbox WHERE id='${mainSessionId}';
+  `), `provider_accepted:1:true:${"b".repeat(64)}`);
+  assert.equal(queryScalar(databaseUrl, `
+    SELECT count(*) FROM public.meeting_terminal_notification_attempt_receipts
+    WHERE notification_id='${mainSessionId}' AND outcome='provider_accepted';
+  `), "1");
+  const receiptColumns = queryRows(databaseUrl, `
+    SELECT column_name FROM information_schema.columns
+    WHERE table_schema='public' AND table_name='meeting_terminal_notification_attempt_receipts'
+    ORDER BY ordinal_position;
+  `);
+  for (const forbidden of ["recipient_emails", "workspace_name", "agent_name", "subject", "html", "provider_response"]) {
+    assert.equal(receiptColumns.includes(forbidden), false, `attempt receipts cannot retain ${forbidden}`);
+  }
+  const receiptJson = queryJson(databaseUrl, `
+    SELECT row_to_json(r) FROM public.meeting_terminal_notification_attempt_receipts r
+    WHERE notification_id='${mainSessionId}';
+  `);
+  assert.deepEqual(Object.keys(receiptJson).sort(), [
+    "attempt", "data_classification", "failure_code", "meeting_session_id", "notification_id",
+    "observed_at", "outcome", "provider_receipt_digest", "recipient_count", "schema_version", "tenant_id",
+  ]);
+  assert.equal(receiptJson.schema_version, "2.0.0");
+  assert.equal(receiptJson.notification_id, receiptJson.meeting_session_id);
+  assert.equal(receiptJson.attempt, 1);
+  assert.equal(receiptJson.recipient_count, 1);
+  assert.equal(receiptJson.outcome, "provider_accepted");
+  assert.equal(receiptJson.failure_code, null);
+  assert.match(receiptJson.provider_receipt_digest, /^[0-9a-f]{64}$/);
+  assert.equal(receiptJson.data_classification, "internal");
+  const serializedReceipt = JSON.stringify(receiptJson);
+  for (const forbiddenValue of ["alpha@example.test", subject, html, "Portal Harness Alpha", "Harness Agent Alpha"]) {
+    assert.equal(serializedReceipt.includes(forbiddenValue), false, "attempt receipt JSON must remain PII-free");
+  }
+  assertFailed(runSql(databaseUrl, `
+    UPDATE public.meeting_terminal_notification_attempt_receipts SET observed_at=observed_at
+    WHERE notification_id='${mainSessionId}';
+  `), "attempt receipt update is forbidden", /append-only/);
+  assertFailed(runSql(databaseUrl, `
+    DELETE FROM public.meeting_terminal_notification_attempt_receipts
+    WHERE notification_id='${mainSessionId}';
+  `), "attempt receipt delete is forbidden", /append-only/);
+  assert.deepEqual(queryJson(databaseUrl, asRoleSql("service_role", null, `
+    SELECT public.portal_cleanup_meeting_terminal_notifications_service(1);
+  `)), { deletedPayloads: 0 }, "payload is retained before its purge deadline");
+  assertSucceeded(runSql(databaseUrl, `
+    UPDATE public.meeting_terminal_notification_payloads SET purge_after=now()-interval '1 second'
+    WHERE notification_id='${mainSessionId}';
+  `), "age accepted notification payload for cleanup");
+  assert.deepEqual(queryJson(databaseUrl, asRoleSql("service_role", null, `
+    SELECT public.portal_cleanup_meeting_terminal_notifications_service(1);
+  `)), { deletedPayloads: 1 });
+  assert.equal(queryScalar(databaseUrl, `
+    SELECT count(*) FROM public.meeting_terminal_notification_payloads
+    WHERE notification_id='${mainSessionId}';
+  `), "0");
+  assert.equal(queryScalar(databaseUrl, `
+    SELECT (SELECT count(*) FROM public.meeting_terminal_notification_outbox WHERE id='${mainSessionId}')::text
+      ||':'||(SELECT count(*) FROM public.meeting_terminal_notification_attempt_receipts WHERE notification_id='${mainSessionId}')::text;
+  `), "1:1", "cleanup preserves content-free outbox and receipt evidence");
+
+  const preFenceSessionId = "019f0000-0000-7000-8000-000000005704";
+  enqueueTerminalFixture({
+    sessionId: preFenceSessionId,
+    botId: "40000000-0000-4000-8000-000000005704",
+    deliveryId: "webhook-meeting-notification-pre-fence-v57",
+    deliveryToken: "019f0000-0000-7000-8000-000000006730",
+  });
+  const preFenceLeaseOne = "019f0000-0000-7000-8000-000000006731";
+  const preFenceCommandOne = leaseOne(preFenceLeaseOne);
+  assert.equal(preFenceCommandOne.payload_frozen, false);
+  assertSucceeded(runSql(databaseUrl, `
+    UPDATE public.meeting_terminal_notification_outbox SET lease_until=now()-interval '1 second'
+    WHERE id='${preFenceSessionId}';
+  `), "expire notification lease before provider fence");
+  const preFenceLeaseTwo = "019f0000-0000-7000-8000-000000006732";
+  const preFenceCommandTwo = leaseOne(preFenceLeaseTwo);
+  assert.equal(preFenceCommandTwo.command_id, preFenceSessionId);
+  assert.equal(preFenceCommandTwo.attempt, 2);
+  assert.equal(preFenceCommandTwo.payload_frozen, false);
+  assert.equal(preFenceCommandTwo.subject, null);
+  assert.equal(preFenceCommandTwo.html, null);
+  assert.equal(preFenceCommandTwo.payload_fingerprint, null);
+  assert.equal(preFenceCommandTwo.provider_idempotency_key, preFenceCommandOne.provider_idempotency_key);
+  assert.equal(queryScalar(databaseUrl, `
+    SELECT outcome||':'||failure_code FROM public.meeting_terminal_notification_attempt_receipts
+    WHERE notification_id='${preFenceSessionId}' AND attempt=1;
+  `), "lease_expired:lease_expired");
+  assert.equal(queryScalar(databaseUrl, asRoleSql("service_role", null, `
+    SELECT public.portal_ack_meeting_terminal_notification_service(
+      '${fixture.tenantAlpha}','${preFenceSessionId}','${preFenceLeaseOne}','${"c".repeat(64)}',false
+    );
+  `)), "f");
+  assert.deepEqual(queryJson(databaseUrl, asRoleSql("service_role", null, `
+    SELECT public.portal_fail_meeting_terminal_notification_service(
+      '${fixture.tenantAlpha}','${preFenceSessionId}','${preFenceLeaseOne}','provider_unavailable',5
+    );
+  `)), { settled: false });
+  beginDispatch(preFenceCommandTwo, preFenceLeaseTwo, "Recovered before fence", "<p>Recovered before fence</p>");
+  assert.equal(queryScalar(databaseUrl, asRoleSql("service_role", null, `
+    SELECT public.portal_ack_meeting_terminal_notification_service(
+      '${fixture.tenantAlpha}','${preFenceSessionId}','${preFenceLeaseTwo}','${"c".repeat(64)}',false
+    );
+  `)), "t");
+
+  const revokedPreFenceSessionId = "019f0000-0000-7000-8000-000000005708";
+  enqueueTerminalFixture({
+    sessionId: revokedPreFenceSessionId,
+    botId: "40000000-0000-4000-8000-000000005708",
+    deliveryId: "webhook-meeting-notification-revoked-pre-fence-v57",
+    deliveryToken: "019f0000-0000-7000-8000-000000006741",
+  });
+  const revokedPreFenceLeaseOne = "019f0000-0000-7000-8000-000000006742";
+  const revokedPreFenceCommandOne = leaseOne(revokedPreFenceLeaseOne);
+  assert.equal(revokedPreFenceCommandOne.attempt, 1);
+  assert.equal(revokedPreFenceCommandOne.payload_frozen, false);
+  assertSucceeded(runSql(databaseUrl, `
+    UPDATE public.meeting_terminal_notification_outbox SET lease_until=now()-interval '1 second'
+    WHERE id='${revokedPreFenceSessionId}';
+    UPDATE public.user_tenant_memberships SET role='tenant_operator'
+    WHERE tenant_id='${fixture.tenantAlpha}' AND user_id='${fixture.userAlpha}';
+  `), "expire pre-fence lease and revoke the last notification recipient");
+  const revokedPreFenceLeaseTwo = "019f0000-0000-7000-8000-000000006743";
+  assert.deepEqual(queryJson(databaseUrl, asRoleSql("service_role", null, `
+    SELECT public.portal_lease_meeting_terminal_notifications_service('${revokedPreFenceLeaseTwo}',1,60);
+  `)), [], "a retry with no current recipients is durably suppressed without poisoning the batch");
+  assert.equal(queryScalar(databaseUrl, `
+    SELECT status||':'||attempts::text||':'||recipient_count::text||':'||last_failure_code
+    FROM public.meeting_terminal_notification_outbox WHERE id='${revokedPreFenceSessionId}';
+  `), "suppressed:2:0:no_recipients");
+  assert.equal(queryScalar(databaseUrl, `
+    SELECT string_agg(attempt::text||':'||outcome||':'||failure_code,',' ORDER BY attempt)
+    FROM public.meeting_terminal_notification_attempt_receipts
+    WHERE notification_id='${revokedPreFenceSessionId}';
+  `), "1:lease_expired:lease_expired,2:suppressed:no_recipients");
+  assertSucceeded(runSql(databaseUrl, `
+    UPDATE public.user_tenant_memberships SET role='tenant_admin'
+    WHERE tenant_id='${fixture.tenantAlpha}' AND user_id='${fixture.userAlpha}';
+  `), "restore notification recipient authority after pre-fence suppression test");
+
+  const postFenceSessionId = "019f0000-0000-7000-8000-000000005705";
+  enqueueTerminalFixture({
+    sessionId: postFenceSessionId,
+    botId: "40000000-0000-4000-8000-000000005705",
+    deliveryId: "webhook-meeting-notification-post-fence-v57",
+    deliveryToken: "019f0000-0000-7000-8000-000000006733",
+  });
+  const postFenceLeaseOne = "019f0000-0000-7000-8000-000000006734";
+  const postFenceCommandOne = leaseOne(postFenceLeaseOne);
+  const postFenceSubject = "Accepted before ACK persistence";
+  const postFenceHtml = "<p>Provider accepted before local ACK persistence</p>";
+  const postFenceFingerprint = beginDispatch(
+    postFenceCommandOne,postFenceLeaseOne,postFenceSubject,postFenceHtml,
+  );
+  assertSucceeded(runSql(databaseUrl, `
+    UPDATE public.meeting_terminal_notification_outbox SET lease_until=now()-interval '1 second'
+    WHERE id='${postFenceSessionId}';
+  `), "expire notification lease after provider fence");
+  const postFenceLeaseTwo = "019f0000-0000-7000-8000-000000006735";
+  const postFenceCommandTwo = leaseOne(postFenceLeaseTwo);
+  assert.equal(postFenceCommandTwo.command_id, postFenceSessionId);
+  assert.equal(postFenceCommandTwo.attempt, 2);
+  assert.equal(postFenceCommandTwo.payload_frozen, true);
+  assert.deepEqual(postFenceCommandTwo.recipient_emails, postFenceCommandOne.recipient_emails);
+  assert.equal(postFenceCommandTwo.subject, postFenceSubject);
+  assert.equal(postFenceCommandTwo.html, postFenceHtml);
+  assert.equal(postFenceCommandTwo.payload_fingerprint, postFenceFingerprint);
+  assert.equal(postFenceCommandTwo.provider_idempotency_key, postFenceCommandOne.provider_idempotency_key);
+  assert.equal(postFenceCommandTwo.dispatch_deadline_at, postFenceCommandOne.dispatch_deadline_at);
+  assert.equal(queryScalar(databaseUrl, `
+    SELECT outcome||':'||failure_code FROM public.meeting_terminal_notification_attempt_receipts
+    WHERE notification_id='${postFenceSessionId}' AND attempt=1;
+  `), "ambiguous:transport_unknown");
+  assert.equal(queryScalar(databaseUrl, asRoleSql("service_role", null, `
+    SELECT public.portal_ack_meeting_terminal_notification_service(
+      '${fixture.tenantAlpha}','${postFenceSessionId}','${postFenceLeaseOne}','${"d".repeat(64)}',false
+    );
+  `)), "f");
+  assert.deepEqual(queryJson(databaseUrl, asRoleSql("service_role", null, `
+    SELECT public.portal_fail_meeting_terminal_notification_service(
+      '${fixture.tenantAlpha}','${postFenceSessionId}','${postFenceLeaseOne}','provider_unavailable',5
+    );
+  `)), { settled: false });
+  assert.equal(beginDispatch(
+    postFenceCommandTwo,postFenceLeaseTwo,postFenceSubject,postFenceHtml,
+  ), postFenceFingerprint);
+  assert.equal(queryScalar(databaseUrl, asRoleSql("service_role", null, `
+    SELECT public.portal_ack_meeting_terminal_notification_service(
+      '${fixture.tenantAlpha}','${postFenceSessionId}','${postFenceLeaseTwo}','${"d".repeat(64)}',false
+    );
+  `)), "t");
+  assert.equal(queryScalar(databaseUrl, `
+    SELECT count(*)||':'||count(*) filter(where outcome='ambiguous')||':'
+      ||count(*) filter(where outcome='provider_accepted')
+    FROM public.meeting_terminal_notification_attempt_receipts
+    WHERE notification_id='${postFenceSessionId}';
+  `), "2:1:1", "ACK recovery preserves one logical effect across the stable provider key");
+
+  const authoritySessionId = "019f0000-0000-7000-8000-000000005706";
+  enqueueTerminalFixture({
+    sessionId: authoritySessionId,
+    botId: "40000000-0000-4000-8000-000000005706",
+    deliveryId: "webhook-meeting-notification-authority-v57",
+    deliveryToken: "019f0000-0000-7000-8000-000000006736",
+  });
+  const authorityLeaseOne = "019f0000-0000-7000-8000-000000006737";
+  const authorityCommand = leaseOne(authorityLeaseOne);
+  beginDispatch(authorityCommand,authorityLeaseOne,"Authority revalidation","<p>Authority revalidation</p>");
+  assert.deepEqual(queryJson(databaseUrl, asRoleSql("service_role", null, `
+    SELECT public.portal_fail_meeting_terminal_notification_service(
+      '${fixture.tenantAlpha}','${authoritySessionId}','${authorityLeaseOne}','provider_unavailable',0
+    );
+  `)), { settled: true, status: "retry_wait", terminal: false });
+  assertSucceeded(runSql(databaseUrl, `
+    UPDATE public.user_tenant_memberships SET role='tenant_operator'
+    WHERE tenant_id='${fixture.tenantAlpha}' AND user_id='${fixture.userAlpha}';
+  `), "revoke notification recipient authority before retry");
+  const authorityLeaseTwo = "019f0000-0000-7000-8000-000000006738";
+  assert.deepEqual(queryJson(databaseUrl, asRoleSql("service_role", null, `
+    SELECT public.portal_lease_meeting_terminal_notifications_service('${authorityLeaseTwo}',1,60);
+  `)), [], "recipient authority drift blocks retry before any provider call");
+  assert.equal(queryScalar(databaseUrl, `
+    SELECT status||':'||attempts::text||':'||recipient_count::text||':'||last_failure_code
+    FROM public.meeting_terminal_notification_outbox WHERE id='${authoritySessionId}';
+  `), "dead_letter:2:0:recipient_authority_changed");
+  assert.equal(queryScalar(databaseUrl, `
+    SELECT outcome||':'||failure_code||':'||recipient_count::text
+    FROM public.meeting_terminal_notification_attempt_receipts
+    WHERE notification_id='${authoritySessionId}' AND attempt=2;
+  `), "dead_lettered:recipient_authority_changed:0");
+  assertSucceeded(runSql(databaseUrl, `
+    UPDATE public.user_tenant_memberships SET role='tenant_admin'
+    WHERE tenant_id='${fixture.tenantAlpha}' AND user_id='${fixture.userAlpha}';
+  `), "restore notification recipient authority after retry test");
+
+  const fenceAuthoritySessionId = "019f0000-0000-7000-8000-000000005707";
+  enqueueTerminalFixture({
+    sessionId: fenceAuthoritySessionId,
+    botId: "40000000-0000-4000-8000-000000005707",
+    deliveryId: "webhook-meeting-notification-fence-authority-v57",
+    deliveryToken: "019f0000-0000-7000-8000-000000006739",
+  });
+  const fenceAuthorityLease = "019f0000-0000-7000-8000-000000006740";
+  const fenceAuthorityCommand = leaseOne(fenceAuthorityLease);
+  const fenceAuthoritySubject = "Fence authority revalidation";
+  const fenceAuthorityHtml = "<p>Fence authority revalidation</p>";
+  const fenceAuthorityFingerprint = meetingNotificationPayloadFingerprint(
+    fenceAuthorityCommand.recipient_emails,fenceAuthoritySubject,fenceAuthorityHtml,
+    fenceAuthorityCommand.provider_idempotency_key,
+  );
+  assertSucceeded(runSql(databaseUrl, `
+    UPDATE public.user_tenant_memberships SET role='tenant_operator'
+    WHERE tenant_id='${fixture.tenantAlpha}' AND user_id='${fixture.userAlpha}';
+  `), "revoke notification recipient authority between lease and fence");
+  assert.deepEqual(queryJson(databaseUrl, asRoleSql("service_role", null, `
+    SELECT public.portal_begin_meeting_terminal_notification_dispatch_service(
+      '${fixture.tenantAlpha}','${fenceAuthoritySessionId}','${fenceAuthorityLease}',
+      '${fenceAuthoritySubject}','${fenceAuthorityHtml}','${fenceAuthorityFingerprint}'
+    );
+  `)), { begun: false, terminal: true, failureCode: "recipient_authority_changed" });
+  assert.equal(queryScalar(databaseUrl, `
+    SELECT status||':'||recipient_count::text||':'||last_failure_code
+    FROM public.meeting_terminal_notification_outbox WHERE id='${fenceAuthoritySessionId}';
+  `), "dead_letter:0:recipient_authority_changed");
+  assertSucceeded(runSql(databaseUrl, `
+    UPDATE public.user_tenant_memberships SET role='tenant_admin'
+    WHERE tenant_id='${fixture.tenantAlpha}' AND user_id='${fixture.userAlpha}';
+  `), "restore notification recipient authority after fence test");
+
+  const configSessionId = "019f0000-0000-7000-8000-000000005701";
+  enqueueTerminalFixture({
+    sessionId: configSessionId,
+    botId: "40000000-0000-4000-8000-000000005701",
+    deliveryId: "webhook-meeting-notification-config-v57",
+    deliveryToken: "019f0000-0000-7000-8000-000000006703",
+  });
+  const configLeaseToken = "019f0000-0000-7000-8000-000000006704";
+  const configCommand = leaseOne(configLeaseToken);
+  beginDispatch(configCommand, configLeaseToken, "Provider config retry", "<p>Retry after config repair</p>");
+  assert.deepEqual(queryJson(databaseUrl, asRoleSql("service_role", null, `
+    SELECT public.portal_fail_meeting_terminal_notification_service(
+      '${fixture.tenantAlpha}','${configSessionId}','${configLeaseToken}','provider_not_configured',60
+    );
+  `)), { settled: true, status: "retry_wait", terminal: false });
+
+  const retrySessionId = "019f0000-0000-7000-8000-000000005702";
+  enqueueTerminalFixture({
+    sessionId: retrySessionId,
+    botId: "40000000-0000-4000-8000-000000005702",
+    deliveryId: "webhook-meeting-notification-retry-v57",
+    deliveryToken: "019f0000-0000-7000-8000-000000006705",
+  });
+  const retrySubject = "Bounded retry harness";
+  const retryHtml = "<p>Bounded retry harness</p>";
+  for (let attempt = 1; attempt <= 8; attempt += 1) {
+    const leaseToken = `019f0000-0000-7000-8000-00000000672${attempt}`;
+    const retryCommand = leaseOne(leaseToken);
+    assert.equal(retryCommand.command_id, retrySessionId);
+    assert.equal(retryCommand.attempt, attempt);
+    beginDispatch(retryCommand, leaseToken, retrySubject, retryHtml);
+    const failure = queryJson(databaseUrl, asRoleSql("service_role", null, `
+      SELECT public.portal_fail_meeting_terminal_notification_service(
+        '${fixture.tenantAlpha}','${retrySessionId}','${leaseToken}','provider_unavailable',0
+      );
+    `));
+    assert.equal(failure.status, attempt === 8 ? "dead_letter" : "retry_wait");
+    assert.equal(failure.terminal, attempt === 8);
+  }
+  assert.equal(queryScalar(databaseUrl, `
+    SELECT status||':'||attempts::text||':'||last_failure_code
+    FROM public.meeting_terminal_notification_outbox WHERE id='${retrySessionId}';
+  `), "dead_letter:8:attempt_budget_exhausted");
+  assert.equal(queryScalar(databaseUrl, `
+    SELECT count(*)||':'||count(*) filter(where outcome='retry_scheduled')||':'||count(*) filter(where outcome='dead_lettered')
+    FROM public.meeting_terminal_notification_attempt_receipts WHERE notification_id='${retrySessionId}';
+  `), "8:7:1");
+
+  const ambiguousSessionId = "019f0000-0000-7000-8000-000000005703";
+  enqueueTerminalFixture({
+    sessionId: ambiguousSessionId,
+    botId: "40000000-0000-4000-8000-000000005703",
+    deliveryId: "webhook-meeting-notification-ambiguous-v57",
+    deliveryToken: "019f0000-0000-7000-8000-000000006706",
+  });
+  const ambiguousLeaseToken = "019f0000-0000-7000-8000-000000006707";
+  const ambiguousCommand = leaseOne(ambiguousLeaseToken);
+  beginDispatch(ambiguousCommand, ambiguousLeaseToken, "Ambiguous harness", "<p>Transport unknown</p>");
+  assert.deepEqual(queryJson(databaseUrl, asRoleSql("service_role", null, `
+    SELECT public.portal_fail_meeting_terminal_notification_service(
+      '${fixture.tenantAlpha}','${ambiguousSessionId}','${ambiguousLeaseToken}','provider_timeout',5
+    );
+  `)), { settled: true, status: "ambiguous", terminal: false });
+  assert.equal(queryScalar(databaseUrl, `
+    SELECT status||':'||last_failure_code||':'||(ambiguous_at is not null)::text
+    FROM public.meeting_terminal_notification_outbox WHERE id='${ambiguousSessionId}';
+  `), "ambiguous:provider_timeout:true");
+
+  const orphanBotId = "40000000-0000-4000-8000-000000005710";
+  const orphanDeliveryId = "webhook-meeting-notification-orphan-v57";
+  const orphanDigest = "e".repeat(64);
+  for (let index = 0; index < 8; index += 1) {
+    const claimToken = `019f0000-0000-7000-8000-00000000671${index}`;
+    assert.equal(queryJson(databaseUrl, asRoleSql("service_role", null, `
+      SELECT public.portal_claim_recall_webhook_service(
+        '${orphanDeliveryId}','${orphanDigest}','${claimToken}'
+      );
+    `)).outcome, "claimed");
+    const terminalReceipt = queryJson(databaseUrl, asRoleSql("service_role", null, `
+      SELECT public.portal_update_meeting_bot_session_status_service(
+        '${orphanBotId}','ended','${orphanDeliveryId}','${claimToken}'
+      );
+    `));
+    assert.equal(terminalReceipt.found, false);
+    assert.equal(terminalReceipt.terminalFinalized, index === 7);
+    if (index < 7) {
+      assert.equal(queryScalar(databaseUrl, asRoleSql("service_role", null, `
+        SELECT public.portal_release_recall_webhook_service(
+          '${orphanDeliveryId}','${orphanDigest}','${claimToken}'
+        );
+      `)), "t");
+    } else {
+      assert.equal(queryScalar(databaseUrl, asRoleSql("service_role", null, `
+        SELECT public.portal_complete_recall_webhook_service('${orphanDeliveryId}','${claimToken}');
+      `)), "t");
+    }
+  }
+  assert.equal(queryScalar(databaseUrl, `
+    SELECT terminal_resolution||':'||attempts::text FROM public.recall_webhook_deliveries
+    WHERE delivery_id='${orphanDeliveryId}';
+  `), "orphaned_deadline:8");
+
+  const agedOrphanBotId = "40000000-0000-4000-8000-000000005711";
+  const agedOrphanDeliveryId = "webhook-meeting-notification-aged-orphan-v57";
+  const agedOrphanToken = "019f0000-0000-7000-8000-000000006719";
+  assert.equal(queryJson(databaseUrl, asRoleSql("service_role", null, `
+    SELECT public.portal_claim_recall_webhook_service(
+      '${agedOrphanDeliveryId}','${"a".repeat(64)}','${agedOrphanToken}'
+    );
+  `)).outcome, "claimed");
+  assertSucceeded(runSql(databaseUrl, `
+    UPDATE public.recall_webhook_deliveries SET created_at=now()-interval '16 minutes'
+    WHERE delivery_id='${agedOrphanDeliveryId}';
+  `), "age an unknown Recall bot past the bounded resolution deadline");
+  const agedOrphanReceipt = queryJson(databaseUrl, asRoleSql("service_role", null, `
+    SELECT public.portal_update_meeting_bot_session_status_service(
+      '${agedOrphanBotId}','ended','${agedOrphanDeliveryId}','${agedOrphanToken}'
+    );
+  `));
+  assert.equal(agedOrphanReceipt.found, false);
+  assert.equal(agedOrphanReceipt.terminalFinalized, true);
+  assert.equal(queryScalar(databaseUrl, `
+    SELECT terminal_resolution||':'||attempts::text FROM public.recall_webhook_deliveries
+    WHERE delivery_id='${agedOrphanDeliveryId}';
+  `), "orphaned_deadline:1");
+  assert.equal(queryScalar(databaseUrl, asRoleSql("service_role", null, `
+    SELECT public.portal_complete_recall_webhook_service('${agedOrphanDeliveryId}','${agedOrphanToken}');
+  `)), "t");
+
+  const lateSessionId = "019f0000-0000-7000-8000-000000005710";
+  const lateMeetingRef = `meeting:${"f".repeat(64)}`;
+  assertSucceeded(runSql(databaseUrl, `
+    INSERT INTO public.meeting_bot_sessions
+      (id,tenant_id,agent_id,recall_bot_id,meeting_ref,status)
+    VALUES
+      ('${lateSessionId}','${fixture.tenantAlpha}','${fixture.agentAlpha}','${orphanBotId}','${lateMeetingRef}','ended');
+  `), "late terminal meeting materialization fixture");
+  const lateRecord = queryJson(databaseUrl, asRoleSql("service_role", null, `
+    SELECT public.portal_record_meeting_bot_session_service(
+      '${lateSessionId}','${fixture.tenantAlpha}','${fixture.agentAlpha}','${orphanBotId}',
+      '${lateMeetingRef}',null,null,null
+    );
+  `));
+  assert.equal(lateRecord.replayed, true);
+  assert.equal(lateRecord.notificationOutboxEnqueued, true);
+  const lateResolution = queryScalar(databaseUrl, `
+    SELECT terminal_resolution||':'||terminal_resolved_at::text
+    FROM public.recall_webhook_deliveries WHERE delivery_id='${orphanDeliveryId}';
+  `);
+  assert.match(lateResolution, /^matched_late:/);
+  assert.equal(queryScalar(databaseUrl, `
+    SELECT count(*) FROM public.meeting_terminal_notification_outbox WHERE id='${lateSessionId}';
+  `), "1");
+  const lateReplay = queryJson(databaseUrl, asRoleSql("service_role", null, `
+    SELECT public.portal_record_meeting_bot_session_service(
+      '${lateSessionId}','${fixture.tenantAlpha}','${fixture.agentAlpha}','${orphanBotId}',
+      '${lateMeetingRef}',null,null,null
+    );
+  `));
+  assert.equal(lateReplay.notificationOutboxEnqueued, false);
+  assert.equal(queryScalar(databaseUrl, `
+    SELECT terminal_resolution||':'||terminal_resolved_at::text
+    FROM public.recall_webhook_deliveries WHERE delivery_id='${orphanDeliveryId}';
+  `), lateResolution, "late replay preserves matched_late evidence and its first resolution timestamp");
+
+  assertSucceeded(runSql(databaseUrl, `
+    DROP TRIGGER meeting_terminal_notification_payload_immutable
+      ON public.meeting_terminal_notification_payloads;
+  `), "remove payload immutability trigger capability fixture");
+  assert.equal(queryJson(databaseUrl, asRoleSql("service_role", null,
+    "SELECT public.portal_schema_capabilities_service();")).meetingTerminalNotificationOutbox, false,
+  "outbox capability detects a missing payload freeze trigger");
+  assertSucceeded(runSql(databaseUrl, `
+    CREATE TRIGGER meeting_terminal_notification_payload_immutable
+      BEFORE UPDATE ON public.meeting_terminal_notification_payloads
+      FOR EACH ROW EXECUTE FUNCTION app.prevent_frozen_meeting_notification_payload_mutation();
+  `), "restore payload immutability trigger");
+  assert.equal(queryJson(databaseUrl, asRoleSql("service_role", null,
+    "SELECT public.portal_schema_capabilities_service();")).meetingTerminalNotificationOutbox, true);
+
+  assertSucceeded(runSql(databaseUrl, `
+    DROP TRIGGER meeting_terminal_notification_receipt_append_only
+      ON public.meeting_terminal_notification_attempt_receipts;
+  `), "remove receipt append-only trigger capability fixture");
+  assert.equal(queryJson(databaseUrl, asRoleSql("service_role", null,
+    "SELECT public.portal_schema_capabilities_service();")).meetingTerminalNotificationOutbox, false,
+  "outbox capability detects a missing receipt mutation trigger");
+  assertSucceeded(runSql(databaseUrl, `
+    CREATE TRIGGER meeting_terminal_notification_receipt_append_only
+      BEFORE UPDATE OR DELETE ON public.meeting_terminal_notification_attempt_receipts
+      FOR EACH ROW EXECUTE FUNCTION app.prevent_meeting_notification_receipt_mutation();
+  `), "restore receipt append-only trigger");
+  assert.equal(queryJson(databaseUrl, asRoleSql("service_role", null,
+    "SELECT public.portal_schema_capabilities_service();")).meetingTerminalNotificationOutbox, true);
+}
+
 function assertBusinessActionCapabilityAclDrift(databaseUrl) {
   const probes = [
     ["businessActionKillSwitches", "public.portal_business_action_status_service(app.uuid_v7,app.uuid_v7,text)"],
@@ -1369,6 +2146,9 @@ function assertLeastPrivilege(databaseUrl) {
     "portal_text_preview_turn_claims",
     "portal_text_preview_egress_authorizations",
     "portal_text_preview_transcript_writes",
+    "meeting_terminal_notification_outbox",
+    "meeting_terminal_notification_payloads",
+    "meeting_terminal_notification_attempt_receipts",
   ];
   for (const table of [...m5Tables, "conversation_transcripts", "meeting_bot_sessions"]) {
     assert.equal(queryScalar(databaseUrl, `SELECT relrowsecurity AND relforcerowsecurity FROM pg_class WHERE oid = 'public.${table}'::regclass;`), "t");
@@ -4323,18 +5103,20 @@ function assertWorkerHeartbeatLifecycle(databaseUrl) {
   const firstBillingRun = "019f0000-0000-7000-8000-000000006500";
   const secondBillingRun = "019f0000-0000-7000-8000-000000006501";
   const reconcilerRun = "019f0000-0000-7000-8000-000000006600";
+  const notificationRun = "019f0000-0000-7000-8000-000000006700";
   const version = "m5-01-v1";
   const deploymentId = "deploy-harness-20260813";
   const billingFingerprint = `sha256:${"a".repeat(64)}`;
   const reconcilerFingerprint = `sha256:${"b".repeat(64)}`;
+  const notificationFingerprint = `sha256:${"c".repeat(64)}`;
   const readiness = () => queryJson(databaseUrl, asRoleSql("service_role", null,
     "SELECT public.portal_worker_readiness_service();"));
 
-  assert.deepEqual(readiness(), { billingUsage: null, providerEffectReconciler: null },
+  assert.deepEqual(readiness(), { billingUsage: null, providerEffectReconciler: null, meetingTerminalNotification: null },
     "workers are not ready before a successful semantic run");
   const record = (kind, runId, phase, counters = {}) => queryScalar(databaseUrl, asRoleSql("service_role", null,
     `SELECT public.portal_record_worker_heartbeat_service('${kind}','${runId}','${phase}','${version}','${deploymentId}',
-      '${kind === "billing_usage" ? billingFingerprint : reconcilerFingerprint}','${sqlLiteral(JSON.stringify(counters))}'::jsonb);`));
+      '${kind === "billing_usage" ? billingFingerprint : kind === "provider_effect_reconciler" ? reconcilerFingerprint : notificationFingerprint}','${sqlLiteral(JSON.stringify(counters))}'::jsonb);`));
 
   assert.equal(record("billing_usage", firstBillingRun, "started"), "t");
   assert.deepEqual(readiness().billingUsage, { lastSucceededAt: null, ageSeconds: null, version: null, deploymentId: null, configFingerprint: null },
@@ -4363,6 +5145,14 @@ function assertWorkerHeartbeatLifecycle(databaseUrl) {
   assert.equal(bothReady.providerEffectReconciler.deploymentId, deploymentId);
   assert.equal(bothReady.providerEffectReconciler.configFingerprint, reconcilerFingerprint);
   assert.ok(bothReady.providerEffectReconciler.ageSeconds >= 0 && bothReady.providerEffectReconciler.ageSeconds <= 10);
+
+  assert.equal(record("meeting_terminal_notification", notificationRun, "started"), "t");
+  assert.equal(record("meeting_terminal_notification", notificationRun, "succeeded", { providerAccepted: 0, deadLettered: 0 }), "t");
+  const notificationReady = readiness().meetingTerminalNotification;
+  assert.equal(notificationReady.version, version);
+  assert.equal(notificationReady.deploymentId, deploymentId);
+  assert.equal(notificationReady.configFingerprint, notificationFingerprint);
+  assert.ok(notificationReady.ageSeconds >= 0 && notificationReady.ageSeconds <= 10);
 
   assertSucceeded(runSql(databaseUrl, "UPDATE public.worker_heartbeats SET last_succeeded_at=now()+interval '1 minute' WHERE worker_name='provider_effect_reconciler';"),
     "future heartbeat corruption fixture");
@@ -5667,6 +6457,39 @@ async function assertTerminalActivationRace(databaseUrl) {
     `SELECT public.portal_commit_provider_effect_service('${recallReservationId}','${botId}',null,null);`)).committed, true);
   assert.equal(queryJson(databaseUrl, asRoleSql("service_role", null,
     `SELECT public.portal_commit_provider_effect_service('${tavusReservationId}','${conversationId}','https://tavus.daily.co/terminal-race',null);`)).committed, true);
+  const mismatchedBotId = "10000000-0000-4000-8000-000000002259";
+  const mismatchedDeliveryId = "webhook-terminal-reservation-mismatch-2259";
+  const mismatchedDeliveryToken = "019f0000-0000-7000-8000-000000006259";
+  assert.equal(queryJson(databaseUrl, asRoleSql("service_role", null, `
+    SELECT public.portal_claim_recall_webhook_service(
+      '${mismatchedDeliveryId}','${"a".repeat(64)}','${mismatchedDeliveryToken}'
+    );
+  `)).outcome, "claimed");
+  const mismatchedTerminal = queryJson(databaseUrl, asRoleSql("service_role", null, `
+    SELECT public.portal_update_meeting_bot_session_status_service(
+      '${mismatchedBotId}','ended','${mismatchedDeliveryId}','${mismatchedDeliveryToken}'
+    );
+  `));
+  assert.equal(mismatchedTerminal.found, false);
+  assertFailed(runSql(databaseUrl, asRoleSql("service_role", null, `
+    SELECT public.portal_record_meeting_bot_session_service(
+      '019f0000-0000-7000-8000-000000002259','${fixture.tenantGamma}','${fixture.agentGamma}',
+      '${mismatchedBotId}','meeting:${"a".repeat(64)}',null,'${recallReservationId}',null
+    );
+  `)), "Recall reservation provider_ref must match the bot before late evidence binding",
+  /committed Recall reservation mismatch/);
+  assert.equal(queryScalar(databaseUrl, `
+    SELECT (tenant_id is null)::text||':'||(terminal_resolution is null)::text
+    FROM public.recall_webhook_deliveries WHERE delivery_id='${mismatchedDeliveryId}';
+  `), "true:true");
+  assert.equal(queryScalar(databaseUrl, `
+    SELECT count(*) FROM public.meeting_bot_sessions WHERE recall_bot_id='${mismatchedBotId}';
+  `), "0");
+  assert.equal(queryScalar(databaseUrl, asRoleSql("service_role", null, `
+    SELECT public.portal_release_recall_webhook_service(
+      '${mismatchedDeliveryId}','${"a".repeat(64)}','${mismatchedDeliveryToken}'
+    );
+  `)), "t");
   const effectStateBeforeInvalidClaims = queryScalar(databaseUrl,
     `SELECT string_agg(id::text||':'||state,',' order by id) FROM public.provider_effect_reservations WHERE id in ('${recallReservationId}','${tavusReservationId}');`);
   assertFailed(runSql(databaseUrl, asRoleSql("service_role", null,
@@ -5721,7 +6544,19 @@ async function assertTerminalActivationRace(databaseUrl) {
   ]);
   assertSucceeded(terminal, "signed terminal receipt contender");
   assertSucceeded(registration, "meeting session registration contender");
+  const terminalRaceReceipts = [parseLastJson(terminal.stdout), parseLastJson(registration.stdout)];
+  assert.equal(terminalRaceReceipts.filter((receipt) => receipt.notificationOutboxEnqueued === true).length, 1,
+    "either terminal transition or late materialization atomically enqueues exactly once");
   assert.equal(queryScalar(databaseUrl, `SELECT status||':'||sentinel_camera_state||':'||(sentinel_camera_started_at is null)::text FROM public.meeting_bot_sessions WHERE recall_bot_id='${botId}';`), "ended:conversation_created:true");
+  assert.equal(queryScalar(databaseUrl, `
+    SELECT count(*)||':'||min(id::text)||':'||min(meeting_session_id::text)||':'||min(terminal_status)||':'||min(provider_idempotency_key)
+    FROM public.meeting_terminal_notification_outbox
+    WHERE meeting_session_id='019f0000-0000-7000-8000-000000001250';
+  `), "1:019f0000-0000-7000-8000-000000001250:019f0000-0000-7000-8000-000000001250:ended:meeting-terminal:v1:019f0000-0000-7000-8000-000000001250");
+  assert.equal(queryScalar(databaseUrl, `
+    SELECT count(*) FROM public.meeting_terminal_notification_payloads
+    WHERE notification_id='019f0000-0000-7000-8000-000000001250';
+  `), "1");
   assert.equal(queryScalar(databaseUrl, `SELECT state||':'||customer_delivery_state FROM public.provider_effect_reservations WHERE id='${recallReservationId}';`), "completed:voided");
   assert.equal(queryScalar(databaseUrl, `SELECT state||':'||customer_delivery_state FROM public.provider_effect_reservations WHERE id='${tavusReservationId}';`), "cleanup_pending:voided");
   assert.equal(queryJson(databaseUrl, asRoleSql("service_role", null,
@@ -5754,6 +6589,12 @@ async function assertTerminalActivationRace(databaseUrl) {
   );`));
   assert.equal(exactReplay.replayed, true, "exact meeting receipt replays after terminal lifecycle progression");
   assert.equal(exactReplay.terminal, true);
+  assert.equal(exactReplay.notificationOutboxEnqueued, false,
+    "exact meeting replay cannot duplicate the durable terminal notification");
+  assert.equal(queryScalar(databaseUrl, `
+    SELECT count(*) FROM public.meeting_terminal_notification_outbox
+    WHERE meeting_session_id='019f0000-0000-7000-8000-000000001250';
+  `), "1");
   const stateBeforeConflict = queryScalar(databaseUrl, `SELECT status||':'||sentinel_camera_state FROM public.meeting_bot_sessions WHERE recall_bot_id='${botId}';`);
   assertFailed(runSql(databaseUrl, asRoleSql("service_role", null, `SELECT public.portal_record_meeting_bot_session_service(
     '019f0000-0000-7000-8000-000000001251','${fixture.tenantGamma}','${fixture.agentGamma}','${botId}','meeting:${"a".repeat(64)}','${conversationId}','${recallReservationId}','${tavusReservationId}'

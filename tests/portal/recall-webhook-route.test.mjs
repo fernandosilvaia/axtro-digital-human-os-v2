@@ -593,6 +593,71 @@ test("terminal retained before session retries, then notifies once after session
   assert.equal(state.calls.notifications.length, 1);
 });
 
+test("v57 terminal handling completes only from the durable outbox receipt and never sends inline", { concurrency: false }, async (t) => {
+  process.env.MEETING_TERMINAL_NOTIFICATION_OUTBOX_ENABLED = "true";
+  t.after(() => { delete process.env.MEETING_TERMINAL_NOTIFICATION_OUTBOX_ENABLED; });
+  const state = freshState();
+  state.statusReceipt = {
+    found: true,
+    applied: true,
+    terminalRetained: true,
+    notificationOutboxEnqueued: true,
+    terminalFinalized: true,
+  };
+
+  const response = await POST(request("delivery-terminal-v57-outbox", "bot.done"));
+
+  assert.equal(response.status, 200);
+  assert.deepEqual(await response.json(), { ok: true, handled: true });
+  assert.equal(state.calls.notifications.length, 0);
+  assert.equal(
+    state.calls.rpc.some((call) => call.name === "portal_claim_meeting_terminal_notification_service"),
+    false,
+  );
+  assert.equal(state.calls.rpc.at(-1).name, "portal_complete_recall_webhook_service");
+});
+
+test("v57 terminal handling fails closed when a known session lacks the outbox receipt", { concurrency: false }, async (t) => {
+  process.env.MEETING_TERMINAL_NOTIFICATION_OUTBOX_ENABLED = "true";
+  t.after(() => { delete process.env.MEETING_TERMINAL_NOTIFICATION_OUTBOX_ENABLED; });
+  const state = freshState();
+  state.statusReceipt = { found: true, applied: true, terminalRetained: true };
+
+  const response = await POST(request("delivery-terminal-v57-missing-receipt", "bot.done"));
+
+  assert.equal(response.status, 503);
+  assert.deepEqual(await response.json(), { error: "terminal_notification_outbox_unavailable" });
+  assert.equal(state.calls.notifications.length, 0);
+  assert.equal(state.calls.rpc.at(-1).name, "portal_release_recall_webhook_service");
+});
+
+test("v57 unknown terminal deliveries retry until the database finalizes the bounded orphan", { concurrency: false }, async (t) => {
+  process.env.MEETING_TERMINAL_NOTIFICATION_OUTBOX_ENABLED = "true";
+  t.after(() => { delete process.env.MEETING_TERMINAL_NOTIFICATION_OUTBOX_ENABLED; });
+  const state = freshState();
+  state.statusReceipt = {
+    found: false,
+    applied: true,
+    terminalRetained: true,
+    notificationOutboxEnqueued: false,
+    terminalFinalized: false,
+  };
+
+  const pending = await POST(request("delivery-terminal-v57-orphan-pending", "bot.done"));
+  assert.equal(pending.status, 503);
+  assert.deepEqual(await pending.json(), { error: "terminal_notification_not_ready" });
+
+  state.statusReceipt = { ...state.statusReceipt, terminalFinalized: true };
+  const finalized = await POST(request("delivery-terminal-v57-orphan-finalized", "bot.done"));
+  assert.equal(finalized.status, 200);
+  assert.deepEqual(await finalized.json(), { ok: true, handled: false });
+  assert.equal(state.calls.notifications.length, 0);
+  assert.equal(
+    state.calls.rpc.some((call) => call.name === "portal_claim_meeting_terminal_notification_service"),
+    false,
+  );
+});
+
 test("terminal before camera cleans a known Tavus effect with a standardized receipt", { concurrency: false }, async () => {
   const state = freshState();
   state.statusReceipt = {

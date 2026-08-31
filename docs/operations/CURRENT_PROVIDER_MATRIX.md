@@ -1,6 +1,6 @@
 # Current Provider Matrix
 
-**Data de consulta:** 2026-07-14.  
+**Data de consulta geral:** 2026-07-14. **Atualização focal de e-mail:** 2026-08-31.
 Ver `docs/sources/SOURCE_REGISTER.md` e `docs/operations/PROVIDER_CAPABILITY_VERIFICATION_2026-07-14.md`.
 
 Esta matriz registra candidates e capacidades públicas. Não é uma decisão de produção.
@@ -35,3 +35,7 @@ seu SDK real. Ver `artifacts/m2/DECISION.md` para o veredito completo por
 candidate e por área de arquitetura, e `artifacts/m2/evidence.json` para a
 evidência fake que sustenta as decisões de arquitetura (não de provider).
 Nenhuma linha desta tabela muda de "precisa benchmark" para aprovada.
+
+## Notification delivery, M6-01
+
+Atualização focal verificada em 2026-08-31. Resend é o adapter já existente para e-mail transacional, não uma decisão do bake-off realtime M2-13. A documentação oficial confirma chave idempotente por 24 horas, batch com um ID por mensagem aceita e eventos posteriores por webhook. M6-01 envia uma mensagem separada por administrador, nunca um array visível de endereços, e distingue aceite de entrega. O código está fake-first e local; somente canary fake isolado é permitido nesta etapa. Provider real, agenda, volume e tráfego de clientes permanecem bloqueados por M6-05 até existir escopo de canary por tenant, quota, fairness, custo, circuit breaker, entrega final, backlog SLO e retenção com evidência.

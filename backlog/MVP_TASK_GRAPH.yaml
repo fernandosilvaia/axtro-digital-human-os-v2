@@ -725,14 +725,17 @@ tasks:
     lane: reliability
     dependencies: [M6-00]
     objective: Replace claim-before-send notification handling with a tenant-scoped transactional outbox, bounded leasing, retry, terminal receipts and operator-visible failure states.
-    primary_files: [database/supabase-only/, apps/portal/src/app/api/recall/webhook/route.ts, apps/portal/src/lib/email.ts, apps/portal/src/lib/workers/, tests/, docs/adr/, PROGRESS.md]
+    primary_files: [contracts/, packages/contracts-ts/, packages/contracts-py/, database/supabase-only/, apps/portal/src/app/api/recall/webhook/route.ts, apps/portal/src/lib/email.ts, apps/portal/src/lib/workers/, .github/workflows/, tests/, docs/adr/, docs/operations/, PROGRESS.md]
     acceptance:
       - a terminal Recall transition enqueues one stable notification command atomically without claiming delivery before the provider call
       - worker leases expire safely, retries are bounded, and sent or dead-letter receipts are durable and tenant-scoped
       - provider ambiguity never becomes an unqualified success and a stable provider idempotency key prevents ordinary replay duplicates
       - an unknown or permanently absent bot reaches a bounded terminal outcome instead of infinite 503 retries
       - readiness distinguishes webhook ingestion from notification-worker health and logs contain no recipient address or raw provider response
-    tests: [atomic enqueue, crash before send, crash after provider acceptance, lease expiry, duplicate webhook, provider ambiguity, unknown bot deadline, cross-tenant denial, dead letter and readiness]
+      - recipient authority is revalidated at lease and immediately before provider egress, while batch delivery never exposes one administrator address to another
+      - payload cleanup and rollout with the flag disabled preserve durable evidence without historical backfill
+      - no remote migration, deployment, secret, schedule, flag or real provider call is executed without explicit authorization
+    tests: [contract compatibility, atomic enqueue, crash before send, crash after provider acceptance, lease expiry, duplicate webhook, provider ambiguity, unknown bot deadline, cross-tenant denial, dead letter, payload cleanup, manual workflow gate, readiness and flag-off rollout]
   - id: M6-02
     milestone: M6
     title: Restore the privacy-fenced Portal text preview bundle
@@ -770,3 +773,18 @@ tasks:
       - legal hold, redaction and irreversible deletion are distinct authorized states with receipts
       - no tenant data survives outside the documented retention exception and cross-tenant deletion is impossible
     tests: [full tenant graph, data-subject request, legal hold, retained receipt redaction, object storage, embeddings, retry, cross-tenant denial]
+  - id: M6-05
+    milestone: M6
+    title: Govern notification economics and reconcile final delivery
+    lane: reliability
+    dependencies: [M6-01, M6-04]
+    objective: Add tenant-fair capacity, quotas, cost attribution, provider circuit breaking, final Resend delivery reconciliation and bounded retention before any automatic customer notification schedule.
+    primary_files: [contracts/, database/supabase-only/, apps/portal/src/app/api/resend/webhook/route.ts, apps/portal/src/lib/workers/, .github/workflows/, tests/, docs/operations/, PROGRESS.md]
+    acceptance:
+      - per-tenant and global quotas bound recipients, pending commands and provider spend before the provider fence
+      - lease selection is tenant-fair and backlog age or growth can degrade readiness even when the last worker heartbeat is fresh
+      - rate limits, daily or monthly quota exhaustion and provider-wide outages have distinct closed outcomes, jittered backoff and a circuit breaker
+      - signed Resend events are idempotently reconciled from provider acceptance through sent, delivered, failed, bounced or suppressed without storing recipient PII
+      - content-free outbox and receipts have an explicit indexed retention or rollup policy plus a bounded operator queue for ambiguous and dead-letter items
+      - no automatic schedule or customer traffic is enabled until capacity, cost, retention and delivery SLO gates are green
+    tests: [tenant flood and fairness, final budget slot concurrency, quota versus rate limit, circuit breaker, delayed retry distribution, duplicate and out-of-order webhook, delivered and failed reconciliation, backlog SLO, retention plan and operator queue]

@@ -3,7 +3,7 @@ from __future__ import annotations
 
 from typing import Any, Literal, TypeAlias, TypedDict
 
-CONTRACT_GENERATOR_VERSION = '1.1.0'
+CONTRACT_GENERATOR_VERSION = '1.2.0'
 
 # Source: contracts/schemas/action_intent.schema.json; schema: https://schemas.axtro.ai/v2/action_intent.schema.json; version: 2.0.0.
 class ActionIntent(TypedDict):
@@ -334,6 +334,143 @@ class InteractionSessionState(TypedDict):
     degradation_level: Literal['none', 'minor', 'major', 'voice_only', 'text_only', 'terminated']
     started_at: str | None
     updated_at: str
+
+# Source: contracts/schemas/meeting_terminal_notification_command.schema.json; schema: https://schemas.axtro.ai/v2/meeting_terminal_notification_command.schema.json; version: 2.0.0.
+class _MeetingTerminalNotificationCommandPayloadFrozenTrue(TypedDict):
+    schema_version: Literal['2.0.0']
+    command_id: str
+    tenant_id: str
+    meeting_session_id: str
+    terminal_status: Literal['ended', 'failed']
+    template_version: Literal[1]
+    provider: Literal['resend']
+    provider_idempotency_key: str
+    attempt: int
+    dispatch_deadline_at: str
+    recipient_emails: list[str]
+    workspace_name: str
+    agent_name: str
+    payload_frozen: Literal[True]
+    subject: str
+    html: str
+    payload_fingerprint: str
+    data_classification: Literal['restricted']
+
+class _MeetingTerminalNotificationCommandPayloadFrozenFalse(TypedDict):
+    schema_version: Literal['2.0.0']
+    command_id: str
+    tenant_id: str
+    meeting_session_id: str
+    terminal_status: Literal['ended', 'failed']
+    template_version: Literal[1]
+    provider: Literal['resend']
+    provider_idempotency_key: str
+    attempt: int
+    dispatch_deadline_at: str
+    recipient_emails: list[str]
+    workspace_name: str
+    agent_name: str
+    payload_frozen: Literal[False]
+    subject: None
+    html: None
+    payload_fingerprint: None
+    data_classification: Literal['restricted']
+
+MeetingTerminalNotificationCommand: TypeAlias = _MeetingTerminalNotificationCommandPayloadFrozenTrue | _MeetingTerminalNotificationCommandPayloadFrozenFalse
+
+# Source: contracts/schemas/meeting_terminal_notification_delivery_receipt.schema.json; schema: https://schemas.axtro.ai/v2/meeting_terminal_notification_delivery_receipt.schema.json; version: 2.0.0.
+class _MeetingTerminalNotificationDeliveryReceiptOutcomeProviderAccepted(TypedDict):
+    schema_version: Literal['2.0.0']
+    tenant_id: str
+    notification_id: str
+    meeting_session_id: str
+    attempt: int
+    recipient_count: int
+    outcome: Literal['provider_accepted']
+    failure_code: None
+    provider_receipt_digest: str
+    observed_at: str
+    data_classification: Literal['internal']
+
+class _MeetingTerminalNotificationDeliveryReceiptOutcomeSimulated(TypedDict):
+    schema_version: Literal['2.0.0']
+    tenant_id: str
+    notification_id: str
+    meeting_session_id: str
+    attempt: int
+    recipient_count: int
+    outcome: Literal['simulated']
+    failure_code: None
+    provider_receipt_digest: str
+    observed_at: str
+    data_classification: Literal['internal']
+
+class _MeetingTerminalNotificationDeliveryReceiptOutcomeRetryScheduled(TypedDict):
+    schema_version: Literal['2.0.0']
+    tenant_id: str
+    notification_id: str
+    meeting_session_id: str
+    attempt: int
+    recipient_count: int
+    outcome: Literal['retry_scheduled']
+    failure_code: Literal['provider_rate_limited', 'provider_unavailable', 'provider_not_configured']
+    provider_receipt_digest: None
+    observed_at: str
+    data_classification: Literal['internal']
+
+class _MeetingTerminalNotificationDeliveryReceiptOutcomeDeadLettered(TypedDict):
+    schema_version: Literal['2.0.0']
+    tenant_id: str
+    notification_id: str
+    meeting_session_id: str
+    attempt: int
+    recipient_count: int
+    outcome: Literal['dead_lettered']
+    failure_code: Literal['payload_invalid', 'recipient_invalid', 'recipient_authority_changed', 'provider_rejected', 'idempotency_conflict', 'attempt_budget_exhausted', 'idempotency_window_expired']
+    provider_receipt_digest: None
+    observed_at: str
+    data_classification: Literal['internal']
+
+class _MeetingTerminalNotificationDeliveryReceiptOutcomeAmbiguous(TypedDict):
+    schema_version: Literal['2.0.0']
+    tenant_id: str
+    notification_id: str
+    meeting_session_id: str
+    attempt: int
+    recipient_count: int
+    outcome: Literal['ambiguous']
+    failure_code: Literal['provider_timeout', 'transport_unknown', 'provider_receipt_invalid']
+    provider_receipt_digest: None
+    observed_at: str
+    data_classification: Literal['internal']
+
+class _MeetingTerminalNotificationDeliveryReceiptOutcomeLeaseExpired(TypedDict):
+    schema_version: Literal['2.0.0']
+    tenant_id: str
+    notification_id: str
+    meeting_session_id: str
+    attempt: int
+    recipient_count: int
+    outcome: Literal['lease_expired']
+    failure_code: Literal['lease_expired']
+    provider_receipt_digest: None
+    observed_at: str
+    data_classification: Literal['internal']
+
+class _MeetingTerminalNotificationDeliveryReceiptOutcomeSuppressed(TypedDict):
+    schema_version: Literal['2.0.0']
+    tenant_id: str
+    notification_id: str
+    meeting_session_id: str
+    attempt: int
+    recipient_count: Literal[0]
+    outcome: Literal['suppressed']
+    failure_code: Literal['no_recipients']
+    provider_receipt_digest: None
+    observed_at: str
+    data_classification: Literal['internal']
+
+MeetingTerminalNotificationDeliveryReceipt: TypeAlias = _MeetingTerminalNotificationDeliveryReceiptOutcomeProviderAccepted | _MeetingTerminalNotificationDeliveryReceiptOutcomeSimulated | _MeetingTerminalNotificationDeliveryReceiptOutcomeRetryScheduled | _MeetingTerminalNotificationDeliveryReceiptOutcomeDeadLettered | _MeetingTerminalNotificationDeliveryReceiptOutcomeAmbiguous | _MeetingTerminalNotificationDeliveryReceiptOutcomeLeaseExpired | _MeetingTerminalNotificationDeliveryReceiptOutcomeSuppressed
 
 # Source: contracts/schemas/operator_reconciliation_receipt.schema.json; schema: https://schemas.axtro.ai/v2/operator_reconciliation_receipt.schema.json; version: 2.0.0.
 class OperatorReconciliationReceipt(TypedDict):
@@ -967,6 +1104,18 @@ CONTRACT_METADATA: dict[str, dict[str, str]] = {
     "source_hash": "641554550db45bed0f891b726e5b92344d23be5d51308183b136dbb36090bac8",
     "source_schema": "contracts/schemas/interaction_session_state.schema.json"
   },
+  "MeetingTerminalNotificationCommand": {
+    "schema_id": "https://schemas.axtro.ai/v2/meeting_terminal_notification_command.schema.json",
+    "schema_version": "2.0.0",
+    "source_hash": "3ac79fb2328de8cb85cfa46cf3323af52d72db7432f8bf726d0e20de091433ce",
+    "source_schema": "contracts/schemas/meeting_terminal_notification_command.schema.json"
+  },
+  "MeetingTerminalNotificationDeliveryReceipt": {
+    "schema_id": "https://schemas.axtro.ai/v2/meeting_terminal_notification_delivery_receipt.schema.json",
+    "schema_version": "2.0.0",
+    "source_hash": "ee88c29276a3e4ee41322239cbba919e7e774047bed3c4c60e30c9147b2127a3",
+    "source_schema": "contracts/schemas/meeting_terminal_notification_delivery_receipt.schema.json"
+  },
   "OperatorReconciliationReceipt": {
     "schema_id": "https://schemas.axtro.ai/v2/operator_reconciliation_receipt.schema.json",
     "schema_version": "2.0.0",
@@ -1191,6 +1340,8 @@ __all__ = [
     'HandoffPacket',
     'InteractionQualityState',
     'InteractionSessionState',
+    'MeetingTerminalNotificationCommand',
+    'MeetingTerminalNotificationDeliveryReceipt',
     'OperatorReconciliationReceipt',
     'PerceptionSignal',
     'PolicyDecision',

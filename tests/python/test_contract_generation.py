@@ -50,7 +50,7 @@ class ContractGenerationTests(unittest.TestCase):
             self.assertEqual(first_ts, generated_ts.read_bytes())
             self.assertEqual(first_py, generated_py.read_bytes())
             generated_typescript = generated_ts.read_text(encoding="utf-8")
-            self.assertEqual(54, generated_typescript.count('"source_schema"'))
+            self.assertEqual(56, generated_typescript.count('"source_schema"'))
             generated_python = generated_py.read_text(encoding="utf-8")
             self.assertIn("schema_version", generated_python)
             self.assertIn("class _FakeProviderScenarioRequired(TypedDict):", generated_python)
@@ -58,6 +58,18 @@ class ContractGenerationTests(unittest.TestCase):
             self.assertIn("operation: Literal['channel.health'", generated_python)
             self.assertIn("export type TurnOutcomeRecorded =", generated_typescript)
             self.assertIn("TurnOutcomeRecorded: TypeAlias =", generated_python)
+            self.assertIn(
+                "export type MeetingTerminalNotificationDeliveryReceipt =",
+                generated_typescript,
+            )
+            self.assertIn(
+                "MeetingTerminalNotificationDeliveryReceipt: TypeAlias =",
+                generated_python,
+            )
+            self.assertIn(
+                "class _MeetingTerminalNotificationDeliveryReceiptOutcomeProviderAccepted(TypedDict):",
+                generated_python,
+            )
             compile(generated_python, str(generated_py), "exec")
 
     def test_every_invalid_example_is_rejected_by_its_source_schema(self) -> None:
@@ -70,7 +82,7 @@ class ContractGenerationTests(unittest.TestCase):
             errors = list(Draft202012Validator(schema, registry=registry).iter_errors(example))
             self.assertTrue(errors, f"{example_path.relative_to(ROOT)} unexpectedly passed")
             rejected += 1
-        self.assertEqual(54, rejected)
+        self.assertEqual(56, rejected)
 
     def test_runtime_configuration_contract_rejects_live_mode_and_secret_like_handles(self) -> None:
         schema_path = SCHEMAS / "runtime_configuration.schema.json"

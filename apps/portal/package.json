@@ -12,6 +12,7 @@
     "e2e:public": "playwright test -c playwright.public.config.ts"
   },
   "dependencies": {
+    "@axtro/contracts-ts": "workspace:*",
     "@axtro/domain": "workspace:*",
     "@axtro/provider-google-calendar": "workspace:*",
     "@axtro/provider-openrouter": "workspace:*",

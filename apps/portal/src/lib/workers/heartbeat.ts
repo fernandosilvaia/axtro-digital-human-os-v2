@@ -5,8 +5,10 @@ import { isUuidV7 } from "@axtro/domain";
 import { createServiceRoleClient } from "../supabase/service.ts";
 
 export const PORTAL_FINANCIAL_WORKER_VERSION = "m5-02-v1";
+export const PORTAL_MEETING_TERMINAL_NOTIFICATION_WORKER_VERSION = "m6-01-v1";
 
 export type PortalFinancialWorker = "billing_usage" | "provider_effect_reconciler";
+export type PortalWorker = PortalFinancialWorker | "meeting_terminal_notification";
 export type WorkerHeartbeatPhase = "started" | "succeeded" | "failed";
 
 type CounterValue = boolean | number | null;
@@ -16,6 +18,7 @@ export interface PortalFinancialWorkerIdentity {
   readonly deploymentId: string;
   readonly configFingerprint: string;
 }
+export type PortalWorkerIdentity = PortalFinancialWorkerIdentity;
 
 interface HeartbeatRpcResult {
   readonly data: unknown;
@@ -57,7 +60,19 @@ const COUNTER_KEYS = Object.freeze({
     "unknown",
     "cleanupPending",
   ]),
-} satisfies Record<PortalFinancialWorker, ReadonlySet<string>>);
+  meeting_terminal_notification: new Set([
+    "leased",
+    "providerAccepted",
+    "simulated",
+    "retryScheduled",
+    "ambiguous",
+    "deadLettered",
+    "suppressed",
+    "backlog",
+    "deadLetterBacklog",
+    "ambiguousBacklog",
+  ]),
+} satisfies Record<PortalWorker, ReadonlySet<string>>);
 
 const DEPLOYMENT_ID_PATTERN = /^[A-Za-z0-9][A-Za-z0-9._-]{7,127}$/;
 const CONFIG_FINGERPRINT_PATTERN = /^sha256:[a-f0-9]{64}$/;
@@ -131,6 +146,33 @@ export function portalFinancialWorkerIdentity(
   return Object.freeze({ deploymentId, configFingerprint: configFingerprint(config) });
 }
 
+/** Resolve semantic identity for any Portal background worker. */
+export function portalWorkerIdentity(
+  worker: PortalWorker,
+  env: NodeJS.ProcessEnv,
+): PortalWorkerIdentity {
+  if (worker !== "meeting_terminal_notification") {
+    return portalFinancialWorkerIdentity(worker, env);
+  }
+  const deploymentId = portalDeploymentId(env);
+  const fakeMode = normalizedEnv(env, "PORTAL_FAKE_PROVIDERS") === "1";
+  return Object.freeze({
+    deploymentId,
+    configFingerprint: configFingerprint({
+      schema: "meeting-terminal-notification-worker-config/v1",
+      worker,
+      providerMode: fakeMode ? "fake" : "real",
+      enabled: normalizedEnv(env, "MEETING_TERMINAL_NOTIFICATION_OUTBOX_ENABLED"),
+      provider: "resend",
+      templateVersion: 1,
+      batchLimit: 4,
+      leaseSeconds: 60,
+      providerTimeoutMs: 10_000,
+      idempotencyWindowHours: 23,
+    }),
+  });
+}
+
 function validatedIdentity(identity: PortalFinancialWorkerIdentity): PortalFinancialWorkerIdentity {
   const prototype = identity !== null && typeof identity === "object"
     ? Object.getPrototypeOf(identity)
@@ -155,7 +197,7 @@ function validatedIdentity(identity: PortalFinancialWorkerIdentity): PortalFinan
 }
 
 function validatedCounters(
-  worker: PortalFinancialWorker,
+  worker: PortalWorker,
   phase: WorkerHeartbeatPhase,
   counters: WorkerHeartbeatCounters,
 ): WorkerHeartbeatCounters {
@@ -190,14 +232,21 @@ const REQUIRED_INTEGER_COUNTERS = Object.freeze({
     "leased", "reconciled", "failed", "deadLettered", "operatorRequired", "backlog",
     "processing", "deadLetterBacklog", "providerInFlight", "unknown", "cleanupPending",
   ]),
-} satisfies Record<PortalFinancialWorker, readonly string[]>);
+  meeting_terminal_notification: Object.freeze([
+    "leased", "providerAccepted", "simulated", "retryScheduled", "ambiguous",
+    "deadLettered", "suppressed", "backlog", "deadLetterBacklog", "ambiguousBacklog",
+  ]),
+} satisfies Record<PortalWorker, readonly string[]>);
 
 const FAILURE_COUNTERS = Object.freeze({
   billing_usage: Object.freeze(["failed", "deadLettered", "deadLetterBacklog", "unknown", "cleanupPending"]),
   provider_effect_reconciler: Object.freeze([
     "failed", "deadLettered", "deadLetterBacklog", "unknown", "cleanupPending", "operatorRequired",
   ]),
-} satisfies Record<PortalFinancialWorker, readonly string[]>);
+  meeting_terminal_notification: Object.freeze([
+    "retryScheduled", "ambiguous", "deadLettered", "deadLetterBacklog", "ambiguousBacklog",
+  ]),
+} satisfies Record<PortalWorker, readonly string[]>);
 
 /** A successful heartbeat is allowed only for a complete, clean financial batch. */
 export function financialWorkerRunSucceeded(
@@ -215,24 +264,40 @@ export function financialWorkerRunSucceeded(
   return FAILURE_COUNTERS[worker].every((key) => safeCounters[key] === 0);
 }
 
+/** A notification run is clean only when every leased command reaches a non-failure terminal receipt. */
+export function notificationWorkerRunSucceeded(counters: WorkerHeartbeatCounters): boolean {
+  let safeCounters: WorkerHeartbeatCounters;
+  try {
+    safeCounters = validatedCounters("meeting_terminal_notification", "succeeded", counters);
+  } catch {
+    return false;
+  }
+  if (!REQUIRED_INTEGER_COUNTERS.meeting_terminal_notification.every((key) => Number.isSafeInteger(safeCounters[key]))) {
+    return false;
+  }
+  return FAILURE_COUNTERS.meeting_terminal_notification.every((key) => safeCounters[key] === 0);
+}
+
 /** Persist a service-owned worker phase. Only an exact boolean receipt is success. */
 export async function recordWorkerHeartbeat(
-  worker: PortalFinancialWorker,
+  worker: PortalWorker,
   runId: string,
   phase: WorkerHeartbeatPhase,
   counters: WorkerHeartbeatCounters = {},
-  identity?: PortalFinancialWorkerIdentity,
+  identity?: PortalWorkerIdentity,
   dependencies: RecordWorkerHeartbeatDependencies = {},
 ): Promise<void> {
   if (!isUuidV7(runId)) throw new Error("worker heartbeat run id must be a UUIDv7");
   const safeCounters = validatedCounters(worker, phase, counters);
-  const safeIdentity = validatedIdentity(identity ?? portalFinancialWorkerIdentity(worker, process.env));
+  const safeIdentity = validatedIdentity(identity ?? portalWorkerIdentity(worker, process.env));
   const client = (dependencies.createClient ?? (() => createServiceRoleClient() as HeartbeatRpcClient))();
   const { data, error } = await client.rpc("portal_record_worker_heartbeat_service", {
     p_worker_kind: worker,
     p_run_id: runId,
     p_phase: phase,
-    p_version: PORTAL_FINANCIAL_WORKER_VERSION,
+    p_version: worker === "meeting_terminal_notification"
+      ? PORTAL_MEETING_TERMINAL_NOTIFICATION_WORKER_VERSION
+      : PORTAL_FINANCIAL_WORKER_VERSION,
     p_deployment_id: safeIdentity.deploymentId,
     p_config_fingerprint: safeIdentity.configFingerprint,
     p_counters: safeCounters,

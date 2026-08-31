@@ -1,0 +1,13 @@
+{
+  "schema_version": "2.0.0",
+  "tenant_id": "018f1e2d-3c4b-7a02-8c9d-001122334456",
+  "notification_id": "018f1e2d-3c4b-7a01-8c9d-001122334455",
+  "meeting_session_id": "018f1e2d-3c4b-7a01-8c9d-001122334455",
+  "attempt": 0,
+  "recipient_count": 1,
+  "outcome": "provider_accepted",
+  "failure_code": "provider_unavailable",
+  "provider_receipt_digest": null,
+  "observed_at": "not-a-date",
+  "data_classification": "restricted"
+}

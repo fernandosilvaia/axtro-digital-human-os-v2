@@ -69,3 +69,19 @@ then reconciles or preserves any `unknown`/`cleanup_pending` reservation. A
 provider receipt is inseparable from its reservation's exact provider reference
 and URL, while kill-switch event retention follows the same tenant as the
 switch; neither relationship may be reassigned during erasure.
+
+## Meeting terminal notification evidence
+
+`meeting_terminal_notification_outbox`, `meeting_terminal_notification_payloads`
+and `meeting_terminal_notification_attempt_receipts` are tenant-scoped and use
+composite tenant references. Payload rows are the only location for recipient,
+subject and HTML. Accepted or simulated payloads become purgeable after one
+day; dead-letter payloads become purgeable after 30 days. Cleanup never removes
+outbox or attempt receipts.
+
+Tenant closure first disables new terminal effects and settles every live lease.
+An `ambiguous` item must retain the same provider key and frozen payload until it
+is resolved or reaches its deadline. Outbox and attempt receipts contain only
+bounded status, failure code and opaque digests, but their final retention,
+legal-hold and deletion order remain part of M6-04. They must not be silently
+treated as covered by the older deletion graph.

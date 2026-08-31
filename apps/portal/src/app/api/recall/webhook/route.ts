@@ -67,6 +67,8 @@ interface MeetingStatusReceipt {
   readonly found?: boolean;
   readonly applied?: boolean;
   readonly terminalRetained?: boolean;
+  readonly notificationOutboxEnqueued?: boolean;
+  readonly terminalFinalized?: boolean;
   readonly tavusReservationId?: string | null;
   readonly tavusConversationId?: string | null;
   readonly tavusCleanupRequired?: boolean;
@@ -645,6 +647,15 @@ export async function POST(request: NextRequest): Promise<Response> {
     }
 
     if (status === "ended" || status === "failed") {
+      if (process.env.MEETING_TERMINAL_NOTIFICATION_OUTBOX_ENABLED === "true") {
+        if (found && typeof result?.notificationOutboxEnqueued !== "boolean") {
+          return releaseForRetry("terminal_notification_outbox_unavailable");
+        }
+        if (!found && result?.terminalFinalized !== true) {
+          return releaseForRetry("terminal_notification_not_ready");
+        }
+        return completeOrRetry({ ok: true, handled: found });
+      }
       const { data: notificationClaimed, error: notificationClaimError } = await supabase.rpc(
         "portal_claim_meeting_terminal_notification_service",
         { p_recall_bot_id: parsed.botId },
@@ -657,7 +668,7 @@ export async function POST(request: NextRequest): Promise<Response> {
         );
         return releaseForRetry("terminal_notification_claim_pending");
       }
-      if (!notificationClaimed && !found) {
+      if (!notificationClaimed && !found && result?.terminalFinalized !== true) {
         return releaseForRetry("terminal_notification_not_ready");
       }
       if (notificationClaimed) {

@@ -13,8 +13,8 @@ from typing import Any
 
 ROOT = Path(__file__).resolve().parents[1]
 SCHEMAS_DIR = ROOT / "contracts" / "schemas"
-EXPECTED_SCHEMA_COUNT = 54
-GENERATOR_VERSION = "1.1.0"
+EXPECTED_SCHEMA_COUNT = 56
+GENERATOR_VERSION = "1.2.0"
 IDENTIFIER = re.compile(r"^[A-Za-z_$][A-Za-z0-9_$]*$")
 
 
@@ -155,6 +155,11 @@ def load_contracts() -> list[ContractSchema]:
             raise ValueError(f"{path.relative_to(ROOT)} is missing $id")
         if not isinstance(schema_version, str) or not schema_version:
             raise ValueError(f"{path.relative_to(ROOT)} is missing schema_version.const")
+        if "x-axtro-discriminator" in document and discriminated_variants(document) is None:
+            raise ValueError(
+                f"{path.relative_to(ROOT)} declares x-axtro-discriminator "
+                "without exhaustive machine-provable variants"
+            )
         name = path.name.removesuffix(".schema.json")
         contracts.append(
             ContractSchema(

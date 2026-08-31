@@ -26,6 +26,7 @@ const mockSources = new Map([
   ["@/lib/telemetry", `export function logError() {}`],
   ["@/lib/workers/heartbeat", `
     export const PORTAL_FINANCIAL_WORKER_VERSION = "m5-02-v1";
+    export const PORTAL_MEETING_TERMINAL_NOTIFICATION_WORKER_VERSION = "m6-01-v1";
     export function portalDeploymentId(env) {
       if ((env.PORTAL_FAKE_PROVIDERS ?? "").trim() === "1") return "fake-mode";
       const value = (env.RAILWAY_GIT_COMMIT_SHA || env.AXTRO_DEPLOYMENT_ID || "").trim();
@@ -36,6 +37,13 @@ const mockSources = new Map([
       return {
         deploymentId: portalDeploymentId(env),
         configFingerprint: "sha256:" + (worker === "billing_usage" ? "1" : "2").repeat(64),
+      };
+    }
+    export function portalWorkerIdentity(worker, env) {
+      if (worker !== "meeting_terminal_notification") return portalFinancialWorkerIdentity(worker, env);
+      return {
+        deploymentId: portalDeploymentId(env),
+        configFingerprint: "sha256:" + "3".repeat(64),
       };
     }
   `],
@@ -84,6 +92,7 @@ const ENV = Object.freeze({
   STRIPE_PRICE_ESCALA_OVERAGE: "price_ScaleOver123",
   PROVIDER_EFFECT_RECONCILER_ENABLED: "true",
   PROVIDER_EFFECT_RECONCILE_SECRET: "provider-reconcile-secret-test",
+  MEETING_TERMINAL_NOTIFICATION_OUTBOX_ENABLED: "false",
   PORTAL_BUSINESS_ACTION_BRIDGE_ENABLED: "false",
   PORTAL_TEXT_PREVIEW_ENABLED: "false",
 });
@@ -145,6 +154,16 @@ const BUSINESS_ACTION_CAPABILITIES = Object.freeze({
   businessActionEmailLengthBound: true,
 });
 
+const MEETING_NOTIFICATION_CAPABILITIES = Object.freeze({
+  version: 57,
+  meetingTerminalNotificationClaim: false,
+  meetingTerminalNotificationOutbox: true,
+  meetingTerminalNotificationAtomicEnqueue: true,
+  meetingTerminalNotificationLegacyClaimDisabled: true,
+  meetingTerminalNotificationBoundedUnknown: true,
+  meetingTerminalNotificationWorkerHeartbeat: true,
+});
+
 const FRESH_WORKERS = Object.freeze({
   billingUsage: Object.freeze({
     lastSucceededAt: "2026-08-13T12:00:00.000Z",
@@ -162,19 +181,26 @@ const FRESH_WORKERS = Object.freeze({
   }),
 });
 
+const FRESH_WORKERS_V57 = Object.freeze({
+  ...FRESH_WORKERS,
+  meetingTerminalNotification: Object.freeze({
+    lastSucceededAt: "2026-08-13T12:00:20.000Z",
+    ageSeconds: 10,
+    version: "m6-01-v1",
+    deploymentId: ENV.AXTRO_DEPLOYMENT_ID,
+    configFingerprint: `sha256:${"3".repeat(64)}`,
+  }),
+});
+
 function clientWith(
   schemaResult,
   workerResult = { data: FRESH_WORKERS, error: null },
   calls = undefined,
-  terminalClaimResult = { data: false, error: null },
 ) {
   return { rpc: async (name, parameters) => {
     calls?.push(name);
     if (name === "portal_schema_capabilities_service") return schemaResult;
-    if (name === "portal_claim_meeting_terminal_notification_service") {
-      assert.deepEqual(parameters, { p_recall_bot_id: "readiness-probe-not-a-uuid" });
-      return terminalClaimResult;
-    }
+    assert.equal(parameters, undefined);
     assert.equal(name, "portal_worker_readiness_service");
     return workerResult;
   } };
@@ -277,7 +303,7 @@ test("readiness rejects unknown or malformed schema versions and never probes wo
   }
 });
 
-test("business actions disabled accept only schemas v50 and v56 with the terminal claim", async () => {
+test("business actions disabled accept bridge schemas v50, v56 and the v57 outbox", async () => {
   for (const version of [50, 56]) {
     const response = await handleReadiness({
       env: { ...ENV, PORTAL_BUSINESS_ACTION_BRIDGE_ENABLED: "false" },
@@ -286,38 +312,165 @@ test("business actions disabled accept only schemas v50 and v56 with the termina
     });
     assert.equal(response.status, 200, `version:${version}`);
   }
+  const response = await handleReadiness({
+    env: { ...ENV, PORTAL_BUSINESS_ACTION_BRIDGE_ENABLED: "false" },
+    createClient: () => clientWith(
+      { data: { ...CAPABILITIES, ...MEETING_NOTIFICATION_CAPABILITIES }, error: null },
+      { data: FRESH_WORKERS_V57, error: null },
+    ),
+    logError: () => {},
+  });
+  assert.equal(response.status, 200);
 });
 
-test("readiness requires an inert false receipt from the terminal notification claim RPC", async () => {
-  for (const [label, terminalClaimResult] of [
-    ["permission denied", { data: null, error: { code: "42501", message: "permission denied" } }],
-    ["RPC error", { data: null, error: { message: "database unavailable" } }],
-    ["unexpected claim", { data: true, error: null }],
-    ["wrong receipt type", { data: "false", error: null }],
+test("v57 exige claim antiga false e todas as capabilities do outbox", async () => {
+  const schema = { ...CAPABILITIES, ...MEETING_NOTIFICATION_CAPABILITIES };
+  for (const patch of [
+    { meetingTerminalNotificationClaim: true },
+    { meetingTerminalNotificationClaim: undefined },
+    ...Object.keys(MEETING_NOTIFICATION_CAPABILITIES)
+      .filter((capability) => capability !== "version" && capability !== "meetingTerminalNotificationClaim")
+      .flatMap((capability) => [
+        { [capability]: false },
+        { [capability]: undefined },
+      ]),
   ]) {
     const calls = [];
     const response = await handleReadiness({
       env: { ...ENV },
       createClient: () => clientWith(
-        { data: CAPABILITIES, error: null },
-        { data: FRESH_WORKERS, error: null },
+        { data: { ...schema, ...patch }, error: null },
+        { data: FRESH_WORKERS_V57, error: null },
         calls,
-        terminalClaimResult,
       ),
       logError: () => {},
     });
-    assert.equal(response.status, 503, label);
-    const body = await assertNoStore(response);
-    assert.equal(body.checks.database, false, label);
-    assert.equal(body.checks.schema, true, label);
-    assert.deepEqual(calls, [
-      "portal_schema_capabilities_service",
-      "portal_claim_meeting_terminal_notification_service",
-    ], label);
+    assert.equal(response.status, 503, JSON.stringify(patch));
+    assert.deepEqual(calls, ["portal_schema_capabilities_service"]);
   }
 });
 
-test("business actions enabled require v56 and every business-action capability", async () => {
+test("v57 com outbox desligado não exige heartbeat do worker dormente", async () => {
+  const response = await handleReadiness({
+    env: { ...ENV, MEETING_TERMINAL_NOTIFICATION_OUTBOX_ENABLED: "false" },
+    createClient: () => clientWith(
+      { data: { ...CAPABILITIES, ...MEETING_NOTIFICATION_CAPABILITIES }, error: null },
+      { data: { ...FRESH_WORKERS, meetingTerminalNotification: null }, error: null },
+    ),
+    logError: () => {},
+  });
+  assert.equal(response.status, 200);
+  const body = await assertNoStore(response);
+  assert.equal(body.checks.meeting_notification_worker, true);
+});
+
+test("outbox habilitado exige v57 e um heartbeat de notificação fresco e separado", async () => {
+  const enabledEnv = {
+    ...ENV,
+    MEETING_TERMINAL_NOTIFICATION_OUTBOX_ENABLED: "true",
+    MEETING_TERMINAL_NOTIFICATION_DISPATCH_SECRET: "meeting-notification-readiness-secret",
+    RESEND_API_KEY: "re_test_readiness_key",
+  };
+  const legacyCalls = [];
+  const legacy = await handleReadiness({
+    env: enabledEnv,
+    createClient: () => clientWith({ data: CAPABILITIES, error: null }, { data: FRESH_WORKERS, error: null }, legacyCalls),
+    logError: () => {},
+  });
+  assert.equal(legacy.status, 503);
+  assert.deepEqual(legacyCalls, ["portal_schema_capabilities_service"]);
+
+  for (const workers of [
+    FRESH_WORKERS,
+    { ...FRESH_WORKERS_V57, meetingTerminalNotification: null },
+    { ...FRESH_WORKERS_V57, meetingTerminalNotification: { ...FRESH_WORKERS_V57.meetingTerminalNotification, ageSeconds: 721 } },
+    { ...FRESH_WORKERS_V57, meetingTerminalNotification: { ...FRESH_WORKERS_V57.meetingTerminalNotification, version: "m6-00-v0" } },
+    { ...FRESH_WORKERS_V57, meetingTerminalNotification: { ...FRESH_WORKERS_V57.meetingTerminalNotification, configFingerprint: `sha256:${"4".repeat(64)}` } },
+    { ...FRESH_WORKERS_V57, meetingTerminalNotification: { ...FRESH_WORKERS_V57.meetingTerminalNotification, deploymentId: "another-deployment" } },
+    { ...FRESH_WORKERS_V57, meetingTerminalNotification: { ...FRESH_WORKERS_V57.meetingTerminalNotification, ageSeconds: -1 } },
+    { ...FRESH_WORKERS_V57, meetingTerminalNotification: { ...FRESH_WORKERS_V57.meetingTerminalNotification, lastSucceededAt: "not-a-timestamp" } },
+    { ...FRESH_WORKERS_V57, meetingTerminalNotification: { ...FRESH_WORKERS_V57.meetingTerminalNotification, configFingerprint: undefined } },
+    { ...FRESH_WORKERS_V57, meetingTerminalNotification: { ...FRESH_WORKERS_V57.meetingTerminalNotification, extra: true } },
+  ]) {
+    const response = await handleReadiness({
+      env: enabledEnv,
+      createClient: () => clientWith(
+        { data: { ...CAPABILITIES, ...MEETING_NOTIFICATION_CAPABILITIES }, error: null },
+        { data: workers, error: null },
+      ),
+      logError: () => {},
+    });
+    assert.equal(response.status, 503);
+    const body = await assertNoStore(response);
+    assert.equal(body.checks.schema, true);
+    assert.equal(body.checks.workers, false);
+    assert.equal(body.checks.meeting_notification_worker, false);
+  }
+
+  const ready = await handleReadiness({
+    env: enabledEnv,
+    createClient: () => clientWith(
+      { data: { ...CAPABILITIES, ...MEETING_NOTIFICATION_CAPABILITIES }, error: null },
+      { data: FRESH_WORKERS_V57, error: null },
+    ),
+    logError: () => {},
+  });
+  assert.equal(ready.status, 200);
+  assert.equal((await assertNoStore(ready)).checks.meeting_notification_worker, true);
+});
+
+test("fake mode permite outbox habilitado sem credencial Resend e sem heartbeat", async () => {
+  const response = await handleReadiness({
+    env: {
+      ...ENV,
+      PORTAL_FAKE_PROVIDERS: "1",
+      MEETING_TERMINAL_NOTIFICATION_OUTBOX_ENABLED: "true",
+      MEETING_TERMINAL_NOTIFICATION_DISPATCH_SECRET: "meeting-notification-readiness-secret",
+      RESEND_API_KEY: "",
+    },
+    createClient: () => clientWith({
+      data: { ...CAPABILITIES, ...MEETING_NOTIFICATION_CAPABILITIES },
+      error: null,
+    }),
+    logError: () => {},
+  });
+  assert.equal(response.status, 200);
+  assert.equal((await assertNoStore(response)).checks.meeting_notification_worker, true);
+});
+
+test("meeting notification readiness flags fail closed before database access", async () => {
+  for (const patch of [
+    { MEETING_TERMINAL_NOTIFICATION_OUTBOX_ENABLED: " TRUE " },
+    { MEETING_TERMINAL_NOTIFICATION_OUTBOX_ENABLED: "TRUE" },
+    { MEETING_TERMINAL_NOTIFICATION_OUTBOX_ENABLED: "1" },
+    { MEETING_TERMINAL_NOTIFICATION_OUTBOX_ENABLED: "enabled" },
+    {
+      MEETING_TERMINAL_NOTIFICATION_OUTBOX_ENABLED: "true",
+      MEETING_TERMINAL_NOTIFICATION_DISPATCH_SECRET: "short",
+      RESEND_API_KEY: "re_test_readiness_key",
+    },
+    {
+      MEETING_TERMINAL_NOTIFICATION_OUTBOX_ENABLED: "true",
+      MEETING_TERMINAL_NOTIFICATION_DISPATCH_SECRET: "meeting-notification-readiness-secret",
+      RESEND_API_KEY: "",
+    },
+  ]) {
+    let clientCreated = false;
+    const response = await handleReadiness({
+      env: { ...ENV, ...patch },
+      createClient: () => {
+        clientCreated = true;
+        return clientWith({ data: CAPABILITIES, error: null });
+      },
+      logError: () => {},
+    });
+    assert.equal(response.status, 503, JSON.stringify(patch));
+    assert.equal(clientCreated, false, JSON.stringify(patch));
+    await assertNoStore(response);
+  }
+});
+
+test("business actions enabled require v56 or v57 and every business-action capability", async () => {
   const schema = { ...CAPABILITIES, version: 56, ...BUSINESS_ACTION_CAPABILITIES };
   for (const version of [48, 49, 50, 51, 52, 53, 54, 55]) {
     const calls = [];
@@ -347,6 +500,16 @@ test("business actions enabled require v56 and every business-action capability"
     logError: () => {},
   });
   assert.equal(response.status, 200);
+
+  const v57 = await handleReadiness({
+    env: { ...ENV, PORTAL_BUSINESS_ACTION_BRIDGE_ENABLED: "true" },
+    createClient: () => clientWith(
+      { data: { ...schema, ...MEETING_NOTIFICATION_CAPABILITIES }, error: null },
+      { data: FRESH_WORKERS_V57, error: null },
+    ),
+    logError: () => {},
+  });
+  assert.equal(v57.status, 200);
 });
 
 test("invalid business-action flag fails config readiness before database access", async () => {
@@ -691,18 +854,13 @@ test("fake-provider readiness may explicitly disable the billing outbox", async 
     },
     createClient: () => ({ rpc: async (name, parameters) => {
       calls.push(name);
-      if (name === "portal_claim_meeting_terminal_notification_service") {
-        assert.deepEqual(parameters, { p_recall_bot_id: "readiness-probe-not-a-uuid" });
-        return { data: false, error: null };
-      }
+      assert.equal(parameters, undefined);
+      assert.equal(name, "portal_schema_capabilities_service");
       return { data: CAPABILITIES, error: null };
     } }),
     logError: () => {},
   });
   assert.equal(response.status, 200);
   await assertNoStore(response);
-  assert.deepEqual(calls, [
-    "portal_schema_capabilities_service",
-    "portal_claim_meeting_terminal_notification_service",
-  ]);
+  assert.deepEqual(calls, ["portal_schema_capabilities_service"]);
 });

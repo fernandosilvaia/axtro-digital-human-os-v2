@@ -5,12 +5,17 @@ import test from "node:test";
 
 import {
   FINANCIAL_WORKER_HEARTBEAT_VERSION,
+  MEETING_TERMINAL_NOTIFICATION_WORKER_HEARTBEAT_VERSION,
   PRODUCTION_BOOTSTRAP_VERSION,
   ProductionReadinessBootstrapError,
   financialWorkerIdentity,
+  meetingTerminalNotificationWorkerIdentity,
   runProductionReadinessBootstrap,
 } from "../../scripts/production-readiness-bootstrap.mjs";
-import { portalFinancialWorkerIdentity } from "../../apps/portal/src/lib/workers/heartbeat.ts";
+import {
+  portalFinancialWorkerIdentity,
+  portalWorkerIdentity,
+} from "../../apps/portal/src/lib/workers/heartbeat.ts";
 
 const BILLING_RUN_ID = "0198f5d0-45c0-7000-8000-000000000201";
 const PROVIDER_RUN_ID = "0198f5d0-45c0-7000-8000-000000000202";
@@ -22,6 +27,7 @@ const ENV = Object.freeze({
   RAILWAY_GIT_COMMIT_SHA: "0123456789abcdef0123456789abcdef01234567",
   BILLING_USAGE_OUTBOX_ENABLED: "true",
   PROVIDER_EFFECT_RECONCILER_ENABLED: "true",
+  MEETING_TERMINAL_NOTIFICATION_OUTBOX_ENABLED: "false",
   PORTAL_BUSINESS_ACTION_BRIDGE_ENABLED: "false",
   PORTAL_TEXT_PREVIEW_ENABLED: "false",
   RECALL_API_REGION: "us-west-2",
@@ -98,6 +104,21 @@ const BUSINESS_ACTION_SCHEMA = Object.freeze({
   ...BUSINESS_ACTION_CAPABILITIES,
 });
 
+const MEETING_NOTIFICATION_CAPABILITIES = Object.freeze({
+  meetingTerminalNotificationClaim: false,
+  meetingTerminalNotificationOutbox: true,
+  meetingTerminalNotificationAtomicEnqueue: true,
+  meetingTerminalNotificationLegacyClaimDisabled: true,
+  meetingTerminalNotificationBoundedUnknown: true,
+  meetingTerminalNotificationWorkerHeartbeat: true,
+});
+
+const OUTBOX_SCHEMA = Object.freeze({
+  ...SCHEMA,
+  version: 57,
+  ...MEETING_NOTIFICATION_CAPABILITIES,
+});
+
 const BILLING_BACKLOG = Object.freeze({
   pending: 0,
   oldestAgeSeconds: 0,
@@ -132,6 +153,18 @@ const AI_BACKLOG = Object.freeze({
   receiptCount: 3,
 });
 
+const MEETING_NOTIFICATION_BACKLOG = Object.freeze({
+  pending: 0,
+  delivering: 0,
+  retryWait: 0,
+  ambiguous: 0,
+  providerAccepted: 3,
+  simulated: 0,
+  deadLetter: 0,
+  suppressed: 1,
+  oldestDispatchableAgeSeconds: 0,
+});
+
 const PRICE_DEFINITIONS = new Map([
   [ENV.STRIPE_PRICE_PILOTO_BASE, [49_700, "licensed"]],
   [ENV.STRIPE_PRICE_PILOTO_OVERAGE, [3_000, "metered"]],
@@ -157,13 +190,6 @@ function fakeFetch(options = {}) {
       const rpc = url.pathname.split("/").at(-1);
       const parameters = JSON.parse(init.body);
       if (rpc === "portal_schema_capabilities_service") return json(options.schema ?? SCHEMA);
-      if (rpc === "portal_claim_meeting_terminal_notification_service") {
-        assert.deepEqual(parameters, { p_recall_bot_id: "readiness-probe-not-a-uuid" });
-        if (options.terminalClaimProbeStatus !== undefined) {
-          return json({ error: "terminal notification claim probe denied" }, options.terminalClaimProbeStatus);
-        }
-        return json(Object.hasOwn(options, "terminalClaimProbe") ? options.terminalClaimProbe : false);
-      }
       if (rpc === "portal_runtime_channel_status_service") {
         if (options.runtimeProbeStatus !== undefined) return json({ error: "runtime probe denied" }, options.runtimeProbeStatus);
         return json(Object.hasOwn(options, "runtimeProbe") ? options.runtimeProbe : { enabled: false });
@@ -171,6 +197,9 @@ function fakeFetch(options = {}) {
       if (rpc === "portal_billing_usage_backlog_service") return json(options.billingBacklog ?? BILLING_BACKLOG);
       if (rpc === "portal_provider_effect_reconciliation_backlog_service") return json(options.providerBacklog ?? PROVIDER_BACKLOG);
       if (rpc === "portal_ai_usage_reconciliation_backlog_service") return json(options.aiBacklog ?? AI_BACKLOG);
+      if (rpc === "portal_meeting_terminal_notification_backlog_service") {
+        return json(options.meetingNotificationBacklog ?? MEETING_NOTIFICATION_BACKLOG);
+      }
       if (rpc === "portal_record_worker_heartbeat_service") {
         if (options.heartbeatReceipt === false) return json(false);
         return json(true);
@@ -224,7 +253,9 @@ function run(options = {}) {
     promise: runProductionReadinessBootstrap({
       env: { ...ENV, ...(options.env ?? {}) },
       fetchImplementation: transport.fetchImplementation,
-      runIdFactory: (worker) => worker === "billing_usage" ? BILLING_RUN_ID : PROVIDER_RUN_ID,
+      runIdFactory: (worker) => worker === "billing_usage"
+        ? BILLING_RUN_ID
+        : worker === "provider_effect_reconciler" ? PROVIDER_RUN_ID : NOTIFICATION_RUN_ID,
     }),
   };
 }
@@ -280,26 +311,21 @@ test("bootstrap rejects unknown or malformed schema versions before any downstre
   }
 });
 
-test("business actions disabled accept only schemas v50 and v56 with the terminal claim", async () => {
+test("business actions disabled accept legacy bridge schemas and the v57 notification outbox", async () => {
   for (const version of [50, 56]) {
     const { promise } = run({ schema: { ...SCHEMA, version } });
     assert.equal((await promise).schemaVersion, version);
   }
+  const { promise } = run({ schema: OUTBOX_SCHEMA });
+  assert.equal((await promise).schemaVersion, 57);
 });
 
-test("bootstrap requires an inert false receipt from the terminal notification claim RPC", async () => {
-  for (const [label, options, code] of [
-    ["permission denied", { terminalClaimProbeStatus: 403 }, "RPC_UNAVAILABLE"],
-    ["unexpected claim", { terminalClaimProbe: true }, "TERMINAL_NOTIFICATION_CLAIM_PROBE_INVALID"],
-    ["wrong receipt type", { terminalClaimProbe: "false" }, "TERMINAL_NOTIFICATION_CLAIM_PROBE_INVALID"],
-    ["null receipt", { terminalClaimProbe: null }, "TERMINAL_NOTIFICATION_CLAIM_PROBE_INVALID"],
-  ]) {
-    const { calls, promise } = run(options);
-    await assert.rejects(promise, isCode(code), label);
-    assert.deepEqual(calls.map((call) => new URL(call.url).pathname), [
-      "/rest/v1/rpc/portal_schema_capabilities_service",
-      "/rest/v1/rpc/portal_claim_meeting_terminal_notification_service",
-    ], label);
+test("v57 requires every outbox capability and the disabled legacy claim contract", async () => {
+  for (const capability of Object.keys(MEETING_NOTIFICATION_CAPABILITIES)) {
+    const invalidValue = capability === "meetingTerminalNotificationClaim" ? true : false;
+    const { calls, promise } = run({ schema: { ...OUTBOX_SCHEMA, [capability]: invalidValue } });
+    await assert.rejects(promise, isCode("SCHEMA_CAPABILITY_MISMATCH"), capability);
+    assert.equal(calls.length, 1, capability);
   }
 });
 
@@ -327,12 +353,39 @@ test("business actions enabled require v56 and every repaired business capabilit
     schema: BUSINESS_ACTION_SCHEMA,
   });
   assert.equal((await promise).schemaVersion, 56);
+  const outbox = run({
+    env: { PORTAL_BUSINESS_ACTION_BRIDGE_ENABLED: "true" },
+    schema: { ...OUTBOX_SCHEMA, ...BUSINESS_ACTION_CAPABILITIES },
+  });
+  assert.equal((await outbox.promise).schemaVersion, 57);
 });
 
 test("bootstrap rejects a non-boolean business-action flag before any remote request", async () => {
   const { calls, promise } = run({ env: { PORTAL_BUSINESS_ACTION_BRIDGE_ENABLED: "enabled" } });
   await assert.rejects(promise, isCode("CONFIG_INVALID"));
   assert.equal(calls.length, 0);
+});
+
+test("bootstrap rejects invalid notification activation or missing provider credentials before any remote request", async () => {
+  for (const env of [
+    { MEETING_TERMINAL_NOTIFICATION_OUTBOX_ENABLED: " TRUE " },
+    { MEETING_TERMINAL_NOTIFICATION_OUTBOX_ENABLED: "TRUE" },
+    { MEETING_TERMINAL_NOTIFICATION_OUTBOX_ENABLED: "1" },
+    {
+      MEETING_TERMINAL_NOTIFICATION_OUTBOX_ENABLED: "true",
+      MEETING_TERMINAL_NOTIFICATION_DISPATCH_SECRET: "short",
+      RESEND_API_KEY: "re_production_bootstrap",
+    },
+    {
+      MEETING_TERMINAL_NOTIFICATION_OUTBOX_ENABLED: "true",
+      MEETING_TERMINAL_NOTIFICATION_DISPATCH_SECRET: "meeting-notification-production-secret",
+      RESEND_API_KEY: "",
+    },
+  ]) {
+    const { calls, promise } = run({ env, schema: OUTBOX_SCHEMA });
+    await assert.rejects(promise, isCode("CONFIG_INVALID"), JSON.stringify(env));
+    assert.equal(calls.length, 0, JSON.stringify(env));
+  }
 });
 
 test("bootstrap requires the text preview recovery gate to be exactly false before any remote request", async () => {
@@ -348,7 +401,6 @@ test("typed service-role RPC probe fails closed on PostgREST denial before any s
   await assert.rejects(promise, isCode("RPC_UNAVAILABLE"));
   assert.deepEqual(calls.map((call) => new URL(call.url).pathname), [
     "/rest/v1/rpc/portal_schema_capabilities_service",
-    "/rest/v1/rpc/portal_claim_meeting_terminal_notification_service",
     "/rest/v1/rpc/portal_runtime_channel_status_service",
   ]);
 });
@@ -357,7 +409,7 @@ test("typed service-role RPC probe requires the exact inert response shape", asy
   for (const runtimeProbe of [{ enabled: true }, {}, { enabled: false, capability: "bootstrap_probe" }, null]) {
     const { calls, promise } = run({ runtimeProbe });
     await assert.rejects(promise, isCode("SERVICE_ROLE_RPC_PROBE_INVALID"));
-    assert.equal(calls.length, 3);
+    assert.equal(calls.length, 2);
   }
 });
 
@@ -391,6 +443,43 @@ test("any critical financial backlog fails before Stripe and heartbeat writes", 
   ]) {
     const { calls, promise } = run(options);
     await assert.rejects(promise, isCode(code));
+    assert.equal(calls.filter((call) => call.url.includes("api.stripe.com")).length, 0);
+    assert.equal(calls.filter((call) => call.url.endsWith("portal_record_worker_heartbeat_service")).length, 0);
+  }
+});
+
+test("notification activation tolerates ordinary queue depth but blocks ambiguous or dead-letter state", async () => {
+  const enabledEnv = {
+    MEETING_TERMINAL_NOTIFICATION_OUTBOX_ENABLED: "true",
+    MEETING_TERMINAL_NOTIFICATION_DISPATCH_SECRET: "meeting-notification-production-secret",
+    RESEND_API_KEY: "re_production_bootstrap",
+  };
+  const ordinaryQueue = run({
+    env: enabledEnv,
+    schema: OUTBOX_SCHEMA,
+    meetingNotificationBacklog: {
+      ...MEETING_NOTIFICATION_BACKLOG,
+      pending: 4,
+      delivering: 1,
+      retryWait: 2,
+      oldestDispatchableAgeSeconds: 120,
+    },
+  });
+  assert.equal((await ordinaryQueue.promise).schemaVersion, 57);
+
+  for (const meetingNotificationBacklog of [
+    { ...MEETING_NOTIFICATION_BACKLOG, ambiguous: 1 },
+    { ...MEETING_NOTIFICATION_BACKLOG, deadLetter: 1 },
+    { ...MEETING_NOTIFICATION_BACKLOG, pending: -1 },
+    { ...MEETING_NOTIFICATION_BACKLOG, retryWait: 0.5 },
+    { ...MEETING_NOTIFICATION_BACKLOG, extra: 0 },
+  ]) {
+    const { calls, promise } = run({
+      env: enabledEnv,
+      schema: OUTBOX_SCHEMA,
+      meetingNotificationBacklog,
+    });
+    await assert.rejects(promise, isCode("MEETING_NOTIFICATION_BACKLOG_NOT_CLEAN"));
     assert.equal(calls.filter((call) => call.url.includes("api.stripe.com")).length, 0);
     assert.equal(calls.filter((call) => call.url.endsWith("portal_record_worker_heartbeat_service")).length, 0);
   }
@@ -443,7 +532,7 @@ test("happy path validates all read-only probes then persists exact versioned he
     ["provider_effect_reconciler", "started"],
     ["provider_effect_reconciler", "succeeded"],
   ]);
-  assert.equal(PRODUCTION_BOOTSTRAP_VERSION, "m6-00-v1");
+  assert.equal(PRODUCTION_BOOTSTRAP_VERSION, "m6-01-v1");
   assert.equal(FINANCIAL_WORKER_HEARTBEAT_VERSION, "m5-02-v1");
   assert.notEqual(PRODUCTION_BOOTSTRAP_VERSION, FINANCIAL_WORKER_HEARTBEAT_VERSION);
   assert.ok(heartbeatCalls.every((call) => call.p_version === FINANCIAL_WORKER_HEARTBEAT_VERSION));
@@ -452,6 +541,32 @@ test("happy path validates all read-only probes then persists exact versioned he
   assert.equal(heartbeatCalls[1].p_counters.catalogVerified, true);
   assert.equal(heartbeatCalls[1].p_counters.unknown, 0);
   assert.equal(heartbeatCalls[3].p_counters.operatorRequired, 0);
+});
+
+test("enabled v57 bootstrap validates notification readiness without fabricating worker health", async () => {
+  const env = {
+    ...ENV,
+    MEETING_TERMINAL_NOTIFICATION_OUTBOX_ENABLED: "true",
+    MEETING_TERMINAL_NOTIFICATION_DISPATCH_SECRET: "meeting-notification-production-secret",
+    RESEND_API_KEY: "re_production_bootstrap",
+  };
+  const { calls, promise } = run({ env, schema: OUTBOX_SCHEMA });
+  const result = await promise;
+  assert.equal(result.schemaVersion, 57);
+  assert.equal(result.heartbeats, 2);
+  assert.equal(calls.some((call) => call.url.includes("api.resend.com")), false);
+
+  const heartbeatCalls = calls
+    .filter((call) => call.url.endsWith("portal_record_worker_heartbeat_service"))
+    .map((call) => JSON.parse(call.body));
+  assert.deepEqual(heartbeatCalls.map((call) => [call.p_worker_kind, call.p_phase]), [
+    ["billing_usage", "started"],
+    ["billing_usage", "succeeded"],
+    ["provider_effect_reconciler", "started"],
+    ["provider_effect_reconciler", "succeeded"],
+  ]);
+  assert.ok(heartbeatCalls.every((call) => call.p_version === FINANCIAL_WORKER_HEARTBEAT_VERSION));
+  assert.equal(heartbeatCalls.some((call) => call.p_worker_kind === "meeting_terminal_notification"), false);
 });
 
 test("an explicitly configured live Stripe catalog is verified with read-only GETs", async () => {
@@ -475,6 +590,12 @@ test("bootstrap and portal compute the same deployment/config fingerprints", () 
     financialWorkerIdentity("provider_effect_reconciler", { ...ENV }),
     portalFinancialWorkerIdentity("provider_effect_reconciler", { ...ENV }),
   );
+  const notificationEnv = { ...ENV, MEETING_TERMINAL_NOTIFICATION_OUTBOX_ENABLED: "true" };
+  assert.deepEqual(
+    meetingTerminalNotificationWorkerIdentity(notificationEnv),
+    portalWorkerIdentity("meeting_terminal_notification", notificationEnv),
+  );
+  assert.equal(MEETING_TERMINAL_NOTIFICATION_WORKER_HEARTBEAT_VERSION, "m6-01-v1");
 });
 
 test("bootstrap and portal both prefer Railway commit identity over a distinct explicit fallback", () => {

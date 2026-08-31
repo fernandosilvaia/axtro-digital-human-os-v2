@@ -1,0 +1,83 @@
+name: Dispatch meeting terminal notifications
+
+on:
+  workflow_dispatch:
+
+concurrency:
+  group: meeting-terminal-notification-dispatch-production
+  cancel-in-progress: false
+
+permissions: {}
+
+jobs:
+  dispatch:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    environment: production
+    env:
+      MEETING_TERMINAL_NOTIFICATION_DISPATCH_URL: ${{ vars.MEETING_TERMINAL_NOTIFICATION_DISPATCH_URL }}
+    steps:
+      - name: Validate protected endpoint configuration
+        shell: bash
+        run: |
+          set -euo pipefail
+          EXPECTED_URL="https://closer.axtroai.com/api/internal/meeting-terminal-notifications"
+          if [[ "${MEETING_TERMINAL_NOTIFICATION_DISPATCH_URL}" != "${EXPECTED_URL}" ]]; then
+            echo "MEETING_TERMINAL_NOTIFICATION_DISPATCH_URL must match the canonical production endpoint" >&2
+            exit 1
+          fi
+
+      - name: Dispatch one bounded batch
+        shell: bash
+        env:
+          MEETING_TERMINAL_NOTIFICATION_DISPATCH_SECRET: ${{ secrets.MEETING_TERMINAL_NOTIFICATION_DISPATCH_SECRET }}
+        run: |
+          set -euo pipefail
+          if (( ${#MEETING_TERMINAL_NOTIFICATION_DISPATCH_SECRET} < 24 )); then
+            echo "MEETING_TERMINAL_NOTIFICATION_DISPATCH_SECRET is not configured or is too short" >&2
+            exit 1
+          fi
+          RESPONSE_FILE="${RUNNER_TEMP}/meeting-terminal-notification-response.json"
+          HTTP_STATUS="$(curl --silent --show-error \
+            --connect-timeout 10 --max-time 120 \
+            --output "${RESPONSE_FILE}" --write-out '%{http_code}' \
+            --request POST \
+            --header "Authorization: Bearer ${MEETING_TERMINAL_NOTIFICATION_DISPATCH_SECRET}" \
+            --header 'Accept: application/json' \
+            "${MEETING_TERMINAL_NOTIFICATION_DISPATCH_URL}")"
+          if [[ "${HTTP_STATUS}" != "200" ]]; then
+            echo "Meeting terminal notification worker returned HTTP ${HTTP_STATUS}" >&2
+            jq -c '{ok,error}' "${RESPONSE_FILE}" 2>/dev/null || true
+            exit 1
+          fi
+          RESPONSE_GATE='
+          def nonnegative_integer($name):
+            has($name)
+            and (.[$name] | type == "number" and isfinite and floor == . and . >= 0);
+
+          (type == "object")
+          and ((keys | sort) == ([
+            "ok", "leased", "providerAccepted", "simulated", "retryScheduled",
+            "ambiguous", "deadLettered", "suppressed", "backlog", "deadLetterBacklog",
+            "ambiguousBacklog", "oldestDispatchableAgeSeconds"
+          ] | sort))
+          and (.ok == true)
+          and nonnegative_integer("leased")
+          and nonnegative_integer("providerAccepted")
+          and nonnegative_integer("simulated")
+          and nonnegative_integer("retryScheduled")
+          and nonnegative_integer("ambiguous")
+          and nonnegative_integer("deadLettered")
+          and nonnegative_integer("suppressed")
+          and nonnegative_integer("backlog")
+          and nonnegative_integer("deadLetterBacklog")
+          and nonnegative_integer("ambiguousBacklog")
+          and nonnegative_integer("oldestDispatchableAgeSeconds")
+          and (.retryScheduled == 0)
+          and (.ambiguous == 0)
+          and (.deadLettered == 0)
+          and (.deadLetterBacklog == 0)
+          and (.ambiguousBacklog == 0)
+          '
+          jq -e "${RESPONSE_GATE}" "${RESPONSE_FILE}" >/dev/null
+          jq -c '{leased,providerAccepted,simulated,suppressed,backlog,oldestDispatchableAgeSeconds}' "${RESPONSE_FILE}"

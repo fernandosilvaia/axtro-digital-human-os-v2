@@ -29,6 +29,9 @@ export interface ReadinessChecks {
   readonly stripe_price_catalog: boolean;
   readonly provider_effect_reconciler_flag: boolean;
   readonly provider_effect_reconcile_secret: boolean;
+  readonly meeting_terminal_notification_outbox_flag: boolean;
+  readonly meeting_terminal_notification_dispatch_secret: boolean;
+  readonly resend_api_key: boolean;
   readonly business_action_bridge_flag: boolean;
   readonly portal_text_preview_recovery_gate: boolean;
 }
@@ -46,6 +49,13 @@ function parseOptionalFeatureFlag(value: string | undefined): boolean | null {
   const normalized = value.trim().toLowerCase();
   if (normalized === "true") return true;
   if (normalized === "false") return false;
+  return null;
+}
+
+function parseStrictOptionalFeatureFlag(value: string | undefined): boolean | null {
+  if (value === undefined || value.length === 0) return false;
+  if (value === "true") return true;
+  if (value === "false") return false;
   return null;
 }
 
@@ -103,6 +113,10 @@ export function readinessConfig(env: NodeJS.ProcessEnv): ReadinessChecks {
   const billingDisabled = fakeMode && billingUsageOutbox === false;
   const providerEffectReconciler = parseOptionalFeatureFlag(env.PROVIDER_EFFECT_RECONCILER_ENABLED);
   const providerEffectReconcilerDisabled = fakeMode && providerEffectReconciler === false;
+  const meetingTerminalNotifications = parseStrictOptionalFeatureFlag(
+    env.MEETING_TERMINAL_NOTIFICATION_OUTBOX_ENABLED,
+  );
+  const meetingTerminalNotificationsDisabled = meetingTerminalNotifications === false;
   const businessActionBridge = parseOptionalFeatureFlag(env.PORTAL_BUSINESS_ACTION_BRIDGE_ENABLED);
   return {
     supabase_url: isHttpsUrl(env.NEXT_PUBLIC_SUPABASE_URL?.trim()),
@@ -130,6 +144,10 @@ export function readinessConfig(env: NodeJS.ProcessEnv): ReadinessChecks {
       && (fakeMode || providerEffectReconciler === true),
     provider_effect_reconcile_secret: providerEffectReconcilerDisabled
       || hasKey(env.PROVIDER_EFFECT_RECONCILE_SECRET, 24),
+    meeting_terminal_notification_outbox_flag: meetingTerminalNotifications !== null,
+    meeting_terminal_notification_dispatch_secret: meetingTerminalNotificationsDisabled
+      || hasKey(env.MEETING_TERMINAL_NOTIFICATION_DISPATCH_SECRET, 24),
+    resend_api_key: meetingTerminalNotificationsDisabled || fakeMode || hasKey(env.RESEND_API_KEY),
     business_action_bridge_flag: businessActionBridge !== null,
     portal_text_preview_recovery_gate: env.PORTAL_TEXT_PREVIEW_ENABLED === "false",
   };
@@ -141,6 +159,10 @@ export function readinessBusinessActionsEnabled(env: NodeJS.ProcessEnv): boolean
 
 export function readinessRequiresProviderEffectReconciliation(env: NodeJS.ProcessEnv): boolean {
   return parseOptionalFeatureFlag(env.PROVIDER_EFFECT_RECONCILER_ENABLED) === true;
+}
+
+export function readinessMeetingTerminalNotificationsEnabled(env: NodeJS.ProcessEnv): boolean {
+  return parseStrictOptionalFeatureFlag(env.MEETING_TERMINAL_NOTIFICATION_OUTBOX_ENABLED) === true;
 }
 
 export function readinessRequiresWorkerHeartbeats(env: NodeJS.ProcessEnv): boolean {

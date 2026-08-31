@@ -4,13 +4,16 @@ import { createServiceRoleClient } from "@/lib/supabase/service";
 import { logError as trackError } from "@/lib/telemetry";
 import {
   PORTAL_FINANCIAL_WORKER_VERSION,
+  PORTAL_MEETING_TERMINAL_NOTIFICATION_WORKER_VERSION,
   portalFinancialWorkerIdentity,
+  portalWorkerIdentity,
   type PortalFinancialWorkerIdentity,
 } from "@/lib/workers/heartbeat";
 import {
   readinessConfig,
   readinessConfigOk,
   readinessBusinessActionsEnabled,
+  readinessMeetingTerminalNotificationsEnabled,
   readinessRequiresProviderEffectReconciliation,
   readinessRequiresWorkerHeartbeats,
 } from "./checks.ts";
@@ -18,9 +21,8 @@ import {
 export const dynamic = "force-dynamic";
 
 const READINESS_DATABASE_TIMEOUT_MS = 3_000;
-const MAXIMUM_COMPATIBLE_SCHEMA_VERSION = 56;
-const COMPATIBLE_SCHEMA_VERSIONS = new Set([50, MAXIMUM_COMPATIBLE_SCHEMA_VERSION]);
-const TERMINAL_NOTIFICATION_PROBE = Object.freeze({ p_recall_bot_id: "readiness-probe-not-a-uuid" });
+const MAXIMUM_COMPATIBLE_SCHEMA_VERSION = 57;
+const COMPATIBLE_SCHEMA_VERSIONS = new Set([50, 56, MAXIMUM_COMPATIBLE_SCHEMA_VERSION]);
 
 const BASE_SCHEMA_CAPABILITIES = Object.freeze([
   "providerEffectReservations",
@@ -49,7 +51,6 @@ const BASE_SCHEMA_CAPABILITIES = Object.freeze([
   "portalTextPreviewCanonicalOutbox",
   "portalTextPreviewSecurityBoundary",
   "legacyAuthenticatedChatTranscriptWriterAvailable",
-  "meetingTerminalNotificationClaim",
   "billingCheckoutIntents",
   "strictSubscriptionIdentity",
   "legacySubscriptionWriterRevoked",
@@ -62,6 +63,14 @@ const BASE_SCHEMA_CAPABILITIES = Object.freeze([
   "runtimeKillSwitches",
   "runtimeDualOperatorReconciliation",
   "runtimeBridgeReceiptIntegrity",
+] as const);
+
+const MEETING_NOTIFICATION_SCHEMA_CAPABILITIES = Object.freeze([
+  "meetingTerminalNotificationOutbox",
+  "meetingTerminalNotificationAtomicEnqueue",
+  "meetingTerminalNotificationLegacyClaimDisabled",
+  "meetingTerminalNotificationBoundedUnknown",
+  "meetingTerminalNotificationWorkerHeartbeat",
 ] as const);
 
 const BUSINESS_ACTION_SCHEMA_CAPABILITIES = Object.freeze([
@@ -115,6 +124,7 @@ interface WorkerReadinessRecord {
 interface ExpectedWorkerReadiness {
   readonly billingUsage: PortalFinancialWorkerIdentity;
   readonly providerEffectReconciler: PortalFinancialWorkerIdentity;
+  readonly meetingTerminalNotification: PortalFinancialWorkerIdentity;
 }
 
 const WORKER_MAX_AGE_SECONDS = 720;
@@ -134,6 +144,7 @@ function hasExactKeys(record: Record<string, unknown>, expected: readonly string
 function parseWorkerReadinessRecord(
   value: unknown,
   expected: PortalFinancialWorkerIdentity,
+  expectedVersion: string,
 ): WorkerReadinessRecord | null {
   const record = ownRecord(value);
   if (!record || !hasExactKeys(record, [
@@ -149,18 +160,39 @@ function parseWorkerReadinessRecord(
     || !Number.isInteger(record.ageSeconds)
     || Number(record.ageSeconds) < 0
     || Number(record.ageSeconds) > WORKER_MAX_AGE_SECONDS
-    || record.version !== PORTAL_FINANCIAL_WORKER_VERSION
+    || record.version !== expectedVersion
     || record.deploymentId !== expected.deploymentId
     || record.configFingerprint !== expected.configFingerprint
   ) return null;
   return record as unknown as WorkerReadinessRecord;
 }
 
-export function workerReadinessOk(value: unknown, expected: ExpectedWorkerReadiness): boolean {
+export function workerReadinessOk(
+  value: unknown,
+  expected: ExpectedWorkerReadiness,
+  requireMeetingTerminalNotification: boolean,
+): boolean {
   const record = ownRecord(value);
-  if (!record || !hasExactKeys(record, ["billingUsage", "providerEffectReconciler"])) return false;
-  return parseWorkerReadinessRecord(record.billingUsage, expected.billingUsage) !== null
-    && parseWorkerReadinessRecord(record.providerEffectReconciler, expected.providerEffectReconciler) !== null;
+  if (!record) return false;
+  const expectedKeys = Object.hasOwn(record, "meetingTerminalNotification")
+    ? ["billingUsage", "meetingTerminalNotification", "providerEffectReconciler"]
+    : ["billingUsage", "providerEffectReconciler"];
+  if (!hasExactKeys(record, expectedKeys)) return false;
+  const financialReady = parseWorkerReadinessRecord(
+    record.billingUsage,
+    expected.billingUsage,
+    PORTAL_FINANCIAL_WORKER_VERSION,
+  ) !== null && parseWorkerReadinessRecord(
+    record.providerEffectReconciler,
+    expected.providerEffectReconciler,
+    PORTAL_FINANCIAL_WORKER_VERSION,
+  ) !== null;
+  if (!financialReady || !requireMeetingTerminalNotification) return financialReady;
+  return parseWorkerReadinessRecord(
+    record.meetingTerminalNotification,
+    expected.meetingTerminalNotification,
+    PORTAL_MEETING_TERMINAL_NOTIFICATION_WORKER_VERSION,
+  ) !== null;
 }
 
 export function schemaReadinessOk(value: unknown, env: NodeJS.ProcessEnv): boolean {
@@ -174,8 +206,15 @@ export function schemaReadinessOk(value: unknown, env: NodeJS.ProcessEnv): boole
     || (readinessRequiresProviderEffectReconciliation(env)
       && capabilities.providerEffectReconciliation !== true)
   ) return false;
+  const isNotificationOutboxSchema = version === 57
+    && capabilities.meetingTerminalNotificationClaim === false
+    && MEETING_NOTIFICATION_SCHEMA_CAPABILITIES.every((capability) => capabilities[capability] === true);
+  const isLegacyNotificationSchema = (version === 50 || version === 56)
+    && capabilities.meetingTerminalNotificationClaim === true;
+  if (!isNotificationOutboxSchema && !isLegacyNotificationSchema) return false;
+  if (readinessMeetingTerminalNotificationsEnabled(env) && !isNotificationOutboxSchema) return false;
   if (!readinessBusinessActionsEnabled(env)) return true;
-  return version === MAXIMUM_COMPATIBLE_SCHEMA_VERSION
+  return Number(version) >= 56
     && BUSINESS_ACTION_SCHEMA_CAPABILITIES.every((capability) => capabilities[capability] === true);
 }
 
@@ -208,7 +247,9 @@ export async function handleReadiness(dependencies: ReadinessRouteDependencies =
   const expectedWorkers = Object.freeze({
     billingUsage: portalFinancialWorkerIdentity("billing_usage", env),
     providerEffectReconciler: portalFinancialWorkerIdentity("provider_effect_reconciler", env),
+    meetingTerminalNotification: portalWorkerIdentity("meeting_terminal_notification", env),
   });
+  const meetingTerminalNotificationsEnabled = readinessMeetingTerminalNotificationsEnabled(env);
 
   let schemaReady = false;
   try {
@@ -230,18 +271,16 @@ export async function handleReadiness(dependencies: ReadinessRouteDependencies =
       const schema = await query("portal_schema_capabilities_service");
       if (schema.error) throw new Error("portal schema capability RPC failed");
       schemaReady = schemaReadinessOk(schema.data, env);
-      if (!schemaReady) return { workersReady: false };
-      const terminalClaimProbe = await query(
-        "portal_claim_meeting_terminal_notification_service",
-        TERMINAL_NOTIFICATION_PROBE,
-      );
-      if (terminalClaimProbe.error || terminalClaimProbe.data !== false) {
-        throw new Error("terminal notification claim probe failed");
-      }
-      if (!readinessRequiresWorkerHeartbeats(env)) return { workersReady: true };
+      if (!schemaReady) return { workersReady: false, notificationWorkerReady: false };
+      if (!readinessRequiresWorkerHeartbeats(env)) return { workersReady: true, notificationWorkerReady: true };
       const workers = await query("portal_worker_readiness_service");
       if (workers.error) throw new Error("portal worker readiness RPC failed");
-      return { workersReady: workerReadinessOk(workers.data, expectedWorkers) };
+      const workersReady = workerReadinessOk(
+        workers.data,
+        expectedWorkers,
+        meetingTerminalNotificationsEnabled,
+      );
+      return { workersReady, notificationWorkerReady: !meetingTerminalNotificationsEnabled || workersReady };
     })(), timeoutMs, () => controller.abort());
 
     if (!schemaReady || !result.workersReady) {
@@ -249,7 +288,13 @@ export async function handleReadiness(dependencies: ReadinessRouteDependencies =
         {
           ok: false,
           service: "axtro-portal",
-          checks: { ...checks, database: true, schema: schemaReady, workers: result.workersReady },
+          checks: {
+            ...checks,
+            database: true,
+            schema: schemaReady,
+            workers: result.workersReady,
+            meeting_notification_worker: result.notificationWorkerReady,
+          },
         },
         { status: 503, headers: { "cache-control": "no-store" } },
       );
@@ -260,14 +305,18 @@ export async function handleReadiness(dependencies: ReadinessRouteDependencies =
       {
         ok: false,
         service: "axtro-portal",
-        checks: { ...checks, database: false, schema: schemaReady, workers: false },
+        checks: { ...checks, database: false, schema: schemaReady, workers: false, meeting_notification_worker: false },
       },
       { status: 503, headers: { "cache-control": "no-store" } },
     );
   }
 
   return NextResponse.json(
-    { ok: true, service: "axtro-portal", checks: { ...checks, database: true, schema: true, workers: true } },
+    {
+      ok: true,
+      service: "axtro-portal",
+      checks: { ...checks, database: true, schema: true, workers: true, meeting_notification_worker: true },
+    },
     { headers: { "cache-control": "no-store" } },
   );
 }

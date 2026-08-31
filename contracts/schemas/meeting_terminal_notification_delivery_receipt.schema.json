@@ -1,0 +1,142 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://schemas.axtro.ai/v2/meeting_terminal_notification_delivery_receipt.schema.json",
+  "title": "Meeting Terminal Notification Delivery Receipt",
+  "description": "PII-free evidence for one fenced terminal notification attempt.",
+  "x-axtro-discriminator": "outcome",
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "schema_version": { "type": "string", "const": "2.0.0" },
+    "tenant_id": { "type": "string", "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$" },
+    "notification_id": { "type": "string", "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$" },
+    "meeting_session_id": { "type": "string", "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$" },
+    "attempt": { "type": "integer", "minimum": 0, "maximum": 8 },
+    "recipient_count": { "type": "integer", "minimum": 0, "maximum": 50 },
+    "outcome": {
+      "type": "string",
+      "enum": ["provider_accepted", "simulated", "retry_scheduled", "dead_lettered", "ambiguous", "lease_expired", "suppressed"]
+    },
+    "failure_code": {
+      "oneOf": [
+        {
+          "type": "string",
+          "enum": [
+            "provider_rate_limited", "provider_unavailable", "provider_timeout",
+            "transport_unknown", "payload_invalid", "recipient_invalid",
+            "provider_rejected", "provider_not_configured", "provider_receipt_invalid",
+            "idempotency_conflict", "no_recipients", "recipient_authority_changed",
+            "attempt_budget_exhausted",
+            "idempotency_window_expired", "lease_expired"
+          ]
+        },
+        { "type": "null" }
+      ]
+    },
+    "provider_receipt_digest": {
+      "oneOf": [
+        { "type": "string", "pattern": "^[0-9a-f]{64}$" },
+        { "type": "null" }
+      ]
+    },
+    "observed_at": { "type": "string", "format": "date-time" },
+    "data_classification": { "type": "string", "const": "internal" }
+  },
+  "required": [
+    "schema_version", "tenant_id", "notification_id", "meeting_session_id",
+    "attempt", "recipient_count", "outcome", "failure_code", "provider_receipt_digest",
+    "observed_at", "data_classification"
+  ],
+  "allOf": [
+    {
+      "if": { "properties": { "outcome": { "const": "provider_accepted" } }, "required": ["outcome"] },
+      "then": {
+        "properties": {
+          "attempt": { "type": "integer", "minimum": 1, "maximum": 8 },
+          "recipient_count": { "type": "integer", "minimum": 1, "maximum": 50 },
+          "failure_code": { "type": "null" },
+          "provider_receipt_digest": { "type": "string", "pattern": "^[0-9a-f]{64}$" }
+        }
+      }
+    },
+    {
+      "if": { "properties": { "outcome": { "const": "simulated" } }, "required": ["outcome"] },
+      "then": {
+        "properties": {
+          "attempt": { "type": "integer", "minimum": 1, "maximum": 8 },
+          "recipient_count": { "type": "integer", "minimum": 1, "maximum": 50 },
+          "failure_code": { "type": "null" },
+          "provider_receipt_digest": { "type": "string", "pattern": "^[0-9a-f]{64}$" }
+        }
+      }
+    },
+    {
+      "if": { "properties": { "outcome": { "const": "retry_scheduled" } }, "required": ["outcome"] },
+      "then": {
+        "properties": {
+          "attempt": { "type": "integer", "minimum": 1, "maximum": 7 },
+          "recipient_count": { "type": "integer", "minimum": 1, "maximum": 50 },
+          "failure_code": {
+            "type": "string",
+            "enum": ["provider_rate_limited", "provider_unavailable", "provider_not_configured"]
+          },
+          "provider_receipt_digest": { "type": "null" }
+        }
+      }
+    },
+    {
+      "if": { "properties": { "outcome": { "const": "dead_lettered" } }, "required": ["outcome"] },
+      "then": {
+        "properties": {
+          "attempt": { "type": "integer", "minimum": 1, "maximum": 8 },
+          "recipient_count": { "type": "integer", "minimum": 0, "maximum": 50 },
+          "failure_code": {
+            "type": "string",
+            "enum": [
+              "payload_invalid", "recipient_invalid", "recipient_authority_changed",
+              "provider_rejected", "idempotency_conflict", "attempt_budget_exhausted",
+              "idempotency_window_expired"
+            ]
+          },
+          "provider_receipt_digest": { "type": "null" }
+        }
+      }
+    },
+    {
+      "if": { "properties": { "outcome": { "const": "ambiguous" } }, "required": ["outcome"] },
+      "then": {
+        "properties": {
+          "attempt": { "type": "integer", "minimum": 1, "maximum": 7 },
+          "recipient_count": { "type": "integer", "minimum": 1, "maximum": 50 },
+          "failure_code": {
+            "type": "string",
+            "enum": ["provider_timeout", "transport_unknown", "provider_receipt_invalid"]
+          },
+          "provider_receipt_digest": { "type": "null" }
+        }
+      }
+    },
+    {
+      "if": { "properties": { "outcome": { "const": "lease_expired" } }, "required": ["outcome"] },
+      "then": {
+        "properties": {
+          "attempt": { "type": "integer", "minimum": 1, "maximum": 7 },
+          "recipient_count": { "type": "integer", "minimum": 1, "maximum": 50 },
+          "failure_code": { "const": "lease_expired" },
+          "provider_receipt_digest": { "type": "null" }
+        }
+      }
+    },
+    {
+      "if": { "properties": { "outcome": { "const": "suppressed" } }, "required": ["outcome"] },
+      "then": {
+        "properties": {
+          "attempt": { "type": "integer", "minimum": 0, "maximum": 8 },
+          "recipient_count": { "const": 0 },
+          "failure_code": { "const": "no_recipients" },
+          "provider_receipt_digest": { "type": "null" }
+        }
+      }
+    }
+  ]
+}

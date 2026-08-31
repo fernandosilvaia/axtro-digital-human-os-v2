@@ -56,3 +56,13 @@ O arquivo `spreadsheets/UNIT_ECONOMICS_V2.xlsx` possui data-base e URL por input
 - `Actual`: valor reconciliado com invoice e telemetria.
 
 A presença de uma integração ou preço público não comprova qualidade em PT-BR, SLA, disponibilidade regional, adequação jurídica ou custo final. Isso é decidido por bake-off, contrato e dados reais.
+
+## E-mail transacional, atualização focal 2026-08-31
+
+| Tema | Fonte oficial | Fato verificado | Implicação arquitetural |
+|---|---|---|---|
+| Resend idempotency | https://resend.com/docs/dashboard/emails/idempotency-keys | A mesma chave e payload podem ser repetidos por 24 horas sem novo envio; payload divergente retorna `invalid_idempotent_request` e concorrência retorna `concurrent_idempotent_requests` | ADR-043 congela bytes e usa deadline de 23 horas com uma chave estável por sessão |
+| Resend API limits | https://resend.com/docs/api-reference/rate-limit | O limite padrão consultado é 10 requisições por segundo por equipe; headers publicam limite, restante, reset e `Retry-After` | Worker usa lote limitado, respeita `Retry-After` e não presume capacidade contratual |
+| Resend errors | https://resend.com/docs/api-reference/errors | Erros possuem códigos e status HTTP documentados | Adapter transforma respostas em união fechada e nunca persiste corpo cru |
+| Resend batch email | https://resend.com/docs/api-reference/emails/send-batch-emails | Um batch aceita até 100 mensagens e devolve um ID por mensagem aceita | M6-01 envia uma mensagem por administrador em um único batch, valida a cardinalidade completa dos IDs e evita exposição cruzada de endereços |
+| Resend webhooks | https://resend.com/docs/webhooks/introduction | Eventos posteriores ao aceite são entregues por webhook assinado | `provider_accepted` não equivale a entregue; confirmação final continua em canal separado |
