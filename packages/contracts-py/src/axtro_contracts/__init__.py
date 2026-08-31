@@ -163,6 +163,166 @@ class CostEvent(_CostEventRequired, total=False):
     trace_id: str | None
     provider_request_ref: str | None
 
+# Source: contracts/schemas/data_governance_command.schema.json; schema: https://schemas.axtro.ai/v2/data_governance_command.schema.json; version: 2.0.0.
+class DataGovernanceCommand(TypedDict):
+    schema_version: Literal['2.0.0']
+    governance_version: Literal['1.0.0']
+    command_id: str
+    request_id: str
+    tenant_id: str
+    command_type: Literal['request_deletion', 'authorize_execution', 'cancel_request']
+    scope_type: Literal['tenant', 'data_subject']
+    data_subject_id: (str) | (None)
+    requested_action: Literal['redact', 'irreversible_delete']
+    actor_id: str
+    policy_decision_id: (str) | (None)
+    approval_ids: list[str]
+    policy_version: Literal['1.0.0']
+    inventory_version: Literal['1.0.0']
+    request_fingerprint: str
+    idempotency_key: str
+    trace_id: str
+    correlation_id: str
+    causation_id: (str) | (None)
+    issued_at: str
+    authorization_expires_at: (str) | (None)
+    data_classification: Literal['internal']
+
+# Source: contracts/schemas/data_governance_receipt.schema.json; schema: https://schemas.axtro.ai/v2/data_governance_receipt.schema.json; version: 2.0.0.
+class DataGovernanceReceipt(TypedDict):
+    schema_version: Literal['2.0.0']
+    governance_version: Literal['1.0.0']
+    receipt_id: str
+    request_id: str
+    tenant_id: str
+    scope_type: Literal['tenant', 'data_subject']
+    outcome: Literal['request_admitted', 'policy_denied', 'approval_recorded', 'execution_authorized', 'inventory_completed', 'legal_hold_blocked', 'redaction_completed', 'irreversible_deletion_completed', 'retry_scheduled', 'effect_unknown', 'verification_completed', 'request_completed', 'request_cancelled', 'request_expired', 'operator_required']
+    resulting_state: Literal['requested', 'approval_pending', 'authorized', 'inventorying', 'ready', 'blocked_by_legal_hold', 'executing_redaction', 'executing_irreversible_deletion', 'retry_wait', 'effect_unknown', 'verifying', 'operator_required', 'completed', 'denied', 'expired', 'cancelled']
+    work_item_id: (str) | (None)
+    surface: (Literal['database', 'object_storage', 'cache', 'embedding_index', 'provider_copy', 'auth_identity', 'vault_secret', 'backup']) | (None)
+    action: (Literal['redact', 'irreversible_delete', 'retain_content_free', 'external_delete', 'cache_invalidate', 'crypto_erase', 'backup_expiry_wait']) | (None)
+    policy_version: Literal['1.0.0']
+    inventory_version: Literal['1.0.0']
+    inventory_fingerprint: (str) | (None)
+    affected_resource_count: int
+    verified_resource_count: int
+    retained_exception_count: int
+    outcome_code: (Literal['policy_denied', 'legal_hold_active', 'external_retryable', 'external_effect_unknown', 'verification_failed', 'coverage_ambiguous', 'inflight_effect', 'retry_budget_exhausted', 'authority_expired', 'operator_intervention_required', 'cancelled_before_irreversible_effect']) | (None)
+    receipt_fingerprint: str
+    trace_id: str
+    correlation_id: str
+    causation_id: (str) | (None)
+    recorded_at: str
+    data_classification: Literal['internal']
+
+# Source: contracts/schemas/data_governance_status.schema.json; schema: https://schemas.axtro.ai/v2/data_governance_status.schema.json; version: 2.0.0.
+class DataGovernanceStatus(TypedDict):
+    schema_version: Literal['2.0.0']
+    governance_version: Literal['1.0.0']
+    request_id: str
+    tenant_id: str
+    scope_type: Literal['tenant', 'data_subject']
+    state: Literal['requested', 'approval_pending', 'authorized', 'inventorying', 'ready', 'blocked_by_legal_hold', 'executing_redaction', 'executing_irreversible_deletion', 'retry_wait', 'effect_unknown', 'verifying', 'operator_required', 'completed', 'denied', 'expired', 'cancelled']
+    state_version: int
+    active_action: (Literal['redact', 'irreversible_delete', 'retain_content_free', 'external_delete', 'cache_invalidate', 'crypto_erase', 'backup_expiry_wait']) | (None)
+    policy_version: Literal['1.0.0']
+    inventory_version: Literal['1.0.0']
+    inventory_fingerprint: (str) | (None)
+    work_item_count: int
+    verified_work_item_count: int
+    held_work_item_count: int
+    retained_exception_count: int
+    attempt: int
+    next_attempt_at: (str) | (None)
+    status_code: (Literal['approval_required', 'authorization_expired', 'policy_denied', 'inventory_incomplete', 'legal_hold_active', 'external_retryable', 'external_effect_unknown', 'verification_failed', 'coverage_ambiguous', 'inflight_effect', 'retry_budget_exhausted', 'operator_intervention_required', 'cancelled_before_irreversible_effect']) | (None)
+    trace_id: str
+    correlation_id: str
+    updated_at: str
+    completed_at: (str) | (None)
+    data_classification: Literal['internal']
+
+# Source: contracts/schemas/data_governance_work_item.schema.json; schema: https://schemas.axtro.ai/v2/data_governance_work_item.schema.json; version: 2.0.0.
+class DataGovernanceWorkItem(TypedDict):
+    schema_version: Literal['2.0.0']
+    governance_version: Literal['1.0.0']
+    work_item_id: str
+    request_id: str
+    tenant_id: str
+    surface: Literal['database', 'object_storage', 'cache', 'embedding_index', 'provider_copy', 'auth_identity', 'vault_secret', 'backup']
+    resource_class: Literal['tenant_profile', 'authentication_identity', 'membership', 'configuration', 'contact_profile', 'session_content', 'transcript', 'consent_evidence', 'disclosure_evidence', 'action_evidence', 'workflow_evidence', 'knowledge_content', 'embedding', 'provider_effect', 'billing_evidence', 'audit_evidence', 'notification_payload', 'runtime_evidence', 'object_blob', 'cache_entry', 'provider_copy', 'vault_secret', 'backup_snapshot']
+    action: Literal['redact', 'irreversible_delete', 'retain_content_free', 'external_delete', 'cache_invalidate', 'crypto_erase', 'backup_expiry_wait']
+    state: Literal['pending', 'held', 'leased', 'applying', 'retry_wait', 'effect_unknown', 'verification_pending', 'verified', 'operator_required', 'retained_exception']
+    resource_locator_hmac: (str) | (None)
+    resource_count: int
+    attempt: int
+    max_attempts: int
+    lease_fence: (int) | (None)
+    lease_token_digest: (str) | (None)
+    next_attempt_at: (str) | (None)
+    failure_code: (Literal['legal_hold_active', 'external_retryable', 'external_effect_unknown', 'verification_failed', 'coverage_ambiguous', 'inflight_effect', 'lease_expired', 'retry_budget_exhausted', 'authority_expired', 'operator_intervention_required']) | (None)
+    verification_digest: (str) | (None)
+    retention_exception_code: (Literal['legal_hold', 'billing_statutory', 'tax_statutory', 'security_investigation', 'backup_expiry_pending']) | (None)
+    recoverable_until: (str) | (None)
+    correlation_id: str
+    created_at: str
+    updated_at: str
+    data_classification: Literal['internal']
+
+# Source: contracts/schemas/data_legal_hold.schema.json; schema: https://schemas.axtro.ai/v2/data_legal_hold.schema.json; version: 2.0.0.
+class _DataLegalHoldRecordTypeCommand(TypedDict):
+    schema_version: Literal['2.0.0']
+    governance_version: Literal['1.0.0']
+    record_type: Literal['command']
+    operation: Literal['create', 'release', 'expire']
+    hold_id: str
+    tenant_id: str
+    command_id: str
+    receipt_id: None
+    scope_type: Literal['artifact_set', 'data_subject']
+    scope_hmac: str
+    artifact_count: int
+    purpose_code: Literal['litigation', 'regulatory_inquiry', 'tax_audit', 'billing_dispute', 'contractual_claim', 'security_investigation']
+    authority_code: Literal['court_order', 'regulator_request', 'statutory_duty', 'counsel_instruction', 'contractual_preservation']
+    authorized_by_actor_id: str
+    authorization_id: str
+    starts_at: str
+    expires_at: str
+    outcome: None
+    outcome_code: None
+    record_fingerprint: str
+    trace_id: str
+    correlation_id: str
+    recorded_at: str
+    data_classification: Literal['internal']
+
+class _DataLegalHoldRecordTypeReceipt(TypedDict):
+    schema_version: Literal['2.0.0']
+    governance_version: Literal['1.0.0']
+    record_type: Literal['receipt']
+    operation: Literal['create', 'release', 'expire']
+    hold_id: str
+    tenant_id: str
+    command_id: str
+    receipt_id: str
+    scope_type: Literal['artifact_set', 'data_subject']
+    scope_hmac: None
+    artifact_count: int
+    purpose_code: Literal['litigation', 'regulatory_inquiry', 'tax_audit', 'billing_dispute', 'contractual_claim', 'security_investigation']
+    authority_code: Literal['court_order', 'regulator_request', 'statutory_duty', 'counsel_instruction', 'contractual_preservation']
+    authorized_by_actor_id: None
+    authorization_id: str
+    starts_at: str
+    expires_at: str
+    outcome: Literal['created', 'released', 'expired', 'denied', 'conflict']
+    outcome_code: (Literal['authority_invalid', 'scope_invalid', 'already_active', 'already_released', 'not_due', 'policy_denied']) | (None)
+    record_fingerprint: str
+    trace_id: str
+    correlation_id: str
+    recorded_at: str
+    data_classification: Literal['internal']
+
+DataLegalHold: TypeAlias = _DataLegalHoldRecordTypeCommand | _DataLegalHoldRecordTypeReceipt
+
 # Source: contracts/schemas/deployment_promotion.schema.json; schema: https://schemas.axtro.ai/v2/deployment_promotion.schema.json; version: 2.0.0.
 class DeploymentPromotion(TypedDict):
     schema_version: Literal['2.0.0']
@@ -1226,6 +1386,36 @@ CONTRACT_METADATA: dict[str, dict[str, str]] = {
     "source_hash": "3f8f3dc18a2c6b4f2a910d50059d5cec21549fe58c6f2926a8e4baacf5724858",
     "source_schema": "contracts/schemas/cost_event.schema.json"
   },
+  "DataGovernanceCommand": {
+    "schema_id": "https://schemas.axtro.ai/v2/data_governance_command.schema.json",
+    "schema_version": "2.0.0",
+    "source_hash": "a951513ea7912c0ea5f3caa21f23e2e589df59a404bc73bc4b996c0418c7e77a",
+    "source_schema": "contracts/schemas/data_governance_command.schema.json"
+  },
+  "DataGovernanceReceipt": {
+    "schema_id": "https://schemas.axtro.ai/v2/data_governance_receipt.schema.json",
+    "schema_version": "2.0.0",
+    "source_hash": "c5e8f196fae7abf78e179f9bf2b860f8fc142090a87260ef930cc12a7fe87e49",
+    "source_schema": "contracts/schemas/data_governance_receipt.schema.json"
+  },
+  "DataGovernanceStatus": {
+    "schema_id": "https://schemas.axtro.ai/v2/data_governance_status.schema.json",
+    "schema_version": "2.0.0",
+    "source_hash": "b1b22828931c0aa6dbb7f60adb0c2da9df26a37e20ac3998ba302d5df4dbb3ba",
+    "source_schema": "contracts/schemas/data_governance_status.schema.json"
+  },
+  "DataGovernanceWorkItem": {
+    "schema_id": "https://schemas.axtro.ai/v2/data_governance_work_item.schema.json",
+    "schema_version": "2.0.0",
+    "source_hash": "e12a108f30334253019d78014659898358cd4f8f0938ac1006fd8f7918d8b1e0",
+    "source_schema": "contracts/schemas/data_governance_work_item.schema.json"
+  },
+  "DataLegalHold": {
+    "schema_id": "https://schemas.axtro.ai/v2/data_legal_hold.schema.json",
+    "schema_version": "2.0.0",
+    "source_hash": "682efd3dc042a0e8ba84772d2588a2966382668b76e74d4bd5cf0e418b79f5db",
+    "source_schema": "contracts/schemas/data_legal_hold.schema.json"
+  },
   "DeploymentPromotion": {
     "schema_id": "https://schemas.axtro.ai/v2/deployment_promotion.schema.json",
     "schema_version": "2.0.0",
@@ -1570,6 +1760,11 @@ __all__ = [
     'ContextComposition',
     'ConversationState',
     'CostEvent',
+    'DataGovernanceCommand',
+    'DataGovernanceReceipt',
+    'DataGovernanceStatus',
+    'DataGovernanceWorkItem',
+    'DataLegalHold',
     'DeploymentPromotion',
     'DerivedHypothesis',
     'DisclosureRecord',

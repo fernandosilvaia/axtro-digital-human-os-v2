@@ -1,6 +1,6 @@
 # Contracts
 
-This directory contains the **64 normative JSON Schemas** for Axtro Digital Human OS V2.
+This directory contains the **69 normative JSON Schemas** for Axtro Digital Human OS V2.
 
 - Draft: JSON Schema 2020-12
 - Every object is closed with `additionalProperties: false`.
@@ -15,6 +15,7 @@ This directory contains the **64 normative JSON Schemas** for Axtro Digital Huma
 - `meeting_terminal_notification_delivery_receipt` is content-free evidence. Provider acceptance is distinct from inbox delivery.
 - The Portal text preview contracts keep browser commands closed, bind admission to purpose-scoped persistence, and model browser results as exhaustive outcomes.
 - `provider_processing_profile` is a dated, server-owned declaration that must be verified before provider admission.
+- The five data-governance contracts keep disposition commands specialized, separate redaction from irreversible deletion, model granular legal holds, and retain only content-free status, work-item and receipt evidence.
 - `x-axtro-discriminator` opts a schema into generated discriminated-union types only when every declared discriminator value has one machine-provable conditional branch.
 
 Run:

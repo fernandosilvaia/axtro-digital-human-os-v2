@@ -1,0 +1,130 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://schemas.axtro.ai/v2/data_governance_receipt.schema.json",
+  "title": "Data Governance Receipt",
+  "description": "Append-only, content-free evidence for one authorized governance transition. Free text, subject identifiers, object keys, provider references and content are structurally absent.",
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "schema_version": { "type": "string", "const": "2.0.0" },
+    "governance_version": { "type": "string", "const": "1.0.0" },
+    "receipt_id": { "type": "string", "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$" },
+    "request_id": { "type": "string", "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$" },
+    "tenant_id": { "type": "string", "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$" },
+    "scope_type": { "type": "string", "enum": ["tenant", "data_subject"] },
+    "outcome": {
+      "type": "string",
+      "enum": [
+        "request_admitted", "policy_denied", "approval_recorded",
+        "execution_authorized", "inventory_completed", "legal_hold_blocked",
+        "redaction_completed", "irreversible_deletion_completed",
+        "retry_scheduled", "effect_unknown", "verification_completed",
+        "request_completed", "request_cancelled", "request_expired",
+        "operator_required"
+      ]
+    },
+    "resulting_state": {
+      "type": "string",
+      "enum": [
+        "requested", "approval_pending", "authorized", "inventorying", "ready",
+        "blocked_by_legal_hold", "executing_redaction",
+        "executing_irreversible_deletion", "retry_wait", "effect_unknown",
+        "verifying", "operator_required", "completed", "denied", "expired",
+        "cancelled"
+      ]
+    },
+    "work_item_id": {
+      "oneOf": [
+        { "type": "string", "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$" },
+        { "type": "null" }
+      ]
+    },
+    "surface": {
+      "oneOf": [
+        { "type": "string", "enum": ["database", "object_storage", "cache", "embedding_index", "provider_copy", "auth_identity", "vault_secret", "backup"] },
+        { "type": "null" }
+      ]
+    },
+    "action": {
+      "oneOf": [
+        { "type": "string", "enum": ["redact", "irreversible_delete", "retain_content_free", "external_delete", "cache_invalidate", "crypto_erase", "backup_expiry_wait"] },
+        { "type": "null" }
+      ]
+    },
+    "policy_version": { "type": "string", "const": "1.0.0" },
+    "inventory_version": { "type": "string", "const": "1.0.0" },
+    "inventory_fingerprint": {
+      "oneOf": [
+        { "type": "string", "pattern": "^[0-9a-f]{64}$" },
+        { "type": "null" }
+      ]
+    },
+    "affected_resource_count": { "type": "integer", "minimum": 0, "maximum": 1000000 },
+    "verified_resource_count": { "type": "integer", "minimum": 0, "maximum": 1000000 },
+    "retained_exception_count": { "type": "integer", "minimum": 0, "maximum": 1000000 },
+    "outcome_code": {
+      "oneOf": [
+        {
+          "type": "string",
+          "enum": [
+            "policy_denied", "legal_hold_active", "external_retryable",
+            "external_effect_unknown", "verification_failed", "coverage_ambiguous",
+            "inflight_effect", "retry_budget_exhausted", "authority_expired",
+            "operator_intervention_required", "cancelled_before_irreversible_effect"
+          ]
+        },
+        { "type": "null" }
+      ]
+    },
+    "receipt_fingerprint": { "type": "string", "pattern": "^[0-9a-f]{64}$" },
+    "trace_id": { "type": "string", "pattern": "^[0-9a-f]{16,64}$" },
+    "correlation_id": { "type": "string", "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$" },
+    "causation_id": {
+      "oneOf": [
+        { "type": "string", "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$" },
+        { "type": "null" }
+      ]
+    },
+    "recorded_at": { "type": "string", "format": "date-time" },
+    "data_classification": { "type": "string", "const": "internal" }
+  },
+  "required": [
+    "schema_version", "governance_version", "receipt_id", "request_id",
+    "tenant_id", "scope_type", "outcome", "resulting_state", "work_item_id",
+    "surface", "action", "policy_version", "inventory_version",
+    "inventory_fingerprint", "affected_resource_count",
+    "verified_resource_count", "retained_exception_count", "outcome_code",
+    "receipt_fingerprint", "trace_id", "correlation_id", "causation_id",
+    "recorded_at", "data_classification"
+  ],
+  "allOf": [
+    {
+      "if": { "properties": { "outcome": { "const": "request_completed" } }, "required": ["outcome"] },
+      "then": { "properties": { "resulting_state": { "const": "completed" }, "work_item_id": { "type": "null" }, "surface": { "type": "null" }, "action": { "type": "null" }, "inventory_fingerprint": { "type": "string", "pattern": "^[0-9a-f]{64}$" }, "outcome_code": { "type": "null" } } }
+    },
+    {
+      "if": { "properties": { "outcome": { "const": "redaction_completed" } }, "required": ["outcome"] },
+      "then": { "properties": { "resulting_state": { "const": "verifying" }, "work_item_id": { "type": "string", "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$" }, "action": { "const": "redact" }, "outcome_code": { "type": "null" } } }
+    },
+    {
+      "if": { "properties": { "outcome": { "const": "irreversible_deletion_completed" } }, "required": ["outcome"] },
+      "then": { "properties": { "resulting_state": { "enum": ["executing_irreversible_deletion", "verifying"] }, "work_item_id": { "type": "string", "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$" }, "action": { "enum": ["irreversible_delete", "external_delete", "cache_invalidate", "crypto_erase", "backup_expiry_wait"] }, "outcome_code": { "type": "null" } } }
+    },
+    {
+      "if": { "properties": { "outcome": { "const": "retry_scheduled" } }, "required": ["outcome"] },
+      "then": { "properties": { "resulting_state": { "const": "retry_wait" }, "work_item_id": { "type": "string", "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$" }, "outcome_code": { "const": "external_retryable" } } }
+    },
+    {
+      "if": { "properties": { "outcome": { "const": "effect_unknown" } }, "required": ["outcome"] },
+      "then": { "properties": { "resulting_state": { "const": "effect_unknown" }, "work_item_id": { "type": "string", "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$" }, "action": { "enum": ["redact", "external_delete", "cache_invalidate", "crypto_erase", "backup_expiry_wait"] }, "outcome_code": { "const": "external_effect_unknown" } } }
+    },
+    {
+      "if": { "properties": { "outcome": { "const": "legal_hold_blocked" } }, "required": ["outcome"] },
+      "then": { "properties": { "resulting_state": { "const": "blocked_by_legal_hold" }, "outcome_code": { "const": "legal_hold_active" } } }
+    },
+    {
+      "if": { "properties": { "outcome": { "const": "policy_denied" } }, "required": ["outcome"] },
+      "then": { "properties": { "resulting_state": { "const": "denied" }, "work_item_id": { "type": "null" }, "surface": { "type": "null" }, "action": { "type": "null" }, "outcome_code": { "const": "policy_denied" } } }
+    }
+  ]
+}

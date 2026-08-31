@@ -1,0 +1,119 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://schemas.axtro.ai/v2/data_governance_status.schema.json",
+  "title": "Data Governance Status",
+  "description": "Content-free lifecycle projection for a tenant or data-subject deletion request.",
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "schema_version": { "type": "string", "const": "2.0.0" },
+    "governance_version": { "type": "string", "const": "1.0.0" },
+    "request_id": { "type": "string", "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$" },
+    "tenant_id": { "type": "string", "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$" },
+    "scope_type": { "type": "string", "enum": ["tenant", "data_subject"] },
+    "state": {
+      "type": "string",
+      "enum": [
+        "requested", "approval_pending", "authorized", "inventorying", "ready",
+        "blocked_by_legal_hold", "executing_redaction",
+        "executing_irreversible_deletion", "retry_wait", "effect_unknown",
+        "verifying", "operator_required", "completed", "denied", "expired",
+        "cancelled"
+      ]
+    },
+    "state_version": { "type": "integer", "minimum": 1, "maximum": 10000000 },
+    "active_action": {
+      "oneOf": [
+        { "type": "string", "enum": ["redact", "irreversible_delete", "retain_content_free", "external_delete", "cache_invalidate", "crypto_erase", "backup_expiry_wait"] },
+        { "type": "null" }
+      ]
+    },
+    "policy_version": { "type": "string", "const": "1.0.0" },
+    "inventory_version": { "type": "string", "const": "1.0.0" },
+    "inventory_fingerprint": {
+      "oneOf": [
+        { "type": "string", "pattern": "^[0-9a-f]{64}$" },
+        { "type": "null" }
+      ]
+    },
+    "work_item_count": { "type": "integer", "minimum": 0, "maximum": 1000000 },
+    "verified_work_item_count": { "type": "integer", "minimum": 0, "maximum": 1000000 },
+    "held_work_item_count": { "type": "integer", "minimum": 0, "maximum": 1000000 },
+    "retained_exception_count": { "type": "integer", "minimum": 0, "maximum": 1000000 },
+    "attempt": { "type": "integer", "minimum": 0, "maximum": 16 },
+    "next_attempt_at": {
+      "oneOf": [
+        { "type": "string", "format": "date-time" },
+        { "type": "null" }
+      ]
+    },
+    "status_code": {
+      "oneOf": [
+        {
+          "type": "string",
+          "enum": [
+            "approval_required", "authorization_expired", "policy_denied",
+            "inventory_incomplete", "legal_hold_active", "external_retryable",
+            "external_effect_unknown", "verification_failed", "coverage_ambiguous",
+            "inflight_effect", "retry_budget_exhausted", "operator_intervention_required",
+            "cancelled_before_irreversible_effect"
+          ]
+        },
+        { "type": "null" }
+      ]
+    },
+    "trace_id": { "type": "string", "pattern": "^[0-9a-f]{16,64}$" },
+    "correlation_id": { "type": "string", "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$" },
+    "updated_at": { "type": "string", "format": "date-time" },
+    "completed_at": {
+      "oneOf": [
+        { "type": "string", "format": "date-time" },
+        { "type": "null" }
+      ]
+    },
+    "data_classification": { "type": "string", "const": "internal" }
+  },
+  "required": [
+    "schema_version", "governance_version", "request_id", "tenant_id",
+    "scope_type", "state", "state_version", "active_action", "policy_version",
+    "inventory_version", "inventory_fingerprint", "work_item_count",
+    "verified_work_item_count", "held_work_item_count",
+    "retained_exception_count", "attempt", "next_attempt_at", "status_code",
+    "trace_id", "correlation_id", "updated_at", "completed_at",
+    "data_classification"
+  ],
+  "allOf": [
+    {
+      "if": { "properties": { "state": { "const": "requested" } }, "required": ["state"] },
+      "then": { "properties": { "active_action": { "type": "null" }, "inventory_fingerprint": { "type": "null" }, "work_item_count": { "const": 0 }, "verified_work_item_count": { "const": 0 }, "held_work_item_count": { "const": 0 }, "retained_exception_count": { "const": 0 }, "attempt": { "const": 0 }, "next_attempt_at": { "type": "null" }, "status_code": { "type": "null" }, "completed_at": { "type": "null" } } }
+    },
+    {
+      "if": { "properties": { "state": { "const": "executing_redaction" } }, "required": ["state"] },
+      "then": { "properties": { "active_action": { "const": "redact" }, "inventory_fingerprint": { "type": "string", "pattern": "^[0-9a-f]{64}$" }, "attempt": { "type": "integer", "minimum": 1, "maximum": 16 }, "next_attempt_at": { "type": "null" }, "status_code": { "type": "null" }, "completed_at": { "type": "null" } } }
+    },
+    {
+      "if": { "properties": { "state": { "const": "executing_irreversible_deletion" } }, "required": ["state"] },
+      "then": { "properties": { "active_action": { "const": "irreversible_delete" }, "inventory_fingerprint": { "type": "string", "pattern": "^[0-9a-f]{64}$" }, "attempt": { "type": "integer", "minimum": 1, "maximum": 16 }, "next_attempt_at": { "type": "null" }, "status_code": { "type": "null" }, "completed_at": { "type": "null" } } }
+    },
+    {
+      "if": { "properties": { "state": { "const": "retry_wait" } }, "required": ["state"] },
+      "then": { "properties": { "active_action": { "type": "string", "enum": ["redact", "irreversible_delete", "external_delete", "cache_invalidate", "crypto_erase", "backup_expiry_wait"] }, "attempt": { "type": "integer", "minimum": 1, "maximum": 15 }, "next_attempt_at": { "type": "string", "format": "date-time" }, "status_code": { "const": "external_retryable" }, "completed_at": { "type": "null" } } }
+    },
+    {
+      "if": { "properties": { "state": { "const": "effect_unknown" } }, "required": ["state"] },
+      "then": { "properties": { "active_action": { "enum": ["redact", "irreversible_delete"] }, "attempt": { "type": "integer", "minimum": 1, "maximum": 16 }, "next_attempt_at": { "type": "null" }, "status_code": { "const": "external_effect_unknown" }, "completed_at": { "type": "null" } } }
+    },
+    {
+      "if": { "properties": { "state": { "const": "blocked_by_legal_hold" } }, "required": ["state"] },
+      "then": { "properties": { "active_action": { "type": "null" }, "held_work_item_count": { "type": "integer", "minimum": 1, "maximum": 1000000 }, "next_attempt_at": { "type": "null" }, "status_code": { "const": "legal_hold_active" }, "completed_at": { "type": "null" } } }
+    },
+    {
+      "if": { "properties": { "state": { "const": "completed" } }, "required": ["state"] },
+      "then": { "properties": { "active_action": { "type": "null" }, "inventory_fingerprint": { "type": "string", "pattern": "^[0-9a-f]{64}$" }, "next_attempt_at": { "type": "null" }, "status_code": { "type": "null" }, "completed_at": { "type": "string", "format": "date-time" } } }
+    },
+    {
+      "if": { "properties": { "state": { "enum": ["denied", "expired", "cancelled"] } }, "required": ["state"] },
+      "then": { "properties": { "active_action": { "type": "null" }, "next_attempt_at": { "type": "null" }, "completed_at": { "type": "string", "format": "date-time" } } }
+    }
+  ]
+}

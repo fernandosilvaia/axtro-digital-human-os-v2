@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { spawn, spawnSync } from "node:child_process";
-import { createHash } from "node:crypto";
+import { createHash, createHmac } from "node:crypto";
 import { existsSync, mkdtempSync, readFileSync, readdirSync, rmSync } from "node:fs";
 import { createServer } from "node:net";
 import { tmpdir } from "node:os";
@@ -171,7 +171,6 @@ try {
   assert.deepEqual(textPreviewAuthorityRepairApplied, ["0058"]);
   assertPortalTextPreviewAuthorityRepairPhase(databaseUrl, v57Capabilities, preV58TextPreview);
   assertSchemaLineageCapabilities(databaseUrl, 58, { textPreview: true, terminalNotification: false, businessActions: true });
-  assertMigrationReceiptLineage(databaseUrl);
 
   assertMigrationCapabilities(databaseUrl);
   assertLeastPrivilege(databaseUrl);
@@ -213,7 +212,15 @@ try {
   assertBusinessActionCalendarCredentialRead(databaseUrl);
   assertBusinessActionLiveCallContext(databaseUrl);
 
-  console.log("SUPABASE PORTAL INTEGRATION PASSED: migrations 0001-0058 in contiguous order, immutable checksums, grants, RLS, transcripts, reservations and readiness capability");
+  const v58Capabilities = queryJson(databaseUrl, asRoleSql("service_role", null,
+    "SELECT public.portal_schema_capabilities_service();"));
+  const dataGovernanceApplied = applySupabaseMigrations(databaseUrl, 59, 59);
+  assert.deepEqual(dataGovernanceApplied, ["0059"]);
+  assertDataGovernanceDispositionPhase(databaseUrl, v58Capabilities);
+  assertSchemaLineageCapabilities(databaseUrl, 59, { textPreview: true, terminalNotification: false, businessActions: true });
+  assertMigrationReceiptLineage(databaseUrl);
+
+  console.log("SUPABASE PORTAL INTEGRATION PASSED: migrations 0001-0059 in contiguous order, immutable checksums, grants, RLS, transcripts, reservations, data governance and readiness capability");
 } catch (error) {
   primaryError = error;
   throw error;
@@ -251,15 +258,16 @@ function supabaseMigrationInventory() {
   const migrations = readdirSync(supabaseMigrationDirectory)
     .filter((name) => /^\d{4}_.+\.sql$/.test(name))
     .sort();
-  assert.equal(migrations.length, 58, "the harness must cover every Supabase-only migration through 0058");
+  assert.equal(migrations.length, 59, "the harness must cover every Supabase-only migration through 0059");
   assert.deepEqual(
     migrations.map((migration) => Number(migration.slice(0, 4))),
-    Array.from({ length: 58 }, (_, index) => index + 1),
-    "Supabase-only migration versions must be contiguous and unique from 0001 through 0058",
+    Array.from({ length: 59 }, (_, index) => index + 1),
+    "Supabase-only migration versions must be contiguous and unique from 0001 through 0059",
   );
   assert.equal(migrations[48], "0049_portal_text_preview_admission.sql");
   assert.equal(migrations[49], "0050_meeting_terminal_notification_claim.sql");
   assert.equal(migrations[57], "0058_portal_text_preview_authority_repair.sql");
+  assert.equal(migrations[58], "0059_data_governance_disposition_workflow.sql");
   assert.equal(migrationChecksum(migrations[48]), "79b24e7fdc768a30b02d3596b71799fae484043e37561ddfcd435f46076b3100");
   assert.equal(migrationChecksum(migrations[49]), "262e033328175f704f8cfef1cafdcb0a2ef9b9aac7e4cc86f2b33890044c7224");
   return migrations;
@@ -306,6 +314,1406 @@ function assertSchemaLineageCapabilities(databaseUrl, expectedVersion, expected)
       "businessActionEmailLengthBound",
     ]) assert.equal(capabilities[capability], true, capability);
   }
+}
+
+function assertDataGovernanceDispositionPhase(databaseUrl, v58Capabilities) {
+  assert.equal(queryScalar(databaseUrl, "SELECT app.data_legal_hold_authorities_ready();"), "f",
+    "legal hold admission must fail closed before independent authority keys are provisioned");
+  provisionGovernanceAttestationAuthorities(databaseUrl);
+  const capabilities = queryJson(databaseUrl, asRoleSql(
+    "service_role",
+    null,
+    "SELECT public.portal_schema_capabilities_service();",
+  ));
+  assert.equal(capabilities.version, 59);
+  for (const [key, value] of Object.entries(v58Capabilities)) {
+    if (key === "version") continue;
+    assert.deepEqual(capabilities[key], value, `v59 must preserve the v58 capability ${key}`);
+  }
+  assert.equal(capabilities.dataGovernanceProfile, "data_governance_disposition@1.0.0");
+  assert.equal(capabilities.dataGovernanceCatalogComplete, true);
+  assert.match(capabilities.dataGovernanceCatalogFingerprint, /^[0-9a-f]{64}$/);
+  assert.equal(capabilities.dataGovernanceHistoricalTenantRelations, true);
+  assert.equal(capabilities.dataGovernanceExternalSurfaces, true);
+  assert.equal(capabilities.dataGovernanceSubjectCoverageAuthorities, true);
+  assert.equal(capabilities.dataGovernanceLegalHoldAuthorityReady, true);
+  assert.equal(capabilities.dataGovernanceCanonicalContractsReady, false);
+  assert.equal(capabilities.dataGovernanceSecurityBoundary, true);
+  assert.equal(capabilities.dataGovernanceLegacyDeletionClosed, true);
+  assert.equal(capabilities.dataGovernanceAppendOnlyTerminalFence, true);
+  assert.equal(capabilities.dataGovernanceControlProjection, true);
+
+  assert.deepEqual(queryRows(databaseUrl, `
+    SELECT catalog_generation||'|'||count(*)::text
+    FROM public.data_governance_resource_catalog
+    GROUP BY catalog_generation
+    ORDER BY catalog_generation;
+  `), ["external|7", "pre_v59|86", "v59_control|12"]);
+  assert.equal(queryScalar(databaseUrl, "SELECT app.data_governance_catalog_complete();"), "t");
+  assertSucceeded(runSql(databaseUrl, "ALTER TABLE public.conversation_transcripts ADD COLUMN governance_shape_drift text;"),
+    "inject a redaction projector column drift");
+  assert.equal(queryScalar(databaseUrl, "SELECT app.data_governance_catalog_complete();"), "f",
+    "an uncataloged transcript content column fails the redaction projector gate");
+  assertSucceeded(runSql(databaseUrl, "ALTER TABLE public.conversation_transcripts DROP COLUMN governance_shape_drift;"),
+    "remove the redaction projector column drift");
+  assert.equal(queryScalar(databaseUrl, "SELECT app.data_governance_catalog_complete();"), "t");
+  assert.equal(queryScalar(databaseUrl, `
+    WITH tenant_relations AS (
+      SELECT 'public.'||table_name relation_name
+      FROM information_schema.columns
+      WHERE table_schema='public' AND column_name='tenant_id'
+      UNION ALL SELECT 'public.tenants'
+    ), catalog_relations AS (
+      SELECT relation_name
+      FROM public.data_governance_resource_catalog
+      WHERE surface='database'
+    )
+    SELECT count(*) FROM (
+      (SELECT relation_name FROM tenant_relations EXCEPT SELECT relation_name FROM catalog_relations)
+      UNION ALL
+      (SELECT relation_name FROM catalog_relations EXCEPT SELECT relation_name FROM tenant_relations)
+    ) drift;
+  `), "0", "catalog and tenant relation inventory must be a two-way exact match");
+  assert.equal(queryScalar(databaseUrl, `
+    SELECT count(*)
+    FROM public.data_governance_resource_catalog c
+    WHERE c.catalog_generation='pre_v59'
+      AND c.surface='database'
+      AND c.relation_name<>'public.tenants'
+      AND 1<>(
+        SELECT count(*)
+        FROM pg_trigger t
+        WHERE t.tgrelid=c.relation_name::regclass
+          AND t.tgname='data_governance_write_fence'
+          AND NOT t.tgisinternal
+      );
+  `), "0", "every historical tenant relation must have exactly one write fence");
+  assert.equal(queryScalar(databaseUrl, "SELECT app.data_governance_cycle_break_complete();"), "t",
+    "the one supported session presenter FK cycle must match its exact validated shape");
+  assert.equal(queryScalar(databaseUrl, `
+    SELECT count(*)
+    FROM pg_constraint fk
+    JOIN public.data_governance_resource_catalog child
+      ON fk.conrelid=to_regclass(child.relation_name)
+     AND child.catalog_generation='pre_v59'
+    JOIN public.data_governance_resource_catalog parent
+      ON fk.confrelid=to_regclass(parent.relation_name)
+     AND parent.catalog_generation='pre_v59'
+    WHERE fk.contype='f' AND child.relation_name<>parent.relation_name
+      AND NOT (
+        fk.conname='sessions_active_presenter_fk'
+        AND fk.conrelid='public.sessions'::regclass
+        AND fk.confrelid='public.session_participants'::regclass
+      )
+      AND child.deletion_order>=parent.deletion_order;
+  `), "0", "every cataloged foreign-key child must be deleted before its parent");
+
+  const governanceTables = [
+    "data_governance_resource_catalog",
+    "data_governance_subjects",
+    "data_governance_subject_artifact_links",
+    "data_governance_subject_coverage_attestations",
+    "data_governance_requests",
+    "data_governance_policy_decisions",
+    "data_governance_approvals",
+    "data_legal_holds",
+    "data_legal_hold_scope_items",
+    "data_legal_hold_receipts",
+    "data_governance_work_items",
+    "data_governance_attempt_receipts",
+    "data_governance_final_receipts",
+  ];
+  const governanceTableSql = governanceTables.map((name) => `'${name}'`).join(",");
+  assert.equal(queryScalar(databaseUrl, `
+    SELECT count(*)
+    FROM pg_class c
+    JOIN pg_namespace n ON n.oid=c.relnamespace
+    WHERE n.nspname='public' AND c.relname IN (${governanceTableSql})
+      AND c.relkind='r' AND c.relrowsecurity AND c.relforcerowsecurity;
+  `), String(governanceTables.length));
+  assert.equal(queryScalar(databaseUrl, `
+    SELECT count(*)
+    FROM pg_class c
+    JOIN pg_namespace n ON n.oid=c.relnamespace
+    WHERE n.nspname='public' AND c.relname IN (${governanceTableSql})
+      AND (
+        has_table_privilege('anon',c.oid,'SELECT,INSERT,UPDATE,DELETE,TRUNCATE,REFERENCES,TRIGGER')
+        OR has_table_privilege('authenticated',c.oid,'SELECT,INSERT,UPDATE,DELETE,TRUNCATE,REFERENCES,TRIGGER')
+        OR has_table_privilege('service_role',c.oid,'SELECT,INSERT,UPDATE,DELETE,TRUNCATE,REFERENCES,TRIGGER')
+      );
+  `), "0", "governance state is reachable only through typed RPCs");
+  assert.equal(queryScalar(databaseUrl, `
+    SELECT count(*)
+    FROM pg_proc p
+    JOIN pg_namespace n ON n.oid=p.pronamespace
+    WHERE n.nspname='app'
+      AND (p.proname LIKE 'data_governance_%' OR p.proname LIKE 'data_legal_hold_%' OR p.proname IN (
+        'enforce_data_governance_write_fence',
+        'prevent_mutation_or_governed_disposition',
+        'prevent_data_governance_receipt_mutation'
+      ))
+      AND (
+        has_function_privilege('anon',p.oid,'EXECUTE')
+        OR has_function_privilege('authenticated',p.oid,'EXECUTE')
+        OR has_function_privilege('service_role',p.oid,'EXECUTE')
+      );
+  `), "0", "internal governance primitives must not be externally executable");
+
+  assertFailed(runSql(databaseUrl, asRoleSql("service_role", null, `
+    SELECT public.portal_delete_conversation_transcript_service(
+      '${fixture.tenantAlpha}','019f0000-0000-7000-8000-00000000f001'
+    );
+  `)), "legacy service transcript deletion is revoked");
+  assertFailed(runSql(databaseUrl, asRoleSql("service_role", null, `
+    SELECT public.portal_purge_old_conversation_transcripts_service(30);
+  `)), "legacy global transcript purge is revoked");
+  assertFailed(runSql(databaseUrl, asRoleSql("authenticated", fixture.userAlpha, `
+    SELECT public.portal_delete_conversation_transcript(
+      '019f0000-0000-7000-8000-00000000f001'
+    );
+  `)), "authenticated point deletion is hard-closed", /direct deletion disabled/);
+
+  assertDataSubjectGovernanceRedaction(databaseUrl);
+  assertTenantGovernanceDeletion(databaseUrl);
+}
+
+function governanceAuthoritySecret(kind, resourceCode) {
+  return createHash("sha256").update(`axtro-governance-authority:${kind}:${resourceCode}`, "utf8").digest("hex");
+}
+
+function governanceAuthoritySignature(kind, resourceCode, payload) {
+  return `hmac-sha256:${createHmac("sha256", Buffer.from(governanceAuthoritySecret(kind, resourceCode), "hex"))
+    .update(payload, "utf8").digest("hex")}`;
+}
+
+function governanceAuthorityId(databaseUrl, kind, resourceCode) {
+  return queryScalar(databaseUrl, `
+    SELECT authority_id FROM app.data_governance_attestation_authorities
+    WHERE authority_kind='${kind}' AND resource_code='${resourceCode}' AND active;
+  `);
+}
+
+function legalHoldAuthoritySecret(authorityCode, generation = "primary") {
+  return createHash("sha256")
+    .update(`axtro-legal-hold-authority:${authorityCode}:${generation}`, "utf8")
+    .digest("hex");
+}
+
+function legalHoldAuthoritySignature(authorityCode, payload, generation = "primary") {
+  return `hmac-sha256:${createHmac(
+    "sha256",
+    Buffer.from(legalHoldAuthoritySecret(authorityCode, generation), "hex"),
+  )
+    .update(payload, "utf8").digest("hex")}`;
+}
+
+function legalHoldAuthorityId(databaseUrl, authorityCode) {
+  return queryScalar(databaseUrl, `
+    SELECT key_id FROM app.data_legal_hold_authority_keys
+    WHERE authority_code='${authorityCode}' AND active;
+  `);
+}
+
+function provisionGovernanceAttestationAuthorities(databaseUrl) {
+  const rows = queryRows(databaseUrl, `
+    SELECT authority_kind||'|'||resource_code
+    FROM (
+      SELECT 'coverage_producer' authority_kind,resource_code,inventory_order
+      FROM public.data_governance_resource_catalog
+      WHERE catalog_generation='pre_v59' AND subject_link_required
+      UNION ALL
+      SELECT 'external_verifier',resource_code,inventory_order
+      FROM public.data_governance_resource_catalog
+      WHERE catalog_generation='external'
+    ) authorities
+    ORDER BY authority_kind,inventory_order;
+  `);
+  rows.forEach((row, index) => {
+    const [kind, resourceCode] = row.split("|");
+    const secret = governanceAuthoritySecret(kind, resourceCode);
+    const keyFingerprint = createHash("sha256").update(Buffer.from(secret, "hex")).digest("hex");
+    assertSucceeded(runSql(databaseUrl, `
+      INSERT INTO app.data_governance_attestation_authorities(
+        authority_id,authority_kind,resource_code,key_material,key_fingerprint
+      ) VALUES(
+        '${governanceUuid(10000 + index)}','${kind}','${resourceCode}',decode('${secret}','hex'),'${keyFingerprint}'
+      );
+    `), `provision isolated ${kind} authority for ${resourceCode}`);
+  });
+  assert.equal(queryScalar(databaseUrl, "SELECT app.data_governance_attestation_authorities_ready(true);"), "t");
+  const legalHoldAuthorityCodes = [
+    "court_order",
+    "regulator_request",
+    "statutory_duty",
+    "counsel_instruction",
+    "contractual_preservation",
+  ];
+  legalHoldAuthorityCodes.forEach((authorityCode, index) => {
+    const secret = legalHoldAuthoritySecret(authorityCode);
+    const keyFingerprint = createHash("sha256").update(Buffer.from(secret, "hex")).digest("hex");
+    assertSucceeded(runSql(databaseUrl, `
+      INSERT INTO app.data_legal_hold_authority_keys(
+        key_id,authority_code,key_material,key_fingerprint
+      ) VALUES(
+        '${governanceUuid(11000 + index)}','${authorityCode}',decode('${secret}','hex'),'${keyFingerprint}'
+      );
+    `), `provision isolated legal hold authority for ${authorityCode}`);
+  });
+  assert.equal(queryScalar(databaseUrl, "SELECT app.data_legal_hold_authorities_ready();"), "t");
+}
+
+function governanceExternalVerifierAttestation(
+  databaseUrl,
+  tenantId,
+  requestId,
+  item,
+  evidenceKind,
+  evidenceFingerprint,
+  recoverableExpression,
+) {
+  const authorityId = governanceAuthorityId(databaseUrl, "external_verifier", item.resourceCode);
+  const payload = queryScalar(databaseUrl, `
+    SELECT app.sha256_tuple(
+      'external-verifier@1','${tenantId}','${requestId}','${item.workItemId}',
+      '${item.resourceCode}','${item.operation}','${item.fencingToken}',
+      '${item.operationIdentity}','${item.attestationChallengeHmac}',
+      '${evidenceKind}','${evidenceFingerprint}',coalesce((${recoverableExpression})::text,'')
+    );
+  `);
+  return {
+    authorityId,
+    signature: governanceAuthoritySignature("external_verifier", item.resourceCode, payload),
+  };
+}
+
+function governanceUuid(sequence) {
+  return `019f1000-0000-7000-8000-${sequence.toString(16).padStart(12, "0")}`;
+}
+
+function governanceEvidence(label) {
+  return createHash("sha256").update(`axtro-governance-harness:${label}`, "utf8").digest("hex");
+}
+
+function governanceExternalEvidence(
+  databaseUrl,
+  tenantId,
+  requestId,
+  item,
+  receiptId,
+  outcomeCode,
+  evidenceKind,
+  recoverableExpression,
+) {
+  return queryScalar(databaseUrl, `
+    SELECT app.data_governance_external_evidence_fingerprint(
+      '${tenantId}','${requestId}','${item.workItemId}',${item.attemptCount},
+      '${receiptId}','${item.operation}',${item.fencingToken},'${outcomeCode}',
+      '${evidenceKind}','${item.operationIdentity}','${item.attestationChallengeHmac}',
+      ${recoverableExpression}
+    );
+  `);
+}
+
+function assertDataSubjectGovernanceRedaction(databaseUrl) {
+  const ids = Object.freeze({
+    subject: governanceUuid(1),
+    request: governanceUuid(2),
+    policyDecision: governanceUuid(3),
+    approval: governanceUuid(4),
+    transcript: governanceUuid(5),
+    betaTranscript: governanceUuid(6),
+    hold: governanceUuid(7),
+    holdScope: governanceUuid(8),
+    holdCreateReceipt: governanceUuid(9),
+    holdAuthorization: governanceUuid(10),
+    holdReleaseReceipt: governanceUuid(11),
+    finalReceipt: governanceUuid(12),
+    worker: governanceUuid(13),
+    expiringHold: governanceUuid(20),
+    expiringHoldScope: governanceUuid(21),
+    expiringHoldCreateReceipt: governanceUuid(22),
+    expiringHoldAuthorization: governanceUuid(23),
+    expiringHoldReceipt: governanceUuid(24),
+    dispatchHold: governanceUuid(26),
+    dispatchHoldScope: governanceUuid(27),
+    dispatchHoldCreateReceipt: governanceUuid(28),
+    dispatchHoldAuthorization: governanceUuid(29),
+    dispatchHoldReleaseReceipt: governanceUuid(30),
+    holdReleaseAuthorization: governanceUuid(31),
+    dispatchHoldReleaseAuthorization: governanceUuid(32),
+  });
+  const releaseAdminUser = "10000000-0000-4000-8000-000000000099";
+  const releaseAdminActor = governanceUuid(33);
+  const piiCanary = "m6-04-subject-canary-alice@example.invalid";
+  const betaCanary = "m6-04-beta-control@example.invalid";
+  assertSucceeded(runSql(databaseUrl, `
+    INSERT INTO public.conversation_transcripts(
+      id,tenant_id,agent_id,surface,external_ref,turns,ended_at
+    ) VALUES
+      ('${ids.transcript}','${fixture.tenantAlpha}','${fixture.agentAlpha}','chat',
+       'm6-04-subject-redaction',
+       '[{"role":"user","content":"${piiCanary}"},{"role":"assistant","content":"acknowledged"}]'::jsonb,
+       clock_timestamp()),
+      ('${ids.betaTranscript}','${fixture.tenantBeta}','${fixture.agentBeta}','chat',
+       'm6-04-beta-control',
+       '[{"role":"user","content":"${betaCanary}"}]'::jsonb,
+       clock_timestamp());
+    INSERT INTO auth.users(id,email)
+    VALUES('${releaseAdminUser}','m6-04-release-admin@example.test');
+    INSERT INTO public.user_tenant_memberships(user_id,tenant_id,actor_id,role)
+    VALUES('${releaseAdminUser}','${fixture.tenantAlpha}','${releaseAdminActor}','tenant_admin');
+  `), "seed subject redaction transcript and cross-tenant control");
+
+  const subjectManifest = [];
+  const databaseLink = queryJson(databaseUrl, asRoleSql("service_role", null, `
+    SELECT public.portal_register_data_governance_subject_link_service(
+      '${fixture.tenantAlpha}','${ids.subject}','hmac-sha256:${"1".repeat(64)}',
+      'db_conversation_transcripts',null,'${ids.transcript}'
+    );
+  `));
+  subjectManifest.push({
+    resourceCode: "db_conversation_transcripts",
+    resourceLocatorHmac: databaseLink.resourceLocatorHmac,
+    databaseRowId: ids.transcript,
+  });
+  const externalResources = queryRows(databaseUrl, `
+    SELECT resource_code
+    FROM public.data_governance_resource_catalog
+    WHERE catalog_generation='external'
+    ORDER BY inventory_order;
+  `);
+  assert.equal(externalResources.length, 7, "subject manifest covers every external surface");
+  for (const resourceCode of externalResources) {
+    const link = queryJson(databaseUrl, asRoleSql("service_role", null, `
+      SELECT public.portal_register_data_governance_subject_link_service(
+        '${fixture.tenantAlpha}','${ids.subject}','hmac-sha256:${"1".repeat(64)}',
+        '${resourceCode}',null,null
+      );
+    `));
+    subjectManifest.push({ resourceCode, resourceLocatorHmac: link.resourceLocatorHmac, databaseRowId: null });
+  }
+  const subjectCoverageResources = queryRows(databaseUrl, `
+    SELECT resource_code
+    FROM public.data_governance_resource_catalog
+    WHERE catalog_generation='pre_v59' AND subject_link_required
+    ORDER BY inventory_order;
+  `);
+  assert.ok(subjectCoverageResources.length > 1, "subject coverage closes every producer-owned resource class");
+  const coverageCatalogFingerprint = queryScalar(databaseUrl, "SELECT app.data_governance_catalog_fingerprint();");
+  for (const resourceCode of subjectCoverageResources) {
+    const linkedCount = subjectManifest.filter((item) => item.resourceCode === resourceCode).length;
+    const observationFingerprint = governanceEvidence(`subject-coverage:${resourceCode}:${linkedCount}`);
+    const authorityId = governanceAuthorityId(databaseUrl, "coverage_producer", resourceCode);
+    const authorityPayload = queryScalar(databaseUrl, `
+      SELECT app.sha256_tuple(
+        'coverage-producer@1','${fixture.tenantAlpha}','${ids.subject}','${resourceCode}',
+        '1.0.0','${linkedCount}','${observationFingerprint}','${coverageCatalogFingerprint}'
+      );
+    `);
+    const authoritySignature = governanceAuthoritySignature("coverage_producer", resourceCode, authorityPayload);
+    const coverage = queryJson(databaseUrl, asRoleSql("service_role", null, `
+      SELECT public.portal_attest_data_governance_subject_coverage_service(
+        '${fixture.tenantAlpha}','${ids.subject}','${resourceCode}','1.0.0',${linkedCount},
+        '${observationFingerprint}','${authorityId}','${authoritySignature}'
+      );
+    `));
+    assert.equal(coverage.resourceCode, resourceCode);
+    assert.equal(coverage.linkedCount, linkedCount);
+    assert.match(coverage.recordFingerprint, /^hmac-sha256:[0-9a-f]{64}$/);
+  }
+  assert.equal(queryScalar(databaseUrl, `
+    SELECT count(*) FROM public.data_governance_subject_coverage_attestations
+    WHERE tenant_id='${fixture.tenantAlpha}' AND subject_id='${ids.subject}';
+  `), String(subjectCoverageResources.length), "every subject-bearing database resource has exact linked or zero coverage");
+
+  const fingerprints = queryJson(databaseUrl, `
+    WITH canonical AS (
+      SELECT
+        app.data_governance_catalog_fingerprint() AS inventory_fingerprint,
+        app.data_governance_expected_policy_fingerprint(
+          '${fixture.tenantAlpha}','data_subject','${ids.subject}','redact','data_subject_request'
+        ) AS policy_fingerprint
+    )
+    SELECT jsonb_build_object(
+      'inventoryFingerprint',inventory_fingerprint,
+      'policyFingerprint',policy_fingerprint,
+      'commandFingerprint',app.data_governance_expected_command_fingerprint(
+        '${ids.request}','${fixture.tenantAlpha}','data_subject','${ids.subject}',
+        'redact','data_subject_request',policy_fingerprint,inventory_fingerprint
+      )
+    ) FROM canonical;
+  `);
+  assert.match(fingerprints.inventoryFingerprint, /^[0-9a-f]{64}$/);
+  assert.match(fingerprints.policyFingerprint, /^[0-9a-f]{64}$/);
+  assert.match(fingerprints.commandFingerprint, /^[0-9a-f]{64}$/);
+
+  assert.deepEqual(queryJson(databaseUrl, asRoleSql("authenticated", fixture.userAlpha, `
+    SELECT public.portal_request_data_governance_authenticated(
+      '${ids.request}','${ids.policyDecision}','data_subject','${ids.subject}',
+      'redact','data_subject_request','1.0.0','${fingerprints.policyFingerprint}',
+      '1.0.0','${fingerprints.inventoryFingerprint}','${fingerprints.commandFingerprint}'
+    );
+  `)), { requestId: ids.request, state: "requested", replayed: false },
+  "request admission records intent without deciding policy");
+  assert.equal(queryScalar(databaseUrl,
+    `SELECT state FROM public.data_governance_requests WHERE id='${ids.request}';`), "requested");
+  assertFailed(runSql(databaseUrl, asRoleSql("service_role", null, `
+    SELECT public.portal_authorize_data_governance_request_service(
+      '${fixture.tenantAlpha}','${ids.request}'
+    );
+  `)), "authorization before the separate policy decision is denied", /not approval pending/);
+  assertFailed(runSql(databaseUrl, asRoleSql("service_role", null, `
+    SELECT public.portal_decide_data_governance_policy_service(
+      '${fixture.tenantBeta}','${ids.request}','${ids.policyDecision}','allow','policy_allowed',
+      '${fingerprints.policyFingerprint}',clock_timestamp()+interval '1 hour'
+    );
+  `)), "a service message cannot decide another tenant request", /governance request not found/);
+  assert.equal(queryScalar(databaseUrl,
+    `SELECT state FROM public.data_governance_requests WHERE id='${ids.request}';`), "requested",
+  "wrong-tenant policy decision has no state side effect");
+  assert.deepEqual(queryJson(databaseUrl, asRoleSql("service_role", null, `
+    SELECT public.portal_decide_data_governance_policy_service(
+      '${fixture.tenantAlpha}','${ids.request}','${ids.policyDecision}','allow','policy_allowed',
+      '${fingerprints.policyFingerprint}',clock_timestamp()+interval '1 hour'
+    );
+  `)).state, "approval_pending");
+  assertFailed(runSql(databaseUrl, asRoleSql("authenticated", fixture.userAlpha, `
+    SELECT public.portal_approve_data_governance_authenticated(
+      '${ids.request}','${ids.approval}','approve','${"f".repeat(64)}'
+    );
+  `)), "approval cannot substitute a caller-selected command fingerprint", /live policy-bound command required/);
+  assert.equal(queryJson(databaseUrl, asRoleSql("authenticated", fixture.userAlpha, `
+    SELECT public.portal_approve_data_governance_authenticated(
+      '${ids.request}','${ids.approval}','approve','${fingerprints.commandFingerprint}'
+    );
+  `)).state, "approval_pending");
+  assertFailed(runSql(databaseUrl, asRoleSql("service_role", null, `
+    SELECT public.portal_authorize_data_governance_request_service(
+      '${fixture.tenantBeta}','${ids.request}'
+    );
+  `)), "a service message cannot authorize another tenant request", /not approval pending/);
+  assert.equal(queryScalar(databaseUrl,
+    `SELECT state FROM public.data_governance_requests WHERE id='${ids.request}';`), "approval_pending",
+  "wrong-tenant authorization has no state side effect");
+  const authorization = queryJson(databaseUrl, asRoleSql("service_role", null, `
+    SELECT public.portal_authorize_data_governance_request_service(
+      '${fixture.tenantAlpha}','${ids.request}'
+    );
+  `));
+  assert.equal(authorization.state, "authorized");
+  assert.equal(authorization.tenantId, fixture.tenantAlpha);
+  assert.equal(authorization.replayed, false);
+  const authorizationReplay = queryJson(databaseUrl, asRoleSql("service_role", null, `
+    SELECT public.portal_authorize_data_governance_request_service(
+      '${fixture.tenantAlpha}','${ids.request}'
+    );
+  `));
+  assert.equal(authorizationReplay.state, "authorized");
+  assert.equal(authorizationReplay.writeEpoch, authorization.writeEpoch);
+  assert.equal(authorizationReplay.replayed, true);
+
+  assertFailed(runSql(databaseUrl, asRoleSql("service_role", null, `
+    SELECT public.portal_inventory_data_governance_request_service(
+      '${fixture.tenantBeta}','${ids.request}',null,null,null,null,null,true
+    );
+  `)), "a subject inventory worker cannot cross a tenant boundary", /request is not inventoryable/);
+
+  let itemSequence = 100;
+  for (const item of subjectManifest) {
+    const itemId = governanceUuid(itemSequence++);
+    item.itemId = itemId;
+    const inventory = queryJson(databaseUrl, asRoleSql("service_role", null, `
+      SELECT public.portal_inventory_data_governance_request_service(
+        '${fixture.tenantAlpha}','${ids.request}','${itemId}','${item.resourceCode}',
+        '${item.resourceLocatorHmac}',${item.databaseRowId === null ? "null" : `'${item.databaseRowId}'`},
+        '${ids.subject}',false
+      );
+    `));
+    assert.equal(inventory.state, "inventorying");
+  }
+  assert.equal(queryJson(databaseUrl, asRoleSql("service_role", null, `
+    SELECT public.portal_inventory_data_governance_request_service(
+      '${fixture.tenantAlpha}','${ids.request}',null,null,null,null,null,true
+    );
+  `)).state, "ready", "the exact subject manifest closes inventory");
+
+  const heldItem = subjectManifest.find((item) => item.resourceCode === "external_cache");
+  assert.ok(heldItem, "cache surface is present in the closed external manifest");
+  const holdAuthorityCode = "counsel_instruction";
+  const holdCreateAuthorityKey = legalHoldAuthorityId(databaseUrl, holdAuthorityCode);
+  const holdExpiresAt = queryScalar(databaseUrl, `
+    SELECT app.data_governance_canonical_timestamp(clock_timestamp()+interval '1 hour');
+  `);
+  const holdCreatePayload = queryScalar(databaseUrl, `
+    SELECT app.data_legal_hold_create_authority_payload(
+      '${fixture.tenantAlpha}','${ids.hold}','${ids.holdScope}',
+      'litigation','${holdAuthorityCode}','${ids.holdAuthorization}',
+      '${holdExpiresAt}'::timestamptz,'${heldItem.resourceCode}','${ids.subject}',
+      '${heldItem.resourceLocatorHmac}','${holdCreateAuthorityKey}'
+    );
+  `);
+  const holdCreateSignature = legalHoldAuthoritySignature(holdAuthorityCode, holdCreatePayload);
+  const createHoldSql = (candidateReceiptId) => `
+    SELECT public.portal_create_data_legal_hold_authenticated(
+      '${ids.hold}','${ids.holdScope}','${candidateReceiptId}',
+      'litigation','${holdAuthorityCode}','${ids.holdAuthorization}','${holdExpiresAt}'::timestamptz,
+      '${heldItem.resourceCode}','${ids.subject}','${heldItem.resourceLocatorHmac}',
+      '${holdCreateAuthorityKey}','${holdCreateSignature}'
+    );
+  `;
+  assert.deepEqual(queryJson(databaseUrl, asRoleSql(
+    "authenticated",
+    fixture.userAlpha,
+    createHoldSql(ids.holdCreateReceipt),
+  )), {
+    holdId: ids.hold,
+    state: "active",
+    receiptId: ids.holdCreateReceipt,
+    replayed: false,
+  });
+  assert.deepEqual(queryJson(databaseUrl, asRoleSql(
+    "authenticated",
+    fixture.userAlpha,
+    createHoldSql(governanceUuid(17)),
+  )), {
+    holdId: ids.hold,
+    state: "active",
+    receiptId: ids.holdCreateReceipt,
+    replayed: true,
+  }, "legal hold creation survives an ACK-loss replay without duplicate state");
+  const divergentCreatePayload = queryScalar(databaseUrl, `
+    SELECT app.data_legal_hold_create_authority_payload(
+      '${fixture.tenantAlpha}','${ids.hold}','${ids.holdScope}',
+      'tax_audit','${holdAuthorityCode}','${ids.holdAuthorization}',
+      '${holdExpiresAt}'::timestamptz,'${heldItem.resourceCode}','${ids.subject}',
+      '${heldItem.resourceLocatorHmac}','${holdCreateAuthorityKey}'
+    );
+  `);
+  const divergentCreateSignature = legalHoldAuthoritySignature(holdAuthorityCode, divergentCreatePayload);
+  assertFailed(runSql(databaseUrl, asRoleSql("authenticated", fixture.userAlpha, `
+    SELECT public.portal_create_data_legal_hold_authenticated(
+      '${ids.hold}','${ids.holdScope}','${ids.holdCreateReceipt}',
+      'tax_audit','${holdAuthorityCode}','${ids.holdAuthorization}','${holdExpiresAt}'::timestamptz,
+      '${heldItem.resourceCode}','${ids.subject}','${heldItem.resourceLocatorHmac}',
+      '${holdCreateAuthorityKey}','${divergentCreateSignature}'
+    );
+  `)), "a valid authority signature cannot mutate an acknowledged legal hold command", /idempotency conflict/);
+  assert.equal(queryScalar(databaseUrl,
+    `SELECT state FROM public.data_governance_requests WHERE id='${ids.request}';`), "blocked_by_legal_hold");
+
+  const rotatedHoldAuthorityKey = governanceUuid(12000);
+  const rotatedHoldAuthoritySecret = legalHoldAuthoritySecret(holdAuthorityCode, "rotated");
+  const rotatedHoldAuthorityFingerprint = createHash("sha256")
+    .update(Buffer.from(rotatedHoldAuthoritySecret, "hex"))
+    .digest("hex");
+  assertSucceeded(runSql(databaseUrl, `
+    UPDATE app.data_legal_hold_authority_keys
+    SET active=false,revoked_at=clock_timestamp()
+    WHERE authority_code='${holdAuthorityCode}' AND key_id='${holdCreateAuthorityKey}';
+    INSERT INTO app.data_legal_hold_authority_keys(
+      key_id,authority_code,key_material,key_fingerprint
+    ) VALUES(
+      '${rotatedHoldAuthorityKey}','${holdAuthorityCode}',decode('${rotatedHoldAuthoritySecret}','hex'),
+      '${rotatedHoldAuthorityFingerprint}'
+    );
+  `), "rotate the legal hold authority key without losing historical evidence");
+  assert.deepEqual(queryJson(databaseUrl, asRoleSql(
+    "authenticated",
+    fixture.userAlpha,
+    createHoldSql(governanceUuid(18)),
+  )), {
+    holdId: ids.hold,
+    state: "active",
+    receiptId: ids.holdCreateReceipt,
+    replayed: true,
+  }, "an exact creation replay remains valid after its historical authority key is revoked");
+
+  const holdReleasePayload = queryScalar(databaseUrl, `
+    SELECT app.data_legal_hold_release_authority_payload(
+      '${fixture.tenantAlpha}','${ids.hold}',
+      '${holdAuthorityCode}','${ids.holdReleaseAuthorization}','${rotatedHoldAuthorityKey}'
+    );
+  `);
+  const holdReleaseSignature = legalHoldAuthoritySignature(
+    holdAuthorityCode,
+    holdReleasePayload,
+    "rotated",
+  );
+  assertFailed(runSql(databaseUrl, asRoleSql("authenticated", fixture.userBeta, `
+    SELECT public.portal_release_data_legal_hold_authenticated(
+      '${ids.hold}','${governanceUuid(14)}','${ids.holdReleaseAuthorization}',
+      '${rotatedHoldAuthorityKey}','${holdReleaseSignature}'
+    );
+  `)), "another tenant cannot release a legal hold", /active legal hold not found/);
+  assertFailed(runSql(databaseUrl, asRoleSql("authenticated", fixture.userAlpha, `
+    SELECT public.portal_release_data_legal_hold_authenticated(
+      '${ids.hold}','${governanceUuid(15)}','${ids.holdReleaseAuthorization}',
+      '${rotatedHoldAuthorityKey}','${holdReleaseSignature}'
+    );
+  `)), "the hold issuer cannot act as the independent release administrator", /independent legal hold release admin required/);
+  const releaseHoldSql = (candidateReceiptId) => `
+    SELECT public.portal_release_data_legal_hold_authenticated(
+      '${ids.hold}','${candidateReceiptId}','${ids.holdReleaseAuthorization}',
+      '${rotatedHoldAuthorityKey}','${holdReleaseSignature}'
+    );
+  `;
+  assert.deepEqual(queryJson(databaseUrl, asRoleSql(
+    "authenticated",
+    releaseAdminUser,
+    releaseHoldSql(ids.holdReleaseReceipt),
+  )), {
+    holdId: ids.hold,
+    state: "released",
+    receiptId: ids.holdReleaseReceipt,
+    replayed: false,
+  }, "a current key from the same authority can release a hold created before rotation");
+  assert.deepEqual(queryJson(databaseUrl, asRoleSql(
+    "authenticated",
+    releaseAdminUser,
+    releaseHoldSql(governanceUuid(19)),
+  )), {
+    holdId: ids.hold,
+    state: "released",
+    receiptId: ids.holdReleaseReceipt,
+    replayed: true,
+  }, "legal hold release survives an ACK-loss replay");
+  assert.equal(queryScalar(databaseUrl, `
+    SELECT count(*) FROM public.data_legal_hold_receipts
+    WHERE tenant_id='${fixture.tenantAlpha}' AND hold_id='${ids.hold}';
+  `), "2", "create and release each retain exactly one append-only authority receipt");
+
+  const expiringHoldExpiresAt = queryScalar(databaseUrl, `
+    SELECT app.data_governance_canonical_timestamp(clock_timestamp()+interval '1 second');
+  `);
+  const expiringHoldPayload = queryScalar(databaseUrl, `
+    SELECT app.data_legal_hold_create_authority_payload(
+      '${fixture.tenantAlpha}','${ids.expiringHold}','${ids.expiringHoldScope}',
+      'litigation','${holdAuthorityCode}','${ids.expiringHoldAuthorization}',
+      '${expiringHoldExpiresAt}'::timestamptz,'${heldItem.resourceCode}','${ids.subject}',
+      '${heldItem.resourceLocatorHmac}','${rotatedHoldAuthorityKey}'
+    );
+  `);
+  const expiringHoldSignature = legalHoldAuthoritySignature(
+    holdAuthorityCode,
+    expiringHoldPayload,
+    "rotated",
+  );
+  assert.deepEqual(queryJson(databaseUrl, asRoleSql("authenticated", fixture.userAlpha, `
+    SELECT public.portal_create_data_legal_hold_authenticated(
+      '${ids.expiringHold}','${ids.expiringHoldScope}','${ids.expiringHoldCreateReceipt}',
+      'litigation','${holdAuthorityCode}','${ids.expiringHoldAuthorization}',
+      '${expiringHoldExpiresAt}'::timestamptz,'${heldItem.resourceCode}','${ids.subject}',
+      '${heldItem.resourceLocatorHmac}','${rotatedHoldAuthorityKey}','${expiringHoldSignature}'
+    );
+  `)), {
+    holdId: ids.expiringHold,
+    state: "active",
+    receiptId: ids.expiringHoldCreateReceipt,
+    replayed: false,
+  });
+  assertFailed(runSql(databaseUrl, asRoleSql("service_role", null, `
+    SELECT public.portal_expire_data_legal_hold_service(
+      '${fixture.tenantAlpha}','${ids.expiringHold}','${ids.expiringHoldReceipt}'
+    );
+  `)), "a legal hold cannot expire before its signed deadline", /not due/);
+  assertSucceeded(runSql(databaseUrl, "SELECT pg_sleep(1.1);"), "advance beyond the legal hold expiry");
+  assert.deepEqual(queryJson(databaseUrl, asRoleSql("service_role", null, `
+    SELECT public.portal_expire_data_legal_hold_service(
+      '${fixture.tenantAlpha}','${ids.expiringHold}','${ids.expiringHoldReceipt}'
+    );
+  `)), {
+    holdId: ids.expiringHold,
+    state: "expired",
+    receiptId: ids.expiringHoldReceipt,
+    replayed: false,
+  });
+  assert.deepEqual(queryJson(databaseUrl, asRoleSql("service_role", null, `
+    SELECT public.portal_expire_data_legal_hold_service(
+      '${fixture.tenantAlpha}','${ids.expiringHold}','${governanceUuid(25)}'
+    );
+  `)), {
+    holdId: ids.expiringHold,
+    state: "expired",
+    receiptId: ids.expiringHoldReceipt,
+    replayed: true,
+  }, "legal hold expiry replay returns the original receipt");
+  assert.equal(queryScalar(databaseUrl, `
+    SELECT count(*) FROM public.data_legal_hold_receipts
+    WHERE tenant_id='${fixture.tenantAlpha}' AND hold_id='${ids.expiringHold}';
+  `), "2", "create and expiry retain one receipt per event");
+  assert.equal(queryScalar(databaseUrl,
+    `SELECT state FROM public.data_governance_requests WHERE id='${ids.request}';`), "ready");
+
+  let leaseSequence = 300;
+  let receiptSequence = 500;
+  let forcedUnknown = false;
+  let staleOutcomeRejected = false;
+  let predispatchHoldTested = false;
+  let retainedAttemptReceipt = null;
+  for (let safety = 0; safety < 40; safety += 1) {
+    const leaseToken = governanceUuid(leaseSequence++);
+    const leased = queryJson(databaseUrl, asRoleSql("service_role", null, `
+      SELECT public.portal_lease_data_governance_work_items_service(
+        '${fixture.tenantAlpha}','${ids.request}','${ids.worker}','${leaseToken}',1,60
+      );
+    `));
+    if (leased.length === 0) break;
+    assert.equal(leased.length, 1);
+    const [item] = leased;
+    assert.equal(item.tenantId, fixture.tenantAlpha, "a leased work item carries its tenant fence");
+    assert.ok(["database", "object_storage", "cache", "embedding_index", "provider_copy", "auth_identity", "vault_secret", "backup"].includes(item.surface));
+    assert.equal(typeof item.resourceClass, "string", "a leased work item carries its closed resource class");
+    if (item.resourceCode === "db_conversation_transcripts") {
+      const result = queryJson(databaseUrl, asRoleSql("service_role", null, `
+        SELECT public.portal_apply_data_governance_database_item_service(
+          '${fixture.tenantAlpha}','${ids.request}','${item.workItemId}',
+          '${leaseToken}',${item.fencingToken}
+        );
+      `));
+      assert.ok(["verification_pending", "verified"].includes(result.state));
+      retainedAttemptReceipt ??= queryScalar(databaseUrl, `
+        SELECT id FROM public.data_governance_attempt_receipts
+        WHERE tenant_id='${fixture.tenantAlpha}' AND work_item_id='${item.workItemId}'
+          AND operation='${item.operation}' AND fencing_token=${item.fencingToken};
+      `);
+      continue;
+    }
+    if (!predispatchHoldTested && item.resourceCode === "external_cache" && item.operation === "apply") {
+      const dispatchHoldExpiresAt = queryScalar(databaseUrl, `
+        SELECT app.data_governance_canonical_timestamp(clock_timestamp()+interval '1 hour');
+      `);
+      const dispatchHoldPayload = queryScalar(databaseUrl, `
+        SELECT app.data_legal_hold_create_authority_payload(
+          '${fixture.tenantAlpha}','${ids.dispatchHold}','${ids.dispatchHoldScope}',
+          'litigation','${holdAuthorityCode}','${ids.dispatchHoldAuthorization}',
+          '${dispatchHoldExpiresAt}'::timestamptz,'${item.resourceCode}','${ids.subject}',
+          '${item.resourceLocatorHmac}','${rotatedHoldAuthorityKey}'
+        );
+      `);
+      const dispatchHoldSignature = legalHoldAuthoritySignature(
+        holdAuthorityCode,
+        dispatchHoldPayload,
+        "rotated",
+      );
+      assert.deepEqual(queryJson(databaseUrl, asRoleSql("authenticated", fixture.userAlpha, `
+        SELECT public.portal_create_data_legal_hold_authenticated(
+          '${ids.dispatchHold}','${ids.dispatchHoldScope}','${ids.dispatchHoldCreateReceipt}',
+          'litigation','${holdAuthorityCode}','${ids.dispatchHoldAuthorization}',
+          '${dispatchHoldExpiresAt}'::timestamptz,'${item.resourceCode}','${ids.subject}',
+          '${item.resourceLocatorHmac}','${rotatedHoldAuthorityKey}','${dispatchHoldSignature}'
+        );
+      `)), {
+        holdId: ids.dispatchHold,
+        state: "active",
+        receiptId: ids.dispatchHoldCreateReceipt,
+        replayed: false,
+      }, "a legal hold can claim a leased item before the external dispatch fence");
+      assert.equal(queryScalar(databaseUrl, `
+        SELECT state FROM public.data_governance_work_items
+        WHERE tenant_id='${fixture.tenantAlpha}' AND id='${item.workItemId}';
+      `), "held");
+      assertFailed(runSql(databaseUrl, asRoleSql("service_role", null, `
+        SELECT public.portal_begin_data_governance_external_operation_service(
+          '${fixture.tenantAlpha}','${ids.request}','${item.workItemId}',
+          '${leaseToken}',${item.fencingToken},'${item.operation}'
+        );
+      `)), "a stale lease cannot dispatch after a pre-dispatch legal hold", /request is not executable/);
+      const dispatchReleasePayload = queryScalar(databaseUrl, `
+        SELECT app.data_legal_hold_release_authority_payload(
+          '${fixture.tenantAlpha}','${ids.dispatchHold}',
+          '${holdAuthorityCode}','${ids.dispatchHoldReleaseAuthorization}','${rotatedHoldAuthorityKey}'
+        );
+      `);
+      const dispatchReleaseSignature = legalHoldAuthoritySignature(
+        holdAuthorityCode,
+        dispatchReleasePayload,
+        "rotated",
+      );
+      assert.deepEqual(queryJson(databaseUrl, asRoleSql("authenticated", releaseAdminUser, `
+        SELECT public.portal_release_data_legal_hold_authenticated(
+          '${ids.dispatchHold}','${ids.dispatchHoldReleaseReceipt}',
+          '${ids.dispatchHoldReleaseAuthorization}','${rotatedHoldAuthorityKey}','${dispatchReleaseSignature}'
+        );
+      `)), {
+        holdId: ids.dispatchHold,
+        state: "released",
+        receiptId: ids.dispatchHoldReleaseReceipt,
+        replayed: false,
+      });
+      predispatchHoldTested = true;
+      continue;
+    }
+    const dispatch = queryJson(databaseUrl, asRoleSql("service_role", null, `
+      SELECT public.portal_begin_data_governance_external_operation_service(
+        '${fixture.tenantAlpha}','${ids.request}','${item.workItemId}',
+        '${leaseToken}',${item.fencingToken},'${item.operation}'
+      );
+    `));
+    assert.deepEqual(dispatch, {
+      tenantId: fixture.tenantAlpha,
+      workItemId: item.workItemId,
+      state: "applying",
+      operation: item.operation,
+      operationIdentity: item.operationIdentity,
+      fencingToken: item.fencingToken,
+      leaseToken,
+      replayed: false,
+    }, "the external dispatch fence is established only immediately before the provider port");
+    let outcomeCode;
+    let evidenceKind;
+    if (!forcedUnknown && item.operation === "apply") {
+      outcomeCode = "effect_unknown";
+      evidenceKind = "transport_unknown";
+      forcedUnknown = true;
+    } else if (item.operation === "verify") {
+      outcomeCode = item.action === "redact" ? "verified_content_free" : "verified_absent";
+      evidenceKind = ({
+        external_object_storage: "object_absence",
+        external_cache: "cache_absence",
+        external_embedding_index: "index_absence",
+        external_provider_copy: "provider_absence",
+        external_auth_identity: "auth_absence",
+        external_vault_secret: "vault_absence",
+        external_backup: "backup_window_elapsed",
+      })[item.resourceCode];
+    } else {
+      assert.ok(["apply", "reconcile"].includes(item.operation));
+      outcomeCode = "applied";
+      evidenceKind = "effect_receipt";
+    }
+    const receiptId = governanceUuid(receiptSequence++);
+    const recoverableExpression = item.resourceCode === "external_backup" && item.operation === "verify"
+      ? "'2020-01-01T00:00:00Z'::timestamptz"
+      : "null::timestamptz";
+    const evidenceFingerprint = governanceExternalEvidence(
+      databaseUrl,
+      fixture.tenantAlpha,
+      ids.request,
+      item,
+      receiptId,
+      outcomeCode,
+      evidenceKind,
+      recoverableExpression,
+    );
+    const verifier = item.operation === "verify"
+      ? governanceExternalVerifierAttestation(
+        databaseUrl,
+        fixture.tenantAlpha,
+        ids.request,
+        item,
+        evidenceKind,
+        evidenceFingerprint,
+        recoverableExpression,
+      )
+      : null;
+    const outcomeSql = (candidateReceiptId) => `
+      SELECT public.portal_record_data_governance_item_outcome_service(
+        '${fixture.tenantAlpha}','${ids.request}','${item.workItemId}',
+        '${leaseToken}','${candidateReceiptId}',
+        '${item.operation}',${item.fencingToken},'${outcomeCode}','${evidenceKind}',
+        '${evidenceFingerprint}',
+        ${verifier === null ? "null,null" : `'${verifier.authorityId}','${verifier.signature}'`},
+        ${recoverableExpression}
+      );
+    `;
+    const outcome = queryJson(databaseUrl, asRoleSql("service_role", null, outcomeSql(receiptId)));
+    const replayedOutcome = queryJson(databaseUrl, asRoleSql(
+      "service_role",
+      null,
+      outcomeSql(receiptId),
+    ));
+    assert.deepEqual(replayedOutcome, {
+      tenantId: fixture.tenantAlpha,
+      workItemId: item.workItemId,
+      state: outcome.state,
+      outcomeCode,
+      receiptId,
+      replayed: true,
+    }, "an external outcome ACK-loss replay returns the original receipt without another reduction");
+    if (outcomeCode === "effect_unknown") {
+      assert.equal(outcome.state, "effect_unknown");
+      assertFailed(runSql(databaseUrl, asRoleSql("service_role", null, `
+        SELECT public.portal_record_data_governance_item_outcome_service(
+          '${fixture.tenantAlpha}','${ids.request}','${item.workItemId}',
+          '${leaseToken}','${governanceUuid(receiptSequence++)}',
+          '${item.operation}',${item.fencingToken},'applied','effect_receipt',
+          '${governanceEvidence("stale-subject-outcome")}',null,null,null
+        );
+      `)), "an acknowledged external attempt cannot be rewritten with a stale outcome", /idempotency conflict/);
+      staleOutcomeRejected = true;
+    }
+    if (item.operation === "reconcile") assert.equal(outcome.state, "verification_pending");
+    retainedAttemptReceipt ??= receiptId;
+  }
+  assert.equal(forcedUnknown, true, "one ambiguous external apply is reconciled before verification");
+  assert.equal(staleOutcomeRejected, true, "stale external outcomes are rejected after state reduction");
+  assert.equal(predispatchHoldTested, true,
+    "a legal hold wins against a leased item until beginExternal establishes the dispatch fence");
+  assert.equal(queryScalar(databaseUrl, `
+    SELECT count(*) FROM public.data_governance_attempt_receipts
+    WHERE tenant_id='${fixture.tenantAlpha}' AND request_id='${ids.request}'
+      AND operation='reconcile' AND outcome_code='applied';
+  `), "1", "effect_unknown deterministically leases reconcile next");
+  assert.equal(queryScalar(databaseUrl, `
+    SELECT count(*) FROM public.data_governance_work_items
+    WHERE tenant_id='${fixture.tenantAlpha}' AND request_id='${ids.request}'
+      AND state NOT IN ('verified','retained_exception');
+  `), "0", "every subject work item reaches independent terminal verification");
+
+  assert.deepEqual(queryJson(databaseUrl, asRoleSql("service_role", null, `
+    SELECT public.portal_complete_data_governance_request_service(
+      '${fixture.tenantAlpha}','${ids.request}','${ids.finalReceipt}'
+    );
+  `)), {
+    tenantId: fixture.tenantAlpha,
+    requestId: ids.request,
+    state: "completed",
+    receiptId: ids.finalReceipt,
+    replayed: false,
+  });
+  assert.deepEqual(queryJson(databaseUrl, asRoleSql("service_role", null, `
+    SELECT public.portal_complete_data_governance_request_service(
+      '${fixture.tenantAlpha}','${ids.request}','${governanceUuid(16)}'
+    );
+  `)), {
+    tenantId: fixture.tenantAlpha,
+    requestId: ids.request,
+    state: "completed",
+    receiptId: ids.finalReceipt,
+    replayed: true,
+  }, "subject completion replay returns the sole terminal receipt");
+  const redacted = queryJson(databaseUrl, `
+    SELECT jsonb_build_object('externalRef',external_ref,'turns',turns)
+    FROM public.conversation_transcripts
+    WHERE tenant_id='${fixture.tenantAlpha}' AND id='${ids.transcript}';
+  `);
+  assert.match(redacted.externalRef, /^redacted-[0-9a-f]{32}$/);
+  assert.deepEqual(redacted.turns, [], "subject transcript is projected to the exact content-free shape");
+  assert.equal(queryScalar(databaseUrl, `
+    SELECT turns->0->>'content' FROM public.conversation_transcripts
+    WHERE tenant_id='${fixture.tenantBeta}' AND id='${ids.betaTranscript}';
+  `), betaCanary, "another tenant's control transcript is untouched");
+  assert.equal(queryScalar(databaseUrl, `
+    SELECT count(*) FROM public.data_governance_subjects WHERE id='${ids.subject}';
+  `), "0");
+  assert.equal(queryScalar(databaseUrl, `
+    SELECT count(*) FROM public.data_governance_subject_artifact_links WHERE subject_id='${ids.subject}';
+  `), "0");
+  assert.equal(queryScalar(databaseUrl, `
+    SELECT count(*) FROM public.data_governance_subject_coverage_attestations WHERE subject_id='${ids.subject}';
+  `), "0");
+  assert.equal(queryScalar(databaseUrl, `
+    SELECT count(*) FROM public.data_governance_requests
+    WHERE id='${ids.request}' AND subject_id IS NULL;
+  `), "1");
+  assert.equal(queryScalar(databaseUrl, `
+    SELECT count(*) FROM public.data_governance_work_items
+    WHERE request_id='${ids.request}' AND subject_id IS NULL
+      AND resource_locator_hmac IS NULL AND database_row_id IS NULL;
+  `), String(subjectManifest.length));
+  for (const table of [
+    "data_governance_requests",
+    "data_governance_policy_decisions",
+    "data_governance_approvals",
+    "data_legal_holds",
+    "data_legal_hold_receipts",
+    "data_governance_work_items",
+    "data_governance_attempt_receipts",
+    "data_governance_final_receipts",
+  ]) {
+    assert.equal(queryScalar(databaseUrl,
+      `SELECT count(*) FROM public.${table} WHERE to_jsonb(${table})::text LIKE '%${sqlLiteral(piiCanary)}%';`),
+    "0", `${table} retains no subject content canary`);
+  }
+  assert.ok(retainedAttemptReceipt !== null);
+  assertFailed(runSql(databaseUrl, `
+    UPDATE public.data_governance_attempt_receipts
+    SET outcome_code=outcome_code WHERE id='${retainedAttemptReceipt}';
+  `), "retained attempt evidence is immutable", /append-only/);
+  assertFailed(runSql(databaseUrl, `
+    DELETE FROM public.data_governance_attempt_receipts WHERE id='${retainedAttemptReceipt}';
+  `), "retained attempt evidence cannot be deleted", /append-only/);
+  assertFailed(runSql(databaseUrl, `
+    UPDATE public.data_governance_final_receipts
+    SET result_code=result_code WHERE id='${ids.finalReceipt}';
+  `), "final disposition evidence is immutable", /append-only/);
+  assertFailed(runSql(databaseUrl, `
+    DELETE FROM public.data_governance_final_receipts WHERE id='${ids.finalReceipt}';
+  `), "final disposition evidence cannot be deleted", /append-only/);
+  assertFailed(runSql(databaseUrl, `
+    UPDATE public.data_legal_hold_receipts
+    SET purpose_code=purpose_code WHERE id='${ids.holdCreateReceipt}';
+  `), "legal-hold evidence is immutable", /append-only/);
+  assertFailed(runSql(databaseUrl, `
+    DELETE FROM public.data_legal_hold_receipts WHERE id='${ids.holdReleaseReceipt}';
+  `), "legal-hold evidence cannot be deleted", /append-only/);
+  assertFailed(runSql(databaseUrl, asRoleSql("authenticated", fixture.userBeta, `
+    SELECT public.portal_data_governance_status_authenticated('${ids.request}');
+  `)), "cross-tenant request status is denied", /request not found for tenant/);
+}
+
+function assertTenantGovernanceDeletion(databaseUrl) {
+  const tenantId = governanceUuid(900);
+  const adminOne = "20000000-0000-4000-8000-000000000001";
+  const adminTwo = "20000000-0000-4000-8000-000000000002";
+  const actorOne = governanceUuid(901);
+  const actorTwo = governanceUuid(902);
+  const usageId = governanceUuid(903);
+  const inviteId = "24013b44-df35-4a46-a4d7-09307693aee4";
+  const ids = Object.freeze({
+    request: governanceUuid(904),
+    policyDecision: governanceUuid(905),
+    approvalOne: governanceUuid(906),
+    approvalTwo: governanceUuid(907),
+    worker: governanceUuid(908),
+    finalReceipt: governanceUuid(909),
+  });
+  assertSucceeded(runSql(databaseUrl, `
+    INSERT INTO auth.users(id,email) VALUES
+      ('${adminOne}','m6-04-tenant-admin-one@example.test'),
+      ('${adminTwo}','m6-04-tenant-admin-two@example.test');
+    INSERT INTO public.tenants(
+      id,slug,legal_name,status,home_region,default_language,default_timezone
+    ) VALUES(
+      '${tenantId}','m6-04-isolated-tenant','M6-04 Isolated Tenant','active','local','en','UTC'
+    );
+    INSERT INTO public.user_tenant_memberships(user_id,tenant_id,actor_id,role) VALUES
+      ('${adminOne}','${tenantId}','${actorOne}','tenant_admin'),
+      ('${adminTwo}','${tenantId}','${actorTwo}','tenant_admin');
+    INSERT INTO public.usage_ledger(
+      tenant_id,id,period_start,period_end,metric,quantity,source_event_count
+    ) VALUES(
+      '${tenantId}','${usageId}',date_trunc('day',clock_timestamp())-interval '1 day',
+      date_trunc('day',clock_timestamp()),'m6_04_retain_content_free',12.5,2
+    );
+    INSERT INTO public.tenant_invites(
+      id,tenant_id,email,role,status,invited_by
+    ) VALUES(
+      '${inviteId}','${tenantId}','m6-04-pending-invite@example.test',
+      'tenant_operator','pending','${adminOne}'
+    );
+  `), "seed an isolated two-admin tenant with retained-source history");
+  const untouchedBeta = queryJson(databaseUrl, `
+    SELECT jsonb_build_object(
+      'state',data_governance_state,'status',status,'writeEpoch',data_write_epoch,
+      'agentCount',(SELECT count(*) FROM public.agents WHERE tenant_id='${fixture.tenantBeta}')
+    ) FROM public.tenants WHERE id='${fixture.tenantBeta}';
+  `);
+  const initialEpoch = Number(queryScalar(databaseUrl,
+    `SELECT data_write_epoch FROM public.tenants WHERE id='${tenantId}';`));
+  const fingerprints = queryJson(databaseUrl, `
+    WITH canonical AS (
+      SELECT
+        app.data_governance_catalog_fingerprint() AS inventory_fingerprint,
+        app.data_governance_expected_policy_fingerprint(
+          '${tenantId}','tenant',null,'irreversible_delete','contract_termination'
+        ) AS policy_fingerprint
+    )
+    SELECT jsonb_build_object(
+      'inventoryFingerprint',inventory_fingerprint,
+      'policyFingerprint',policy_fingerprint,
+      'commandFingerprint',app.data_governance_expected_command_fingerprint(
+        '${ids.request}','${tenantId}','tenant',null,'irreversible_delete',
+        'contract_termination',policy_fingerprint,inventory_fingerprint
+      )
+    ) FROM canonical;
+  `);
+  assert.equal(queryJson(databaseUrl, asRoleSql("authenticated", adminOne, `
+    SELECT public.portal_request_data_governance_authenticated(
+      '${ids.request}','${ids.policyDecision}','tenant',null,'irreversible_delete',
+      'contract_termination','1.0.0','${fingerprints.policyFingerprint}',
+      '1.0.0','${fingerprints.inventoryFingerprint}','${fingerprints.commandFingerprint}'
+    );
+  `)).state, "requested");
+  assert.equal(queryJson(databaseUrl, asRoleSql("service_role", null, `
+    SELECT public.portal_decide_data_governance_policy_service(
+      '${tenantId}','${ids.request}','${ids.policyDecision}','allow','policy_allowed',
+      '${fingerprints.policyFingerprint}',clock_timestamp()+interval '1 hour'
+    );
+  `)).state, "approval_pending");
+  for (const [userId, approvalId] of [[adminOne, ids.approvalOne], [adminTwo, ids.approvalTwo]]) {
+    assert.equal(queryJson(databaseUrl, asRoleSql("authenticated", userId, `
+      SELECT public.portal_approve_data_governance_authenticated(
+        '${ids.request}','${approvalId}','approve','${fingerprints.commandFingerprint}'
+      );
+    `)).state, "approval_pending");
+  }
+  assert.equal(queryJson(databaseUrl, asRoleSql("service_role", null, `
+    SELECT public.portal_authorize_data_governance_request_service('${tenantId}','${ids.request}');
+  `)).state, "authorized");
+
+  const inventoryRows = [];
+  const catalog = queryRows(databaseUrl, `
+    SELECT resource_code||'|'||relation_name||'|'||locator_strategy
+    FROM public.data_governance_resource_catalog
+    WHERE catalog_generation='pre_v59' AND surface='database'
+    ORDER BY inventory_order;
+  `).map((row) => {
+    const [resourceCode, relationName, locatorStrategy] = row.split("|");
+    return { resourceCode, relationName, locatorStrategy };
+  });
+  assert.equal(catalog.length, 86, "tenant inventory evaluates the complete pre-v59 database catalog");
+  for (const entry of catalog) {
+    if (entry.relationName === "public.tenants") {
+      inventoryRows.push({ ...entry, databaseRowId: tenantId });
+      continue;
+    }
+    const count = Number(queryScalar(databaseUrl,
+      `SELECT count(*) FROM ${entry.relationName} WHERE tenant_id='${tenantId}';`));
+    if (count === 0) continue;
+    if (entry.locatorStrategy === "uuid_id") {
+      for (const rowId of queryRows(databaseUrl,
+        `SELECT id FROM ${entry.relationName} WHERE tenant_id='${tenantId}' ORDER BY id;`)) {
+        inventoryRows.push({ ...entry, databaseRowId: rowId });
+      }
+    } else {
+      assert.ok(["tenant_relation", "tenant_singleton"].includes(entry.locatorStrategy));
+      inventoryRows.push({ ...entry, databaseRowId: tenantId });
+    }
+  }
+  for (const resourceCode of queryRows(databaseUrl, `
+    SELECT resource_code FROM public.data_governance_resource_catalog
+    WHERE catalog_generation='external' ORDER BY inventory_order;
+  `)) inventoryRows.push({ resourceCode, relationName: null, locatorStrategy: "external_fixed_target", databaseRowId: null });
+  assert.ok(inventoryRows.some((row) => row.resourceCode === "db_usage_ledger"));
+  assert.ok(inventoryRows.some((row) => row.resourceCode === "db_tenant_invites" && row.databaseRowId === inviteId),
+    "tenant inventory accepts a legacy UUIDv4 row locator");
+  assert.ok(inventoryRows.some((row) => row.resourceCode === "db_user_tenant_memberships"));
+  assert.ok(inventoryRows.some((row) => row.resourceCode === "db_tenants"));
+  assert.equal(inventoryRows.filter((row) => row.relationName === null).length, 7);
+  let itemSequence = 1100;
+  for (const row of inventoryRows) {
+    row.itemId = governanceUuid(itemSequence++);
+    assert.equal(queryJson(databaseUrl, asRoleSql("service_role", null, `
+      SELECT public.portal_inventory_data_governance_request_service(
+        '${tenantId}','${ids.request}','${row.itemId}','${row.resourceCode}',null,
+        ${row.databaseRowId === null ? "null" : `'${row.databaseRowId}'`},null,false
+      );
+    `)).state, "inventorying");
+  }
+  assert.equal(queryJson(databaseUrl, asRoleSql("service_role", null, `
+    SELECT public.portal_inventory_data_governance_request_service(
+      '${tenantId}','${ids.request}',null,null,null,null,null,true
+    );
+  `)).state, "ready", "dynamic full-graph inventory closes without catalog omissions");
+  assert.equal(Number(queryScalar(databaseUrl,
+    `SELECT inventory_item_count FROM public.data_governance_requests WHERE id='${ids.request}';`)),
+  inventoryRows.length);
+
+  assertFailed(runSql(databaseUrl, asRoleSql("service_role", null, `
+    SELECT public.portal_lease_data_governance_work_items_service(
+      '${fixture.tenantAlpha}','${ids.request}','${ids.worker}','${governanceUuid(1299)}',1,60
+    );
+  `)), "a tenant-scoped worker cannot lease another tenant request", /request is not executable/);
+  assert.equal(queryScalar(databaseUrl,
+    `SELECT state FROM public.data_governance_requests WHERE id='${ids.request}';`), "ready",
+  "a cross-tenant lease attempt has no state or fence side effect");
+
+  let leaseSequence = 1300;
+  let receiptSequence = 1500;
+  let firstLease = true;
+  let rootApplied = false;
+  let retainedAttemptReceipt = null;
+  for (let safety = 0; safety < 100; safety += 1) {
+    const leaseToken = governanceUuid(leaseSequence++);
+    const leaseLimit = firstLease ? 50 : 1;
+    const leased = queryJson(databaseUrl, asRoleSql("service_role", null, `
+      SELECT public.portal_lease_data_governance_work_items_service(
+        '${tenantId}','${ids.request}','${ids.worker}','${leaseToken}',${leaseLimit},60
+      );
+    `));
+    if (leased.length === 0) break;
+    if (firstLease) {
+      firstLease = false;
+      assert.equal(leased.length, 7, "the first broad lease claims every external surface");
+      assert.ok(leased.every((item) => item.surface !== "database"),
+        "p_limit=50 cannot mix external cleanup with database deletion");
+      assert.deepEqual(queryJson(databaseUrl, `
+        SELECT jsonb_build_object(
+          'state',data_governance_state,'status',status,'writeEpoch',data_write_epoch
+        ) FROM public.tenants WHERE id='${tenantId}';
+      `), { state: "fenced", status: "closing", writeEpoch: initialEpoch + 1 },
+      "the first irreversible lease establishes the tenant fence exactly once");
+      assertFailed(runSql(databaseUrl, `
+        INSERT INTO public.usage_ledger(
+          tenant_id,id,period_start,period_end,metric,quantity,source_event_count
+        ) VALUES(
+          '${tenantId}','${governanceUuid(1600)}',clock_timestamp()-interval '1 hour',
+          clock_timestamp(),'write_after_fence',1,1
+        );
+      `), "product data cannot be written after the tenant closing fence", /tenant writes fenced/);
+      assertFailed(runSql(databaseUrl, `
+        UPDATE public.usage_ledger
+        SET tenant_id='${fixture.tenantAlpha}'
+        WHERE tenant_id='${tenantId}' AND id='${usageId}';
+      `), "a fenced row cannot escape by changing tenant identity", /tenant relocation is forbidden/);
+    }
+    for (const item of leased) {
+      assert.equal(item.tenantId, tenantId, "a tenant disposition lease remains tenant-bound");
+      assert.equal(typeof item.surface, "string");
+      assert.equal(typeof item.resourceClass, "string");
+      if (item.surface === "database") {
+        const result = queryJson(databaseUrl, asRoleSql("service_role", null, `
+          SELECT public.portal_apply_data_governance_database_item_service(
+            '${tenantId}','${ids.request}','${item.workItemId}',
+            '${leaseToken}',${item.fencingToken}
+          );
+        `));
+        if (item.resourceCode === "db_tenants" && item.operation === "apply") {
+          assert.equal(result.state, "verification_pending");
+          rootApplied = true;
+        } else {
+          assert.ok(["verification_pending", "verified", "retained_exception"].includes(result.state));
+        }
+        retainedAttemptReceipt ??= queryScalar(databaseUrl, `
+          SELECT id FROM public.data_governance_attempt_receipts
+          WHERE tenant_id='${tenantId}' AND work_item_id='${item.workItemId}'
+            AND operation='${item.operation}' AND fencing_token=${item.fencingToken};
+        `);
+        continue;
+      }
+      const dispatch = queryJson(databaseUrl, asRoleSql("service_role", null, `
+        SELECT public.portal_begin_data_governance_external_operation_service(
+          '${tenantId}','${ids.request}','${item.workItemId}',
+          '${leaseToken}',${item.fencingToken},'${item.operation}'
+        );
+      `));
+      assert.equal(dispatch.tenantId, tenantId);
+      assert.equal(dispatch.state, "applying");
+      assert.equal(dispatch.replayed, false);
+      const verifying = item.operation === "verify";
+      const outcomeCode = verifying ? "verified_absent" : "applied";
+      const evidenceKind = verifying ? ({
+        external_object_storage: "object_absence",
+        external_cache: "cache_absence",
+        external_embedding_index: "index_absence",
+        external_provider_copy: "provider_absence",
+        external_auth_identity: "auth_absence",
+        external_vault_secret: "vault_absence",
+        external_backup: "backup_window_elapsed",
+      })[item.resourceCode] : "effect_receipt";
+      const receiptId = governanceUuid(receiptSequence++);
+      const recoverableExpression = item.resourceCode === "external_backup" && verifying
+        ? "'2020-01-01T00:00:00Z'::timestamptz"
+        : "null::timestamptz";
+      const evidenceFingerprint = governanceExternalEvidence(
+        databaseUrl,
+        tenantId,
+        ids.request,
+        item,
+        receiptId,
+        outcomeCode,
+        evidenceKind,
+        recoverableExpression,
+      );
+      const verifier = verifying
+        ? governanceExternalVerifierAttestation(
+          databaseUrl,
+          tenantId,
+          ids.request,
+          item,
+          evidenceKind,
+          evidenceFingerprint,
+          recoverableExpression,
+        )
+        : null;
+      assert.equal(queryJson(databaseUrl, asRoleSql("service_role", null, `
+        SELECT public.portal_record_data_governance_item_outcome_service(
+          '${tenantId}','${ids.request}','${item.workItemId}','${leaseToken}','${receiptId}',
+          '${item.operation}',${item.fencingToken},'${outcomeCode}','${evidenceKind}',
+          '${evidenceFingerprint}',
+          ${verifier === null ? "null,null" : `'${verifier.authorityId}','${verifier.signature}'`},
+          ${recoverableExpression}
+        );
+      `)).state, verifying ? "verified" : "verification_pending");
+      retainedAttemptReceipt ??= receiptId;
+    }
+  }
+  assert.equal(firstLease, false);
+  assert.equal(rootApplied, true, "tenant root is applied but reserved for completion verification");
+  assert.equal(queryScalar(databaseUrl,
+    `SELECT data_write_epoch FROM public.tenants WHERE id='${tenantId}';`), String(initialEpoch + 1),
+  "subsequent leases do not advance the fence generation");
+  assert.equal(queryScalar(databaseUrl, `
+    SELECT count(*) FROM public.data_governance_work_items i
+    JOIN public.data_governance_resource_catalog c ON c.resource_code=i.resource_code
+    WHERE i.request_id='${ids.request}'
+      AND (i.state NOT IN ('verified','retained_exception','verification_pending')
+        OR (i.state='verification_pending' AND c.relation_name<>'public.tenants'));
+  `), "0", "only the root completion projection remains");
+  assertFailed(runSql(databaseUrl, asRoleSql("service_role", null, `
+    SELECT public.portal_complete_data_governance_request_service(
+      '${fixture.tenantAlpha}','${ids.request}','${governanceUuid(9090)}'
+    );
+  `)), "a worker cannot complete another tenant request", /request is not completable/);
+  assert.equal(queryScalar(databaseUrl, `
+    SELECT count(*) FROM public.data_governance_final_receipts
+    WHERE tenant_id='${tenantId}' AND request_id='${ids.request}';
+  `), "0", "cross-tenant completion creates no receipt or tombstone");
+  assert.deepEqual(queryJson(databaseUrl, asRoleSql("service_role", null, `
+    SELECT public.portal_complete_data_governance_request_service(
+      '${tenantId}','${ids.request}','${ids.finalReceipt}'
+    );
+  `)), {
+    tenantId,
+    requestId: ids.request,
+    state: "completed",
+    receiptId: ids.finalReceipt,
+    replayed: false,
+  });
+  assert.deepEqual(queryJson(databaseUrl, asRoleSql("service_role", null, `
+    SELECT public.portal_complete_data_governance_request_service(
+      '${tenantId}','${ids.request}','${governanceUuid(910)}'
+    );
+  `)), {
+    tenantId,
+    requestId: ids.request,
+    state: "completed",
+    receiptId: ids.finalReceipt,
+    replayed: true,
+  }, "tenant completion replay cannot duplicate the tombstone or terminal receipt");
+  assert.deepEqual(queryJson(databaseUrl, `
+    SELECT jsonb_build_object(
+      'state',data_governance_state,'status',status,'slug',slug,'legalName',legal_name,
+      'writeEpoch',data_write_epoch,'requestId',tombstone_request_id
+    ) FROM public.tenants WHERE id='${tenantId}';
+  `), {
+    state: "tombstoned",
+    status: "deleted",
+    slug: `deleted-${ids.request.replaceAll("-", "")}`,
+    legalName: "Deleted tenant",
+    writeEpoch: initialEpoch + 1,
+    requestId: ids.request,
+  }, "tenant completion retains only the opaque root tombstone");
+  assert.equal(queryScalar(databaseUrl,
+    `SELECT count(*) FROM public.usage_ledger WHERE tenant_id='${tenantId}';`), "0",
+  "retain_content_free removes the content-bearing source row");
+  assert.equal(queryScalar(databaseUrl,
+    `SELECT count(*) FROM public.user_tenant_memberships WHERE tenant_id='${tenantId}';`), "0");
+  assert.equal(queryScalar(databaseUrl,
+    `SELECT count(*) FROM public.tenant_invites WHERE tenant_id='${tenantId}';`), "0",
+  "tenant deletion removes UUIDv4 invite rows");
+  assert.equal(queryScalar(databaseUrl, `
+    SELECT count(*) FROM public.data_governance_work_items
+    WHERE request_id='${ids.request}' AND state='retained_exception';
+  `), "1", "the retain_content_free source leaves one closed exception projection");
+  assert.ok(Number(queryScalar(databaseUrl, `
+    SELECT count(*) FROM public.data_governance_attempt_receipts WHERE request_id='${ids.request}';
+  `)) >= inventoryRows.length * 2 - 1, "apply and verify attempts leave bounded content-free evidence");
+  assert.deepEqual(queryJson(databaseUrl, `
+    SELECT jsonb_build_object(
+      'state',data_governance_state,'status',status,'writeEpoch',data_write_epoch,
+      'agentCount',(SELECT count(*) FROM public.agents WHERE tenant_id='${fixture.tenantBeta}')
+    ) FROM public.tenants WHERE id='${fixture.tenantBeta}';
+  `), untouchedBeta, "tenant closure cannot mutate another tenant");
+  assert.ok(retainedAttemptReceipt !== null);
+  assertFailed(runSql(databaseUrl, `
+    UPDATE public.data_governance_attempt_receipts
+    SET result_fingerprint=result_fingerprint WHERE id='${retainedAttemptReceipt}';
+  `), "tenant attempt evidence is immutable", /append-only/);
+  assertFailed(runSql(databaseUrl, `
+    DELETE FROM public.data_governance_final_receipts WHERE id='${ids.finalReceipt}';
+  `), "tenant completion evidence is immutable", /append-only/);
 }
 
 function assertProductionIntegrityMigrationRollback(databaseUrl) {
@@ -7664,7 +9072,9 @@ async function resolveBaseDatabaseUrl() {
   temporaryDirectory = mkdtempSync(join(tmpdir(), "axtro-portal-postgres-"));
   const port = await reserveLocalPort();
   run(join(postgresBin, "initdb"), [
-    "--no-locale", "--encoding=UTF8", "--username=postgres", "--auth=trust", "--pgdata", temporaryDirectory,
+    "--no-locale", "--encoding=UTF8", "--username=postgres", "--auth=trust",
+    "--set", "shared_memory_type=mmap", "--set", "dynamic_shared_memory_type=mmap",
+    "--pgdata", temporaryDirectory,
   ], "cluster initialization");
   run(join(postgresBin, "pg_ctl"), [
     "--pgdata", temporaryDirectory,

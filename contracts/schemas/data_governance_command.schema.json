@@ -1,0 +1,136 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://schemas.axtro.ai/v2/data_governance_command.schema.json",
+  "title": "Data Governance Command",
+  "description": "Specialized, tenant-scoped command for deletion admission, execution authorization or pre-effect cancellation. It contains opaque authority references only and never carries subject PII or an external resource locator.",
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "schema_version": { "type": "string", "const": "2.0.0" },
+    "governance_version": { "type": "string", "const": "1.0.0" },
+    "command_id": { "type": "string", "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$" },
+    "request_id": { "type": "string", "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$" },
+    "tenant_id": { "type": "string", "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$" },
+    "command_type": { "type": "string", "enum": ["request_deletion", "authorize_execution", "cancel_request"] },
+    "scope_type": { "type": "string", "enum": ["tenant", "data_subject"] },
+    "data_subject_id": {
+      "oneOf": [
+        { "type": "string", "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$" },
+        { "type": "null" }
+      ]
+    },
+    "requested_action": { "type": "string", "enum": ["redact", "irreversible_delete"] },
+    "actor_id": { "type": "string", "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$" },
+    "policy_decision_id": {
+      "oneOf": [
+        { "type": "string", "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$" },
+        { "type": "null" }
+      ]
+    },
+    "approval_ids": {
+      "description": "Distinct approval UUIDv7 values in ascending UUID byte order. Tenant execution requires two approvals and data-subject execution requires one.",
+      "type": "array",
+      "minItems": 0,
+      "maxItems": 2,
+      "uniqueItems": true,
+      "items": { "type": "string", "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$" },
+      "x-axtro-order": "uuidv7_ascending"
+    },
+    "policy_version": { "type": "string", "const": "1.0.0" },
+    "inventory_version": { "type": "string", "const": "1.0.0" },
+    "request_fingerprint": { "type": "string", "pattern": "^[0-9a-f]{64}$" },
+    "idempotency_key": {
+      "type": "string",
+      "pattern": "^data-governance/v1/[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}/[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}/[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$",
+      "maxLength": 256
+    },
+    "trace_id": { "type": "string", "pattern": "^[0-9a-f]{16,64}$" },
+    "correlation_id": { "type": "string", "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$" },
+    "causation_id": {
+      "oneOf": [
+        { "type": "string", "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$" },
+        { "type": "null" }
+      ]
+    },
+    "issued_at": { "type": "string", "format": "date-time" },
+    "authorization_expires_at": {
+      "oneOf": [
+        { "type": "string", "format": "date-time" },
+        { "type": "null" }
+      ]
+    },
+    "data_classification": { "type": "string", "const": "internal" }
+  },
+  "required": [
+    "schema_version", "governance_version", "command_id", "request_id",
+    "tenant_id", "command_type", "scope_type", "data_subject_id",
+    "requested_action", "actor_id", "policy_decision_id", "approval_ids",
+    "policy_version", "inventory_version", "request_fingerprint",
+    "idempotency_key", "trace_id", "correlation_id", "causation_id",
+    "issued_at", "authorization_expires_at", "data_classification"
+  ],
+  "allOf": [
+    {
+      "if": { "properties": { "scope_type": { "const": "tenant" } }, "required": ["scope_type"] },
+      "then": {
+        "properties": {
+          "data_subject_id": { "type": "null" },
+          "requested_action": { "const": "irreversible_delete" }
+        }
+      }
+    },
+    {
+      "if": { "properties": { "scope_type": { "const": "data_subject" } }, "required": ["scope_type"] },
+      "then": { "properties": { "data_subject_id": { "type": "string", "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$" } } }
+    },
+    {
+      "if": { "properties": { "command_type": { "const": "request_deletion" } }, "required": ["command_type"] },
+      "then": {
+        "properties": {
+          "policy_decision_id": { "type": "null" },
+          "approval_ids": { "maxItems": 0 },
+          "authorization_expires_at": { "type": "null" }
+        }
+      }
+    },
+    {
+      "if": { "properties": { "command_type": { "const": "authorize_execution" } }, "required": ["command_type"] },
+      "then": {
+        "properties": {
+          "policy_decision_id": { "type": "string", "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$" },
+          "approval_ids": { "minItems": 1, "maxItems": 2, "uniqueItems": true },
+          "authorization_expires_at": { "type": "string", "format": "date-time" }
+        }
+      }
+    },
+    {
+      "if": { "properties": { "command_type": { "const": "cancel_request" } }, "required": ["command_type"] },
+      "then": {
+        "properties": {
+          "approval_ids": { "maxItems": 0 },
+          "authorization_expires_at": { "type": "null" }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "command_type": { "const": "authorize_execution" },
+          "scope_type": { "const": "tenant" }
+        },
+        "required": ["command_type", "scope_type"]
+      },
+      "then": { "properties": { "approval_ids": { "minItems": 2, "maxItems": 2, "uniqueItems": true } } }
+    },
+    {
+      "if": {
+        "properties": {
+          "command_type": { "const": "authorize_execution" },
+          "scope_type": { "const": "data_subject" }
+        },
+        "required": ["command_type", "scope_type"]
+      },
+      "then": { "properties": { "approval_ids": { "minItems": 1, "maxItems": 1, "uniqueItems": true } } }
+    }
+  ]
+}

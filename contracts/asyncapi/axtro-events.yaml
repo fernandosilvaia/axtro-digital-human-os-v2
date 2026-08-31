@@ -36,6 +36,96 @@ channels:
     messages:
       workflowStatus:
         $ref: '#/components/messages/PostCallWorkflowStatus'
+  dataGovernanceCommands:
+    address: axtro.v2.commands.{tenantId}.data-governance
+    parameters:
+      tenantId:
+        description: Authorized tenant UUIDv7; MUST exactly equal the command payload tenant_id
+        location: $message.payload#/tenant_id
+        examples:
+          - 01957e8a-3456-7abc-8abc-0123456789ab
+        x-axtro-schema:
+          type: string
+          format: uuid
+          pattern: '^[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$'
+    messages:
+      dataGovernanceCommand:
+        $ref: '#/components/messages/DataGovernanceCommand'
+  dataGovernanceStatus:
+    address: axtro.v2.status.{tenantId}.data-governance
+    parameters:
+      tenantId:
+        description: Authorized tenant UUIDv7; MUST exactly equal the status payload tenant_id
+        location: $message.payload#/tenant_id
+        examples:
+          - 01957e8a-3456-7abc-8abc-0123456789ab
+        x-axtro-schema:
+          type: string
+          format: uuid
+          pattern: '^[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$'
+    messages:
+      dataGovernanceStatus:
+        $ref: '#/components/messages/DataGovernanceStatus'
+  dataGovernanceWorkItems:
+    address: axtro.v2.work.{tenantId}.data-governance
+    parameters:
+      tenantId:
+        description: Authorized tenant UUIDv7; MUST exactly equal the work-item payload tenant_id
+        location: $message.payload#/tenant_id
+        examples:
+          - 01957e8a-3456-7abc-8abc-0123456789ab
+        x-axtro-schema:
+          type: string
+          format: uuid
+          pattern: '^[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$'
+    messages:
+      dataGovernanceWorkItem:
+        $ref: '#/components/messages/DataGovernanceWorkItem'
+  dataGovernanceReceipts:
+    address: axtro.v2.receipts.{tenantId}.data-governance
+    parameters:
+      tenantId:
+        description: Authorized tenant UUIDv7; MUST exactly equal the receipt payload tenant_id
+        location: $message.payload#/tenant_id
+        examples:
+          - 01957e8a-3456-7abc-8abc-0123456789ab
+        x-axtro-schema:
+          type: string
+          format: uuid
+          pattern: '^[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$'
+    messages:
+      dataGovernanceReceipt:
+        $ref: '#/components/messages/DataGovernanceReceipt'
+  dataLegalHoldCommands:
+    address: axtro.v2.commands.{tenantId}.legal-hold
+    parameters:
+      tenantId:
+        description: Authorized tenant UUIDv7; MUST exactly equal the command payload tenant_id
+        location: $message.payload#/tenant_id
+        examples:
+          - 01957e8a-3456-7abc-8abc-0123456789ab
+        x-axtro-schema:
+          type: string
+          format: uuid
+          pattern: '^[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$'
+    messages:
+      dataLegalHoldCommand:
+        $ref: '#/components/messages/DataLegalHoldCommand'
+  dataLegalHoldReceipts:
+    address: axtro.v2.receipts.{tenantId}.legal-hold
+    parameters:
+      tenantId:
+        description: Authorized tenant UUIDv7; MUST exactly equal the receipt payload tenant_id
+        location: $message.payload#/tenant_id
+        examples:
+          - 01957e8a-3456-7abc-8abc-0123456789ab
+        x-axtro-schema:
+          type: string
+          format: uuid
+          pattern: '^[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$'
+    messages:
+      dataLegalHoldReceipt:
+        $ref: '#/components/messages/DataLegalHoldReceipt'
 operations:
   publishDomainEvent:
     action: send
@@ -67,6 +157,48 @@ operations:
       $ref: '#/channels/workflowStatus'
     messages:
       - $ref: '#/channels/workflowStatus/messages/workflowStatus'
+  requestDataGovernance:
+    action: send
+    channel:
+      $ref: '#/channels/dataGovernanceCommands'
+    messages:
+      - $ref: '#/channels/dataGovernanceCommands/messages/dataGovernanceCommand'
+  consumeDataGovernanceCommand:
+    action: receive
+    channel:
+      $ref: '#/channels/dataGovernanceCommands'
+    messages:
+      - $ref: '#/channels/dataGovernanceCommands/messages/dataGovernanceCommand'
+  publishDataGovernanceStatus:
+    action: send
+    channel:
+      $ref: '#/channels/dataGovernanceStatus'
+    messages:
+      - $ref: '#/channels/dataGovernanceStatus/messages/dataGovernanceStatus'
+  consumeDataGovernanceWorkItem:
+    action: receive
+    channel:
+      $ref: '#/channels/dataGovernanceWorkItems'
+    messages:
+      - $ref: '#/channels/dataGovernanceWorkItems/messages/dataGovernanceWorkItem'
+  publishDataGovernanceReceipt:
+    action: send
+    channel:
+      $ref: '#/channels/dataGovernanceReceipts'
+    messages:
+      - $ref: '#/channels/dataGovernanceReceipts/messages/dataGovernanceReceipt'
+  requestDataLegalHold:
+    action: send
+    channel:
+      $ref: '#/channels/dataLegalHoldCommands'
+    messages:
+      - $ref: '#/channels/dataLegalHoldCommands/messages/dataLegalHoldCommand'
+  publishDataLegalHoldReceipt:
+    action: send
+    channel:
+      $ref: '#/channels/dataLegalHoldReceipts'
+    messages:
+      - $ref: '#/channels/dataLegalHoldReceipts/messages/dataLegalHoldReceipt'
 components:
   messages:
     EventEnvelope:
@@ -91,5 +223,67 @@ components:
       contentType: application/json
       payload:
         $ref: '../schemas/post_call_workflow_status.schema.json'
+      correlationId:
+        location: $message.payload#/correlation_id
+    DataGovernanceCommand:
+      name: DataGovernanceCommand
+      title: Tenant-scoped deletion admission and quorum-bound execution command
+      contentType: application/json
+      payload:
+        $ref: '../schemas/data_governance_command.schema.json'
+      correlationId:
+        location: $message.payload#/correlation_id
+    DataGovernanceStatus:
+      name: DataGovernanceStatus
+      title: Content-free data governance lifecycle status
+      contentType: application/json
+      payload:
+        $ref: '../schemas/data_governance_status.schema.json'
+      correlationId:
+        location: $message.payload#/correlation_id
+    DataGovernanceWorkItem:
+      name: DataGovernanceWorkItem
+      title: Fenced and content-free data governance work item
+      contentType: application/json
+      payload:
+        $ref: '../schemas/data_governance_work_item.schema.json'
+      correlationId:
+        location: $message.payload#/correlation_id
+    DataGovernanceReceipt:
+      name: DataGovernanceReceipt
+      title: Append-only and content-free governance receipt
+      contentType: application/json
+      payload:
+        $ref: '../schemas/data_governance_receipt.schema.json'
+      correlationId:
+        location: $message.payload#/correlation_id
+    DataLegalHoldCommand:
+      name: DataLegalHoldCommand
+      title: Purpose-specific legal-hold command
+      contentType: application/json
+      payload:
+        allOf:
+          - $ref: '../schemas/data_legal_hold.schema.json'
+          - type: object
+            properties:
+              record_type:
+                const: command
+            required:
+              - record_type
+      correlationId:
+        location: $message.payload#/correlation_id
+    DataLegalHoldReceipt:
+      name: DataLegalHoldReceipt
+      title: Content-free legal-hold receipt
+      contentType: application/json
+      payload:
+        allOf:
+          - $ref: '../schemas/data_legal_hold.schema.json'
+          - type: object
+            properties:
+              record_type:
+                const: receipt
+            required:
+              - record_type
       correlationId:
         location: $message.payload#/correlation_id

@@ -28,7 +28,7 @@ IMMUTABLE_SUPABASE_MIGRATIONS = {
     "0049_portal_text_preview_admission.sql": "79b24e7fdc768a30b02d3596b71799fae484043e37561ddfcd435f46076b3100",
     "0050_meeting_terminal_notification_claim.sql": "262e033328175f704f8cfef1cafdcb0a2ef9b9aac7e4cc86f2b33890044c7224",
 }
-LATEST_SUPABASE_VERSION = 58
+LATEST_SUPABASE_VERSION = 59
 
 
 def main() -> int:

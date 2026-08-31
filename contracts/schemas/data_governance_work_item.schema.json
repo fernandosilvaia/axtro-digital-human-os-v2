@@ -1,0 +1,150 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://schemas.axtro.ai/v2/data_governance_work_item.schema.json",
+  "title": "Data Governance Work Item",
+  "description": "Content-free, fenced unit of deletion, redaction, external cleanup, verification or authorized retention work.",
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "schema_version": { "type": "string", "const": "2.0.0" },
+    "governance_version": { "type": "string", "const": "1.0.0" },
+    "work_item_id": { "type": "string", "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$" },
+    "request_id": { "type": "string", "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$" },
+    "tenant_id": { "type": "string", "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$" },
+    "surface": { "type": "string", "enum": ["database", "object_storage", "cache", "embedding_index", "provider_copy", "auth_identity", "vault_secret", "backup"] },
+    "resource_class": {
+      "type": "string",
+      "enum": [
+        "tenant_profile", "authentication_identity", "membership", "configuration",
+        "contact_profile", "session_content", "transcript", "consent_evidence",
+        "disclosure_evidence", "action_evidence", "workflow_evidence",
+        "knowledge_content", "embedding", "provider_effect", "billing_evidence",
+        "audit_evidence", "notification_payload", "runtime_evidence", "object_blob",
+        "cache_entry", "provider_copy", "vault_secret", "backup_snapshot"
+      ]
+    },
+    "action": { "type": "string", "enum": ["redact", "irreversible_delete", "retain_content_free", "external_delete", "cache_invalidate", "crypto_erase", "backup_expiry_wait"] },
+    "state": { "type": "string", "enum": ["pending", "held", "leased", "applying", "retry_wait", "effect_unknown", "verification_pending", "verified", "operator_required", "retained_exception"] },
+    "resource_locator_hmac": {
+      "oneOf": [
+        { "type": "string", "pattern": "^hmac-sha256:[0-9a-f]{64}$" },
+        { "type": "null" }
+      ]
+    },
+    "resource_count": { "type": "integer", "minimum": 1, "maximum": 10000 },
+    "attempt": { "type": "integer", "minimum": 0, "maximum": 16 },
+    "max_attempts": { "type": "integer", "minimum": 1, "maximum": 16 },
+    "lease_fence": {
+      "oneOf": [
+        { "type": "integer", "minimum": 1, "maximum": 10000000 },
+        { "type": "null" }
+      ]
+    },
+    "lease_token_digest": {
+      "oneOf": [
+        { "type": "string", "pattern": "^[0-9a-f]{64}$" },
+        { "type": "null" }
+      ]
+    },
+    "next_attempt_at": {
+      "oneOf": [
+        { "type": "string", "format": "date-time" },
+        { "type": "null" }
+      ]
+    },
+    "failure_code": {
+      "oneOf": [
+        {
+          "type": "string",
+          "enum": [
+            "legal_hold_active", "external_retryable", "external_effect_unknown",
+            "verification_failed", "coverage_ambiguous", "inflight_effect",
+            "lease_expired", "retry_budget_exhausted", "authority_expired",
+            "operator_intervention_required"
+          ]
+        },
+        { "type": "null" }
+      ]
+    },
+    "verification_digest": {
+      "oneOf": [
+        { "type": "string", "pattern": "^[0-9a-f]{64}$" },
+        { "type": "null" }
+      ]
+    },
+    "retention_exception_code": {
+      "oneOf": [
+        { "type": "string", "enum": ["legal_hold", "billing_statutory", "tax_statutory", "security_investigation", "backup_expiry_pending"] },
+        { "type": "null" }
+      ]
+    },
+    "recoverable_until": {
+      "oneOf": [
+        { "type": "string", "format": "date-time" },
+        { "type": "null" }
+      ]
+    },
+    "correlation_id": { "type": "string", "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$" },
+    "created_at": { "type": "string", "format": "date-time" },
+    "updated_at": { "type": "string", "format": "date-time" },
+    "data_classification": { "type": "string", "const": "internal" }
+  },
+  "required": [
+    "schema_version", "governance_version", "work_item_id", "request_id",
+    "tenant_id", "surface", "resource_class", "action", "state",
+    "resource_locator_hmac", "resource_count", "attempt", "max_attempts",
+    "lease_fence", "lease_token_digest", "next_attempt_at", "failure_code",
+    "verification_digest", "retention_exception_code", "recoverable_until",
+    "correlation_id", "created_at", "updated_at", "data_classification"
+  ],
+  "allOf": [
+    {
+      "if": { "properties": { "state": { "enum": ["pending", "held"] } }, "required": ["state"] },
+      "then": { "properties": { "attempt": { "const": 0 }, "lease_fence": { "type": "null" }, "lease_token_digest": { "type": "null" }, "next_attempt_at": { "type": "null" }, "verification_digest": { "type": "null" } } }
+    },
+    {
+      "if": { "properties": { "state": { "enum": ["leased", "applying"] } }, "required": ["state"] },
+      "then": { "properties": { "attempt": { "type": "integer", "minimum": 1, "maximum": 16 }, "lease_fence": { "type": "integer", "minimum": 1, "maximum": 10000000 }, "lease_token_digest": { "type": "string", "pattern": "^[0-9a-f]{64}$" }, "next_attempt_at": { "type": "null" }, "failure_code": { "type": "null" }, "verification_digest": { "type": "null" }, "retention_exception_code": { "type": "null" } } }
+    },
+    {
+      "if": { "properties": { "state": { "const": "retry_wait" } }, "required": ["state"] },
+      "then": { "properties": { "attempt": { "type": "integer", "minimum": 1, "maximum": 15 }, "lease_fence": { "type": "null" }, "lease_token_digest": { "type": "null" }, "next_attempt_at": { "type": "string", "format": "date-time" }, "failure_code": { "const": "external_retryable" }, "verification_digest": { "type": "null" }, "retention_exception_code": { "type": "null" } } }
+    },
+    {
+      "if": { "properties": { "state": { "const": "effect_unknown" } }, "required": ["state"] },
+      "then": { "properties": { "action": { "enum": ["redact", "external_delete", "cache_invalidate", "crypto_erase", "backup_expiry_wait"] }, "attempt": { "type": "integer", "minimum": 1, "maximum": 16 }, "lease_fence": { "type": "null" }, "lease_token_digest": { "type": "null" }, "next_attempt_at": { "type": "null" }, "failure_code": { "const": "external_effect_unknown" }, "verification_digest": { "type": "null" }, "retention_exception_code": { "type": "null" } } }
+    },
+    {
+      "if": { "properties": { "state": { "const": "verification_pending" } }, "required": ["state"] },
+      "then": { "properties": { "attempt": { "type": "integer", "minimum": 1, "maximum": 16 }, "lease_fence": { "type": "null" }, "lease_token_digest": { "type": "null" }, "next_attempt_at": { "type": "null" }, "failure_code": { "type": "null" }, "verification_digest": { "type": "null" }, "retention_exception_code": { "type": "null" } } }
+    },
+    {
+      "if": { "properties": { "state": { "const": "verified" } }, "required": ["state"] },
+      "then": { "properties": { "attempt": { "type": "integer", "minimum": 1, "maximum": 16 }, "resource_locator_hmac": { "type": "null" }, "lease_fence": { "type": "null" }, "lease_token_digest": { "type": "null" }, "next_attempt_at": { "type": "null" }, "failure_code": { "type": "null" }, "verification_digest": { "type": "string", "pattern": "^[0-9a-f]{64}$" }, "retention_exception_code": { "type": "null" } } }
+    },
+    {
+      "if": { "properties": { "state": { "const": "retained_exception" } }, "required": ["state"] },
+      "then": { "properties": { "action": { "enum": ["retain_content_free", "backup_expiry_wait"] }, "resource_locator_hmac": { "type": "null" }, "lease_fence": { "type": "null" }, "lease_token_digest": { "type": "null" }, "next_attempt_at": { "type": "null" }, "failure_code": { "type": "null" }, "verification_digest": { "type": "string", "pattern": "^[0-9a-f]{64}$" }, "retention_exception_code": { "type": "string", "enum": ["legal_hold", "billing_statutory", "tax_statutory", "security_investigation", "backup_expiry_pending"] } } }
+    },
+    {
+      "if": { "properties": { "state": { "not": { "enum": ["verified", "retained_exception"] } } }, "required": ["state"] },
+      "then": { "properties": { "resource_locator_hmac": { "type": "string", "pattern": "^hmac-sha256:[0-9a-f]{64}$" } } }
+    },
+    {
+      "if": { "properties": { "surface": { "const": "backup" } }, "required": ["surface"] },
+      "then": { "properties": { "action": { "const": "backup_expiry_wait" }, "recoverable_until": { "type": "string", "format": "date-time" } } }
+    },
+    {
+      "if": { "properties": { "surface": { "enum": ["object_storage", "provider_copy", "auth_identity", "vault_secret"] } }, "required": ["surface"] },
+      "then": { "properties": { "action": { "enum": ["redact", "external_delete", "crypto_erase"] } } }
+    },
+    {
+      "if": { "properties": { "surface": { "const": "cache" } }, "required": ["surface"] },
+      "then": { "properties": { "action": { "enum": ["redact", "cache_invalidate"] } } }
+    },
+    {
+      "if": { "properties": { "surface": { "const": "embedding_index" } }, "required": ["surface"] },
+      "then": { "properties": { "action": { "enum": ["redact", "external_delete"] } } }
+    }
+  ]
+}

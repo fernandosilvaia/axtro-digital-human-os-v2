@@ -16,6 +16,9 @@ import {
 } from "@axtro/workflows";
 import { parseUuidV7, type UuidV7 } from "@axtro/domain";
 
+export * from "./data-governance.js";
+export * from "./data-governance-postgres-repository.js";
+
 export const WORKFLOW_WORKER_FAULT_POINTS = ["after_activity_before_checkpoint"] as const;
 export type WorkflowWorkerFaultPoint = (typeof WORKFLOW_WORKER_FAULT_POINTS)[number];
 

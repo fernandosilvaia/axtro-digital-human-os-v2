@@ -1,0 +1,26 @@
+{
+  "schema_version": "2.0.0",
+  "governance_version": "1.0.0",
+  "command_id": "01957e8a-1234-7abc-8abc-0123456789ab",
+  "request_id": "01957e8a-2345-7abc-8abc-0123456789ab",
+  "tenant_id": "01957e8a-3456-7abc-8abc-0123456789ab",
+  "command_type": "authorize_execution",
+  "scope_type": "data_subject",
+  "data_subject_id": "01957e8a-4567-7abc-8abc-0123456789ab",
+  "requested_action": "irreversible_delete",
+  "actor_id": "01957e8a-5678-7abc-8abc-0123456789ab",
+  "policy_decision_id": "01957e8a-6789-7abc-8abc-0123456789ab",
+  "approval_ids": [
+    "01957e8a-789a-7abc-8abc-0123456789ab"
+  ],
+  "policy_version": "1.0.0",
+  "inventory_version": "1.0.0",
+  "request_fingerprint": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+  "idempotency_key": "data-governance/v1/01957e8a-3456-7abc-8abc-0123456789ab/01957e8a-2345-7abc-8abc-0123456789ab/01957e8a-1234-7abc-8abc-0123456789ab",
+  "trace_id": "0123456789abcdef0123456789abcdef",
+  "correlation_id": "01957e8a-89ab-7abc-8abc-0123456789ab",
+  "causation_id": "01957e8a-9abc-7abc-8abc-0123456789ab",
+  "issued_at": "2026-08-31T12:00:00Z",
+  "authorization_expires_at": "2026-08-31T12:15:00Z",
+  "data_classification": "internal"
+}

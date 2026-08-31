@@ -1,7 +1,7 @@
 /*
  * GENERATED FILE. DO NOT EDIT.
  * generator: scripts/generate_contract_types.py@1.2.0
- * source: 64 JSON Schema Draft 2020-12 documents under contracts/schemas/
+ * source: 69 JSON Schema Draft 2020-12 documents under contracts/schemas/
  */
 
 export const CONTRACT_GENERATOR_VERSION = "1.2.0" as const;
@@ -199,6 +199,169 @@ export interface CostEvent {
   provider_request_ref?: string | null;
   occurred_at: string;
 }
+
+/** Source: contracts/schemas/data_governance_command.schema.json; schema: https://schemas.axtro.ai/v2/data_governance_command.schema.json; version: 2.0.0. */
+export interface DataGovernanceCommand {
+  schema_version: "2.0.0";
+  governance_version: "1.0.0";
+  command_id: string;
+  request_id: string;
+  tenant_id: string;
+  command_type: "request_deletion" | "authorize_execution" | "cancel_request";
+  scope_type: "tenant" | "data_subject";
+  data_subject_id: (string) | (null);
+  requested_action: "redact" | "irreversible_delete";
+  actor_id: string;
+  policy_decision_id: (string) | (null);
+  approval_ids: Array<string>;
+  policy_version: "1.0.0";
+  inventory_version: "1.0.0";
+  request_fingerprint: string;
+  idempotency_key: string;
+  trace_id: string;
+  correlation_id: string;
+  causation_id: (string) | (null);
+  issued_at: string;
+  authorization_expires_at: (string) | (null);
+  data_classification: "internal";
+}
+
+/** Source: contracts/schemas/data_governance_receipt.schema.json; schema: https://schemas.axtro.ai/v2/data_governance_receipt.schema.json; version: 2.0.0. */
+export interface DataGovernanceReceipt {
+  schema_version: "2.0.0";
+  governance_version: "1.0.0";
+  receipt_id: string;
+  request_id: string;
+  tenant_id: string;
+  scope_type: "tenant" | "data_subject";
+  outcome: "request_admitted" | "policy_denied" | "approval_recorded" | "execution_authorized" | "inventory_completed" | "legal_hold_blocked" | "redaction_completed" | "irreversible_deletion_completed" | "retry_scheduled" | "effect_unknown" | "verification_completed" | "request_completed" | "request_cancelled" | "request_expired" | "operator_required";
+  resulting_state: "requested" | "approval_pending" | "authorized" | "inventorying" | "ready" | "blocked_by_legal_hold" | "executing_redaction" | "executing_irreversible_deletion" | "retry_wait" | "effect_unknown" | "verifying" | "operator_required" | "completed" | "denied" | "expired" | "cancelled";
+  work_item_id: (string) | (null);
+  surface: ("database" | "object_storage" | "cache" | "embedding_index" | "provider_copy" | "auth_identity" | "vault_secret" | "backup") | (null);
+  action: ("redact" | "irreversible_delete" | "retain_content_free" | "external_delete" | "cache_invalidate" | "crypto_erase" | "backup_expiry_wait") | (null);
+  policy_version: "1.0.0";
+  inventory_version: "1.0.0";
+  inventory_fingerprint: (string) | (null);
+  affected_resource_count: number;
+  verified_resource_count: number;
+  retained_exception_count: number;
+  outcome_code: ("policy_denied" | "legal_hold_active" | "external_retryable" | "external_effect_unknown" | "verification_failed" | "coverage_ambiguous" | "inflight_effect" | "retry_budget_exhausted" | "authority_expired" | "operator_intervention_required" | "cancelled_before_irreversible_effect") | (null);
+  receipt_fingerprint: string;
+  trace_id: string;
+  correlation_id: string;
+  causation_id: (string) | (null);
+  recorded_at: string;
+  data_classification: "internal";
+}
+
+/** Source: contracts/schemas/data_governance_status.schema.json; schema: https://schemas.axtro.ai/v2/data_governance_status.schema.json; version: 2.0.0. */
+export interface DataGovernanceStatus {
+  schema_version: "2.0.0";
+  governance_version: "1.0.0";
+  request_id: string;
+  tenant_id: string;
+  scope_type: "tenant" | "data_subject";
+  state: "requested" | "approval_pending" | "authorized" | "inventorying" | "ready" | "blocked_by_legal_hold" | "executing_redaction" | "executing_irreversible_deletion" | "retry_wait" | "effect_unknown" | "verifying" | "operator_required" | "completed" | "denied" | "expired" | "cancelled";
+  state_version: number;
+  active_action: ("redact" | "irreversible_delete" | "retain_content_free" | "external_delete" | "cache_invalidate" | "crypto_erase" | "backup_expiry_wait") | (null);
+  policy_version: "1.0.0";
+  inventory_version: "1.0.0";
+  inventory_fingerprint: (string) | (null);
+  work_item_count: number;
+  verified_work_item_count: number;
+  held_work_item_count: number;
+  retained_exception_count: number;
+  attempt: number;
+  next_attempt_at: (string) | (null);
+  status_code: ("approval_required" | "authorization_expired" | "policy_denied" | "inventory_incomplete" | "legal_hold_active" | "external_retryable" | "external_effect_unknown" | "verification_failed" | "coverage_ambiguous" | "inflight_effect" | "retry_budget_exhausted" | "operator_intervention_required" | "cancelled_before_irreversible_effect") | (null);
+  trace_id: string;
+  correlation_id: string;
+  updated_at: string;
+  completed_at: (string) | (null);
+  data_classification: "internal";
+}
+
+/** Source: contracts/schemas/data_governance_work_item.schema.json; schema: https://schemas.axtro.ai/v2/data_governance_work_item.schema.json; version: 2.0.0. */
+export interface DataGovernanceWorkItem {
+  schema_version: "2.0.0";
+  governance_version: "1.0.0";
+  work_item_id: string;
+  request_id: string;
+  tenant_id: string;
+  surface: "database" | "object_storage" | "cache" | "embedding_index" | "provider_copy" | "auth_identity" | "vault_secret" | "backup";
+  resource_class: "tenant_profile" | "authentication_identity" | "membership" | "configuration" | "contact_profile" | "session_content" | "transcript" | "consent_evidence" | "disclosure_evidence" | "action_evidence" | "workflow_evidence" | "knowledge_content" | "embedding" | "provider_effect" | "billing_evidence" | "audit_evidence" | "notification_payload" | "runtime_evidence" | "object_blob" | "cache_entry" | "provider_copy" | "vault_secret" | "backup_snapshot";
+  action: "redact" | "irreversible_delete" | "retain_content_free" | "external_delete" | "cache_invalidate" | "crypto_erase" | "backup_expiry_wait";
+  state: "pending" | "held" | "leased" | "applying" | "retry_wait" | "effect_unknown" | "verification_pending" | "verified" | "operator_required" | "retained_exception";
+  resource_locator_hmac: (string) | (null);
+  resource_count: number;
+  attempt: number;
+  max_attempts: number;
+  lease_fence: (number) | (null);
+  lease_token_digest: (string) | (null);
+  next_attempt_at: (string) | (null);
+  failure_code: ("legal_hold_active" | "external_retryable" | "external_effect_unknown" | "verification_failed" | "coverage_ambiguous" | "inflight_effect" | "lease_expired" | "retry_budget_exhausted" | "authority_expired" | "operator_intervention_required") | (null);
+  verification_digest: (string) | (null);
+  retention_exception_code: ("legal_hold" | "billing_statutory" | "tax_statutory" | "security_investigation" | "backup_expiry_pending") | (null);
+  recoverable_until: (string) | (null);
+  correlation_id: string;
+  created_at: string;
+  updated_at: string;
+  data_classification: "internal";
+}
+
+/** Source: contracts/schemas/data_legal_hold.schema.json; schema: https://schemas.axtro.ai/v2/data_legal_hold.schema.json; version: 2.0.0. */
+export type DataLegalHold = {
+  schema_version: "2.0.0";
+  governance_version: "1.0.0";
+  record_type: "command";
+  operation: "create" | "release" | "expire";
+  hold_id: string;
+  tenant_id: string;
+  command_id: string;
+  receipt_id: null;
+  scope_type: "artifact_set" | "data_subject";
+  scope_hmac: string;
+  artifact_count: number;
+  purpose_code: "litigation" | "regulatory_inquiry" | "tax_audit" | "billing_dispute" | "contractual_claim" | "security_investigation";
+  authority_code: "court_order" | "regulator_request" | "statutory_duty" | "counsel_instruction" | "contractual_preservation";
+  authorized_by_actor_id: string;
+  authorization_id: string;
+  starts_at: string;
+  expires_at: string;
+  outcome: null;
+  outcome_code: null;
+  record_fingerprint: string;
+  trace_id: string;
+  correlation_id: string;
+  recorded_at: string;
+  data_classification: "internal";
+}
+  | {
+  schema_version: "2.0.0";
+  governance_version: "1.0.0";
+  record_type: "receipt";
+  operation: "create" | "release" | "expire";
+  hold_id: string;
+  tenant_id: string;
+  command_id: string;
+  receipt_id: string;
+  scope_type: "artifact_set" | "data_subject";
+  scope_hmac: null;
+  artifact_count: number;
+  purpose_code: "litigation" | "regulatory_inquiry" | "tax_audit" | "billing_dispute" | "contractual_claim" | "security_investigation";
+  authority_code: "court_order" | "regulator_request" | "statutory_duty" | "counsel_instruction" | "contractual_preservation";
+  authorized_by_actor_id: null;
+  authorization_id: string;
+  starts_at: string;
+  expires_at: string;
+  outcome: "created" | "released" | "expired" | "denied" | "conflict";
+  outcome_code: ("authority_invalid" | "scope_invalid" | "already_active" | "already_released" | "not_due" | "policy_denied") | (null);
+  record_fingerprint: string;
+  trace_id: string;
+  correlation_id: string;
+  recorded_at: string;
+  data_classification: "internal";
+};
 
 /** Source: contracts/schemas/deployment_promotion.schema.json; schema: https://schemas.axtro.ai/v2/deployment_promotion.schema.json; version: 2.0.0. */
 export interface DeploymentPromotion {
@@ -1433,6 +1596,36 @@ export const CONTRACT_METADATA = {
     "schema_version": "2.1.0",
     "source_hash": "3f8f3dc18a2c6b4f2a910d50059d5cec21549fe58c6f2926a8e4baacf5724858",
     "source_schema": "contracts/schemas/cost_event.schema.json"
+  },
+  "DataGovernanceCommand": {
+    "schema_id": "https://schemas.axtro.ai/v2/data_governance_command.schema.json",
+    "schema_version": "2.0.0",
+    "source_hash": "a951513ea7912c0ea5f3caa21f23e2e589df59a404bc73bc4b996c0418c7e77a",
+    "source_schema": "contracts/schemas/data_governance_command.schema.json"
+  },
+  "DataGovernanceReceipt": {
+    "schema_id": "https://schemas.axtro.ai/v2/data_governance_receipt.schema.json",
+    "schema_version": "2.0.0",
+    "source_hash": "c5e8f196fae7abf78e179f9bf2b860f8fc142090a87260ef930cc12a7fe87e49",
+    "source_schema": "contracts/schemas/data_governance_receipt.schema.json"
+  },
+  "DataGovernanceStatus": {
+    "schema_id": "https://schemas.axtro.ai/v2/data_governance_status.schema.json",
+    "schema_version": "2.0.0",
+    "source_hash": "b1b22828931c0aa6dbb7f60adb0c2da9df26a37e20ac3998ba302d5df4dbb3ba",
+    "source_schema": "contracts/schemas/data_governance_status.schema.json"
+  },
+  "DataGovernanceWorkItem": {
+    "schema_id": "https://schemas.axtro.ai/v2/data_governance_work_item.schema.json",
+    "schema_version": "2.0.0",
+    "source_hash": "e12a108f30334253019d78014659898358cd4f8f0938ac1006fd8f7918d8b1e0",
+    "source_schema": "contracts/schemas/data_governance_work_item.schema.json"
+  },
+  "DataLegalHold": {
+    "schema_id": "https://schemas.axtro.ai/v2/data_legal_hold.schema.json",
+    "schema_version": "2.0.0",
+    "source_hash": "682efd3dc042a0e8ba84772d2588a2966382668b76e74d4bd5cf0e418b79f5db",
+    "source_schema": "contracts/schemas/data_legal_hold.schema.json"
   },
   "DeploymentPromotion": {
     "schema_id": "https://schemas.axtro.ai/v2/deployment_promotion.schema.json",

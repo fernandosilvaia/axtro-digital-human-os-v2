@@ -9,15 +9,15 @@ async function sha256(filename) {
   return createHash("sha256").update(await readFile(new URL(filename, migrationDirectory))).digest("hex");
 }
 
-test("Supabase lineage is contiguous through v58 and immutable historical blobs keep their checksums", async () => {
+test("Supabase lineage is contiguous through v59 and immutable historical blobs keep their checksums", async () => {
   const migrations = (await readdir(migrationDirectory))
     .filter((name) => /^\d{4}_.+\.sql$/.test(name))
     .sort();
 
-  assert.equal(migrations.length, 58);
+  assert.equal(migrations.length, 59);
   assert.deepEqual(
     migrations.map((name) => Number(name.slice(0, 4))),
-    Array.from({ length: 58 }, (_, index) => index + 1),
+    Array.from({ length: 59 }, (_, index) => index + 1),
   );
   assert.equal(migrations[48], "0049_portal_text_preview_admission.sql");
   assert.equal(migrations[49], "0050_meeting_terminal_notification_claim.sql");
@@ -30,6 +30,86 @@ test("Supabase lineage is contiguous through v58 and immutable historical blobs 
     "262e033328175f704f8cfef1cafdcb0a2ef9b9aac7e4cc86f2b33890044c7224",
   );
   assert.equal(migrations[57], "0058_portal_text_preview_authority_repair.sql");
+  assert.equal(migrations[58], "0059_data_governance_disposition_workflow.sql");
+});
+
+test("v59 keeps disposition admission, execution and evidence fail closed", async () => {
+  const migration = await readFile(
+    new URL("0059_data_governance_disposition_workflow.sql", migrationDirectory),
+    "utf8",
+  );
+
+  for (const rpc of [
+    "portal_request_data_governance_authenticated",
+    "portal_decide_data_governance_policy_service",
+    "portal_approve_data_governance_authenticated",
+    "portal_authorize_data_governance_request_service",
+    "portal_register_data_governance_subject_link_service",
+    "portal_attest_data_governance_subject_coverage_service",
+    "portal_inventory_data_governance_request_service",
+    "portal_create_data_legal_hold_authenticated",
+    "portal_release_data_legal_hold_authenticated",
+    "portal_expire_data_legal_hold_service",
+    "portal_lease_data_governance_work_items_service",
+    "portal_begin_data_governance_external_operation_service",
+    "portal_apply_data_governance_database_item_service",
+    "portal_record_data_governance_item_outcome_service",
+    "portal_complete_data_governance_request_service",
+    "portal_data_governance_status_authenticated",
+    "portal_cancel_data_governance_request_authenticated",
+    "portal_expire_data_governance_request_service",
+  ]) assert.match(migration, new RegExp(`create or replace function public\\.${rpc}\\(`), rpc);
+
+  const requestAdmission = migration.slice(
+    migration.indexOf("create or replace function public.portal_request_data_governance_authenticated("),
+    migration.indexOf("create or replace function public.portal_decide_data_governance_policy_service("),
+  );
+  assert.match(requestAdmission, /p_scope='tenant' and p_requested_action='redact'/);
+  assert.match(requestAdmission, /'requested',auth\.uid\(\),v_member\.actor_id/);
+  assert.match(requestAdmission, /'pending','awaiting_approval'/);
+  assert.doesNotMatch(requestAdmission, /'allow','policy_allowed'/);
+  assert.match(requestAdmission, /canonical governance fingerprint mismatch/);
+
+  const lease = migration.slice(
+    migration.indexOf("create or replace function public.portal_lease_data_governance_work_items_service("),
+    migration.indexOf("create or replace function public.portal_apply_data_governance_database_item_service("),
+  );
+  assert.match(lease, /for update of i skip locked limit p_limit/i);
+  assert.match(lease, /i\.resource_code='db_tenants' and i\.state='verification_pending'/);
+  assert.match(lease, /dispatch_fenced_at is not null then 'effect_unknown'/);
+  assert.match(lease, /when 'retry_wait' then i\.resume_operation/);
+  assert.match(lease, /c\.deletion_order=\(/);
+  assert.match(lease, /i2\.state not in \('verified','retained_exception'\)/);
+  assert.match(lease, /external_catalog\.surface<>'database'/);
+  assert.match(migration, /portal_decide_data_governance_policy_service\([\s\S]*p_tenant_id app\.uuid_v7/);
+  assert.match(migration, /portal_authorize_data_governance_request_service\([\s\S]*p_tenant_id app\.uuid_v7/);
+  assert.match(migration, /portal_expire_data_governance_request_service\([\s\S]*p_tenant_id app\.uuid_v7/);
+
+  const databaseExecutor = migration.slice(
+    migration.indexOf("create or replace function public.portal_apply_data_governance_database_item_service("),
+    migration.indexOf("create or replace function public.portal_record_data_governance_item_outcome_service("),
+  );
+  assert.match(databaseExecutor, /v_item\.current_operation not in \('apply','verify'\)/);
+  assert.match(databaseExecutor, /retain_content_free/);
+  assert.match(databaseExecutor, /redacted-/);
+  assert.match(databaseExecutor, /verification_pending/);
+
+  assert.match(migration, /p_evidence_kind text/);
+  assert.match(migration, /p_evidence_fingerprint text/);
+  assert.match(migration, /evidence_attestation_hmac/);
+  assert.match(migration, /'dataGovernanceControlProjection'/);
+  assert.match(migration, /app\.data_governance_controls_projected/);
+  assert.match(migration, /app\.data_governance_cycle_break_complete/);
+  assert.match(migration, /data_governance_relation_shape_fingerprint/);
+  assert.match(migration, /conversation-transcript-redaction@1/);
+  assert.match(migration, /fk\.confkey=array\[participant_tenant_column\.attnum,participant_session_column\.attnum,participant_id_column\.attnum\]::smallint\[\]/);
+  assert.match(migration, /coalesce\(i\.database_row_id,i\.verification_database_row_id\)=v_row_id/);
+  assert.match(migration, /i\.verification_locator_hmac=l\.resource_locator_hmac/);
+  assert.match(migration, /for share;/i);
+  assert.match(migration, /app\.prevent_text_preview_reference_mutation\(\)[\s\S]*app\.data_governance_disposition_allowed/);
+  assert.match(migration, /app\.prevent_meeting_notification_receipt_mutation\(\)[\s\S]*app\.data_governance_disposition_allowed/);
+  assert.match(migration, /set subject_id=null[\s\S]*delete from public\.data_governance_subjects/);
+  assert.doesNotMatch(migration, /session_replication_role|disable trigger|set_config\s*\(/i);
 });
 
 test("v58 keeps recovered admission owner-only, derives auth identity and closes persistence", async () => {

@@ -1,0 +1,122 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://schemas.axtro.ai/v2/data_legal_hold.schema.json",
+  "title": "Data Legal Hold",
+  "description": "Purpose-specific, time-bounded legal-hold command or content-free receipt. A command carries only a keyed scope HMAC and bounded artifact count; its receipt omits the scope HMAC.",
+  "x-axtro-discriminator": "record_type",
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "schema_version": { "type": "string", "const": "2.0.0" },
+    "governance_version": { "type": "string", "const": "1.0.0" },
+    "record_type": { "type": "string", "enum": ["command", "receipt"] },
+    "operation": { "type": "string", "enum": ["create", "release", "expire"] },
+    "hold_id": { "type": "string", "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$" },
+    "tenant_id": { "type": "string", "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$" },
+    "command_id": {
+      "oneOf": [
+        { "type": "string", "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$" },
+        { "type": "null" }
+      ]
+    },
+    "receipt_id": {
+      "oneOf": [
+        { "type": "string", "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$" },
+        { "type": "null" }
+      ]
+    },
+    "scope_type": { "type": "string", "enum": ["artifact_set", "data_subject"] },
+    "scope_hmac": {
+      "oneOf": [
+        { "type": "string", "pattern": "^hmac-sha256:[0-9a-f]{64}$" },
+        { "type": "null" }
+      ]
+    },
+    "artifact_count": { "type": "integer", "minimum": 1, "maximum": 10000 },
+    "purpose_code": { "type": "string", "enum": ["litigation", "regulatory_inquiry", "tax_audit", "billing_dispute", "contractual_claim", "security_investigation"] },
+    "authority_code": { "type": "string", "enum": ["court_order", "regulator_request", "statutory_duty", "counsel_instruction", "contractual_preservation"] },
+    "authorized_by_actor_id": {
+      "oneOf": [
+        { "type": "string", "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$" },
+        { "type": "null" }
+      ]
+    },
+    "authorization_id": { "type": "string", "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$" },
+    "starts_at": { "type": "string", "format": "date-time" },
+    "expires_at": { "type": "string", "format": "date-time" },
+    "outcome": {
+      "oneOf": [
+        { "type": "string", "enum": ["created", "released", "expired", "denied", "conflict"] },
+        { "type": "null" }
+      ]
+    },
+    "outcome_code": {
+      "oneOf": [
+        { "type": "string", "enum": ["authority_invalid", "scope_invalid", "already_active", "already_released", "not_due", "policy_denied"] },
+        { "type": "null" }
+      ]
+    },
+    "record_fingerprint": { "type": "string", "pattern": "^[0-9a-f]{64}$" },
+    "trace_id": { "type": "string", "pattern": "^[0-9a-f]{16,64}$" },
+    "correlation_id": { "type": "string", "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$" },
+    "recorded_at": { "type": "string", "format": "date-time" },
+    "data_classification": { "type": "string", "const": "internal" }
+  },
+  "required": [
+    "schema_version", "governance_version", "record_type", "operation",
+    "hold_id", "tenant_id", "command_id", "receipt_id", "scope_type",
+    "scope_hmac", "artifact_count", "purpose_code", "authority_code",
+    "authorized_by_actor_id", "authorization_id", "starts_at", "expires_at",
+    "outcome", "outcome_code", "record_fingerprint",
+    "trace_id", "correlation_id", "recorded_at", "data_classification"
+  ],
+  "allOf": [
+    {
+      "if": { "properties": { "record_type": { "const": "command" } }, "required": ["record_type"] },
+      "then": {
+        "properties": {
+          "command_id": { "type": "string", "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$" },
+          "receipt_id": { "type": "null" },
+          "authorized_by_actor_id": { "type": "string", "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$" },
+          "outcome": { "type": "null" },
+          "scope_hmac": { "type": "string", "pattern": "^hmac-sha256:[0-9a-f]{64}$" },
+          "outcome_code": { "type": "null" }
+        }
+      }
+    },
+    {
+      "if": { "properties": { "record_type": { "const": "receipt" } }, "required": ["record_type"] },
+      "then": {
+        "properties": {
+          "command_id": { "type": "string", "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$" },
+          "receipt_id": { "type": "string", "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$" },
+          "authorized_by_actor_id": { "type": "null" },
+          "scope_hmac": { "type": "null" },
+          "outcome": { "type": "string", "enum": ["created", "released", "expired", "denied", "conflict"] }
+        },
+        "allOf": [
+          {
+            "if": { "properties": { "operation": { "const": "create" } }, "required": ["operation"] },
+            "then": { "properties": { "outcome": { "enum": ["created", "denied", "conflict"] } } }
+          },
+          {
+            "if": { "properties": { "operation": { "const": "release" } }, "required": ["operation"] },
+            "then": { "properties": { "outcome": { "enum": ["released", "denied", "conflict"] } } }
+          },
+          {
+            "if": { "properties": { "operation": { "const": "expire" } }, "required": ["operation"] },
+            "then": { "properties": { "outcome": { "enum": ["expired", "denied", "conflict"] } } }
+          },
+          {
+            "if": { "properties": { "outcome": { "enum": ["created", "released", "expired"] } }, "required": ["outcome"] },
+            "then": { "properties": { "outcome_code": { "type": "null" } } }
+          },
+          {
+            "if": { "properties": { "outcome": { "enum": ["denied", "conflict"] } }, "required": ["outcome"] },
+            "then": { "properties": { "outcome_code": { "type": "string", "enum": ["authority_invalid", "scope_invalid", "already_active", "already_released", "not_due", "policy_denied"] } } }
+          }
+        ]
+      }
+    }
+  ]
+}
