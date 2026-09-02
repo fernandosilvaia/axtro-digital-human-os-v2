@@ -455,7 +455,7 @@ test("Resend webhook returns 413 for declared and chunked overflow before signat
   });
 });
 
-test("every browser video consumer revalidates the provider URL and iframe permissions stay narrow", async () => {
+test("every browser video consumer revalidates the provider URL, and video-call.tsx no longer embeds the provider by raw iframe", async () => {
   const [videoCall, presentationRoom, externalMeeting] = await Promise.all([
     readFile(new URL("../../apps/portal/src/app/(app)/agentes/[id]/testar/video-call.tsx", import.meta.url), "utf8"),
     readFile(new URL("../../apps/portal/src/app/(app)/agentes/[id]/testar/presentation-room.tsx", import.meta.url), "utf8"),
@@ -465,8 +465,13 @@ test("every browser video consumer revalidates the provider URL and iframe permi
   for (const source of [videoCall, presentationRoom, externalMeeting]) {
     assert.match(source, /isTrustedTavusConversationUrl/);
   }
-  assert.doesNotMatch(videoCall, /display-capture/);
-  assert.match(videoCall, /allow="camera; microphone; fullscreen"/);
-  assert.match(videoCall, /sandbox="allow-scripts allow-same-origin allow-forms allow-popups"/);
-  assert.match(videoCall, /referrerPolicy="no-referrer"/);
+  // ADR-041: video-call.tsx (modo vídeo livre) migrou do <iframe> puro pro
+  // mesmo transporte de "call object" do Daily que presentation-room.tsx já
+  // usa -- o <iframe> não expunha o data channel necessário pra tool calls
+  // de negócio chegarem ao servidor. Trava a migração: nenhum dos dois
+  // volta a embutir o provider por iframe.
+  assert.doesNotMatch(videoCall, /<iframe/);
+  assert.doesNotMatch(presentationRoom, /<iframe/);
+  assert.match(videoCall, /createCallObject/);
+  assert.match(videoCall, /@daily-co\/daily-js/);
 });

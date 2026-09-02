@@ -3,12 +3,13 @@ import { readFile } from "node:fs/promises";
 import test from "node:test";
 
 const root = new URL("../../", import.meta.url);
-const [videoActions, meetingActions, leadRoute, recallRoute, presentationClient, bridgeMigration] = await Promise.all([
+const [videoActions, meetingActions, leadRoute, recallRoute, presentationClient, videoClient, bridgeMigration] = await Promise.all([
   readFile(new URL("apps/portal/src/lib/actions/video-conversation.ts", root), "utf8"),
   readFile(new URL("apps/portal/src/lib/actions/meeting-bot.ts", root), "utf8"),
   readFile(new URL("apps/portal/src/app/api/leads/video-session/route.ts", root), "utf8"),
   readFile(new URL("apps/portal/src/app/api/recall/webhook/route.ts", root), "utf8"),
   readFile(new URL("apps/portal/src/app/(app)/agentes/[id]/testar/presentation-room.tsx", root), "utf8"),
+  readFile(new URL("apps/portal/src/app/(app)/agentes/[id]/testar/video-call.tsx", root), "utf8"),
   readFile(new URL("database/supabase-only/0043_portal_runtime_bridge_contract.sql", root), "utf8"),
 ]);
 
@@ -53,4 +54,14 @@ test("provider tool calls cannot mutate the browser scene or report false succes
   assert.doesNotMatch(handler, /goTo\(/);
   assert.doesNotMatch(handler, /status: "success"/);
   assert.match(presentationClient, /manifesto, geração e recibo validados pelo servidor/);
+});
+
+test("video-call.tsx (post ADR-041 Daily migration) also cannot mutate scene or report false success, and dispatches business actions with mode video", () => {
+  const handler = videoClient.match(/const handleToolCall[\s\S]*?\n  }, \[agentId\]\);/)?.[0] ?? "";
+  assert.match(handler, /Comando de cena recusado/);
+  assert.match(handler, /status: "error"/);
+  assert.doesNotMatch(handler, /status: "success"/);
+  assert.match(handler, /dispatchToolCall\(\{ agentId, commandId, mode: "video", message \}\)/);
+  assert.match(videoClient, /createCallObject/);
+  assert.match(videoClient, /app-message/);
 });

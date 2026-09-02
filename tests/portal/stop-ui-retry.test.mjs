@@ -17,12 +17,11 @@ function functionBody(source, name, endMarker) {
 }
 
 test("operator stop controls retain retryable client state until the server confirms", () => {
-  const videoStop = functionBody(videoCall, "function end()", "  async function copyRoomLink");
+  const videoStop = functionBody(videoCall, "const end = useCallback", "  useEffect(() =>");
   assert.match(videoStop, /await stopVideoConversation\(agentId, commandId\)/);
   assert.match(videoStop, /if \(!result\.stopped\)[\s\S]*setError/);
-  assert.ok(videoStop.indexOf("if (!result.stopped)") < videoStop.indexOf("setUrl(null)"));
-  assert.ok(videoStop.indexOf("if (!result.stopped)") < videoStop.indexOf("setActiveCommandId(null)"));
-  assert.doesNotMatch(videoStop, /setUrl\(null\);[\s\S]{0,180}await stopVideoConversation/);
+  assert.ok(videoStop.indexOf("if (!result.stopped)") < videoStop.indexOf("commandIdRef.current = null"));
+  assert.doesNotMatch(videoCall, /void stopVideoConversation/);
   assert.match(videoCall, /Confirmando encerramento/);
   assert.match(videoCall, /role="alert"/);
   assert.match(videoCall, /O provider confirmou o pedido de encerramento da conversa/);
