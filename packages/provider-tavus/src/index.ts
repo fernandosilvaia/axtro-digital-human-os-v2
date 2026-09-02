@@ -141,63 +141,90 @@ export function isTrustedTavusConversationUrl(value: unknown): value is string {
   }
 }
 
+/**
+ * Núcleo HTTP compartilhado por createTavusVideoConversationPort (sempre
+ * POST) e pelas funções de provisão de tool abaixo (GET e POST) --
+ * extraído sem mudar nenhum comportamento observável dos call sites
+ * existentes (mesmo timeout-sobrevive-ao-corpo, mesmo mapeamento de erro).
+ * `conflictIsNull` espelha `notFoundIsSuccess`: um 409 (nome de tool já
+ * existe na conta, confirmado na doc real do Tavus,
+ * docs.tavus.io/api-reference/tools/create-tool) vira `null` em vez de
+ * lançar, pro chamador decidir o que "já existe" significa pro seu caso —
+ * nunca se aplica à criação/mutação de conversa ou persona, só quando o
+ * chamador pede explicitamente.
+ */
+async function tavusRequest(
+  apiKey: string,
+  timeoutMs: number,
+  fetchImplementation: typeof fetch,
+  method: "GET" | "POST",
+  path: string,
+  body?: Record<string, unknown>,
+  requestOptions: Readonly<{ notFoundIsSuccess?: boolean; conflictIsNull?: boolean }> = {},
+): Promise<unknown> {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), timeoutMs);
+  let response: Response;
+  try {
+    response = await fetchImplementation(`${BASE}${path}`, {
+      method,
+      signal: controller.signal,
+      headers: method === "GET"
+        ? { "x-api-key": apiKey }
+        : { "x-api-key": apiKey, "Content-Type": "application/json" },
+      ...(body !== undefined ? { body: JSON.stringify(body) } : {}),
+    });
+  } catch (error) {
+    clearTimeout(timer);
+    if (error instanceof Error && error.name === "AbortError") {
+      throw new VideoProviderError("provider_timeout", `Tavus timed out after ${timeoutMs}ms`);
+    }
+    throw new VideoProviderError("provider_unavailable", "Tavus request failed before a response");
+  }
+  // O timer segue vivo até o CORPO ser consumido — headers rápidos com body
+  // pendurado não podem escapar do timeout (auditoria 2026-08-02).
+  try {
+    if (!response.ok) {
+      // Encerramento é idempotente: uma conversa que o provider já não
+      // encontra não pode permanecer para sempre em cleanup_pending. Esta
+      // exceção é opt-in e nunca se aplica à criação ou mutação comum.
+      if (response.status === 404 && requestOptions.notFoundIsSuccess === true) return null;
+      if (response.status === 409 && requestOptions.conflictIsNull === true) return null;
+      const code: VideoProviderErrorCode = response.status >= 500 ? "provider_unavailable" : "provider_rejected";
+      throw new VideoProviderError(code, `Tavus respondeu HTTP ${response.status}`, response.status);
+    }
+    // 204/corpo vazio é sucesso (caso real do POST /conversations/{id}/end) —
+    // exigir JSON aqui transformava operação bem-sucedida em erro.
+    if (response.status === 204) return null;
+    const text = await response.text();
+    if (text.length === 0) return null;
+    try {
+      return JSON.parse(text);
+    } catch {
+      throw new VideoProviderError("malformed_provider_response", "Tavus returned non-JSON output");
+    }
+  } catch (error) {
+    if (error instanceof Error && error.name === "AbortError") {
+      throw new VideoProviderError("provider_timeout", `Tavus timed out after ${timeoutMs}ms`);
+    }
+    throw error;
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
 export function createTavusVideoConversationPort(options: TavusAdapterOptions): VideoConversationPort {
   const apiKey = typeof options.apiKey === "string" ? options.apiKey.trim() : "";
   if (apiKey.length < 8) throw new VideoProviderError("missing_api_key", "Tavus API key is not configured");
   const timeoutMs = options.timeoutMs ?? DEFAULT_TIMEOUT_MS;
   const fetchImplementation = options.fetchImplementation ?? fetch;
 
-  async function call(
+  function call(
     path: string,
     body: Record<string, unknown>,
-    options: Readonly<{ notFoundIsSuccess?: boolean }> = {},
+    callOptions: Readonly<{ notFoundIsSuccess?: boolean }> = {},
   ): Promise<unknown> {
-    const controller = new AbortController();
-    const timer = setTimeout(() => controller.abort(), timeoutMs);
-    let response: Response;
-    try {
-      response = await fetchImplementation(`${BASE}${path}`, {
-        method: "POST",
-        signal: controller.signal,
-        headers: { "x-api-key": apiKey, "Content-Type": "application/json" },
-        body: JSON.stringify(body),
-      });
-    } catch (error) {
-      clearTimeout(timer);
-      if (error instanceof Error && error.name === "AbortError") {
-        throw new VideoProviderError("provider_timeout", `Tavus timed out after ${timeoutMs}ms`);
-      }
-      throw new VideoProviderError("provider_unavailable", "Tavus request failed before a response");
-    }
-    // O timer segue vivo até o CORPO ser consumido — headers rápidos com body
-    // pendurado não podem escapar do timeout (auditoria 2026-08-02).
-    try {
-      if (!response.ok) {
-        // Encerramento é idempotente: uma conversa que o provider já não
-        // encontra não pode permanecer para sempre em cleanup_pending. Esta
-        // exceção é opt-in e nunca se aplica à criação ou mutação comum.
-        if (response.status === 404 && options.notFoundIsSuccess === true) return null;
-        const code: VideoProviderErrorCode = response.status >= 500 ? "provider_unavailable" : "provider_rejected";
-        throw new VideoProviderError(code, `Tavus respondeu HTTP ${response.status}`, response.status);
-      }
-      // 204/corpo vazio é sucesso (caso real do POST /conversations/{id}/end) —
-      // exigir JSON aqui transformava operação bem-sucedida em erro.
-      if (response.status === 204) return null;
-      const text = await response.text();
-      if (text.length === 0) return null;
-      try {
-        return JSON.parse(text);
-      } catch {
-        throw new VideoProviderError("malformed_provider_response", "Tavus returned non-JSON output");
-      }
-    } catch (error) {
-      if (error instanceof Error && error.name === "AbortError") {
-        throw new VideoProviderError("provider_timeout", `Tavus timed out after ${timeoutMs}ms`);
-      }
-      throw error;
-    } finally {
-      clearTimeout(timer);
-    }
+    return tavusRequest(apiKey, timeoutMs, fetchImplementation, "POST", path, body, callOptions);
   }
 
   return Object.freeze({
@@ -322,4 +349,143 @@ export function createTavusVideoConversationPort(options: TavusAdapterOptions): 
       await call(`/pals/${personaId}/tools`, { tool_ids: toolIds });
     },
   });
+}
+
+/**
+ * Provisão de tool na conta (ADR-041, "Registro real das tools no Tavus").
+ * Deliberadamente FORA de VideoConversationPort: criar/listar tool é uma
+ * operação de configuração de CONTA (afeta toda persona futura que a
+ * anexar), nunca de runtime por chamada/sessão/tenant -- a mesma invariante
+ * que tests/portal/m5-01-integrity.test.mjs já impõe para
+ * attachToolsToPersona (nunca chamada de dentro de apps/portal) se estende
+ * às duas funções abaixo pelo mesmo motivo. O único chamador pretendido é
+ * scripts/provision-tavus-business-tools.mjs, rodado manualmente contra
+ * TAVUS_API_KEY de um ambiente, no mesmo espírito de um script de migration.
+ */
+const TAVUS_TOOL_NAME_PATTERN = /^[A-Za-z_][A-Za-z0-9_]{0,63}$/;
+/** Confirmado contra a doc real do Tavus (docs.tavus.io/api-reference/tools/create-tool): description + parameters serializados juntos não podem passar de 10000 chars; este teto cobre só o campo description isolado, generoso o bastante pras 3 tools de negócio (a maior tem ~140 chars) sem se aproximar do teto real combinado. */
+const MAX_TOOL_DESCRIPTION_CHARS = 2000;
+
+export interface TavusToolParameterSchema {
+  readonly type: "object";
+  readonly properties: Readonly<Record<string, unknown>>;
+  readonly required?: readonly string[];
+}
+
+export interface TavusToolDefinition {
+  readonly name: string;
+  readonly description: string;
+  readonly parameters: TavusToolParameterSchema;
+}
+
+/**
+ * Confirmado contra a doc real do Tavus: "silent"/"generate_filler"/
+ * "static_filler"/"passthrough" pra on_call, "add_to_context"/
+ * "generate_response"/"response_in_result"/"fire_and_forget" pra
+ * on_resolve. As 3 tools de negócio (ADR-041) sempre usam
+ * on_call:"silent"/on_resolve:"add_to_context" -- mesmo trio que D-V2-074
+ * já registra, com prova de produção, para next_slide/previous_slide/
+ * go_to_slide -- mas o tipo aceita qualquer combinação válida porque nada
+ * aqui é específico de negócio.
+ */
+export interface TavusToolBehavior {
+  readonly onCall: "silent" | "generate_filler" | "static_filler" | "passthrough";
+  readonly onResolve: "add_to_context" | "generate_response" | "response_in_result" | "fire_and_forget";
+}
+
+export interface TavusRegisteredTool {
+  readonly toolId: string;
+  readonly name: string;
+}
+
+export type CreateTavusToolResult =
+  | Readonly<{ readonly outcome: "created"; readonly tool: TavusRegisteredTool }>
+  /** 409 real do Tavus (nome já existe na conta) -- nunca um erro, o chamador relista pra achar o toolId existente. */
+  | Readonly<{ readonly outcome: "already_exists" }>;
+
+function parseTavusToolListPayload(payload: unknown): readonly TavusRegisteredTool[] {
+  const record = (payload ?? {}) as Record<string, unknown>;
+  const data = record.data;
+  if (!Array.isArray(data)) throw new VideoProviderError("malformed_provider_response", "Tavus tools list payload has no data array");
+  return Object.freeze(data.map((entry) => {
+    const item = (entry ?? {}) as Record<string, unknown>;
+    if (typeof item.tool_id !== "string" || !ID_PATTERN.test(item.tool_id) || typeof item.name !== "string") {
+      throw new VideoProviderError("malformed_provider_response", "Tavus tools list entry is incomplete");
+    }
+    return Object.freeze({ toolId: item.tool_id, name: item.name });
+  }));
+}
+
+/**
+ * GET /v2/tools -- lista tools de tipo "user" (nunca as tools de sistema
+ * como end_call, que não podem ser criadas/atualizadas). `nameOrUuid` é
+ * substring case-insensitive do lado do Tavus (confirmado na doc real) --
+ * este helper nunca assume que um match parcial é o mesmo nome; o chamador
+ * (findTavusToolByExactName abaixo) sempre filtra por igualdade exata antes
+ * de decidir que uma tool "já existe".
+ */
+export async function listTavusTools(
+  options: TavusAdapterOptions,
+  filter: Readonly<{ nameOrUuid?: string }> = {},
+): Promise<readonly TavusRegisteredTool[]> {
+  const apiKey = typeof options.apiKey === "string" ? options.apiKey.trim() : "";
+  if (apiKey.length < 8) throw new VideoProviderError("missing_api_key", "Tavus API key is not configured");
+  const timeoutMs = options.timeoutMs ?? DEFAULT_TIMEOUT_MS;
+  const fetchImplementation = options.fetchImplementation ?? fetch;
+  const query = new URLSearchParams({ type: "user", limit: "100" });
+  if (filter.nameOrUuid !== undefined) query.set("name_or_uuid", filter.nameOrUuid);
+  const payload = await tavusRequest(apiKey, timeoutMs, fetchImplementation, "GET", `/tools?${query.toString()}`);
+  return parseTavusToolListPayload(payload);
+}
+
+/** Busca uma tool pelo nome EXATO (nunca substring) já cadastrada na conta, ou `null` se nenhuma bater. */
+export async function findTavusToolByExactName(options: TavusAdapterOptions, name: string): Promise<TavusRegisteredTool | null> {
+  const candidates = await listTavusTools(options, { nameOrUuid: name });
+  return candidates.find((tool) => tool.name === name) ?? null;
+}
+
+/**
+ * POST /v2/tools. `delivery: {app_message: true}` é o único canal que este
+ * repositório usa (o data channel do Daily, nunca o webhook `delivery.api`
+ * do Tavus); `trigger_type: "in_call"`/`origin: "llm"` (defaults do próprio
+ * Tavus) são corretos pras 3 tools de negócio, sempre chamadas pelo LLM
+ * durante a conversa, nunca post-call nem por percepção. Um 409 (nome já
+ * existe) vira `{outcome:"already_exists"}`, nunca uma exceção -- rodar
+ * este script duas vezes contra a mesma conta é seguro por design (mesmo
+ * espírito idempotente de um script de migration).
+ */
+export async function createTavusTool(
+  options: TavusAdapterOptions,
+  tool: TavusToolDefinition,
+  behavior: TavusToolBehavior,
+): Promise<CreateTavusToolResult> {
+  const apiKey = typeof options.apiKey === "string" ? options.apiKey.trim() : "";
+  if (apiKey.length < 8) throw new VideoProviderError("missing_api_key", "Tavus API key is not configured");
+  if (typeof tool.name !== "string" || !TAVUS_TOOL_NAME_PATTERN.test(tool.name)) {
+    throw new VideoProviderError("invalid_request", "tool name must match Tavus function-naming rules (letters/digits/underscores, max 64 chars)");
+  }
+  if (typeof tool.description !== "string" || tool.description.length === 0 || tool.description.length > MAX_TOOL_DESCRIPTION_CHARS) {
+    throw new VideoProviderError("invalid_request", `tool description must be 1..${MAX_TOOL_DESCRIPTION_CHARS} chars`);
+  }
+  if (tool.parameters?.type !== "object" || typeof tool.parameters.properties !== "object" || tool.parameters.properties === null) {
+    throw new VideoProviderError("invalid_request", "tool parameters must be a JSON Schema object with a properties map");
+  }
+  const timeoutMs = options.timeoutMs ?? DEFAULT_TIMEOUT_MS;
+  const fetchImplementation = options.fetchImplementation ?? fetch;
+  const payload = await tavusRequest(apiKey, timeoutMs, fetchImplementation, "POST", "/tools", {
+    name: tool.name,
+    description: tool.description,
+    parameters: tool.parameters,
+    delivery: { app_message: true },
+    trigger_type: "in_call",
+    origin: "llm",
+    on_call: behavior.onCall,
+    on_resolve: behavior.onResolve,
+  }, { conflictIsNull: true });
+  if (payload === null) return Object.freeze({ outcome: "already_exists" });
+  const record = (payload ?? {}) as Record<string, unknown>;
+  if (typeof record.tool_id !== "string" || !ID_PATTERN.test(record.tool_id) || record.name !== tool.name) {
+    throw new VideoProviderError("malformed_provider_response", "Tavus create-tool payload is incomplete");
+  }
+  return Object.freeze({ outcome: "created", tool: Object.freeze({ toolId: record.tool_id, name: record.name }) });
 }

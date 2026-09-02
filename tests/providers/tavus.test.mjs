@@ -208,3 +208,109 @@ test("corpo travado depois dos headers ainda respeita o timeout", async () => {
   const port = provider.createTavusVideoConversationPort({ apiKey: API_KEY, timeoutMs: 5, fetchImplementation: stallingFetch });
   await assert.rejects(() => port.createConversation(request()), (e) => e.code === "provider_timeout");
 });
+
+// ---------------------------------------------------------------------------
+// listTavusTools / findTavusToolByExactName / createTavusTool (ADR-041,
+// "Registro real das tools no Tavus" -- provisão de conta, nunca de runtime;
+// único chamador pretendido é scripts/provision-tavus-business-tools.mjs).
+// ---------------------------------------------------------------------------
+
+const TOOL_DEFINITION = Object.freeze({
+  name: "register_lead",
+  description: "Registra um lead qualificado a partir desta conversa.",
+  parameters: Object.freeze({ type: "object", properties: Object.freeze({ contactName: { type: "string" } }), required: ["contactName"] }),
+});
+const TOOL_BEHAVIOR = Object.freeze({ onCall: "silent", onResolve: "add_to_context" });
+
+test("listTavusTools envia GET com type=user e name_or_uuid, e mapeia o payload real do Tavus", async () => {
+  const { calls, implementation } = fakeFetch(async () => new Response(
+    JSON.stringify({ data: [{ tool_id: "tabc123def456", name: "register_lead" }], total_count: 1 }),
+    { status: 200 },
+  ));
+  const tools = await provider.listTavusTools({ apiKey: API_KEY, fetchImplementation: implementation }, { nameOrUuid: "register_lead" });
+  assert.deepEqual(tools, [{ toolId: "tabc123def456", name: "register_lead" }]);
+  assert.equal(calls[0].init.method, "GET");
+  assert.equal(calls[0].init.body, undefined);
+  const url = new URL(calls[0].url);
+  assert.equal(url.pathname, "/v2/tools");
+  assert.equal(url.searchParams.get("type"), "user");
+  assert.equal(url.searchParams.get("name_or_uuid"), "register_lead");
+});
+
+test("listTavusTools rejeita um payload sem array data, e uma entrada sem tool_id/name válidos", async () => {
+  const missingData = fakeFetch(async () => new Response(JSON.stringify({ total_count: 0 }), { status: 200 }));
+  await assert.rejects(
+    () => provider.listTavusTools({ apiKey: API_KEY, fetchImplementation: missingData.implementation }),
+    (e) => e.code === "malformed_provider_response",
+  );
+
+  const badEntry = fakeFetch(async () => new Response(JSON.stringify({ data: [{ tool_id: "not an id!!", name: "x" }] }), { status: 200 }));
+  await assert.rejects(
+    () => provider.listTavusTools({ apiKey: API_KEY, fetchImplementation: badEntry.implementation }),
+    (e) => e.code === "malformed_provider_response",
+  );
+});
+
+test("findTavusToolByExactName nunca aceita um match de substring como a mesma tool", async () => {
+  const { implementation } = fakeFetch(async () => new Response(
+    JSON.stringify({ data: [{ tool_id: "tabc123def456", name: "register_lead_v2" }] }),
+    { status: 200 },
+  ));
+  const found = await provider.findTavusToolByExactName({ apiKey: API_KEY, fetchImplementation: implementation }, "register_lead");
+  assert.equal(found, null);
+});
+
+test("createTavusTool envia o payload fechado (delivery/trigger_type/origin/on_call/on_resolve) e devolve o tool_id criado", async () => {
+  const { calls, implementation } = fakeFetch(async () => new Response(
+    JSON.stringify({ tool_id: "tnewbusiness001", name: "register_lead" }),
+    { status: 200 },
+  ));
+  const result = await provider.createTavusTool({ apiKey: API_KEY, fetchImplementation: implementation }, TOOL_DEFINITION, TOOL_BEHAVIOR);
+  assert.deepEqual(result, { outcome: "created", tool: { toolId: "tnewbusiness001", name: "register_lead" } });
+  assert.equal(calls[0].url, "https://tavusapi.com/v2/tools");
+  assert.equal(calls[0].init.method, "POST");
+  const body = JSON.parse(calls[0].init.body);
+  assert.equal(body.name, "register_lead");
+  assert.deepEqual(body.delivery, { app_message: true });
+  assert.equal(body.trigger_type, "in_call");
+  assert.equal(body.origin, "llm");
+  assert.equal(body.on_call, "silent");
+  assert.equal(body.on_resolve, "add_to_context");
+});
+
+test("createTavusTool trata HTTP 409 (nome já existe) como outcome already_exists, nunca como erro", async () => {
+  const { implementation } = fakeFetch(async () => new Response(JSON.stringify({ error: "duplicate name" }), { status: 409 }));
+  const result = await provider.createTavusTool({ apiKey: API_KEY, fetchImplementation: implementation }, TOOL_DEFINITION, TOOL_BEHAVIOR);
+  assert.deepEqual(result, { outcome: "already_exists" });
+});
+
+test("createTavusTool valida nome, descrição e parameters antes da rede", async () => {
+  const { calls, implementation } = fakeFetch(async () => new Response("{}", { status: 200 }));
+  for (const bad of [
+    { ...TOOL_DEFINITION, name: "9starts_with_digit" },
+    { ...TOOL_DEFINITION, name: "has spaces" },
+    { ...TOOL_DEFINITION, description: "" },
+    { ...TOOL_DEFINITION, description: "x".repeat(2001) },
+    { ...TOOL_DEFINITION, parameters: { type: "string" } },
+  ]) {
+    await assert.rejects(
+      () => provider.createTavusTool({ apiKey: API_KEY, fetchImplementation: implementation }, bad, TOOL_BEHAVIOR),
+      (e) => e.code === "invalid_request",
+    );
+  }
+  assert.equal(calls.length, 0);
+});
+
+test("createTavusTool rejeita um payload de sucesso incompleto ou com nome divergente", async () => {
+  const noId = fakeFetch(async () => new Response(JSON.stringify({ name: "register_lead" }), { status: 200 }));
+  await assert.rejects(
+    () => provider.createTavusTool({ apiKey: API_KEY, fetchImplementation: noId.implementation }, TOOL_DEFINITION, TOOL_BEHAVIOR),
+    (e) => e.code === "malformed_provider_response",
+  );
+
+  const wrongName = fakeFetch(async () => new Response(JSON.stringify({ tool_id: "tabc123def456", name: "outra_coisa" }), { status: 200 }));
+  await assert.rejects(
+    () => provider.createTavusTool({ apiKey: API_KEY, fetchImplementation: wrongName.implementation }, TOOL_DEFINITION, TOOL_BEHAVIOR),
+    (e) => e.code === "malformed_provider_response",
+  );
+});

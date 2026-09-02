@@ -3,7 +3,7 @@ import { readFile } from "node:fs/promises";
 import test from "node:test";
 
 const root = new URL("../../", import.meta.url);
-const [videoActions, meetingActions, leadRoute, recallRoute, presentationClient, videoClient, bridgeMigration] = await Promise.all([
+const [videoActions, meetingActions, leadRoute, recallRoute, presentationClient, videoClient, bridgeMigration, businessActionToolCall, toolCallDispatcher] = await Promise.all([
   readFile(new URL("apps/portal/src/lib/actions/video-conversation.ts", root), "utf8"),
   readFile(new URL("apps/portal/src/lib/actions/meeting-bot.ts", root), "utf8"),
   readFile(new URL("apps/portal/src/app/api/leads/video-session/route.ts", root), "utf8"),
@@ -11,6 +11,8 @@ const [videoActions, meetingActions, leadRoute, recallRoute, presentationClient,
   readFile(new URL("apps/portal/src/app/(app)/agentes/[id]/testar/presentation-room.tsx", root), "utf8"),
   readFile(new URL("apps/portal/src/app/(app)/agentes/[id]/testar/video-call.tsx", root), "utf8"),
   readFile(new URL("database/supabase-only/0043_portal_runtime_bridge_contract.sql", root), "utf8"),
+  readFile(new URL("apps/portal/src/lib/actions/business-action-tool-call.ts", root), "utf8"),
+  readFile(new URL("apps/portal/src/app/(app)/agentes/[id]/testar/tool-call-dispatcher.ts", root), "utf8"),
 ]);
 
 function appearsBefore(source, first, second, message) {
@@ -64,4 +66,17 @@ test("video-call.tsx (post ADR-041 Daily migration) also cannot mutate scene or 
   assert.match(handler, /dispatchToolCall\(\{ agentId, commandId, mode: "video", message \}\)/);
   assert.match(videoClient, /createCallObject/);
   assert.match(videoClient, /app-message/);
+});
+
+test("ADR-041: attaching/creating a Tavus tool is an account operation, never reachable from the live tool-call runtime", () => {
+  // Same invariant tests/portal/m5-01-integrity.test.mjs already enforces
+  // for attachToolsToPersona on agent-video.ts (line 58), extended to the
+  // two new Server Action/dispatcher files this ADR introduces and to the
+  // two new provider-tavus functions provision-tavus-business-tools.mjs
+  // uses: attaching/creating a tool changes what EVERY future conversation
+  // on that persona can invoke, for every tenant/session -- it must never
+  // be reachable from a per-call code path.
+  const forbidden = /createTavusVideoConversationPort\(|\.attachToolsToPersona\(|createTavusTool\(|listTavusTools\(|findTavusToolByExactName\(/;
+  assert.doesNotMatch(businessActionToolCall, forbidden);
+  assert.doesNotMatch(toolCallDispatcher, forbidden);
 });
