@@ -29,6 +29,18 @@ const SIGNUP_RATE_LIMIT_MAX = 5;
 const SIGNIN_RATE_LIMIT_WINDOW_MS = 60_000;
 const SIGNIN_RATE_LIMIT_MAX = 10;
 
+/**
+ * requestPasswordReset era a única ação de auth sem teto de app (achado
+ * confirmado por revisão adversarial, 2026-08-26): sem isto, um script podia
+ * bater em /recuperar-senha sem limite, esgotando o teto compartilhado de
+ * 30 e-mails/hora do projeto inteiro na Supabase (D-V2-063) — atrapalhando
+ * confirmação de cadastro e convite de QUALQUER tenant. 5/hora por IP mantém
+ * a mesma resposta indistinguível de sempre (nunca revela se a conta existe)
+ * e ainda deixa folga generosa pro reenvio genuíno de um usuário real.
+ */
+const PASSWORD_RESET_RATE_LIMIT_WINDOW_MS = 60 * 60_000;
+const PASSWORD_RESET_RATE_LIMIT_MAX = 5;
+
 async function clientIp(): Promise<string> {
   const requestHeaders = await headers();
   const forwardedFor = requestHeaders.get("x-forwarded-for");
@@ -127,6 +139,10 @@ export async function requestPasswordReset(
   _prevState: PasswordResetRequestState,
   formData: FormData,
 ): Promise<PasswordResetRequestState> {
+  if (isRateLimited(`password-reset:${await clientIp()}`, PASSWORD_RESET_RATE_LIMIT_WINDOW_MS, PASSWORD_RESET_RATE_LIMIT_MAX)) {
+    return { error: RATE_LIMIT_MESSAGE, sent: false };
+  }
+
   const email = String(formData.get("email") ?? "").trim();
   if (email.length === 0) return { error: "Informe seu e-mail.", sent: false };
 
