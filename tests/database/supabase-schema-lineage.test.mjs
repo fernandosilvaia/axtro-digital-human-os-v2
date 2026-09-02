@@ -9,15 +9,15 @@ async function sha256(filename) {
   return createHash("sha256").update(await readFile(new URL(filename, migrationDirectory))).digest("hex");
 }
 
-test("Supabase lineage is contiguous through v59 and immutable historical blobs keep their checksums", async () => {
+test("Supabase lineage is contiguous through v60 and immutable historical blobs keep their checksums", async () => {
   const migrations = (await readdir(migrationDirectory))
     .filter((name) => /^\d{4}_.+\.sql$/.test(name))
     .sort();
 
-  assert.equal(migrations.length, 59);
+  assert.equal(migrations.length, 60);
   assert.deepEqual(
     migrations.map((name) => Number(name.slice(0, 4))),
-    Array.from({ length: 59 }, (_, index) => index + 1),
+    Array.from({ length: 60 }, (_, index) => index + 1),
   );
   assert.equal(migrations[48], "0049_portal_text_preview_admission.sql");
   assert.equal(migrations[49], "0050_meeting_terminal_notification_claim.sql");
@@ -31,6 +31,33 @@ test("Supabase lineage is contiguous through v59 and immutable historical blobs 
   );
   assert.equal(migrations[57], "0058_portal_text_preview_authority_repair.sql");
   assert.equal(migrations[58], "0059_data_governance_disposition_workflow.sql");
+  assert.equal(migrations[59], "0060_business_action_meeting_slot_lookup.sql");
+});
+
+test("v60 resolves a proposal's slotIndex to slot_id through a read-only, service_role-only, anti-oracle lookup", async () => {
+  const migration = await readFile(
+    new URL("0060_business_action_meeting_slot_lookup.sql", migrationDirectory),
+    "utf8",
+  );
+
+  assert.match(migration, /create or replace function public\.portal_business_action_resolve_meeting_slot_service\(/);
+  assert.match(migration, /language sql stable security definer/);
+  assert.match(migration, /'outcome','not_found'/);
+  assert.match(migration, /'outcome','found','slotId',s\.id,'startAt',s\.start_at,'endAt',s\.end_at,'timezone',s\.timezone/);
+  assert.match(migration, /left join public\.portal_business_action_proposal_slots s\s*\n\s*on s\.tenant_id=p_tenant_id and s\.proposal_id=p_proposal_id and s\.slot_index=p_slot_index/);
+  assert.match(
+    migration,
+    /revoke all on function public\.portal_business_action_resolve_meeting_slot_service\(app\.uuid_v7,app\.uuid_v7,integer\) from public,anon,authenticated,service_role;/,
+  );
+  assert.match(
+    migration,
+    /grant execute on function public\.portal_business_action_resolve_meeting_slot_service\(app\.uuid_v7,app\.uuid_v7,integer\) to service_role;/,
+  );
+  // Same precedent 0055 already documented for itself: no caller branches on whether this fix is
+  // live, so this migration deliberately never redefines portal_schema_capabilities_service()
+  // (the migration's own header comment names it only in prose, explaining that omission).
+  assert.doesNotMatch(migration, /create or replace function public\.portal_schema_capabilities_service/);
+  assert.doesNotMatch(migration, /alter function public\.portal_schema_capabilities_service/);
 });
 
 test("v59 keeps disposition admission, execution and evidence fail closed", async () => {

@@ -32,50 +32,27 @@
  *      tool call sem tool_result (Art. 14): sempre volta a categoria
  *      "Handoff".
  *
- * LIMITAÇÕES CONHECIDAS DESTA ONDA (documentadas aqui de propósito, ver
- * também o handoff/relatório da onda):
- *
- * - propose_meeting_slots nunca chama proposeBusinessMeetingSlots nesta
- *   onda. A ADR-041 pede uma consulta real de FreeBusy ao Google
- *   (computeGoogleCalendarAvailableSlots) antes de ter o que persistir; essa
- *   peça não existe neste worktree hoje (confirmado por busca: não há
- *   apps/portal/src/lib/google-calendar/availability.ts nem qualquer
- *   computeGoogleCalendarAvailableSlots em packages/provider-google-calendar
- *   ou em apps/portal). Inventar uma lista de horários sem disponibilidade
- *   real seria pior que recusar: um horário "livre" fabricado que na
- *   verdade está ocupado quebra a promessa de nunca inventar dado (Art. 3).
- *   Por isso esta tool sempre devolve a categoria Handoff aqui, sem tocar a
- *   RPC de persistência -- mesma decisão que a própria ADR-041 já autoriza
- *   explicitamente para esta onda.
- *
- * - confirm_meeting_slot também nunca chama reserveBusinessMeetingSlot
- *   nesta onda, por um motivo DIFERENTE, descoberto durante a implementação
- *   (não estava documentado na ADR): o JSON Schema de confirm_meeting_slot
- *   ("Contrato das tools") pede ao modelo um slotIndex (inteiro, a posição
- *   0-based do horário que ele leu em voz alta), mas
- *   portal_reserve_business_meeting_slot_service (0052) exige p_slot_id (um
- *   app.uuid_v7 -- a chave real da linha em
- *   portal_business_action_proposal_slots). Não existe hoje nenhuma RPC de
- *   leitura que resolva (tenantId, proposalId, slotIndex) -> slot_id; a
- *   0052 não expõe portal_business_action_proposal_slots para leitura
- *   alguma (revoke all ... from public,anon,authenticated,service_role,
- *   igual a toda outra tabela deste domínio -- só uma função security
- *   definer consegue ler). Como propose_meeting_slots também nunca persiste
- *   uma proposta real nesta onda (limitação acima), essa tradução seria
- *   sempre inalcançável de qualquer forma: não existe proposta real para
- *   resolver o índice contra. Adicionar a RPC de leitura que falta é uma
- *   migration nova -- fora do escopo desta onda ("nenhuma migration nova
- *   nesta onda"). reserveBusinessMeetingSlot em portal-business-action-bridge.ts
- *   está implementado e testado isoladamente (com slotId já resolvido),
- *   pronto para ser ligado aqui assim que essa RPC de leitura existir.
+ * propose_meeting_slots chama proposeGoogleCalendarMeetingSlots (consulta
+ * real de FreeBusy ao Google via computeGoogleCalendarAvailableSlots +
+ * persistência pela RPC 0052), e confirm_meeting_slot resolve o slotIndex
+ * 0-based do modelo para o slot_id real via resolveBusinessActionMeetingSlot
+ * (migration 0060) antes de chamar reserveBusinessMeetingSlot. O texto de
+ * sucesso de confirm_meeting_slot permanece fora de escopo (ver ADR-041:
+ * auto_confirm_scheduling é false em todo tenant hoje, então "reserved"/
+ * "replayed" nunca correspondem a uma reunião de fato confirmada no Google
+ * -- só auto_confirm_disabled, um código de Handoff, é alcançável agora).
  */
 
+import { formatDateTime } from "@/lib/format-date";
+import { proposeGoogleCalendarMeetingSlots } from "@/lib/google-calendar/propose-meeting-slots";
 import { paidEffectIntentKey } from "@/lib/paid-effects";
 import { fetchAgents, fetchTenantOverview } from "@/lib/portal-data";
 import { deterministicBusinessActionCommandId } from "@/lib/runtime/business-action-command-id";
 import {
   admitBusinessAction,
   registerBusinessLead,
+  resolveBusinessActionMeetingSlot,
+  reserveBusinessMeetingSlot,
   type PortalBusinessActionKind,
   type PortalBusinessActionRejectionCode,
 } from "@/lib/runtime/portal-business-action-bridge";
@@ -102,6 +79,9 @@ export interface BusinessActionToolCallDependencies {
   readonly resolveLiveBusinessActionCallContext?: typeof resolveLiveBusinessActionCallContext;
   readonly admitBusinessAction?: typeof admitBusinessAction;
   readonly registerBusinessLead?: typeof registerBusinessLead;
+  readonly proposeGoogleCalendarMeetingSlots?: typeof proposeGoogleCalendarMeetingSlots;
+  readonly resolveBusinessActionMeetingSlot?: typeof resolveBusinessActionMeetingSlot;
+  readonly reserveBusinessMeetingSlot?: typeof reserveBusinessMeetingSlot;
   readonly timeoutMs?: number;
 }
 
@@ -133,6 +113,19 @@ function declaredOutcome(category: "retryable" | "handoff" | "session_not_found"
 /** Every declared rejection reason not explicitly "retomável" in the ADR-041 table defaults to Handoff -- the safe bucket. */
 function categorizeRejection(code: PortalBusinessActionRejectionCode): "retryable" | "handoff" {
   return RETRYABLE_REJECTION_CODES.has(code) ? "retryable" : "handoff";
+}
+
+/**
+ * ADR-041 ("Sucesso" row) só prescreve texto literal para register_lead;
+ * para propose_meeting_slots pede "lista formatada dos horários oferecidos,
+ * para o modelo ler em voz alta" -- sem string fixa. O índice 0-based aqui é
+ * deliberado: é exatamente o índice que confirm_meeting_slot's slotIndex
+ * espera de volta (mesma numeração, nunca a leitura 1-based natural de uma
+ * lista falada), então o texto já ensina o modelo a citar o índice certo.
+ */
+function formatProposedSlotsText(slots: readonly { readonly startAt: string; readonly timezone: string }[]): string {
+  const lines = slots.map((slot, index) => `Horário ${index}: ${formatDateTime(slot.startAt, slot.timezone)}`);
+  return `Horários disponíveis:\n${lines.join("\n")}`;
 }
 
 function isPlainObject(value: unknown): value is Record<string, unknown> {
@@ -212,11 +205,14 @@ interface ConfirmMeetingSlotArgs {
   readonly contactEmail: string;
 }
 
+/** Upper bound mirrors portal_business_action_proposal_slots_index_chk (0052: "slot_index between 0 and 49") -- rejecting here, before the RPC, keeps an out-of-range slotIndex a normal schema violation instead of a Postgres constraint error surfacing through resolveBusinessActionMeetingSlot. */
+const MAX_SLOT_INDEX = 49;
+
 function validateConfirmMeetingSlotArgs(value: Record<string, unknown>): ConfirmMeetingSlotArgs | null {
   const proposalId = value.proposalId;
   if (typeof proposalId !== "string" || proposalId.length === 0) return null;
   const slotIndex = value.slotIndex;
-  if (typeof slotIndex !== "number" || !Number.isInteger(slotIndex) || slotIndex < 0) return null;
+  if (typeof slotIndex !== "number" || !Number.isInteger(slotIndex) || slotIndex < 0 || slotIndex > MAX_SLOT_INDEX) return null;
   const contactEmail = value.contactEmail;
   if (typeof contactEmail !== "string" || contactEmail.length > MAX_EMAIL_CHARS || !EMAIL_PATTERN.test(contactEmail)) return null;
   return Object.freeze({ proposalId, slotIndex, contactEmail });
@@ -304,9 +300,52 @@ async function admitAndDispatchBusinessAction(
     return declaredOutcome(categorizeRejection(result.code));
   }
 
-  // propose_meeting_slots e confirm_meeting_slot: limitações desta onda documentadas no cabeçalho do arquivo.
-  // Ambas passam pela admissão (grant fica registrado, kill switch/consentimento continuam valendo), mas a RPC
-  // de negócio em si não é chamada nesta onda -- por dois motivos DIFERENTES e documentados acima.
+  if (actionKind === "propose_meeting_slots") {
+    const args = validatedArgs as ProposeMeetingSlotsArgs;
+    const result = await dependencies.proposeGoogleCalendarMeetingSlots({
+      tenantId,
+      agentId,
+      sessionId,
+      presenterId,
+      grantId: grant.grantId,
+      durationMinutes: args.durationMinutes,
+      contactName: args.contactName ?? null,
+      contactEmail: args.contactEmail ?? null,
+    });
+    if (result.outcome === "succeeded") return successResult(formatProposedSlotsText(result.slots));
+    if (result.outcome === "rejected") return declaredOutcome(categorizeRejection(result.reason as PortalBusinessActionRejectionCode));
+    // not_connected/no_availability/reauth_required/provider_error/service_unavailable: nenhum é
+    // retentável com um novo propose_meeting_slots (Art. 3 -- nenhum é "o horário já não vale mais",
+    // é a conexão/o provider/o serviço que não está disponível agora) -- mesmo bucket Handoff que a
+    // ADR-041 já usa para calendar_not_connected/service_unavailable em confirm_meeting_slot.
+    return declaredOutcome("handoff");
+  }
+
+  // actionKind === "confirm_meeting_slot"
+  const args = validatedArgs as ConfirmMeetingSlotArgs;
+  const resolved = await dependencies.resolveBusinessActionMeetingSlot({
+    tenantId,
+    proposalId: args.proposalId,
+    slotIndex: args.slotIndex,
+  });
+  if (resolved.outcome === "service_unavailable") return declaredOutcome("handoff");
+  if (resolved.outcome === "not_found") {
+    // portal_business_action_resolve_meeting_slot_service (0060) colapsa de propósito toda causa de
+    // "não encontrado" (proposta inexistente, de outro tenant, ou índice fora do que foi ofertado) no
+    // mesmo outcome anti-oráculo -- tratado aqui como slot_not_offered, o bucket retomável da ADR-041
+    // que já cobre exatamente essa situação: "ofereça consultar novos horários com propose_meeting_slots".
+    return declaredOutcome(categorizeRejection("slot_not_offered"));
+  }
+  const reservation = await dependencies.reserveBusinessMeetingSlot({
+    grant,
+    proposalId: args.proposalId,
+    slotId: resolved.slotId,
+    contactEmail: args.contactEmail,
+  });
+  if (reservation.outcome === "rejected") return declaredOutcome(categorizeRejection(reservation.code));
+  // "reserved"/"replayed": ADR-041 declara o texto de sucesso genuíno fora de escopo desta onda -- nenhum
+  // tenant tem auto_confirm_scheduling=true hoje, então uma reserva real nunca significa reunião
+  // confirmada no Google (só auto_confirm_disabled, um código de Handoff, é alcançável em produção agora).
   return declaredOutcome("handoff");
 }
 
@@ -390,6 +429,9 @@ export async function executeBusinessActionToolCall(
     resolveLiveBusinessActionCallContext: dependencies.resolveLiveBusinessActionCallContext ?? resolveLiveBusinessActionCallContext,
     admitBusinessAction: dependencies.admitBusinessAction ?? admitBusinessAction,
     registerBusinessLead: dependencies.registerBusinessLead ?? registerBusinessLead,
+    proposeGoogleCalendarMeetingSlots: dependencies.proposeGoogleCalendarMeetingSlots ?? proposeGoogleCalendarMeetingSlots,
+    resolveBusinessActionMeetingSlot: dependencies.resolveBusinessActionMeetingSlot ?? resolveBusinessActionMeetingSlot,
+    reserveBusinessMeetingSlot: dependencies.reserveBusinessMeetingSlot ?? reserveBusinessMeetingSlot,
   };
   try {
     return await Promise.race([

@@ -5,6 +5,7 @@ import { test } from "node:test";
 
 import ts from "typescript";
 
+import { formatDateTime } from "../../apps/portal/src/lib/format-date.ts";
 import { deterministicBusinessActionCommandId } from "../../apps/portal/src/lib/runtime/business-action-command-id.ts";
 import { isBusinessActionToolName } from "../../apps/portal/src/lib/runtime/tool-call-names.ts";
 
@@ -46,6 +47,14 @@ const SESSION_ID = "019b0000-0000-7000-8000-000000000003";
 const PRESENTER_ID = "019b0000-0000-7000-8000-000000000004";
 const GRANT_ID = "019b0000-0000-7000-8000-000000000005";
 const LEAD_ID = "019b0000-0000-7000-8000-000000000006";
+const PROPOSAL_ID = "019b0000-0000-7000-8000-000000000007";
+const RECEIPT_ID = "019b0000-0000-7000-8000-000000000008";
+const SLOT_ID = "019b0000-0000-7000-8000-000000000009";
+const RESERVATION_ID = "019b0000-0000-7000-8000-00000000000a";
+const DEFAULT_PROPOSED_SLOTS = [
+  { id: "019b0000-0000-7000-8000-000000000101", startAt: "2026-09-02T13:00:00.000Z", endAt: "2026-09-02T13:30:00.000Z", timezone: "America/Sao_Paulo" },
+  { id: "019b0000-0000-7000-8000-000000000102", startAt: "2026-09-02T14:00:00.000Z", endAt: "2026-09-02T14:30:00.000Z", timezone: "America/Sao_Paulo" },
+];
 
 function defaultGrant(input) {
   return {
@@ -61,7 +70,7 @@ function defaultGrant(input) {
 }
 
 function loadBusinessActionToolCall(options = {}) {
-  const calls = { fetchOverview: 0, fetchAgents: 0, liveContext: [], admit: [], registerLead: [] };
+  const calls = { fetchOverview: 0, fetchAgents: 0, liveContext: [], admit: [], registerLead: [], proposeMeetingSlots: [], resolveSlot: [], reserveSlot: [] };
   const overview = options.overview ?? { provisioned: true, tenant: { id: TENANT_ID } };
   const agents = options.agents ?? [{ id: AGENT_ID }];
   const liveContextResult = options.liveContextResult ?? {
@@ -112,7 +121,28 @@ function loadBusinessActionToolCall(options = {}) {
         if (typeof options.registerLead === "function") return options.registerLead(input);
         return options.registerLeadResult ?? { outcome: "registered", code: "registered", leadId: LEAD_ID };
       },
+      async resolveBusinessActionMeetingSlot(input) {
+        calls.resolveSlot.push(input);
+        if (typeof options.resolveSlot === "function") return options.resolveSlot(input);
+        return options.resolveSlotResult ?? { outcome: "found", slotId: SLOT_ID, startAt: DEFAULT_PROPOSED_SLOTS[0].startAt, endAt: DEFAULT_PROPOSED_SLOTS[0].endAt, timezone: DEFAULT_PROPOSED_SLOTS[0].timezone };
+      },
+      async reserveBusinessMeetingSlot(input) {
+        calls.reserveSlot.push(input);
+        if (typeof options.reserveSlot === "function") return options.reserveSlot(input);
+        return options.reserveSlotResult ?? {
+          outcome: "reserved", code: "reserved", reservationId: RESERVATION_ID, googleEventId: "google-event-1", googleCalendarId: null,
+          startAt: DEFAULT_PROPOSED_SLOTS[0].startAt, endAt: DEFAULT_PROPOSED_SLOTS[0].endAt, timezone: DEFAULT_PROPOSED_SLOTS[0].timezone,
+        };
+      },
     }],
+    ["@/lib/google-calendar/propose-meeting-slots", {
+      async proposeGoogleCalendarMeetingSlots(input) {
+        calls.proposeMeetingSlots.push(input);
+        if (typeof options.proposeMeetingSlots === "function") return options.proposeMeetingSlots(input);
+        return options.proposeMeetingSlotsResult ?? { outcome: "succeeded", proposalId: PROPOSAL_ID, receiptId: RECEIPT_ID, slots: DEFAULT_PROPOSED_SLOTS };
+      },
+    }],
+    ["@/lib/format-date", { formatDateTime }],
   ]);
 
   const compiled = ts.transpileModule(actionSource, {
@@ -188,29 +218,125 @@ test("register_lead registration rejection maps to the Handoff text", async () =
 });
 
 // ---------------------------------------------------------------------------
-// propose_meeting_slots / confirm_meeting_slot: onda B short-circuit
+// propose_meeting_slots
 // ---------------------------------------------------------------------------
 
-test("propose_meeting_slots is admitted (grant recorded) but never reaches the calendar RPC this wave -- Handoff", async () => {
+test("propose_meeting_slots succeeds and returns a formatted, 0-based-indexed slot list for the model to read aloud", async () => {
   const { actions, calls } = loadBusinessActionToolCall();
+  const result = await actions.executeBusinessActionToolCall(
+    AGENT_ID, "019b0000-0000-7000-8000-0000000000c1", "presentation", "propose_meeting_slots", "tavus-call-1",
+    JSON.stringify({ durationMinutes: 30, contactName: "Ana Prospect", contactEmail: "ana@example.test" }),
+  );
+  assert.equal(result.status, "success");
+  assert.equal(
+    result.output,
+    `Horários disponíveis:\nHorário 0: ${formatDateTime(DEFAULT_PROPOSED_SLOTS[0].startAt, DEFAULT_PROPOSED_SLOTS[0].timezone)}\nHorário 1: ${formatDateTime(DEFAULT_PROPOSED_SLOTS[1].startAt, DEFAULT_PROPOSED_SLOTS[1].timezone)}`,
+  );
+  assert.equal(calls.proposeMeetingSlots.length, 1);
+  assert.equal(calls.proposeMeetingSlots[0].grantId, GRANT_ID, "the grant issued by admission must flow into the calendar orchestration, never a fresh/fabricated id");
+  assert.equal(calls.proposeMeetingSlots[0].durationMinutes, 30);
+  assert.equal(calls.proposeMeetingSlots[0].contactEmail, "ana@example.test");
+});
+
+test("propose_meeting_slots is admitted (grant recorded) even when the calendar RPC itself is never reached because it rejects", async () => {
+  const { actions, calls } = loadBusinessActionToolCall({ proposeMeetingSlotsResult: { outcome: "rejected", reason: "grant_expired" } });
   const result = await actions.executeBusinessActionToolCall(
     AGENT_ID, "019b0000-0000-7000-8000-0000000000c1", "presentation", "propose_meeting_slots", "tavus-call-1",
     JSON.stringify({ durationMinutes: 30 }),
   );
   assertResult(result, { status: "error", output: "Ação indisponível agora. Ofereça transferir para o time humano, com a doutrina de handoff já definida." });
-  assert.equal(calls.admit.length, 1, "the grant is still recorded even though this wave never calls the calendar RPC");
+  assert.equal(calls.admit.length, 1, "the grant is still recorded even though the calendar RPC itself rejects");
   assert.equal(calls.admit[0].actionKind, "propose_meeting_slots");
 });
 
-test("confirm_meeting_slot is admitted (grant recorded) but never reaches the calendar RPC this wave -- Handoff", async () => {
+for (const outcome of ["not_connected", "no_availability", "reauth_required", "service_unavailable"]) {
+  test(`propose_meeting_slots maps a declared "${outcome}" outcome to Handoff -- none of these are retryable by calling propose_meeting_slots again with different arguments`, async () => {
+    const { actions } = loadBusinessActionToolCall({ proposeMeetingSlotsResult: { outcome } });
+    const result = await actions.executeBusinessActionToolCall(
+      AGENT_ID, "019b0000-0000-7000-8000-0000000000c1", "presentation", "propose_meeting_slots", "tavus-call-1",
+      JSON.stringify({ durationMinutes: 30 }),
+    );
+    assertResult(result, { status: "error", output: "Ação indisponível agora. Ofereça transferir para o time humano, com a doutrina de handoff já definida." });
+  });
+}
+
+// ---------------------------------------------------------------------------
+// confirm_meeting_slot
+// ---------------------------------------------------------------------------
+
+test("confirm_meeting_slot resolves the model's 0-based slotIndex to a real slotId before reserving, and its genuine reservation is still Handoff this wave (ADR-041: auto_confirm_scheduling is false for every tenant today)", async () => {
   const { actions, calls } = loadBusinessActionToolCall();
   const result = await actions.executeBusinessActionToolCall(
     AGENT_ID, "019b0000-0000-7000-8000-0000000000c1", "presentation", "confirm_meeting_slot", "tavus-call-1",
-    JSON.stringify({ proposalId: "proposal-1", slotIndex: 0, contactEmail: "ana@example.test" }),
+    JSON.stringify({ proposalId: PROPOSAL_ID, slotIndex: 0, contactEmail: "ana@example.test" }),
   );
   assertResult(result, { status: "error", output: "Ação indisponível agora. Ofereça transferir para o time humano, com a doutrina de handoff já definida." });
-  assert.equal(calls.admit.length, 1);
-  assert.equal(calls.admit[0].actionKind, "confirm_meeting_slot");
+  assert.equal(calls.resolveSlot.length, 1);
+  assert.equal(calls.resolveSlot[0].proposalId, PROPOSAL_ID);
+  assert.equal(calls.resolveSlot[0].slotIndex, 0);
+  assert.equal(calls.reserveSlot.length, 1);
+  assert.equal(calls.reserveSlot[0].slotId, SLOT_ID, "the resolved slotId, never the model's raw slotIndex, must reach reserveBusinessMeetingSlot");
+  assert.equal(calls.reserveSlot[0].proposalId, PROPOSAL_ID);
+  assert.equal(calls.reserveSlot[0].contactEmail, "ana@example.test");
+});
+
+test("confirm_meeting_slot treats a replayed reservation the same as a fresh one -- still Handoff, never a fabricated success text", async () => {
+  const { actions } = loadBusinessActionToolCall({
+    reserveSlotResult: { outcome: "replayed", code: "replayed", reservationId: RESERVATION_ID, state: "reserved", googleEventId: null },
+  });
+  const result = await actions.executeBusinessActionToolCall(
+    AGENT_ID, "019b0000-0000-7000-8000-0000000000c1", "presentation", "confirm_meeting_slot", "tavus-call-1",
+    JSON.stringify({ proposalId: PROPOSAL_ID, slotIndex: 0, contactEmail: "ana@example.test" }),
+  );
+  assertResult(result, { status: "error", output: "Ação indisponível agora. Ofereça transferir para o time humano, com a doutrina de handoff já definida." });
+});
+
+test("confirm_meeting_slot maps an unresolved slotIndex/proposal (0060's anti-oracle not_found) to the retryable text, and never calls reserveBusinessMeetingSlot", async () => {
+  const { actions, calls } = loadBusinessActionToolCall({ resolveSlotResult: { outcome: "not_found" } });
+  const result = await actions.executeBusinessActionToolCall(
+    AGENT_ID, "019b0000-0000-7000-8000-0000000000c1", "presentation", "confirm_meeting_slot", "tavus-call-1",
+    JSON.stringify({ proposalId: PROPOSAL_ID, slotIndex: 3, contactEmail: "ana@example.test" }),
+  );
+  assertResult(result, { status: "error", output: "Esse horário não está mais disponível. Ofereça consultar novos horários com propose_meeting_slots." });
+  assert.equal(calls.reserveSlot.length, 0);
+});
+
+test("confirm_meeting_slot maps a resolve-layer service_unavailable to Handoff, and never calls reserveBusinessMeetingSlot", async () => {
+  const { actions, calls } = loadBusinessActionToolCall({ resolveSlotResult: { outcome: "service_unavailable" } });
+  const result = await actions.executeBusinessActionToolCall(
+    AGENT_ID, "019b0000-0000-7000-8000-0000000000c1", "presentation", "confirm_meeting_slot", "tavus-call-1",
+    JSON.stringify({ proposalId: PROPOSAL_ID, slotIndex: 0, contactEmail: "ana@example.test" }),
+  );
+  assertResult(result, { status: "error", output: "Ação indisponível agora. Ofereça transferir para o time humano, com a doutrina de handoff já definida." });
+  assert.equal(calls.reserveSlot.length, 0);
+});
+
+test("confirm_meeting_slot maps reserveBusinessMeetingSlot's slot_conflict rejection to the retryable text", async () => {
+  const { actions } = loadBusinessActionToolCall({ reserveSlotResult: { outcome: "rejected", code: "slot_conflict" } });
+  const result = await actions.executeBusinessActionToolCall(
+    AGENT_ID, "019b0000-0000-7000-8000-0000000000c1", "presentation", "confirm_meeting_slot", "tavus-call-1",
+    JSON.stringify({ proposalId: PROPOSAL_ID, slotIndex: 0, contactEmail: "ana@example.test" }),
+  );
+  assertResult(result, { status: "error", output: "Esse horário não está mais disponível. Ofereça consultar novos horários com propose_meeting_slots." });
+});
+
+test("confirm_meeting_slot maps reserveBusinessMeetingSlot's calendar_not_connected rejection to Handoff", async () => {
+  const { actions } = loadBusinessActionToolCall({ reserveSlotResult: { outcome: "rejected", code: "calendar_not_connected" } });
+  const result = await actions.executeBusinessActionToolCall(
+    AGENT_ID, "019b0000-0000-7000-8000-0000000000c1", "presentation", "confirm_meeting_slot", "tavus-call-1",
+    JSON.stringify({ proposalId: PROPOSAL_ID, slotIndex: 0, contactEmail: "ana@example.test" }),
+  );
+  assertResult(result, { status: "error", output: "Ação indisponível agora. Ofereça transferir para o time humano, com a doutrina de handoff já definida." });
+});
+
+test("confirm_meeting_slot rejects a slotIndex above the table's own 0..49 bound before admission", async () => {
+  const { actions, calls } = loadBusinessActionToolCall();
+  const result = await actions.executeBusinessActionToolCall(
+    AGENT_ID, "019b0000-0000-7000-8000-0000000000c1", "presentation", "confirm_meeting_slot", "tavus-call-1",
+    JSON.stringify({ proposalId: PROPOSAL_ID, slotIndex: 50, contactEmail: "ana@example.test" }),
+  );
+  assert.equal(result.status, "error");
+  assert.equal(calls.admit.length, 0);
 });
 
 // ---------------------------------------------------------------------------

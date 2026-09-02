@@ -20,7 +20,7 @@ function admissionInput(overrides = {}) {
   };
 }
 
-function fakeBridge({ admission = null, registration = null, proposal = null, reservation = null, idGenerator = null } = {}) {
+function fakeBridge({ admission = null, registration = null, proposal = null, resolveSlot = null, reservation = null, idGenerator = null, env = null } = {}) {
   const calls = [];
   let index = 5;
   const rpc = {
@@ -38,6 +38,13 @@ function fakeBridge({ admission = null, registration = null, proposal = null, re
         data: proposal ?? { outcome: "succeeded", proposalId: parameters.p_proposal_id, receiptId: parameters.p_receipt_id },
         error: null,
       };
+      if (name === "portal_business_action_resolve_meeting_slot_service") return {
+        data: resolveSlot ?? {
+          outcome: "found", slotId: IDS[8],
+          startAt: "2026-09-01T13:00:00.000Z", endAt: "2026-09-01T13:30:00.000Z", timezone: "America/Sao_Paulo",
+        },
+        error: null,
+      };
       if (name === "portal_reserve_business_meeting_slot_service") return {
         data: reservation ?? {
           outcome: "reserved", reservationId: parameters.p_reservation_id, state: "reserved",
@@ -50,7 +57,7 @@ function fakeBridge({ admission = null, registration = null, proposal = null, re
     },
   };
   const bridge = createPortalBusinessActionBridge({
-    rpc, env: { PORTAL_BUSINESS_ACTION_BRIDGE_ENABLED: "true" },
+    rpc, env: env ?? { PORTAL_BUSINESS_ACTION_BRIDGE_ENABLED: "true" },
     idGenerator: idGenerator ?? (() => IDS[index++]),
   });
   return { bridge, calls };
@@ -290,6 +297,62 @@ test("proposeBusinessMeetingSlots maps declared RPC rejection reasons verbatim a
     slots: [{ id: SLOT_A, startAt: "2026-09-01T13:00:00.000Z", endAt: "2026-09-01T13:30:00.000Z" }],
   });
   assert.deepEqual(unknownResult, { outcome: "rejected", code: "grant_invalid" });
+});
+
+// ---------------------------------------------------------------------------
+// resolveBusinessActionMeetingSlot (0060) -- translates the model's 0-based
+// slotIndex into the slot_id reserveBusinessMeetingSlot requires.
+// ---------------------------------------------------------------------------
+
+test("resolveBusinessActionMeetingSlot returns the slotId and window for a found slot", async () => {
+  const { bridge, calls } = fakeBridge({
+    resolveSlot: { outcome: "found", slotId: SLOT_A, startAt: "2026-09-01T13:00:00.000Z", endAt: "2026-09-01T13:30:00.000Z", timezone: "America/Sao_Paulo" },
+  });
+  const result = await bridge.resolveBusinessActionMeetingSlot({ tenantId: IDS[0], proposalId: IDS[8], slotIndex: 0 });
+  assert.deepEqual(result, { outcome: "found", slotId: SLOT_A, startAt: "2026-09-01T13:00:00.000Z", endAt: "2026-09-01T13:30:00.000Z", timezone: "America/Sao_Paulo" });
+  const call = calls.find((entry) => entry.name === "portal_business_action_resolve_meeting_slot_service");
+  assert.equal(call.parameters.p_tenant_id, IDS[0]);
+  assert.equal(call.parameters.p_proposal_id, IDS[8]);
+  assert.equal(call.parameters.p_slot_index, 0);
+});
+
+test("resolveBusinessActionMeetingSlot returns not_found for an unknown proposal/index, never a distinguishable error", async () => {
+  const { bridge } = fakeBridge({ resolveSlot: { outcome: "not_found" } });
+  const result = await bridge.resolveBusinessActionMeetingSlot({ tenantId: IDS[0], proposalId: IDS[8], slotIndex: 49 });
+  assert.deepEqual(result, { outcome: "not_found" });
+});
+
+test("resolveBusinessActionMeetingSlot maps a malformed found receipt and a wholly unexpected RPC outcome to service_unavailable", async () => {
+  const { bridge: malformedBridge } = fakeBridge({ resolveSlot: { outcome: "found", slotId: SLOT_A } });
+  const malformedResult = await malformedBridge.resolveBusinessActionMeetingSlot({ tenantId: IDS[0], proposalId: IDS[8], slotIndex: 0 });
+  assert.deepEqual(malformedResult, { outcome: "service_unavailable" });
+
+  const { bridge: unexpectedBridge } = fakeBridge({ resolveSlot: { outcome: "something_else" } });
+  const unexpectedResult = await unexpectedBridge.resolveBusinessActionMeetingSlot({ tenantId: IDS[0], proposalId: IDS[8], slotIndex: 0 });
+  assert.deepEqual(unexpectedResult, { outcome: "service_unavailable" });
+});
+
+test("resolveBusinessActionMeetingSlot returns not_found before any RPC when the flag is off (never a distinguishable bridge_disabled)", async () => {
+  const disabledBridge = createPortalBusinessActionBridge({ env: {}, rpc: { rpc: () => { throw new Error("must not be called"); } } });
+  const result = await disabledBridge.resolveBusinessActionMeetingSlot({ tenantId: IDS[0], proposalId: IDS[8], slotIndex: 0 });
+  assert.deepEqual(result, { outcome: "not_found" });
+});
+
+test("resolveBusinessActionMeetingSlot rejects a slotIndex outside the table's own 0..49 bound, before any RPC", async () => {
+  const { bridge, calls } = fakeBridge();
+  await assert.rejects(
+    bridge.resolveBusinessActionMeetingSlot({ tenantId: IDS[0], proposalId: IDS[8], slotIndex: 50 }),
+    /slotIndex is invalid/,
+  );
+  await assert.rejects(
+    bridge.resolveBusinessActionMeetingSlot({ tenantId: IDS[0], proposalId: IDS[8], slotIndex: -1 }),
+    /slotIndex is invalid/,
+  );
+  await assert.rejects(
+    bridge.resolveBusinessActionMeetingSlot({ tenantId: IDS[0], proposalId: IDS[8], slotIndex: 1.5 }),
+    /slotIndex is invalid/,
+  );
+  assert.equal(calls.length, 0);
 });
 
 // ---------------------------------------------------------------------------

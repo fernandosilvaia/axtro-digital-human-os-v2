@@ -18,6 +18,7 @@ export const PORTAL_BUSINESS_ACTION_BRIDGE_RPC = Object.freeze({
   admit: "portal_admit_business_action_service",
   register: "portal_register_business_lead_service",
   propose: "portal_propose_business_meeting_slots_service",
+  resolveSlot: "portal_business_action_resolve_meeting_slot_service",
   reserve: "portal_reserve_business_meeting_slot_service",
 });
 
@@ -134,6 +135,19 @@ export type ProposeBusinessMeetingSlotsResult =
       readonly code: "bridge_disabled" | "grant_invalid" | "kill_switch_active" | "grant_expired" | "grant_scope_mismatch" | "service_unavailable";
     }>;
 
+export interface ResolveBusinessActionMeetingSlotInput {
+  readonly tenantId: string;
+  readonly proposalId: string;
+  /** 0-based, the same index propose_meeting_slots' response implicitly numbers its slots by -- never a raw app.uuid_v7 (ADR-041: the model only ever sees the position it read aloud). */
+  readonly slotIndex: number;
+}
+
+/** Read-only lookup (0060) -- never mutates anything, never admits or checks a grant; a caller still has to admit its own confirm_meeting_slot grant and call reserveBusinessMeetingSlot separately with the slotId this resolves. */
+export type ResolveBusinessActionMeetingSlotResult =
+  | Readonly<{ readonly outcome: "found"; readonly slotId: string; readonly startAt: string; readonly endAt: string; readonly timezone: string }>
+  | Readonly<{ readonly outcome: "not_found" }>
+  | Readonly<{ readonly outcome: "service_unavailable" }>;
+
 export interface ReserveBusinessMeetingSlotInput {
   readonly grant: BusinessActionGrant;
   readonly proposalId: string;
@@ -202,6 +216,7 @@ export interface PortalBusinessActionBridge {
   admitBusinessAction(input: AdmitBusinessActionInput): Promise<AdmitBusinessActionResult>;
   registerBusinessLead(input: RegisterBusinessLeadInput): Promise<RegisterBusinessLeadResult>;
   proposeBusinessMeetingSlots(input: ProposeBusinessMeetingSlotsInput): Promise<ProposeBusinessMeetingSlotsResult>;
+  resolveBusinessActionMeetingSlot(input: ResolveBusinessActionMeetingSlotInput): Promise<ResolveBusinessActionMeetingSlotResult>;
   reserveBusinessMeetingSlot(input: ReserveBusinessMeetingSlotInput): Promise<ReserveBusinessMeetingSlotResult>;
 }
 
@@ -444,6 +459,46 @@ export function createPortalBusinessActionBridge(dependencies: PortalBusinessAct
     }
   };
 
+  /**
+   * Read-only (0060) -- deliberately not gated the same way admit/register/
+   * propose/reserve are wired into a business flow: it never mutates
+   * anything, so "the flag is off" and "genuinely not found" are both safe
+   * to collapse into the same not_found outcome (same anti-oracle
+   * reasoning as the RPC itself). In practice this is moot today: while
+   * PORTAL_BUSINESS_ACTION_BRIDGE_ENABLED is false, admitBusinessAction
+   * already rejects with bridge_disabled before a caller ever has a real
+   * grant to resolve a slot for.
+   */
+  const resolveBusinessActionMeetingSlot = async (input: ResolveBusinessActionMeetingSlotInput): Promise<ResolveBusinessActionMeetingSlotResult> => {
+    if (!processEnabled(env)) return Object.freeze({ outcome: "not_found" });
+    const tenantId = assertUuidV7(input.tenantId, "tenantId");
+    const proposalId = assertUuidV7(input.proposalId, "proposalId");
+    if (!Number.isInteger(input.slotIndex) || input.slotIndex < 0 || input.slotIndex > 49) {
+      throw new PortalBusinessActionBridgeInputError("slotIndex is invalid");
+    }
+
+    try {
+      const receipt = await rpc(client, PORTAL_BUSINESS_ACTION_BRIDGE_RPC.resolveSlot, {
+        p_tenant_id: tenantId,
+        p_proposal_id: proposalId,
+        p_slot_index: input.slotIndex,
+      });
+      if (receipt.outcome === "not_found") return Object.freeze({ outcome: "not_found" });
+      if (receipt.outcome === "found") {
+        const slotId = readString(receipt, "slotId");
+        const startAt = readString(receipt, "startAt");
+        const endAt = readString(receipt, "endAt");
+        const timezone = readString(receipt, "timezone");
+        if (!slotId || !startAt || !endAt || !timezone) return Object.freeze({ outcome: "service_unavailable" });
+        return Object.freeze({ outcome: "found", slotId: assertUuidV7(slotId, "slotId"), startAt, endAt, timezone });
+      }
+      return Object.freeze({ outcome: "service_unavailable" });
+    } catch (error) {
+      if (error instanceof PortalBusinessActionBridgeInputError) throw error;
+      return Object.freeze({ outcome: "service_unavailable" });
+    }
+  };
+
   const reserveBusinessMeetingSlot = async (input: ReserveBusinessMeetingSlotInput): Promise<ReserveBusinessMeetingSlotResult> => {
     if (!processEnabled(env)) return rejection("bridge_disabled");
     const grant = checkedGrant(input.grant);
@@ -521,7 +576,7 @@ export function createPortalBusinessActionBridge(dependencies: PortalBusinessAct
     }
   };
 
-  return Object.freeze({ admitBusinessAction, registerBusinessLead, proposeBusinessMeetingSlots, reserveBusinessMeetingSlot });
+  return Object.freeze({ admitBusinessAction, registerBusinessLead, proposeBusinessMeetingSlots, resolveBusinessActionMeetingSlot, reserveBusinessMeetingSlot });
 }
 
 /** Production convenience wrappers. Prefer an injected bridge in tests. */
@@ -535,6 +590,10 @@ export async function registerBusinessLead(input: RegisterBusinessLeadInput, dep
 
 export async function proposeBusinessMeetingSlots(input: ProposeBusinessMeetingSlotsInput, dependencies?: PortalBusinessActionBridgeDependencies): Promise<ProposeBusinessMeetingSlotsResult> {
   return createPortalBusinessActionBridge(dependencies).proposeBusinessMeetingSlots(input);
+}
+
+export async function resolveBusinessActionMeetingSlot(input: ResolveBusinessActionMeetingSlotInput, dependencies?: PortalBusinessActionBridgeDependencies): Promise<ResolveBusinessActionMeetingSlotResult> {
+  return createPortalBusinessActionBridge(dependencies).resolveBusinessActionMeetingSlot(input);
 }
 
 export async function reserveBusinessMeetingSlot(input: ReserveBusinessMeetingSlotInput, dependencies?: PortalBusinessActionBridgeDependencies): Promise<ReserveBusinessMeetingSlotResult> {
