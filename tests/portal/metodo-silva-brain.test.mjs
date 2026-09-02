@@ -65,6 +65,21 @@ test("video persona prompt mandates emotional mastery with the legal red lines i
   assert.match(en, /Never deny being an AI/);
 });
 
+test("video persona prompt carries doctrine for the 3 business-action tools (ADR-041), never promising a confirmed meeting", () => {
+  const pt = brain.buildCloserVideoSystemPrompt({ agentName: "R", tenantName: "T" });
+  assert.match(pt, /register_lead/);
+  assert.match(pt, /propose_meeting_slots/);
+  assert.match(pt, /confirm_meeting_slot/);
+  assert.match(pt, /NUNCA declare a reunião confirmada por conta própria/);
+  assert.match(pt, /nunca ofereça um horário fora dos que ela trouxe/);
+  const en = brain.buildCloserVideoSystemPrompt({ agentName: "A", tenantName: "T", language: "english" });
+  assert.match(en, /register_lead/);
+  assert.match(en, /propose_meeting_slots/);
+  assert.match(en, /confirm_meeting_slot/);
+  assert.match(en, /NEVER declare the meeting confirmed on your own/);
+  assert.match(en, /never offer a time outside what it returned/);
+});
+
 test("perception queries read emotion, micro-expressions, body language and buying signals (ADR-035)", () => {
   for (const language of ["portuguese", "english"]) {
     const queries = brain.buildPerceptionQueries(language);
