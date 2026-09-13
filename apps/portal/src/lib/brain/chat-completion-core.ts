@@ -18,7 +18,35 @@ import type { TextGenerationMessage, TextGenerationResult } from "@axtro/provide
 import { assertGenerationFitsReservedInput } from "../ai-budget/envelope.ts";
 import { AI_USAGE_LIMITS } from "../ai-budget/reservations.ts";
 
+import { buildLifeInsuranceCore, buildLifeInsuranceIdentity } from "./life-insurance.ts";
 import { buildCloserChatSystemMessages, buildCloserVideoSystemPrompt, type BrainLanguage } from "./metodo-silva.ts";
+
+/**
+ * Vertical de doutrina do agente, vinda de `agent_video_config.closer_vertical`.
+ *
+ * `metodo_silva` e o padrao historico e continua sendo o motor de conducao em
+ * TODAS as verticais. As duas de Life Insurance nao substituem o Metodo, elas
+ * acrescentam o nucleo de dominio regulado por cima dele e trocam a linha de
+ * identidade.
+ *
+ * Valor desconhecido (coluna ausente, tenant com dado velho, enum novo ainda
+ * nao conhecido por este deploy) cai em `metodo_silva` de proposito: degradar
+ * para a doutrina generica e seguro, enquanto assumir a vertical regulada sem
+ * certeza nao e.
+ */
+export type CloserVertical = "metodo_silva" | "life_insurance_qualification" | "life_insurance_recruitment";
+
+function lifeInsuranceModeFor(vertical: CloserVertical | undefined): "qualification" | "recruitment" | undefined {
+  if (vertical === "life_insurance_qualification") return "qualification";
+  if (vertical === "life_insurance_recruitment") return "recruitment";
+  return undefined;
+}
+
+export function parseCloserVertical(value: unknown): CloserVertical {
+  return value === "life_insurance_qualification" || value === "life_insurance_recruitment"
+    ? value
+    : "metodo_silva";
+}
 
 export interface BrainTurn {
   readonly role: "user" | "assistant";
@@ -42,6 +70,7 @@ export interface BrainChatRequest {
   /** "chat" usa o prompt curto do sandbox; "video" usa o prompt rico da persona de vídeo (ritmo curto, leitura emocional, tools de slide). */
   readonly surface: "chat" | "video";
   readonly language?: BrainLanguage;
+  readonly closerVertical?: CloserVertical;
   readonly knowledgeMatches: readonly BrainKnowledgeMatch[];
   /** Bloco de percepção JÁ extraído (ex.: tags do raven-1 via Tavus) — texto livre, nunca instrução. */
   readonly perceptionContext?: string | null;
@@ -268,11 +297,28 @@ export async function runBrainChatCompletion(request: BrainChatRequest, deps: Br
   const perceptionBlock = buildPerceptionBlock(request.perceptionContext);
   const providerContextBlock = buildProviderContextBlock(request.providerContext);
 
+  // A vertical so muda o prompt de VIDEO. O caminho de chat e preview interno
+  // e nao passa por call regulada, entao mante-lo fora daqui evita duplicar a
+  // doutrina em dois lugares que divergiriam com o tempo.
+  const lifeInsuranceMode = lifeInsuranceModeFor(request.closerVertical);
+  const verticalComposition = lifeInsuranceMode === undefined
+    ? {}
+    : {
+      identityOverride: buildLifeInsuranceIdentity({
+        agentName: request.agentName,
+        tenantName: request.tenantName,
+        mode: lifeInsuranceMode,
+        ...(request.language === undefined ? {} : { language: request.language }),
+      }),
+      domainCore: buildLifeInsuranceCore(lifeInsuranceMode, request.language ?? "portuguese"),
+    };
+
   const systemContents = isVideo
     ? splitSystemPrompt(buildCloserVideoSystemPrompt({
       agentName: request.agentName,
       tenantName: request.tenantName,
       ...(request.language === undefined ? {} : { language: request.language }),
+      ...verticalComposition,
     }))
     : buildCloserChatSystemMessages({
       agentName: request.agentName,

@@ -231,9 +231,13 @@ try {
   assert.deepEqual(knowledgeDigestApplied, ["0062"]);
   assertKnowledgeDigestTruncationPhase(databaseUrl);
 
+  const closerVerticalApplied = applySupabaseMigrations(databaseUrl, 63, 63);
+  assert.deepEqual(closerVerticalApplied, ["0063"]);
+  assertCloserVerticalPhase(databaseUrl);
+
   assertMigrationReceiptLineage(databaseUrl);
 
-  console.log("SUPABASE PORTAL INTEGRATION PASSED: migrations 0001-0062 in contiguous order, immutable checksums, grants, RLS, transcripts, reservations, data governance and readiness capability");
+  console.log("SUPABASE PORTAL INTEGRATION PASSED: migrations 0001-0063 in contiguous order, immutable checksums, grants, RLS, transcripts, reservations, data governance and readiness capability");
 } catch (error) {
   primaryError = error;
   throw error;
@@ -271,11 +275,11 @@ function supabaseMigrationInventory() {
   const migrations = readdirSync(supabaseMigrationDirectory)
     .filter((name) => /^\d{4}_.+\.sql$/.test(name))
     .sort();
-  assert.equal(migrations.length, 62, "the harness must cover every Supabase-only migration through 0062");
+  assert.equal(migrations.length, 63, "the harness must cover every Supabase-only migration through 0063");
   assert.deepEqual(
     migrations.map((migration) => Number(migration.slice(0, 4))),
-    Array.from({ length: 62 }, (_, index) => index + 1),
-    "Supabase-only migration versions must be contiguous and unique from 0001 through 0062",
+    Array.from({ length: 63 }, (_, index) => index + 1),
+    "Supabase-only migration versions must be contiguous and unique from 0001 through 0063",
   );
   assert.equal(migrations[48], "0049_portal_text_preview_admission.sql");
   assert.equal(migrations[49], "0050_meeting_terminal_notification_claim.sql");
@@ -284,6 +288,7 @@ function supabaseMigrationInventory() {
   assert.equal(migrations[59], "0060_business_action_meeting_slot_lookup.sql");
   assert.equal(migrations[60], "0061_business_action_session_meeting_slot.sql");
   assert.equal(migrations[61], "0062_knowledge_digest_truncates_instead_of_discarding.sql");
+  assert.equal(migrations[62], "0063_agent_video_config_closer_vertical.sql");
   assert.equal(migrationChecksum(migrations[48]), "79b24e7fdc768a30b02d3596b71799fae484043e37561ddfcd435f46076b3100");
   assert.equal(migrationChecksum(migrations[49]), "262e033328175f704f8cfef1cafdcb0a2ef9b9aac7e4cc86f2b33890044c7224");
   return migrations;
@@ -473,6 +478,51 @@ function assertKnowledgeDigestTruncationPhase(databaseUrl) {
   assertSucceeded(runSql(databaseUrl,
     `DELETE FROM public.knowledge_sources WHERE tenant_id='${fixture.tenantAlpha}' AND id='${sourceId}';`),
     "knowledge digest truncation cleanup");
+}
+
+// D-V2-173: a vertical de doutrina do agente. O valor default e o conjunto
+// fechado importam mais que a coluna: 'metodo_silva' e o unico estado seguro
+// para um agente que ninguem classificou, e um enum aberto deixaria o portal
+// receber uma string qualquer e ter de adivinhar o que fazer com ela.
+function assertCloserVerticalPhase(databaseUrl) {
+  const agentId = "019f0000-0000-7000-8000-000000001140";
+  assertSucceeded(runSql(databaseUrl, `
+    INSERT INTO public.agents(tenant_id,id,name,role_type,status,disclosure_profile_id)
+    VALUES ('${fixture.tenantAlpha}','${agentId}','Closer vertical fixture','sales','active','default');
+    INSERT INTO public.agent_video_config(tenant_id,agent_id,tavus_persona_id,language)
+    VALUES ('${fixture.tenantAlpha}','${agentId}','p000000closer','portuguese');
+  `), "closer vertical fixture");
+
+  // 1) Agente existente nunca vira vertical regulada por acidente.
+  assert.equal(queryScalar(databaseUrl,
+    `SELECT closer_vertical FROM public.agent_video_config WHERE tenant_id='${fixture.tenantAlpha}' AND agent_id='${agentId}';`),
+    "metodo_silva", "toda config de video nasce na doutrina generica");
+
+  // 2) As duas verticais reguladas sao aceitas.
+  for (const vertical of ["life_insurance_qualification", "life_insurance_recruitment"]) {
+    assertSucceeded(runSql(databaseUrl,
+      `UPDATE public.agent_video_config SET closer_vertical='${vertical}' WHERE tenant_id='${fixture.tenantAlpha}' AND agent_id='${agentId}';`),
+      `closer vertical aceita ${vertical}`);
+  }
+
+  // 3) Qualquer outro valor e recusado pelo banco. Sem isto, um typo viraria
+  // uma call em que o portal cai no default e ninguem percebe que a vertical
+  // regulada nunca foi aplicada.
+  assertFailed(runSql(databaseUrl,
+    `UPDATE public.agent_video_config SET closer_vertical='life_insurance' WHERE tenant_id='${fixture.tenantAlpha}' AND agent_id='${agentId}';`),
+    "closer vertical recusa valor fora do conjunto");
+
+  // 4) A RPC do portal passa a expor a vertical, senao a UI nao tem como
+  // mostrar em que doutrina o agente esta.
+  const config = queryJson(databaseUrl, asRoleSql("authenticated", fixture.userAlpha,
+    `SELECT public.portal_agent_video_config('${agentId}');`));
+  assert.equal(config.configured, true);
+  assert.equal(config.closer_vertical, "life_insurance_recruitment",
+    "portal_agent_video_config precisa devolver a vertical junto do resto da config");
+
+  assertSucceeded(runSql(databaseUrl,
+    `DELETE FROM public.agents WHERE tenant_id='${fixture.tenantAlpha}' AND id='${agentId}';`),
+    "closer vertical cleanup");
 }
 
 function assertMigrationReceiptLineage(databaseUrl) {

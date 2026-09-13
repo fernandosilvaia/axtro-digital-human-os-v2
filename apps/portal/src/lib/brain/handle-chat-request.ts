@@ -20,7 +20,7 @@
  *   total do provider parecia 100% saudável na operação).
  */
 import type { BrainLanguage } from "./metodo-silva.ts";
-import { runBrainChatCompletion, type BrainKnowledgeMatch } from "./chat-completion-core.ts";
+import { runBrainChatCompletion, type BrainKnowledgeMatch, type CloserVertical } from "./chat-completion-core.ts";
 import { hashBrainSecret } from "./secret.ts";
 import { parseTavusChatRequest, TavusRequestParseError } from "./tavus-request.ts";
 
@@ -31,6 +31,7 @@ export interface ResolvedBrainAgent {
   readonly tenantName: string;
   readonly enabled: boolean;
   readonly language?: BrainLanguage;
+  readonly closerVertical?: CloserVertical;
 }
 
 export type BudgetVerdict = "allowed" | "exhausted" | "unavailable";
@@ -170,6 +171,7 @@ export async function handleBrainChatRequest(
         tenantName: agent.tenantName,
         surface: "video",
         ...(agent.language === undefined ? {} : { language: agent.language }),
+        ...(agent.closerVertical === undefined ? {} : { closerVertical: agent.closerVertical }),
         knowledgeMatches,
         perceptionContext: parsed.perceptionContext,
         providerContext: parsed.providerContext,

@@ -3,7 +3,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { createUuidV7 } from "@axtro/domain";
 import { createOpenRouterTextGenerationPort } from "@axtro/provider-openrouter";
 
-import type { BrainKnowledgeMatch } from "@/lib/brain/chat-completion-core";
+import { parseCloserVertical, type BrainKnowledgeMatch } from "@/lib/brain/chat-completion-core";
 import type { BrainLanguage } from "@/lib/brain/metodo-silva";
 import { authenticateBrainRequest, BrainHttpError, handleBrainChatRequest, type BudgetVerdict, type ResolvedBrainAgent } from "@/lib/brain/handle-chat-request";
 import {
@@ -91,12 +91,18 @@ async function resolveConfig(secretHash: string): Promise<ResolvedBrainAgent | n
   let language: BrainLanguage | undefined;
   const { data: videoConfig } = await supabase
     .from("agent_video_config")
-    .select("language")
+    .select("language, closer_vertical")
     .eq("tenant_id", record.tenant_id)
     .eq("agent_id", record.agent_id)
     .maybeSingle();
   if (videoConfig?.language === "english") language = "english";
   else if (videoConfig?.language === "portuguese") language = "portuguese";
+
+  // Vertical de doutrina (0063). Valor ausente ou desconhecido cai em
+  // `metodo_silva` dentro de parseCloserVertical: se a coluna ainda nao
+  // existir neste banco o select inteiro falha, videoConfig vem undefined e a
+  // call degrada para a doutrina generica em vez de cair.
+  const closerVertical = parseCloserVertical(videoConfig?.closer_vertical);
 
   return {
     tenantId: record.tenant_id,
@@ -105,6 +111,7 @@ async function resolveConfig(secretHash: string): Promise<ResolvedBrainAgent | n
     tenantName: record.tenant_name,
     enabled: true,
     ...(language === undefined ? {} : { language }),
+    closerVertical,
   };
 }
 
