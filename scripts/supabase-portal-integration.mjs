@@ -218,9 +218,14 @@ try {
   assert.deepEqual(dataGovernanceApplied, ["0059"]);
   assertDataGovernanceDispositionPhase(databaseUrl, v58Capabilities);
   assertSchemaLineageCapabilities(databaseUrl, 59, { textPreview: true, terminalNotification: false, businessActions: true });
+
+  const meetingSlotLookupApplied = applySupabaseMigrations(databaseUrl, 60, 60);
+  assert.deepEqual(meetingSlotLookupApplied, ["0060"]);
+  assertBusinessActionMeetingSlotLookupPhase(databaseUrl);
+
   assertMigrationReceiptLineage(databaseUrl);
 
-  console.log("SUPABASE PORTAL INTEGRATION PASSED: migrations 0001-0059 in contiguous order, immutable checksums, grants, RLS, transcripts, reservations, data governance and readiness capability");
+  console.log("SUPABASE PORTAL INTEGRATION PASSED: migrations 0001-0060 in contiguous order, immutable checksums, grants, RLS, transcripts, reservations, data governance and readiness capability");
 } catch (error) {
   primaryError = error;
   throw error;
@@ -258,19 +263,51 @@ function supabaseMigrationInventory() {
   const migrations = readdirSync(supabaseMigrationDirectory)
     .filter((name) => /^\d{4}_.+\.sql$/.test(name))
     .sort();
-  assert.equal(migrations.length, 59, "the harness must cover every Supabase-only migration through 0059");
+  assert.equal(migrations.length, 60, "the harness must cover every Supabase-only migration through 0060");
   assert.deepEqual(
     migrations.map((migration) => Number(migration.slice(0, 4))),
-    Array.from({ length: 59 }, (_, index) => index + 1),
-    "Supabase-only migration versions must be contiguous and unique from 0001 through 0059",
+    Array.from({ length: 60 }, (_, index) => index + 1),
+    "Supabase-only migration versions must be contiguous and unique from 0001 through 0060",
   );
   assert.equal(migrations[48], "0049_portal_text_preview_admission.sql");
   assert.equal(migrations[49], "0050_meeting_terminal_notification_claim.sql");
   assert.equal(migrations[57], "0058_portal_text_preview_authority_repair.sql");
   assert.equal(migrations[58], "0059_data_governance_disposition_workflow.sql");
+  assert.equal(migrations[59], "0060_business_action_meeting_slot_lookup.sql");
   assert.equal(migrationChecksum(migrations[48]), "79b24e7fdc768a30b02d3596b71799fae484043e37561ddfcd435f46076b3100");
   assert.equal(migrationChecksum(migrations[49]), "262e033328175f704f8cfef1cafdcb0a2ef9b9aac7e4cc86f2b33890044c7224");
   return migrations;
+}
+
+// ADR-041 (D-V2-162): 0060 traduz o slotIndex 0-based que o modelo leu em voz
+// alta para o slot_id real que portal_reserve_business_meeting_slot_service
+// exige. Ela nao toca portal_schema_capabilities_service() de proposito (o
+// unico chamador sobe no mesmo release), entao a capability continua em 59:
+// esta fase prova a RPC pela assinatura e pelo comportamento, nunca por
+// capability, e trava a mesma disciplina anti-oraculo de 0053/0054.
+function assertBusinessActionMeetingSlotLookupPhase(databaseUrl) {
+  const signature = "public.portal_business_action_resolve_meeting_slot_service(app.uuid_v7,app.uuid_v7,integer)";
+  assert.equal(queryScalar(databaseUrl, `SELECT to_regprocedure('${signature}') IS NOT NULL;`), "t",
+    "0060 must publish the meeting slot lookup RPC");
+
+  assert.equal(queryScalar(databaseUrl, `SELECT has_function_privilege('service_role','${signature}','EXECUTE');`), "t",
+    "service_role keeps EXECUTE on the meeting slot lookup RPC");
+  for (const role of ["anon", "authenticated"]) {
+    assert.equal(queryScalar(databaseUrl, `SELECT has_function_privilege('${role}','${signature}','EXECUTE');`), "f",
+      `${role} must never execute the meeting slot lookup RPC directly`);
+  }
+
+  // Anti-oraculo: proposta inexistente e indice fora do ofertado colapsam no
+  // mesmo outcome, sem deixar o chamador distinguir os dois casos.
+  const unknownProposal = queryJson(databaseUrl, asRoleSql("service_role", null,
+    `SELECT public.portal_business_action_resolve_meeting_slot_service(
+       '${fixture.tenantAlpha}','019f0000-0000-7000-8000-00000000f060',0);`));
+  assert.deepEqual(unknownProposal, { outcome: "not_found" },
+    "an unknown proposal id resolves to the declared not_found outcome");
+
+  assert.equal(queryScalar(databaseUrl, asRoleSql("service_role", null,
+    "SELECT public.portal_schema_capabilities_service() ->> 'version';")), "59",
+  "0060 deliberately does not bump the schema capability version");
 }
 
 function assertMigrationReceiptLineage(databaseUrl) {
@@ -7133,11 +7170,22 @@ function assertTranscriptTenantBoundaryAndLimit(databaseUrl) {
   const orderedTranscriptIds = Array.from({ length: 205 }, (_, index) =>
     `019f0000-0000-7000-8000-${(0x3000 + index).toString(16).padStart(12, "0")}`,
   );
+  // started_at e ancorado em now(), nunca num timestamp absoluto. A versao
+  // anterior usava timestamptz '2026-08-14T00:00:00Z', o que transformou esta
+  // fixture numa bomba-relogio: assertPortalTextPreviewAdmission envelhece UM
+  // transcript para 31 dias e chama portal_purge_old_conversation_transcripts_service(30),
+  // que e global e nao recebe tenant, entao esperava deleted=1. No dia em que
+  // a data fixa completou 30 dias (2026-09-13, exatamente 30 dias depois de
+  // 2026-08-14) estes 205 registros entraram na janela de expurgo junto e a
+  // assercao virou 206 !== 1, sem ninguem ter mudado uma linha de codigo.
+  // O offset de 1 segundo por indice preserva a ordenacao estrita que as
+  // assercoes de cap e de ordem abaixo exigem; a idade em si e irrelevante
+  // para o que esta fixture testa (limite de 200 linhas e ordem).
   const boundedListInserts = orderedTranscriptIds.map((id, index) => `INSERT INTO public.conversation_transcripts
     (id,tenant_id,agent_id,surface,external_ref,turns,started_at)
     VALUES ('${id}','${fixture.tenantAlpha}','${listedAgentId}','chat','list-bound-${index}',
       '[{"role":"user","content":"list fixture"}]'::jsonb,
-      timestamptz '2026-08-14T00:00:00Z'+make_interval(secs=>${index}));`).join("\n");
+      now()-interval '1 hour'+make_interval(secs=>${index}));`).join("\n");
   assertSucceeded(runSql(databaseUrl, boundedListInserts), "over-cap transcript list fixtures");
   const maxLimited = queryJson(databaseUrl, asRoleSql("authenticated", fixture.userAlpha,
     `SELECT public.portal_list_conversation_transcripts('${listedAgentId}',999);`));
