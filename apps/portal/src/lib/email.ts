@@ -28,10 +28,140 @@ function escapeHtml(value: string): string {
     .replaceAll("'", "&#39;");
 }
 
+/**
+ * Base publica dos links dos e-mails, lida a cada chamada (nao no import) para
+ * acompanhar o ambiente em teste.
+ *
+ * O fallback e o dominio canonico, nunca o host cru do Railway que estava
+ * repetido em quatro templates. Os dois sao origens aprovadas, entao o link
+ * funcionaria, mas mandar alguem para o host do Railway o coloca numa origem
+ * DIFERENTE da sessao dele, que foi exatamente a classe de problema que
+ * quebrou o OAuth do calendario por dominio trocado (D-V2-174). Fora que um
+ * link para `*.up.railway.app` num e-mail transacional parece phishing.
+ */
+function publicBase(): string {
+  const configured = (process.env.PORTAL_PUBLIC_URL ?? "").trim();
+  return configured.length > 0 ? configured : "https://closer.axtroai.com";
+}
+
+/* ------------------------------------------------------------------ */
+/* Casco compartilhado dos e-mails                                      */
+/* ------------------------------------------------------------------ */
+
+/**
+ * Antes desta versao cada template montava o proprio HTML solto, e os cinco
+ * saiam SO em HTML. Tres consequencias praticas na caixa de entrada:
+ *
+ * 1. Sem alternativa em texto puro. Cliente que prefere texto (e filtro de
+ *    spam, que compara as duas partes) recebia um multipart incompleto, o que
+ *    e um dos sinais negativos mais comuns de entregabilidade.
+ * 2. Sem preheader: a linha de previa ao lado do assunto puxava o comeco do
+ *    corpo, entao a caixa de entrada mostrava um pedaco de frase cortada.
+ * 3. Sem cabecalho e rodape comuns: nada dizia de onde vinha nem por que a
+ *    pessoa recebeu, que e o que separa transacional de e-mail suspeito.
+ *
+ * O conteudo agora e declarado UMA vez e renderizado nas duas formas. Nao e
+ * so arrumacao: HTML e texto que se escrevem separados divergem sempre, e o
+ * lado que ninguem olha e justamente o texto.
+ *
+ * A marcacao aceita e deliberadamente minima, `*negrito*`. Valor vindo do
+ * tenant (nome do workspace, do agente, da empresa) e escapado como HTML na
+ * renderizacao, entao um asterisco perdido no nome no maximo deixa um trecho
+ * em negrito: nunca injeta marcacao executavel.
+ */
+interface EmailContent {
+  /** Linha de previa na caixa de entrada. Nunca aparece no corpo. */
+  readonly preheader: string;
+  readonly heading: string;
+  /** Paragrafos em marcacao minima: `*negrito*`. */
+  readonly paragraphs: readonly string[];
+  readonly cta?: { readonly label: string; readonly url: string };
+  /** Linhas de detalhe rotuladas, para URL que precisa aparecer por extenso. */
+  readonly details?: readonly { readonly label: string; readonly value: string }[];
+  readonly footnote?: string;
+}
+
+const BRAND = Object.freeze({
+  product: "Axtro Digital Human OS",
+  accent: "#5b4dff",
+  ink: "#1b1b21",
+  body: "#44444f",
+  faint: "#8a8a95",
+  surface: "#ffffff",
+  page: "#f5f5f8",
+  border: "#e6e6ec",
+});
+
+/** `*negrito*` -> <strong>, sobre texto JA escapado. */
+function renderInlineHtml(escaped: string): string {
+  return escaped.replaceAll(/\*([^*]+)\*/g, "<strong>$1</strong>");
+}
+
+/** `*negrito*` -> texto limpo, para a parte em texto puro. */
+function renderInlineText(raw: string): string {
+  return raw.replaceAll(/\*([^*]+)\*/g, "$1");
+}
+
+function renderEmailHtml(content: EmailContent): string {
+  const paragraphs = content.paragraphs
+    .map((paragraph) => `<p style="color:${BRAND.body};font-size:15px;line-height:1.6;margin:0 0 14px">${renderInlineHtml(escapeHtml(paragraph))}</p>`)
+    .join("");
+  const details = (content.details ?? [])
+    .map((detail) => `<p style="color:${BRAND.body};font-size:14px;line-height:1.6;margin:0 0 8px">${escapeHtml(detail.label)}: <a href="${escapeHtml(detail.value)}" style="color:${BRAND.accent};word-break:break-all">${escapeHtml(detail.value)}</a></p>`)
+    .join("");
+  const cta = content.cta === undefined
+    ? ""
+    : `<p style="margin:22px 0 0"><a href="${escapeHtml(content.cta.url)}" style="background:${BRAND.accent};color:#fff;text-decoration:none;padding:12px 22px;border-radius:8px;display:inline-block;font-size:15px;font-weight:600">${escapeHtml(content.cta.label)}</a></p>`;
+  const footnote = content.footnote === undefined
+    ? ""
+    : `<p style="color:${BRAND.faint};font-size:12px;line-height:1.6;margin:22px 0 0">${renderInlineHtml(escapeHtml(content.footnote))}</p>`;
+
+  return [
+    `<!doctype html><html lang="pt-BR"><head>`,
+    `<meta charset="utf-8">`,
+    `<meta name="viewport" content="width=device-width,initial-scale=1">`,
+    // Trava o esquema claro: sem isto, varios clientes invertem as cores por
+    // conta propria e o botao da marca some no fundo escuro.
+    `<meta name="color-scheme" content="light"><meta name="supported-color-schemes" content="light">`,
+    `<title>${escapeHtml(content.heading)}</title>`,
+    `</head>`,
+    `<body style="margin:0;padding:0;background:${BRAND.page}">`,
+    // Preheader: o `display:none` esconde no corpo e os espacos impedem que o
+    // cliente puxe o texto seguinte para completar a previa.
+    `<span style="display:none;max-height:0;overflow:hidden;opacity:0">${escapeHtml(content.preheader)}${"&#847;&zwnj;&nbsp;".repeat(30)}</span>`,
+    // Uma tabela so, para centralizar no Outlook, que ignora margin:auto.
+    `<table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background:${BRAND.page};padding:28px 12px">`,
+    `<tr><td align="center">`,
+    `<div style="max-width:520px;margin:0 auto;background:${BRAND.surface};border:1px solid ${BRAND.border};border-radius:14px;overflow:hidden">`,
+    `<div style="padding:18px 28px;border-bottom:1px solid ${BRAND.border}">`,
+    `<span style="font-family:system-ui,-apple-system,'Segoe UI',sans-serif;font-size:13px;font-weight:700;color:${BRAND.ink};letter-spacing:0.02em">${BRAND.product}</span>`,
+    `</div>`,
+    `<div style="padding:26px 28px;font-family:system-ui,-apple-system,'Segoe UI',sans-serif">`,
+    `<h1 style="font-size:19px;line-height:1.35;color:${BRAND.ink};margin:0 0 14px;font-weight:650">${escapeHtml(content.heading)}</h1>`,
+    paragraphs, details, cta, footnote,
+    `</div>`,
+    `<div style="padding:16px 28px;border-top:1px solid ${BRAND.border};background:${BRAND.page}">`,
+    `<p style="color:${BRAND.faint};font-size:11px;line-height:1.6;margin:0;font-family:system-ui,-apple-system,'Segoe UI',sans-serif">Mensagem automática do ${BRAND.product}. Você recebeu porque tem acesso a esta conta.</p>`,
+    `</div>`,
+    `</div></td></tr></table></body></html>`,
+  ].join("");
+}
+
+function renderEmailText(content: EmailContent): string {
+  const lines = [content.heading, "", ...content.paragraphs.map(renderInlineText)];
+  for (const detail of content.details ?? []) lines.push(`${detail.label}: ${detail.value}`);
+  if (content.cta !== undefined) lines.push("", `${content.cta.label}: ${content.cta.url}`);
+  if (content.footnote !== undefined) lines.push("", renderInlineText(content.footnote));
+  lines.push("", `Mensagem automática do ${BRAND.product}. Você recebeu porque tem acesso a esta conta.`);
+  return lines.join("\n");
+}
+
 interface SendHtmlEmailOptions {
   readonly to: readonly string[];
   readonly subject: string;
   readonly html: string;
+  /** Alternativa em texto puro. Sempre gerada do MESMO conteudo do HTML. */
+  readonly text: string;
   /** Nome do evento no log estruturado de mock/erro (sem PII). */
   readonly logEvent: string;
 }
@@ -70,7 +200,7 @@ async function sendHtmlEmail(options: SendHtmlEmailOptions): Promise<EmailSendRe
         method: "POST",
         signal: controller.signal,
         headers: { Authorization: `Bearer ${apiKey}`, "Content-Type": "application/json", "Idempotency-Key": idempotencyKey },
-        body: JSON.stringify({ from: FROM, to: options.to, subject: options.subject, html: options.html }),
+        body: JSON.stringify({ from: FROM, to: options.to, subject: options.subject, html: options.html, text: options.text }),
       });
       if (!response.ok) {
         if (attempt === 1 && isTransientResendStatus(response.status)) {
@@ -108,23 +238,24 @@ export async function sendInviteEmail(options: {
   readonly workspaceName: string;
   readonly role: string;
 }): Promise<EmailSendResult> {
-  const signupUrl = `${process.env.PORTAL_PUBLIC_URL ?? "https://portal-production-b43e.up.railway.app"}/signup`;
+  const signupUrl = `${publicBase()}/signup`;
   const roleLabel = ROLE_LABELS[options.role] ?? options.role;
-  const workspace = escapeHtml(options.workspaceName);
-  const html = [
-    `<div style="font-family:system-ui,-apple-system,sans-serif;max-width:520px;margin:0 auto;padding:24px">`,
-    `<h2 style="font-size:18px;margin:0 0 12px">Você foi convidado para o workspace ${workspace}</h2>`,
-    `<p style="color:#444;line-height:1.5;margin:0 0 12px">Um administrador convidou <strong>${escapeHtml(options.to)}</strong> para entrar como <strong>${escapeHtml(roleLabel)}</strong> no Axtro Digital Human OS.</p>`,
-    `<p style="color:#444;line-height:1.5;margin:0 0 18px">Para aceitar, crie sua conta usando exatamente este e-mail — o convite é aplicado automaticamente no primeiro acesso.</p>`,
-    `<p style="margin:0 0 18px"><a href="${signupUrl}" style="background:#5b4dff;color:#fff;text-decoration:none;padding:11px 20px;border-radius:8px;display:inline-block">Criar minha conta</a></p>`,
-    `<p style="color:#888;font-size:12px;line-height:1.5;margin:0">Se você não esperava este convite, ignore este e-mail — nada acontece sem a criação da conta.</p>`,
-    `</div>`,
-  ].join("");
+  const content: EmailContent = {
+    preheader: `Acesso como ${roleLabel} no workspace ${options.workspaceName}.`,
+    heading: `Você foi convidado para o workspace ${options.workspaceName}`,
+    paragraphs: [
+      `Um administrador convidou *${options.to}* para entrar como *${roleLabel}* no ${BRAND.product}.`,
+      "Para aceitar, crie sua conta usando exatamente este e-mail. O convite é aplicado automaticamente no primeiro acesso.",
+    ],
+    cta: { label: "Criar minha conta", url: signupUrl },
+    footnote: "Se você não esperava este convite, ignore este e-mail. Nada acontece sem a criação da conta.",
+  };
 
   return sendHtmlEmail({
     to: [options.to],
-    subject: `Convite: workspace ${options.workspaceName} no Axtro Digital Human OS`,
-    html,
+    subject: `Convite: workspace ${options.workspaceName} no ${BRAND.product}`,
+    html: renderEmailHtml(content),
+    text: renderEmailText(content),
     logEvent: "invite_email",
   });
 }
@@ -142,21 +273,21 @@ export async function sendAgentActivatedEmail(options: {
   if (options.to.length === 0) {
     return { sent: false, reason: "mocked_no_key" };
   }
-  const dashboardUrl = `${process.env.PORTAL_PUBLIC_URL ?? "https://portal-production-b43e.up.railway.app"}/agentes`;
-  const agent = escapeHtml(options.agentName);
-  const workspace = escapeHtml(options.workspaceName);
-  const html = [
-    `<div style="font-family:system-ui,-apple-system,sans-serif;max-width:520px;margin:0 auto;padding:24px">`,
-    `<h2 style="font-size:18px;margin:0 0 12px">Agente ativado em ${workspace}</h2>`,
-    `<p style="color:#444;line-height:1.5;margin:0 0 18px"><strong>${agent}</strong> foi ativado e já pode conversar com clientes usando o conhecimento conectado da conta.</p>`,
-    `<p style="margin:0 0 18px"><a href="${dashboardUrl}" style="background:#5b4dff;color:#fff;text-decoration:none;padding:11px 20px;border-radius:8px;display:inline-block">Ver agentes</a></p>`,
-    `</div>`,
-  ].join("");
+  const dashboardUrl = `${publicBase()}/agentes`;
+  const content: EmailContent = {
+    preheader: `${options.agentName} já pode conversar com clientes.`,
+    heading: `Agente ativado em ${options.workspaceName}`,
+    paragraphs: [
+      `*${options.agentName}* foi ativado e já pode conversar com clientes usando o conhecimento conectado da conta.`,
+    ],
+    cta: { label: "Ver agentes", url: dashboardUrl },
+  };
 
   return sendHtmlEmail({
     to: options.to,
-    subject: `${options.agentName} foi ativado — ${options.workspaceName}`,
-    html,
+    subject: `${options.agentName} foi ativado, ${options.workspaceName}`,
+    html: renderEmailHtml(content),
+    text: renderEmailText(content),
     logEvent: "agent_activated_email",
   });
 }
@@ -183,23 +314,21 @@ export async function sendMeetingEndedEmail(options: {
   if (options.to.length === 0) {
     return { sent: false, reason: "mocked_no_key" };
   }
-  const dashboardUrl = `${process.env.PORTAL_PUBLIC_URL ?? "https://portal-production-b43e.up.railway.app"}/agentes`;
-  const agent = escapeHtml(options.agentName);
-  const workspace = escapeHtml(options.workspaceName);
+  const dashboardUrl = `${publicBase()}/agentes`;
   const statusLabel = MEETING_STATUS_LABEL[options.status];
-  const html = [
-    `<div style="font-family:system-ui,-apple-system,sans-serif;max-width:520px;margin:0 auto;padding:24px">`,
-    `<h2 style="font-size:18px;margin:0 0 12px">Reunião externa ${statusLabel} — ${workspace}</h2>`,
-    `<p style="color:#444;line-height:1.5;margin:0 0 12px"><strong>${agent}</strong> ${statusLabel} a reunião externa que você agendou.</p>`,
-    `<p style="color:#444;line-height:1.5;margin:0 0 18px">Reunião: <a href="${escapeHtml(options.meetingUrl)}" style="color:#5b4dff">${escapeHtml(options.meetingUrl)}</a></p>`,
-    `<p style="margin:0 0 18px"><a href="${dashboardUrl}" style="background:#5b4dff;color:#fff;text-decoration:none;padding:11px 20px;border-radius:8px;display:inline-block">Ver agentes</a></p>`,
-    `</div>`,
-  ].join("");
+  const content: EmailContent = {
+    preheader: `${options.agentName} ${statusLabel} a reunião externa que você agendou.`,
+    heading: `Reunião externa ${statusLabel}, ${options.workspaceName}`,
+    paragraphs: [`*${options.agentName}* ${statusLabel} a reunião externa que você agendou.`],
+    details: [{ label: "Reunião", value: options.meetingUrl }],
+    cta: { label: "Ver agentes", url: dashboardUrl },
+  };
 
   return sendHtmlEmail({
     to: options.to,
-    subject: `${options.agentName} ${statusLabel} a reunião externa — ${options.workspaceName}`,
-    html,
+    subject: `${options.agentName} ${statusLabel} a reunião externa, ${options.workspaceName}`,
+    html: renderEmailHtml(content),
+    text: renderEmailText(content),
     logEvent: "meeting_ended_email",
   });
 }
@@ -221,28 +350,30 @@ export async function sendCostCapAlertEmail(options: {
   if (options.to.length === 0) {
     return { sent: false, reason: "mocked_no_key" };
   }
-  const workspace = escapeHtml(options.workspaceName);
-  const capLabel = escapeHtml(options.capLabel);
   const isFull = options.percentUsed >= 100;
   const headline = isFull
-    ? `Teto diário de ${options.capLabel} atingido — bloqueado a partir de agora`
+    ? `Teto diário de ${options.capLabel} atingido, bloqueado a partir de agora`
     : `${options.workspaceName} está perto do teto diário de ${options.capLabel}`;
-  const dashboardUrl = `${process.env.PORTAL_PUBLIC_URL ?? "https://portal-production-b43e.up.railway.app"}/dashboard`;
-  const html = [
-    `<div style="font-family:system-ui,-apple-system,sans-serif;max-width:520px;margin:0 auto;padding:24px">`,
-    `<h2 style="font-size:18px;margin:0 0 12px">${escapeHtml(headline)}</h2>`,
-    `<p style="color:#444;line-height:1.5;margin:0 0 12px">Uso de hoje: <strong>${options.currentValue.toLocaleString("pt-BR")} / ${options.capValue.toLocaleString("pt-BR")}</strong> (${options.percentUsed}%) — ${capLabel}, workspace ${workspace}.</p>`,
-    isFull
-      ? `<p style="color:#444;line-height:1.5;margin:0 0 18px">Novas solicitações desse tipo ficam bloqueadas até a virada do dia (00:00 UTC). O teto existe pra proteger a conta contra gasto inesperado.</p>`
-      : `<p style="color:#444;line-height:1.5;margin:0 0 18px">Sem ação necessária agora — é só um aviso antes de chegar no limite.</p>`,
-    `<p style="margin:0 0 18px"><a href="${dashboardUrl}" style="background:#5b4dff;color:#fff;text-decoration:none;padding:11px 20px;border-radius:8px;display:inline-block">Ver uso no painel</a></p>`,
-    `</div>`,
-  ].join("");
+  const dashboardUrl = `${publicBase()}/dashboard`;
+  const content: EmailContent = {
+    preheader: isFull
+      ? `Bloqueado até a virada do dia. Teto de ${options.capLabel}.`
+      : `${options.percentUsed}% do teto diário de ${options.capLabel}. Nenhuma ação necessária.`,
+    heading: headline,
+    paragraphs: [
+      `Uso de hoje: *${options.currentValue.toLocaleString("pt-BR")} / ${options.capValue.toLocaleString("pt-BR")}* (${options.percentUsed}%), ${options.capLabel}, workspace ${options.workspaceName}.`,
+      isFull
+        ? "Novas solicitações desse tipo ficam bloqueadas até a virada do dia (00:00 UTC). O teto existe para proteger a conta contra gasto inesperado."
+        : "Sem ação necessária agora. É só um aviso antes de chegar no limite.",
+    ],
+    cta: { label: "Ver uso no painel", url: dashboardUrl },
+  };
 
   return sendHtmlEmail({
     to: options.to,
     subject: `${options.workspaceName}: ${options.percentUsed}% do teto diário de ${options.capLabel}`,
-    html,
+    html: renderEmailHtml(content),
+    text: renderEmailText(content),
     logEvent: "cost_cap_alert_email",
   });
 }
@@ -263,22 +394,21 @@ export async function sendProposalEmail(options: {
   readonly planLabel: string;
   readonly checkoutUrl: string;
 }): Promise<EmailSendResult> {
-  const company = escapeHtml(options.prospectCompanyName);
-  const closer = escapeHtml(options.closerName);
-  const plan = escapeHtml(options.planLabel);
-  const html = [
-    `<div style="font-family:system-ui,-apple-system,sans-serif;max-width:520px;margin:0 auto;padding:24px">`,
-    `<h2 style="font-size:18px;margin:0 0 12px">Proposta Axtro Digital Human OS — ${company}</h2>`,
-    `<p style="color:#444;line-height:1.5;margin:0 0 12px">Foi ótimo conversar com você. Como combinamos com <strong>${closer}</strong>, aqui está o link pra confirmar o plano <strong>${plan}</strong>.</p>`,
-    `<p style="margin:0 0 18px"><a href="${escapeHtml(options.checkoutUrl)}" style="background:#5b4dff;color:#fff;text-decoration:none;padding:11px 20px;border-radius:8px;display:inline-block">Confirmar plano</a></p>`,
-    `<p style="color:#888;font-size:12px;line-height:1.5;margin:0">Alguma dúvida antes de confirmar? Responda este e-mail que o time da Axtro te ajuda.</p>`,
-    `</div>`,
-  ].join("");
+  const content: EmailContent = {
+    preheader: `Plano ${options.planLabel}, como combinado com ${options.closerName}.`,
+    heading: `Proposta ${BRAND.product} para ${options.prospectCompanyName}`,
+    paragraphs: [
+      `Foi ótimo conversar com você. Como combinamos com *${options.closerName}*, aqui está o link para confirmar o plano *${options.planLabel}*.`,
+    ],
+    cta: { label: "Confirmar plano", url: options.checkoutUrl },
+    footnote: "Alguma dúvida antes de confirmar? Responda este e-mail que o time da Axtro te ajuda.",
+  };
 
   return sendHtmlEmail({
     to: [options.to],
-    subject: `Sua proposta Axtro Digital Human OS — ${options.prospectCompanyName}`,
-    html,
+    subject: `Sua proposta ${BRAND.product} para ${options.prospectCompanyName}`,
+    html: renderEmailHtml(content),
+    text: renderEmailText(content),
     logEvent: "proposal_email",
   });
 }
