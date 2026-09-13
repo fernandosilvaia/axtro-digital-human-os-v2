@@ -227,9 +227,13 @@ try {
   assert.deepEqual(sessionSlotApplied, ["0061"]);
   assertBusinessActionSessionMeetingSlotPhase(databaseUrl);
 
+  const knowledgeDigestApplied = applySupabaseMigrations(databaseUrl, 62, 62);
+  assert.deepEqual(knowledgeDigestApplied, ["0062"]);
+  assertKnowledgeDigestTruncationPhase(databaseUrl);
+
   assertMigrationReceiptLineage(databaseUrl);
 
-  console.log("SUPABASE PORTAL INTEGRATION PASSED: migrations 0001-0061 in contiguous order, immutable checksums, grants, RLS, transcripts, reservations, data governance and readiness capability");
+  console.log("SUPABASE PORTAL INTEGRATION PASSED: migrations 0001-0062 in contiguous order, immutable checksums, grants, RLS, transcripts, reservations, data governance and readiness capability");
 } catch (error) {
   primaryError = error;
   throw error;
@@ -267,11 +271,11 @@ function supabaseMigrationInventory() {
   const migrations = readdirSync(supabaseMigrationDirectory)
     .filter((name) => /^\d{4}_.+\.sql$/.test(name))
     .sort();
-  assert.equal(migrations.length, 61, "the harness must cover every Supabase-only migration through 0061");
+  assert.equal(migrations.length, 62, "the harness must cover every Supabase-only migration through 0062");
   assert.deepEqual(
     migrations.map((migration) => Number(migration.slice(0, 4))),
-    Array.from({ length: 61 }, (_, index) => index + 1),
-    "Supabase-only migration versions must be contiguous and unique from 0001 through 0061",
+    Array.from({ length: 62 }, (_, index) => index + 1),
+    "Supabase-only migration versions must be contiguous and unique from 0001 through 0062",
   );
   assert.equal(migrations[48], "0049_portal_text_preview_admission.sql");
   assert.equal(migrations[49], "0050_meeting_terminal_notification_claim.sql");
@@ -279,6 +283,7 @@ function supabaseMigrationInventory() {
   assert.equal(migrations[58], "0059_data_governance_disposition_workflow.sql");
   assert.equal(migrations[59], "0060_business_action_meeting_slot_lookup.sql");
   assert.equal(migrations[60], "0061_business_action_session_meeting_slot.sql");
+  assert.equal(migrations[61], "0062_knowledge_digest_truncates_instead_of_discarding.sql");
   assert.equal(migrationChecksum(migrations[48]), "79b24e7fdc768a30b02d3596b71799fae484043e37561ddfcd435f46076b3100");
   assert.equal(migrationChecksum(migrations[49]), "262e033328175f704f8cfef1cafdcb0a2ef9b9aac7e4cc86f2b33890044c7224");
   return migrations;
@@ -398,6 +403,76 @@ function assertBusinessActionSessionMeetingSlotPhase(databaseUrl) {
   assert.equal(queryScalar(databaseUrl, asRoleSql("service_role", null,
     "SELECT public.portal_schema_capabilities_service() ->> 'version';")), "59",
   "0061 deliberately does not bump the schema capability version");
+}
+
+// D-V2-172: antes da 0062 o digest era tudo-ou-nada por fonte. Se o PRIMEIRO
+// chunk nao coubesse no orcamento por fonte (piso de 600), o laco saia sem
+// acumular nada e a fonte inteira era descartada. Como o chunker do portal
+// mira 1200 chars, isso valia para praticamente toda fonte real: medido em
+// producao em 2026-09-13, 14 fontes ativas produziam 358 chars vindos de UMA
+// so. Esta fase trava as tres propriedades que a correcao precisa ter ao mesmo
+// tempo, porque cada uma sozinha permite uma regressao diferente.
+function assertKnowledgeDigestTruncationPhase(databaseUrl) {
+  const sourceId = "019f0000-0000-7000-8000-000000001130";
+  const versionId = "019f0000-0000-7000-8000-000000001131";
+  const chunkId = "019f0000-0000-7000-8000-000000001132";
+  const displayName = "Digest truncation fixture";
+
+  // O orcamento e derivado, nunca chutado: depende de quantas fontes ativas o
+  // tenant tem quando esta fase roda, e fixar 600 aqui quebraria no dia em que
+  // outra fase criasse mais uma fonte.
+  const activeSources = Number(queryScalar(databaseUrl,
+    `SELECT count(*) + 1 FROM public.knowledge_sources WHERE tenant_id='${fixture.tenantAlpha}' AND status='active';`));
+  const budget = Math.max(600, Math.floor(3500 / activeSources));
+  const room = budget - 1 - " [...]".length;
+
+  // O trecho que fica DENTRO do recorte depois da frase. Contem um numero com
+  // ponto decimal e nenhum terminador de frase seguido de espaco, entao so
+  // sobrevive se o corte respeitar a regra do \s depois do ponto.
+  const tailInsideSlice = "e o kit custa R$ 18.900 instalado sem prazo definido ainda";
+  const sentenceLength = room - tailInsideSlice.length - 1;
+  let sentence = "Esta primeira frase precisa sobreviver inteira ao corte do digest ";
+  while (sentence.length < sentenceLength - 1) sentence += "com detalhe adicional ";
+  sentence = `${sentence.slice(0, sentenceLength - 1)}.`;
+  const chunkText = `${sentence} ${tailInsideSlice} continuacao que fica fora do recorte porque o chunk passa do orcamento por fonte e precisa ser cortado`;
+  assert.ok(chunkText.length > budget, "a fixture so prova algo se o chunk estourar o orcamento");
+
+  assertSucceeded(runSql(databaseUrl, `
+    INSERT INTO public.knowledge_sources(tenant_id,id,source_type,display_name,data_classification,status)
+    VALUES ('${fixture.tenantAlpha}','${sourceId}','document','${sqlLiteral(displayName)}','internal','active');
+    INSERT INTO public.knowledge_versions(tenant_id,id,source_id,version,content_hash,valid_from)
+    VALUES ('${fixture.tenantAlpha}','${versionId}','${sourceId}','1','${"a".repeat(64)}',now());
+    INSERT INTO public.knowledge_chunks(tenant_id,id,version_id,chunk_index,content_text)
+    VALUES ('${fixture.tenantAlpha}','${chunkId}','${versionId}',0,'${sqlLiteral(chunkText)}');
+  `), "knowledge digest truncation fixture");
+
+  const digest = queryJson(databaseUrl, asRoleSql("authenticated", fixture.userAlpha,
+    "SELECT public.portal_knowledge_digest(3500);"));
+
+  // 1) A fonte entra. Este e o defeito original: ela sumia inteira.
+  assert.ok(digest.sources.includes(displayName),
+    "uma fonte cujo primeiro chunk estoura o orcamento precisa entrar cortada, nunca ser descartada");
+
+  const section = digest.content.split("### Fonte: ").find((part) => part.startsWith(displayName));
+  assert.ok(section !== undefined, "a secao da fonte precisa existir no conteudo");
+  const body = section.slice(displayName.length);
+
+  // 2) O corte cai na fronteira de frase, nao no ponto decimal. Se a regra do
+  // \s cair, o corte vira "... custa R$ 18." e o modelo le um preco truncado
+  // como se fosse o preco real.
+  assert.ok(body.includes(sentence), "a frase completa anterior ao corte precisa sobreviver");
+  assert.ok(!body.includes("R$ 18."),
+    "o corte nunca pode cair no ponto decimal de um numero e entregar preco pela metade");
+  assert.ok(body.includes(" [...]"), "o trecho cortado precisa sinalizar que continua");
+
+  // 3) O orcamento continua sendo teto. Cortar nao pode virar desculpa para
+  // estourar o envelope que protege o prompt.
+  assert.ok(body.length <= budget,
+    `a fonte cortada precisa caber no orcamento (${body.length} > ${budget})`);
+
+  assertSucceeded(runSql(databaseUrl,
+    `DELETE FROM public.knowledge_sources WHERE tenant_id='${fixture.tenantAlpha}' AND id='${sourceId}';`),
+    "knowledge digest truncation cleanup");
 }
 
 function assertMigrationReceiptLineage(databaseUrl) {
