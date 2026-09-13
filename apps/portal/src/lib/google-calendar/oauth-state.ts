@@ -7,135 +7,94 @@
  * conectar a conta Google DO ATACANTE ao tenant da vítima (ou vice-versa) —
  * o CSRF clássico de OAuth (RFC 6749 §10.12).
  *
- * Decisão de design (não havia precedente direto no repo pra isto — o mais
- * próximo em espírito é a evidência de consentimento/disclosure durável de
- * `consent_evidence`, mas aquilo é durável por design e este é um recurso
- * novo, de vida curta, propositalmente NÃO durável):
+ * POR QUE ISTO DEIXOU DE SER UM MAP EM MEMÓRIA (D-V2-174)
+ * A versão anterior guardava os `state` pendentes num `Map` de processo. O
+ * arquivo documentava como ressalva o risco de múltiplas réplicas, mas o modo
+ * de falha real é outro e acontece com UMA instância só: quem grava é a
+ * Server Action `startGoogleCalendarConnection` e quem lê é o route handler
+ * do callback, e o Next.js empacota os dois separadamente, então cada lado
+ * carrega a própria instância do módulo e o próprio Map. O que a Action
+ * gravava, o callback nunca enxergava.
  *
- * - Token aleatório de 256 bits (`randomBytes(32)`, mesmo tamanho da
- *   capability de callback do Tavus em `transcripts/register.ts`), não
- *   adivinhável, gerado no início do fluxo (`createGoogleCalendarOAuthState`)
- *   e amarrado a `(tenantId, actorId)` — não a um cookie de sessão
- *   separado, porque a própria sessão Supabase (cookie httpOnly) já prova
- *   quem é o `actorId` autenticado no momento em que a rota de callback
- *   reautentica (`supabase.auth.getUser()`); o `state` só precisa provar que
- *   ESTA tentativa de callback corresponde a UMA conexão que ESTE
- *   tenant/actor iniciou de verdade, não uma que um atacante montou.
- * - Armazenado em memória de processo (`Map`), o mesmo mecanismo e a mesma
- *   ressalva operacional já documentada e aceita em `rate-limit.ts`:
- *   processo único no Railway hoje; se um dia houver réplicas, isto vira
- *   melhor-esforço por instância (um `state` gerado numa réplica e
- *   consumido noutra falharia fechado — erro visível pro usuário, "tente
- *   conectar de novo", nunca uma falha de segurança silenciosa). Não é a
- *   tabela nova `consent_evidence`-like porque não há nada aqui que precise
- *   sobreviver a um restart do processo ou ser auditável depois: um `state`
- *   nunca usado dentro da janela de 10 minutos simplesmente expira e o
- *   `tenant_admin` tenta de novo.
- * - TTL curto (10 minutos, generoso o bastante pra tela de consentimento do
- *   Google, curto o bastante pra reduzir a janela de um `state` vazado por
- *   algum caminho fora do nosso controle, ex.: log de proxy de terceiro).
- * - Uso único: consumido (removido do Map) na primeira leitura, sucesso ou
- *   falha — um `state` reaproveitado (replay) nunca é aceito de novo, seja
- *   pelo atacante seja por um retry acidental do navegador.
- * - Bound de tamanho GLOBAL (`MAX_TRACKED_STATES`) com eviction do mais
- *   antigo do processo inteiro, mesma disciplina defensiva de
- *   `rate-limit.ts`, como backstop de memória total. **Achado real da
- *   revisão de segurança adversarial**: um bound só global, sem checar
- *   tenant, permite um `tenant_admin` malicioso (ou vários coordenados —
- *   alcançável aqui porque o cadastro é self-service) gerar volume de
- *   `state` sem nunca concluir o fluxo e empurrar pra fora do Map um `state`
- *   pendente LEGÍTIMO de OUTRO tenant — mesmo respeitando o rate limiter por
- *   tenant de `calendar-connection.ts` (a soma entre tenants diferentes
- *   nunca era limitada). Por isso existe também `MAX_TRACKED_STATES_PER_TENANT`:
- *   ao atingir o teto por tenant, evict só a entrada mais antiga DAQUELE
- *   MESMO tenant, nunca de outro. A chave em si (o token de 256 bits)
- *   continua não sendo escolhível pelo chamador, então não há risco de
- *   colisão/poisoning por adivinhação — o risco fechado aqui era puramente
- *   volumétrico entre tenants distintos, não de adivinhação de chave.
+ * Medido em produção em 2026-09-13: `state` novo, callback chamado 5 segundos
+ * depois, mesma sessão, `numReplicas: 1`, sem restart no intervalo, e ainda
+ * assim `state_invalido`. A conexão de calendário nunca pôde ser concluída
+ * desde que foi construída.
+ *
+ * O armazenamento agora é a tabela `google_calendar_oauth_states` (0065),
+ * acessada só por duas RPC `service_role`. Isso reverte conscientemente a
+ * decisão registrada na versão anterior deste arquivo ("não precisa
+ * sobreviver a restart, então não vira tabela"): aquele raciocínio partia da
+ * premissa de que o Map funcionava entre os dois lados, e ele nunca
+ * funcionou.
+ *
+ * O que NÃO mudou, e continua valendo:
+ * - Token aleatório de 256 bits (`randomBytes(32)`), não adivinhável, gerado
+ *   no início do fluxo e amarrado a `(tenantId, actorId)`.
+ * - TTL curto (10 minutos): generoso para a tela de consentimento do Google,
+ *   curto o bastante para reduzir a janela de um `state` vazado por algum
+ *   caminho fora do nosso controle.
+ * - Uso único, agora garantido de verdade: o `DELETE ... RETURNING` da RPC é
+ *   atômico, enquanto `Map.get` seguido de `Map.delete` não impedia sozinho
+ *   duas leituras concorrentes.
+ * - Teto por tenant (o achado da revisão adversarial): um tenant que abre
+ *   fluxos sem concluir nunca pode empurrar para fora o `state` pendente de
+ *   outro tenant, porque a poda é feita dentro do próprio tenant.
+ *
+ * O que mudou além do armazenamento: o banco guarda o SHA-256 do token, nunca
+ * o token. Mesma disciplina de `portal_resolve_agent_brain_config_service`,
+ * que casa por hash de segredo. Quem consegue ler a tabela não consegue
+ * completar o fluxo pendente de ninguém.
  */
-import { randomBytes } from "node:crypto";
+import { createHash, randomBytes } from "node:crypto";
 
-const STATE_TTL_MS = 10 * 60_000;
-const MAX_TRACKED_STATES = 200;
+import { createServiceRoleClient } from "@/lib/supabase/service";
 
-/** Mesmo formato de clock injetável de `provider-google-calendar` (`{ now(): number }`) — permite testar TTL de 10min sem sleep real nem depender de mock global de `Date`. */
-export interface GoogleCalendarOAuthStateClock {
-  now(): number;
-}
-
-const SYSTEM_CLOCK: GoogleCalendarOAuthStateClock = { now: () => Date.now() };
-
-interface PendingGoogleCalendarOAuthState {
-  readonly tenantId: string;
-  readonly actorId: string;
-  readonly expiresAt: number;
-}
-
-const pendingStates = new Map<string, PendingGoogleCalendarOAuthState>();
-
-function pruneExpired(now: number): void {
-  for (const [state, pending] of pendingStates) {
-    if (pending.expiresAt <= now) pendingStates.delete(state);
-  }
-}
+const STATE_TTL_SECONDS = 600;
 
 /**
- * Achado real da revisão de segurança adversarial (onda 1b-ii): o bound
- * global sozinho (`MAX_TRACKED_STATES`) evict o item mais antigo do Map
- * INTEIRO, sem checar de qual tenant ele é — um tenant malicioso (ou vários
- * coordenados, alcançável nesta aplicação porque o cadastro é self-service)
- * gerando volume de `state` sem nunca completar o fluxo pode empurrar pra
- * fora do Map um `state` pendente LEGÍTIMO de outro tenant, forçando esse
- * tenant_admin vítima a ver "state_invalido" no meio do próprio fluxo dele.
- * O rate limiter por tenant em `calendar-connection.ts`
- * (`google-calendar-connect:<tenantId>`, 6/min) não impede isto: a soma
- * entre tenants diferentes nunca é limitada, e mesmo um único tenant sozinho
- * respeitando esse limite poderia acumular até 60 states pendentes ao longo
- * da janela de TTL de 10 minutos (6/min × 10min) — já mais que uma fração
- * razoável do bound global de 200. Por isso este bound por tenant é
- * necessário ALÉM do bound global (que continua existindo como backstop de
- * memória total do processo): ao atingir o teto por tenant, evict só a
- * entrada mais antiga DAQUELE MESMO tenant, nunca de outro — preservando a
- * garantia central deste arquivo (nenhum tenant pode afetar o `state`
- * pendente de outro).
+ * Cliente de serviço injetável. Existe só para teste: o caminho de produção
+ * sempre usa `createServiceRoleClient`. Sem isto, testar este módulo exigiria
+ * um Postgres de verdade, e o comportamento que mais importa aqui (recusar
+ * quando não dá para provar que o `state` era legítimo) é justamente o que
+ * precisa ser fácil de exercitar.
  */
-const MAX_TRACKED_STATES_PER_TENANT = 8;
-
-function evictOldestForTenant(tenantId: string): void {
-  for (const [state, pending] of pendingStates) {
-    if (pending.tenantId === tenantId) {
-      pendingStates.delete(state);
-      return;
-    }
-  }
+export interface GoogleCalendarOAuthStateDeps {
+  readonly serviceClient?: { rpc: (name: string, args: Record<string, unknown>) => Promise<{ data: unknown; error: unknown }> };
 }
 
-function countForTenant(tenantId: string): number {
-  let count = 0;
-  for (const pending of pendingStates.values()) {
-    if (pending.tenantId === tenantId) count += 1;
-  }
-  return count;
+/** O banco nunca vê o token, só este hash. */
+function hashState(state: string): string {
+  return createHash("sha256").update(state, "utf8").digest("hex");
 }
 
 /**
  * Gera e persiste um `state` novo amarrado a `(tenantId, actorId)`. Chamado
  * uma vez por tentativa de conexão, no início do fluxo (Server Action
- * `startGoogleCalendarConnection`), nunca reexecutado por um retry — cada
- * clique em "Conectar"/"Reconectar" gera um `state` novo e independente.
+ * `startGoogleCalendarConnection`) — cada clique em "Conectar"/"Reconectar"
+ * gera um `state` novo e independente.
+ *
+ * Lança se a persistência falhar: seguir para o Google com um `state` que o
+ * callback nunca vai reconhecer só produziria o mesmo erro confuso lá na
+ * frente, que é exatamente o defeito que esta versão corrige.
  */
-export function createGoogleCalendarOAuthState(tenantId: string, actorId: string, clock: GoogleCalendarOAuthStateClock = SYSTEM_CLOCK): string {
-  const now = clock.now();
-  pruneExpired(now);
-  if (countForTenant(tenantId) >= MAX_TRACKED_STATES_PER_TENANT) {
-    evictOldestForTenant(tenantId);
-  }
-  if (pendingStates.size >= MAX_TRACKED_STATES) {
-    const oldestState = pendingStates.keys().next().value;
-    if (oldestState !== undefined) pendingStates.delete(oldestState);
-  }
+export async function createGoogleCalendarOAuthState(
+  tenantId: string,
+  actorId: string,
+  dependencies: GoogleCalendarOAuthStateDeps = {},
+): Promise<string> {
   const state = randomBytes(32).toString("base64url");
-  pendingStates.set(state, { tenantId, actorId, expiresAt: now + STATE_TTL_MS });
+  const service = dependencies.serviceClient ?? createServiceRoleClient();
+  const { error } = await service.rpc("portal_begin_google_calendar_oauth_state_service", {
+    p_state_hash: hashState(state),
+    p_tenant_id: tenantId,
+    p_actor_id: actorId,
+    p_ttl_seconds: STATE_TTL_SECONDS,
+  });
+  if (error) {
+    const detail = typeof (error as { message?: unknown }).message === "string" ? (error as { message: string }).message : "unknown";
+    throw new Error(`google calendar oauth state could not be stored: ${detail}`);
+  }
   return state;
 }
 
@@ -149,11 +108,28 @@ export interface ConsumedGoogleCalendarOAuthState {
  * `null` cobre uniformemente "nunca existiu", "já foi consumido antes"
  * (replay) e "expirou" — a rota de callback nunca precisa (nem deve)
  * distinguir esses três casos pro usuário final; todos viram o mesmo aviso
- * genérico "tente conectar de novo".
+ * genérico "tente conectar de novo". Falha de infraestrutura também vira
+ * `null`: recusar é o comportamento seguro quando não dá para provar que o
+ * `state` era legítimo.
  */
-export function consumeGoogleCalendarOAuthState(state: string, clock: GoogleCalendarOAuthStateClock = SYSTEM_CLOCK): ConsumedGoogleCalendarOAuthState | null {
-  const pending = pendingStates.get(state);
-  pendingStates.delete(state);
-  if (pending === undefined || pending.expiresAt <= clock.now()) return null;
-  return { tenantId: pending.tenantId, actorId: pending.actorId };
+export async function consumeGoogleCalendarOAuthState(
+  state: string,
+  dependencies: GoogleCalendarOAuthStateDeps = {},
+): Promise<ConsumedGoogleCalendarOAuthState | null> {
+  let service;
+  try {
+    service = dependencies.serviceClient ?? createServiceRoleClient();
+  } catch {
+    // Service role indisponível: recusar é o comportamento seguro.
+    return null;
+  }
+  const { data, error } = await service.rpc("portal_consume_google_calendar_oauth_state_service", {
+    p_state_hash: hashState(state),
+  });
+  if (error) return null;
+  const row = data as { outcome?: string; tenantId?: string; actorId?: string } | null;
+  if (row === null || row.outcome !== "found" || typeof row.tenantId !== "string" || typeof row.actorId !== "string") {
+    return null;
+  }
+  return { tenantId: row.tenantId, actorId: row.actorId };
 }

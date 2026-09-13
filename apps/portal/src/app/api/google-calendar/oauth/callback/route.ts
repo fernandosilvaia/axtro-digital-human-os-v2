@@ -90,7 +90,7 @@ export async function GET(request: NextRequest): Promise<Response> {
     return errorRedirect("callback_invalido");
   }
 
-  const pending = consumeGoogleCalendarOAuthState(state);
+  const pending = await consumeGoogleCalendarOAuthState(state);
   if (pending === null) {
     return errorRedirect("state_invalido");
   }

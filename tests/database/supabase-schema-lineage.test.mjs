@@ -9,15 +9,15 @@ async function sha256(filename) {
   return createHash("sha256").update(await readFile(new URL(filename, migrationDirectory))).digest("hex");
 }
 
-test("Supabase lineage is contiguous through v63 and immutable historical blobs keep their checksums", async () => {
+test("Supabase lineage is contiguous through v65 and immutable historical blobs keep their checksums", async () => {
   const migrations = (await readdir(migrationDirectory))
     .filter((name) => /^\d{4}_.+\.sql$/.test(name))
     .sort();
 
-  assert.equal(migrations.length, 63);
+  assert.equal(migrations.length, 65);
   assert.deepEqual(
     migrations.map((name) => Number(name.slice(0, 4))),
-    Array.from({ length: 63 }, (_, index) => index + 1),
+    Array.from({ length: 65 }, (_, index) => index + 1),
   );
   assert.equal(migrations[48], "0049_portal_text_preview_admission.sql");
   assert.equal(migrations[49], "0050_meeting_terminal_notification_claim.sql");
@@ -35,6 +35,8 @@ test("Supabase lineage is contiguous through v63 and immutable historical blobs 
   assert.equal(migrations[60], "0061_business_action_session_meeting_slot.sql");
   assert.equal(migrations[61], "0062_knowledge_digest_truncates_instead_of_discarding.sql");
   assert.equal(migrations[62], "0063_agent_video_config_closer_vertical.sql");
+  assert.equal(migrations[63], "0064_sync_actor_id_into_app_metadata.sql");
+  assert.equal(migrations[64], "0065_google_calendar_oauth_state_store.sql");
 });
 
 test("v60 resolves a proposal's slotIndex to slot_id through a read-only, service_role-only, anti-oracle lookup", async () => {

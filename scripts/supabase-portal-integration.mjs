@@ -235,9 +235,17 @@ try {
   assert.deepEqual(closerVerticalApplied, ["0063"]);
   assertCloserVerticalPhase(databaseUrl);
 
+  const actorClaimApplied = applySupabaseMigrations(databaseUrl, 64, 64);
+  assert.deepEqual(actorClaimApplied, ["0064"]);
+  assertActorClaimPhase(databaseUrl);
+
+  const oauthStateApplied = applySupabaseMigrations(databaseUrl, 65, 65);
+  assert.deepEqual(oauthStateApplied, ["0065"]);
+  assertGoogleCalendarOAuthStatePhase(databaseUrl);
+
   assertMigrationReceiptLineage(databaseUrl);
 
-  console.log("SUPABASE PORTAL INTEGRATION PASSED: migrations 0001-0063 in contiguous order, immutable checksums, grants, RLS, transcripts, reservations, data governance and readiness capability");
+  console.log("SUPABASE PORTAL INTEGRATION PASSED: migrations 0001-0065 in contiguous order, immutable checksums, grants, RLS, transcripts, reservations, data governance and readiness capability");
 } catch (error) {
   primaryError = error;
   throw error;
@@ -275,11 +283,11 @@ function supabaseMigrationInventory() {
   const migrations = readdirSync(supabaseMigrationDirectory)
     .filter((name) => /^\d{4}_.+\.sql$/.test(name))
     .sort();
-  assert.equal(migrations.length, 63, "the harness must cover every Supabase-only migration through 0063");
+  assert.equal(migrations.length, 65, "the harness must cover every Supabase-only migration through 0065");
   assert.deepEqual(
     migrations.map((migration) => Number(migration.slice(0, 4))),
-    Array.from({ length: 63 }, (_, index) => index + 1),
-    "Supabase-only migration versions must be contiguous and unique from 0001 through 0063",
+    Array.from({ length: 65 }, (_, index) => index + 1),
+    "Supabase-only migration versions must be contiguous and unique from 0001 through 0065",
   );
   assert.equal(migrations[48], "0049_portal_text_preview_admission.sql");
   assert.equal(migrations[49], "0050_meeting_terminal_notification_claim.sql");
@@ -289,6 +297,8 @@ function supabaseMigrationInventory() {
   assert.equal(migrations[60], "0061_business_action_session_meeting_slot.sql");
   assert.equal(migrations[61], "0062_knowledge_digest_truncates_instead_of_discarding.sql");
   assert.equal(migrations[62], "0063_agent_video_config_closer_vertical.sql");
+  assert.equal(migrations[63], "0064_sync_actor_id_into_app_metadata.sql");
+  assert.equal(migrations[64], "0065_google_calendar_oauth_state_store.sql");
   assert.equal(migrationChecksum(migrations[48]), "79b24e7fdc768a30b02d3596b71799fae484043e37561ddfcd435f46076b3100");
   assert.equal(migrationChecksum(migrations[49]), "262e033328175f704f8cfef1cafdcb0a2ef9b9aac7e4cc86f2b33890044c7224");
   return migrations;
@@ -523,6 +533,148 @@ function assertCloserVerticalPhase(databaseUrl) {
   assertSucceeded(runSql(databaseUrl,
     `DELETE FROM public.agents WHERE tenant_id='${fixture.tenantAlpha}' AND id='${agentId}';`),
     "closer vertical cleanup");
+}
+
+// D-V2-174: `app_metadata.actor_id` era lido em cinco caminhos do portal e
+// escrito em nenhum, entao valia null para todo mundo, inclusive contas
+// provisionadas meses antes. Isso bloqueava a conexao do Google Calendar
+// (`sessao_invalida`) e fazia o matador de efeito pago devolver sempre
+// `not_stoppable`, que e a falha pior das duas: um matador que diz "nao da
+// pra parar" e indistinguivel de um que nao existe.
+function assertActorClaimPhase(databaseUrl) {
+  const userId = "10000000-0000-4000-8000-000000000640";
+  const actorId = "019f0000-0000-7000-8000-000000001641";
+  const tenantId = "019f0000-0000-7000-8000-000000001642";
+
+  // 1) Backfill: quem ja tinha associacao sem claim passa a ter.
+  assertSucceeded(runSql(databaseUrl, `
+    INSERT INTO auth.users(id,email,raw_app_meta_data)
+    VALUES ('${userId}','actor-claim@example.com','{}'::jsonb);
+    INSERT INTO public.tenants(id,slug,legal_name,status,home_region,default_language,default_timezone)
+    VALUES ('${tenantId}','actor-claim-fixture','Actor Claim Fixture','trial','us-east-1','pt-BR','America/Sao_Paulo');
+    INSERT INTO public.user_tenant_memberships(user_id,tenant_id,actor_id,role)
+    VALUES ('${userId}','${tenantId}','${actorId}','tenant_admin');
+  `), "actor claim fixture");
+
+  // A associacao sozinha NAO publica a claim: quem publica e a funcao de
+  // provisionamento. Este estado intermediario e exatamente o bug de producao.
+  assert.equal(queryScalar(databaseUrl,
+    `SELECT coalesce(raw_app_meta_data->>'actor_id','(ausente)') FROM auth.users WHERE id='${userId}';`),
+    "(ausente)", "a fixture precisa comecar sem a claim para o teste significar algo");
+
+  // 2) Auto-cura: chamar provision para um usuario que JA tem tenant publica a
+  // claim que faltava, sem criar tenant nenhum nem duplicar associacao.
+  const returned = queryScalar(databaseUrl, asRoleSql("authenticated", userId,
+    `SELECT public.provision_self_serve_tenant('${tenantId}','${actorId}','ignorado','Ignorado','us-east-1','pt-BR','America/Sao_Paulo');`));
+  assert.equal(returned, tenantId, "usuario com tenant recebe o tenant existente de volta");
+  assert.equal(queryScalar(databaseUrl,
+    `SELECT raw_app_meta_data->>'actor_id' FROM auth.users WHERE id='${userId}';`),
+    actorId, "provision publica a claim de quem ja tinha associacao");
+  assert.equal(queryScalar(databaseUrl,
+    `SELECT count(*) FROM public.user_tenant_memberships WHERE user_id='${userId}';`),
+    "1", "auto-cura nunca duplica associacao");
+
+  // 3) A claim vive em app_metadata, NAO em user_metadata: o usuario final
+  // edita o segundo, e um actor_id editavel pelo dono seria escalacao de
+  // privilegio, nao conveniencia.
+  assert.equal(queryScalar(databaseUrl,
+    `SELECT coalesce(raw_user_meta_data->>'actor_id','(ausente)') FROM auth.users WHERE id='${userId}';`),
+    "(ausente)", "actor_id nunca pode cair em user_metadata");
+
+  assertSucceeded(runSql(databaseUrl, `
+    DELETE FROM public.user_tenant_memberships WHERE user_id='${userId}';
+    DELETE FROM public.tenants WHERE id='${tenantId}';
+    DELETE FROM auth.users WHERE id='${userId}';
+  `), "actor claim cleanup");
+}
+
+// D-V2-174: o `state` do OAuth vivia num Map de processo que a Server Action e
+// o route handler do callback nunca compartilharam (bundles separados do
+// Next.js), entao a conexao de calendario nunca pode ser concluida. Agora o
+// estado e tabela, e as regras que saiam de graca no Map (uso unico, TTL, teto
+// por tenant) precisam ser provadas contra Postgres de verdade.
+function assertGoogleCalendarOAuthStatePhase(databaseUrl) {
+  const hashOf = (seed) => createHash("sha256").update(seed, "utf8").digest("hex");
+  const otherTenant = "019f0000-0000-7000-8000-000000001650";
+  const actorId = "019f0000-0000-7000-8000-000000001651";
+
+  assertSucceeded(runSql(databaseUrl, `
+    INSERT INTO public.tenants(id,slug,legal_name,status,home_region,default_language,default_timezone)
+    VALUES ('${otherTenant}','oauth-state-other','OAuth State Other','trial','us-east-1','pt-BR','America/Sao_Paulo');
+  `), "oauth state fixture");
+
+  // 1) Nenhum papel de cliente enxerga a tabela: o acesso legitimo e so pelas
+  // duas RPC. Sem isto, um tenant_admin poderia ler o hash pendente de outro.
+  for (const role of ["anon", "authenticated", "service_role"]) {
+    assert.equal(queryScalar(databaseUrl,
+      `SELECT has_table_privilege('${role}','public.google_calendar_oauth_states','SELECT');`), "f",
+      `${role} nunca pode ler google_calendar_oauth_states direto`);
+  }
+
+  // 2) Round-trip: abrir e consumir devolve o par que o callback usa como
+  // cross-check contra a sessao viva.
+  const openHash = hashOf("state-round-trip");
+  assert.equal(queryJson(databaseUrl, asRoleSql("service_role", null,
+    `SELECT public.portal_begin_google_calendar_oauth_state_service('${openHash}','${fixture.tenantAlpha}','${actorId}',600);`)).ok, true);
+  const consumed = queryJson(databaseUrl, asRoleSql("service_role", null,
+    `SELECT public.portal_consume_google_calendar_oauth_state_service('${openHash}');`));
+  assert.equal(consumed.outcome, "found");
+  assert.equal(consumed.tenantId, fixture.tenantAlpha);
+  assert.equal(consumed.actorId, actorId);
+
+  // 3) Uso unico de verdade. O `Map.get` seguido de `Map.delete` do original
+  // nao impedia sozinho duas leituras concorrentes; o DELETE ... RETURNING sim.
+  assert.equal(queryJson(databaseUrl, asRoleSql("service_role", null,
+    `SELECT public.portal_consume_google_calendar_oauth_state_service('${openHash}');`)).outcome, "not_found",
+    "replay do mesmo state nunca pode ser aceito de novo");
+
+  // 4) Anti-oraculo: nunca existiu, ja usado e formato invalido colapsam no
+  // mesmo not_found, entao a resposta nao diz ao atacante se ele acertou.
+  for (const probe of [hashOf("nunca-existiu"), "nao-e-hash"]) {
+    assert.equal(queryJson(databaseUrl, asRoleSql("service_role", null,
+      `SELECT public.portal_consume_google_calendar_oauth_state_service('${probe}');`)).outcome, "not_found");
+  }
+
+  // 5) TTL: um state expirado e indistinguivel de inexistente. Expiro pelo
+  // banco em vez de esperar 10 minutos.
+  const expiredHash = hashOf("state-expirado");
+  assertSucceeded(runSql(databaseUrl, asRoleSql("service_role", null,
+    `SELECT public.portal_begin_google_calendar_oauth_state_service('${expiredHash}','${fixture.tenantAlpha}','${actorId}',600);`)),
+    "state a expirar");
+  assertSucceeded(runSql(databaseUrl, `
+    UPDATE public.google_calendar_oauth_states
+    SET created_at = now() - interval '20 minutes', expires_at = now() - interval '10 minutes'
+    WHERE state_hash='${expiredHash}';
+  `), "envelhece o state");
+  assert.equal(queryJson(databaseUrl, asRoleSql("service_role", null,
+    `SELECT public.portal_consume_google_calendar_oauth_state_service('${expiredHash}');`)).outcome, "not_found",
+    "state expirado nunca e aceito");
+
+  // 6) O achado da revisao adversarial que gerou o teto por tenant: um tenant
+  // que abre fluxos sem concluir nunca pode empurrar para fora o state
+  // pendente de OUTRO tenant. Primeiro planto a vitima, depois inundo.
+  const victimHash = hashOf("state-vitima");
+  assertSucceeded(runSql(databaseUrl, asRoleSql("service_role", null,
+    `SELECT public.portal_begin_google_calendar_oauth_state_service('${victimHash}','${otherTenant}','${actorId}',600);`)),
+    "state da vitima");
+  for (let index = 0; index < 20; index += 1) {
+    assertSucceeded(runSql(databaseUrl, asRoleSql("service_role", null,
+      `SELECT public.portal_begin_google_calendar_oauth_state_service('${hashOf(`flood-${index}`)}','${fixture.tenantAlpha}','${actorId}',600);`)),
+      `flood ${index}`);
+  }
+  assert.equal(queryJson(databaseUrl, asRoleSql("service_role", null,
+    `SELECT public.portal_consume_google_calendar_oauth_state_service('${victimHash}');`)).outcome, "found",
+    "a poda por tenant nunca pode atingir o state pendente de outro tenant");
+
+  // E o proprio inundador fica limitado, senao a tabela cresceria sem teto.
+  assert.ok(Number(queryScalar(databaseUrl,
+    `SELECT count(*) FROM public.google_calendar_oauth_states WHERE tenant_id='${fixture.tenantAlpha}';`)) <= 8,
+    "o teto por tenant precisa limitar quem inunda");
+
+  assertSucceeded(runSql(databaseUrl, `
+    DELETE FROM public.google_calendar_oauth_states;
+    DELETE FROM public.tenants WHERE id='${otherTenant}';
+  `), "oauth state cleanup");
 }
 
 function assertMigrationReceiptLineage(databaseUrl) {
@@ -9217,7 +9369,13 @@ function authPreludeSql() {
     CREATE TABLE auth.users (
       id uuid PRIMARY KEY,
       email text UNIQUE,
-      created_at timestamptz NOT NULL DEFAULT now()
+      created_at timestamptz NOT NULL DEFAULT now(),
+      -- Espelham as colunas reais do Supabase. Precisam existir aqui porque o
+      -- dominio grava a claim de ator em raw_app_meta_data (0064), e um stub
+      -- sem elas deixaria o harness verde contra um schema que producao nao
+      -- tem -- exatamente o tipo de divergencia que o harness existe pra pegar.
+      raw_app_meta_data jsonb NOT NULL DEFAULT '{}'::jsonb,
+      raw_user_meta_data jsonb NOT NULL DEFAULT '{}'::jsonb
     );
     CREATE OR REPLACE FUNCTION auth.uid() RETURNS uuid
     LANGUAGE sql STABLE

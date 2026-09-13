@@ -72,7 +72,17 @@ export async function startGoogleCalendarConnection(): Promise<void> {
     redirect("/configuracoes?calendar_error=nao_configurado");
   }
 
-  const state = createGoogleCalendarOAuthState(overview.tenant.id, actorId);
+  // Falha ao persistir o `state` recusa AQUI em vez de mandar o navegador pro
+  // Google com um `state` que o callback nunca reconheceria -- o defeito de
+  // D-V2-174, em que o erro so aparecia depois do consentimento, confundindo
+  // um problema nosso com uma recusa do Google.
+  let state: string;
+  try {
+    state = await createGoogleCalendarOAuthState(overview.tenant.id, actorId);
+  } catch (error) {
+    trackError("calendar_connect_state_unavailable", error, { tenant_id: overview.tenant.id });
+    redirect("/configuracoes?calendar_error=falha_ao_conectar");
+  }
 
   if (fakeProviders) {
     // Modo demonstração sem credencial real: nunca manda o navegador pro
