@@ -214,3 +214,47 @@ test("toda degradação carrega degradedReason (a rota telemetra — catch vazio
   assert.equal(r2.degradedReason, "generation_failed");
   assert.ok(r2.cause instanceof Error);
 });
+
+/**
+ * A composição da vertical foi provada no builder isolado
+ * (closer-vertical-composition.test.mjs). Este teste prova a FIAÇÃO: que a
+ * vertical vinda de `agent_video_config.closer_vertical`, carregada em
+ * `ResolvedBrainAgent`, realmente atravessa handle-chat-request e
+ * chat-completion-core e chega no system prompt de uma call.
+ *
+ * Sem isto, um `...(x === undefined ? {} : {x})` esquecido no meio do caminho
+ * faria toda call de Life Insurance cair na doutrina genérica em silêncio, que
+ * é exatamente o modo de falha que a closer não pode ter: ela fecharia venda
+ * de apólice sem licença estadual e ninguém veria erro nenhum.
+ */
+test("a vertical regulada atravessa a fiação inteira até o system prompt da call", async () => {
+  const lifeAgent = { ...AGENT, tenantName: "Billion Club", closerVertical: "life_insurance_qualification" };
+  const run = fakeDeps({ resolveConfig: () => lifeAgent });
+  await handler.handleBrainChatRequest(
+    { authorizationHeader: `Bearer ${RAW_SECRET}`, agentIdFromPath: "agent-1", rawMessages: VALID_MESSAGES },
+    run.deps,
+  );
+  const joined = run.calls.generate[0].messages
+    .filter((m) => m.role === "system").map((m) => m.content).join("\n");
+
+  assert.match(joined, /LIMITES REGULATÓRIOS/);
+  assert.match(joined, /NÃO fecha a apólice/);
+  assert.ok(joined.includes("underwriter"), "a proibição precisa chegar na call, não só existir no módulo");
+  // E as fases que contradizem a vertical não podem ter vindo junto.
+  assert.ok(!joined.includes("FASE 5 ·"), "a fase de fechamento contradiz a vertical regulada");
+  assert.ok(!joined.includes("FASE 4 ·"), "a fase de preço contradiz a vertical regulada");
+});
+
+test("agente sem vertical declarada continua na doutrina genérica", async () => {
+  // O default importa mais que a vertical: todo agente em produção hoje passa
+  // por aqui, e nenhum deles pode herdar doutrina de mercado regulado.
+  const run = fakeDeps();
+  await handler.handleBrainChatRequest(
+    { authorizationHeader: `Bearer ${RAW_SECRET}`, agentIdFromPath: "agent-1", rawMessages: VALID_MESSAGES },
+    run.deps,
+  );
+  const joined = run.calls.generate[0].messages
+    .filter((m) => m.role === "system").map((m) => m.content).join("\n");
+  assert.ok(!joined.includes("LIMITES REGULATÓRIOS"), "vertical nenhuma pode vazar para o caminho padrão");
+  assert.ok(joined.includes("FASE 5 ·"), "o caminho padrão mantém a fase de fechamento");
+});
