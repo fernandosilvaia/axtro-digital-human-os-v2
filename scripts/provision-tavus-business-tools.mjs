@@ -104,15 +104,21 @@ const BUSINESS_TOOLS = Object.freeze([
   }),
   Object.freeze({
     name: "confirm_meeting_slot",
-    description: "Confirma um horário já oferecido por propose_meeting_slots. Nunca invente um horário fora dos oferecidos.",
+    description: "Confirma um horário já oferecido por propose_meeting_slots. Informe o NÚMERO da opção que a pessoa escolheu, na mesma numeração que você leu em voz alta (a primeira opção é 1). Nunca invente um horário fora dos oferecidos.",
     parameters: Object.freeze({
       type: "object",
       properties: Object.freeze({
-        proposalId: { type: "string" },
-        slotIndex: { type: "integer", minimum: 0 },
+        // 1-based de propósito: é o número que a agente fala ("opção 2") e o
+        // mesmo que propose_meeting_slots imprime. O servidor converte para o
+        // slot_index 0-based do banco. O modelo NUNCA envia proposalId: quem
+        // sabe qual proposta está em jogo é o servidor, que resolve pela
+        // sessão viva (migration 0061). O contrato anterior exigia proposalId
+        // e o modelo nunca o recebia, então esta tool era impossível de
+        // chamar sem alucinar um uuid.
+        slotNumber: { type: "integer", minimum: 1 },
         contactEmail: { type: "string", format: "email" },
       }),
-      required: ["proposalId", "slotIndex", "contactEmail"],
+      required: ["slotNumber", "contactEmail"],
     }),
   }),
 ]);

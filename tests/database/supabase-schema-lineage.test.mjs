@@ -14,10 +14,10 @@ test("Supabase lineage is contiguous through v60 and immutable historical blobs 
     .filter((name) => /^\d{4}_.+\.sql$/.test(name))
     .sort();
 
-  assert.equal(migrations.length, 60);
+  assert.equal(migrations.length, 61);
   assert.deepEqual(
     migrations.map((name) => Number(name.slice(0, 4))),
-    Array.from({ length: 60 }, (_, index) => index + 1),
+    Array.from({ length: 61 }, (_, index) => index + 1),
   );
   assert.equal(migrations[48], "0049_portal_text_preview_admission.sql");
   assert.equal(migrations[49], "0050_meeting_terminal_notification_claim.sql");
@@ -32,6 +32,7 @@ test("Supabase lineage is contiguous through v60 and immutable historical blobs 
   assert.equal(migrations[57], "0058_portal_text_preview_authority_repair.sql");
   assert.equal(migrations[58], "0059_data_governance_disposition_workflow.sql");
   assert.equal(migrations[59], "0060_business_action_meeting_slot_lookup.sql");
+  assert.equal(migrations[60], "0061_business_action_session_meeting_slot.sql");
 });
 
 test("v60 resolves a proposal's slotIndex to slot_id through a read-only, service_role-only, anti-oracle lookup", async () => {

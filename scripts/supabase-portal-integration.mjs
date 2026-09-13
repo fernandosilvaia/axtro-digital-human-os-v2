@@ -223,9 +223,13 @@ try {
   assert.deepEqual(meetingSlotLookupApplied, ["0060"]);
   assertBusinessActionMeetingSlotLookupPhase(databaseUrl);
 
+  const sessionSlotApplied = applySupabaseMigrations(databaseUrl, 61, 61);
+  assert.deepEqual(sessionSlotApplied, ["0061"]);
+  assertBusinessActionSessionMeetingSlotPhase(databaseUrl);
+
   assertMigrationReceiptLineage(databaseUrl);
 
-  console.log("SUPABASE PORTAL INTEGRATION PASSED: migrations 0001-0060 in contiguous order, immutable checksums, grants, RLS, transcripts, reservations, data governance and readiness capability");
+  console.log("SUPABASE PORTAL INTEGRATION PASSED: migrations 0001-0061 in contiguous order, immutable checksums, grants, RLS, transcripts, reservations, data governance and readiness capability");
 } catch (error) {
   primaryError = error;
   throw error;
@@ -263,17 +267,18 @@ function supabaseMigrationInventory() {
   const migrations = readdirSync(supabaseMigrationDirectory)
     .filter((name) => /^\d{4}_.+\.sql$/.test(name))
     .sort();
-  assert.equal(migrations.length, 60, "the harness must cover every Supabase-only migration through 0060");
+  assert.equal(migrations.length, 61, "the harness must cover every Supabase-only migration through 0061");
   assert.deepEqual(
     migrations.map((migration) => Number(migration.slice(0, 4))),
-    Array.from({ length: 60 }, (_, index) => index + 1),
-    "Supabase-only migration versions must be contiguous and unique from 0001 through 0060",
+    Array.from({ length: 61 }, (_, index) => index + 1),
+    "Supabase-only migration versions must be contiguous and unique from 0001 through 0061",
   );
   assert.equal(migrations[48], "0049_portal_text_preview_admission.sql");
   assert.equal(migrations[49], "0050_meeting_terminal_notification_claim.sql");
   assert.equal(migrations[57], "0058_portal_text_preview_authority_repair.sql");
   assert.equal(migrations[58], "0059_data_governance_disposition_workflow.sql");
   assert.equal(migrations[59], "0060_business_action_meeting_slot_lookup.sql");
+  assert.equal(migrations[60], "0061_business_action_session_meeting_slot.sql");
   assert.equal(migrationChecksum(migrations[48]), "79b24e7fdc768a30b02d3596b71799fae484043e37561ddfcd435f46076b3100");
   assert.equal(migrationChecksum(migrations[49]), "262e033328175f704f8cfef1cafdcb0a2ef9b9aac7e4cc86f2b33890044c7224");
   return migrations;
@@ -308,6 +313,91 @@ function assertBusinessActionMeetingSlotLookupPhase(databaseUrl) {
   assert.equal(queryScalar(databaseUrl, asRoleSql("service_role", null,
     "SELECT public.portal_schema_capabilities_service() ->> 'version';")), "59",
   "0060 deliberately does not bump the schema capability version");
+}
+
+// ADR-041 (D-V2-168): 0061 resolve a proposta viva da sessao para que o modelo
+// nunca precise devolver proposalId. Prova as tres propriedades que importam:
+// privilegio minimo, anti-oraculo, e a regra de "mais recente ainda nao
+// expirada", que e o unico ponto onde esta RPC pode escolher errado.
+function assertBusinessActionSessionMeetingSlotPhase(databaseUrl) {
+  const signature = "public.portal_business_action_resolve_session_meeting_slot_service(app.uuid_v7,app.uuid_v7,integer)";
+  assert.equal(queryScalar(databaseUrl, `SELECT to_regprocedure('${signature}') IS NOT NULL;`), "t",
+    "0061 must publish the session meeting slot resolver");
+
+  assert.equal(queryScalar(databaseUrl, `SELECT has_function_privilege('service_role','${signature}','EXECUTE');`), "t",
+    "service_role keeps EXECUTE on the session meeting slot resolver");
+  for (const role of ["anon", "authenticated"]) {
+    assert.equal(queryScalar(databaseUrl, `SELECT has_function_privilege('${role}','${signature}','EXECUTE');`), "f",
+      `${role} must never execute the session meeting slot resolver directly`);
+  }
+
+  const resolve = (tenantId, sessionId, slotIndex) => queryJson(databaseUrl, asRoleSql("service_role", null,
+    `SELECT public.portal_business_action_resolve_session_meeting_slot_service('${tenantId}','${sessionId}',${slotIndex});`));
+
+  // Sessao sem nenhuma proposta: not_found declarado, nunca excecao.
+  assert.deepEqual(resolve(fixture.tenantAlpha, "019f0000-0000-7000-8000-00000000f061", 0), { outcome: "not_found" },
+    "a session with no proposal resolves to the declared not_found outcome");
+
+  // A fase de calendario ja deixou propostas reais gravadas. Reaproveita a mais
+  // recente nao expirada para provar o caminho found e a regra de escolha.
+  // Leitura de fixture pela conexao de owner do harness, nunca por service_role:
+  // as tabelas do dominio revogam DML direto ate da propria service_role (o
+  // acesso legitimo e so pelas RPC SECURITY DEFINER), entao consultar aqui como
+  // service_role daria permission denied por design, nao por bug.
+  const live = queryJson(databaseUrl, `
+    SELECT jsonb_build_object('tenantId',p.tenant_id,'sessionId',p.session_id,'proposalId',p.id,'slots',count(s.id),
+      'createdAt',max(p.created_at)::text,'expiresAt',max(p.expires_at)::text)
+    FROM public.portal_business_action_proposals p
+    JOIN public.portal_business_action_proposal_slots s ON s.tenant_id=p.tenant_id AND s.proposal_id=p.id
+    WHERE p.expires_at>now()
+    GROUP BY p.tenant_id,p.session_id,p.id,p.created_at
+    ORDER BY p.created_at DESC, p.id DESC
+    LIMIT 1;`);
+
+  if (live && live.proposalId) {
+    const found = resolve(live.tenantId, live.sessionId, 0);
+    assert.equal(found.outcome, "found", "a live proposal in the session resolves its slot 0");
+    assert.equal(found.proposalId, live.proposalId,
+      "the resolver returns the most recent non-expired proposal of that session, which reserve needs");
+    assert.ok(typeof found.slotId === "string" && found.slotId.length > 0, "found must carry the slot id reserve requires");
+
+    // Indice fora do ofertado colapsa no MESMO outcome de sessao sem proposta:
+    // o modelo nao consegue distinguir os casos, e a acao correta e a mesma.
+    assert.deepEqual(resolve(live.tenantId, live.sessionId, 49), { outcome: "not_found" },
+      "an index beyond what was offered collapses into the same anti-oracle outcome");
+
+    // Isolamento entre tenants: a mesma sessao sob outro tenant nao existe.
+    assert.deepEqual(resolve(fixture.tenantBeta, live.sessionId, 0), { outcome: "not_found" },
+      "another tenant can never resolve a slot of this session");
+
+    // Proposta expirada deixa de ser elegivel, sem apagar nada.
+    //
+    // Desloca TODAS as propostas da sessao, nao so a mais recente: a primeira
+    // versao deste teste expirava so a mais nova e falhava, porque o resolver
+    // corretamente caia na proposta anterior ainda valida daquela mesma sessao.
+    // O deslocamento uniforme tambem e o unico jeito reversivel: a constraint
+    // portal_business_action_proposals_expiry_chk exige expires_at>created_at e
+    // expires_at<=created_at+60min, entao mover os dois campos pelo mesmo
+    // intervalo preserva a constraint e a ordem, e somar de volta restaura o
+    // estado exato para as fases seguintes.
+    const shiftProposals = (direction) => assertSucceeded(runSql(databaseUrl,
+      `UPDATE public.portal_business_action_proposals
+         SET created_at=created_at ${direction} interval '3 hours',
+             expires_at=expires_at ${direction} interval '3 hours'
+       WHERE tenant_id='${live.tenantId}' AND session_id='${live.sessionId}';`),
+    `shift every proposal of the session ${direction === "-" ? "into the past" : "back to its original instant"}`);
+
+    shiftProposals("-");
+    assert.deepEqual(resolve(live.tenantId, live.sessionId, 0), { outcome: "not_found" },
+      "an expired proposal is never silently reused, even when it is the most recent one");
+    shiftProposals("+");
+    assert.equal(resolve(live.tenantId, live.sessionId, 0).outcome, "found",
+      "restoring the original instants brings the session's proposal back, leaving the fixture untouched for later phases");
+  }
+
+  assert.equal(queryScalar(databaseUrl, asRoleSql("service_role", null,
+    "SELECT public.portal_schema_capabilities_service() ->> 'version';")), "59",
+  "0061 deliberately does not bump the schema capability version");
 }
 
 function assertMigrationReceiptLineage(databaseUrl) {

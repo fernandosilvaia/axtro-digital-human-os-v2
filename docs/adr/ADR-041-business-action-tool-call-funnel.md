@@ -168,18 +168,38 @@ Isto significa que ligar `PORTAL_BUSINESS_ACTION_BRIDGE_ENABLED` para um tenant,
 ```json
 {
   "name": "confirm_meeting_slot",
-  "description": "Confirma um horário já oferecido por propose_meeting_slots. Nunca invente um horário fora dos oferecidos.",
+  "description": "Confirma um horário já oferecido por propose_meeting_slots. Informe o NÚMERO da opção que a pessoa escolheu, na mesma numeração que você leu em voz alta (a primeira opção é 1). Nunca invente um horário fora dos oferecidos.",
   "parameters": {
     "type": "object",
     "properties": {
-      "proposalId": { "type": "string" },
-      "slotIndex": { "type": "integer", "minimum": 0 },
+      "slotNumber": { "type": "integer", "minimum": 1 },
       "contactEmail": { "type": "string", "format": "email" }
     },
-    "required": ["proposalId", "slotIndex", "contactEmail"]
+    "required": ["slotNumber", "contactEmail"]
   }
 }
 ```
+
+**Revisão de 2026-09-13 (D-V2-168).** A versão anterior deste schema exigia
+`proposalId` e `slotIndex` (0-based). Os dois estavam errados, e o primeiro
+tornava a tool literalmente impossível de chamar: `propose_meeting_slots`
+devolve ao modelo apenas a lista de horários formatada, nunca o `proposalId`,
+então o único desfecho possível numa chamada real era o modelo inventar um
+UUID, a RPC de resolução responder `not_found` e o funil traduzir isso para o
+bucket retomável, jogando a agente de volta em "ofereça horários". Loop
+infinito exatamente no momento do sim. A correção não é imprimir o UUID no
+texto: este próprio ADR e a migration 0060 já declaram que o modelo nunca vê
+identificador de banco de algo que ele mesmo não criou (Art. 3). Quem tem
+autoridade sobre qual proposta está em jogo é o servidor, que já conhece
+tenant e sessão pelo contexto de chamada viva (0054), então a migration 0061
+(`portal_business_action_resolve_session_meeting_slot_service`) resolve a
+proposta mais recente ainda não expirada daquela sessão. `slotIndex` virou
+`slotNumber` 1-based pelo mesmo motivo prático: "Horário 0" soa quebrado
+quando a agente lê em voz alta, e obrigava o modelo a fazer aritmética de
+índice no meio de uma conversa. Hoje o número falado e o número da tool são o
+mesmo, e a conversão para o índice 0-based do banco acontece no servidor. A
+mudança de contrato não custou nada porque as três tools ainda não haviam sido
+registradas na conta Tavus real.
 
 Nenhum dos três schemas aceita `tenantId`, `agentId`, `sessionId`, `presenterId`, fuso horário, janela de busca ou `source`: ADR-039 já é explícito que esses campos "são resolvidos do lado do servidor a partir da sessão já autoritativa da chamada, nunca do corpo da tool call"; este ADR só formaliza isso em JSON Schema para que quem cadastrar a tool no Tavus tenha o contrato exato, em vez de improvisar a partir do texto de `metodo-silva.ts`. `on_call: "silent"` (o modelo não fala nada automaticamente ao chamar; a doutrina de prompt já cobre isso, "deixa eu já checar sua agenda aqui", ADR-039), `on_resolve: "add_to_context"` e `delivery: "app_message"`, o mesmo trio de configuração que D-V2-074 já registra para as três tools de cena.
 

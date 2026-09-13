@@ -19,6 +19,7 @@ export const PORTAL_BUSINESS_ACTION_BRIDGE_RPC = Object.freeze({
   register: "portal_register_business_lead_service",
   propose: "portal_propose_business_meeting_slots_service",
   resolveSlot: "portal_business_action_resolve_meeting_slot_service",
+  resolveSessionSlot: "portal_business_action_resolve_session_meeting_slot_service",
   reserve: "portal_reserve_business_meeting_slot_service",
 });
 
@@ -148,6 +149,26 @@ export type ResolveBusinessActionMeetingSlotResult =
   | Readonly<{ readonly outcome: "not_found" }>
   | Readonly<{ readonly outcome: "service_unavailable" }>;
 
+export interface ResolveSessionBusinessActionMeetingSlotInput {
+  readonly tenantId: string;
+  readonly sessionId: string;
+  /** 0-based, a posição que o modelo escolheu dentro da última lista oferecida naquela sessão. O modelo nunca envia proposalId: quem sabe qual proposta está em jogo é o servidor (0061). */
+  readonly slotIndex: number;
+}
+
+/**
+ * Read-only lookup (0061). Resolve a proposta mais recente ainda não expirada
+ * da sessão e devolve o slot daquela posição, incluindo o proposalId que
+ * reserveBusinessMeetingSlot exige. Existe porque o contrato anterior pedia
+ * proposalId ao modelo, que nunca o recebeu: propose_meeting_slots devolve só
+ * a lista formatada, então confirm_meeting_slot era impossível de chamar sem
+ * alucinar um uuid.
+ */
+export type ResolveSessionBusinessActionMeetingSlotResult =
+  | Readonly<{ readonly outcome: "found"; readonly proposalId: string; readonly slotId: string; readonly startAt: string; readonly endAt: string; readonly timezone: string }>
+  | Readonly<{ readonly outcome: "not_found" }>
+  | Readonly<{ readonly outcome: "service_unavailable" }>;
+
 export interface ReserveBusinessMeetingSlotInput {
   readonly grant: BusinessActionGrant;
   readonly proposalId: string;
@@ -217,6 +238,7 @@ export interface PortalBusinessActionBridge {
   registerBusinessLead(input: RegisterBusinessLeadInput): Promise<RegisterBusinessLeadResult>;
   proposeBusinessMeetingSlots(input: ProposeBusinessMeetingSlotsInput): Promise<ProposeBusinessMeetingSlotsResult>;
   resolveBusinessActionMeetingSlot(input: ResolveBusinessActionMeetingSlotInput): Promise<ResolveBusinessActionMeetingSlotResult>;
+  resolveSessionBusinessActionMeetingSlot(input: ResolveSessionBusinessActionMeetingSlotInput): Promise<ResolveSessionBusinessActionMeetingSlotResult>;
   reserveBusinessMeetingSlot(input: ReserveBusinessMeetingSlotInput): Promise<ReserveBusinessMeetingSlotResult>;
 }
 
@@ -499,6 +521,54 @@ export function createPortalBusinessActionBridge(dependencies: PortalBusinessAct
     }
   };
 
+  /**
+   * 0061. Mesma disciplina do wrapper acima: toda causa de "não achei"
+   * (sessão sem proposta, proposta expirada, índice fora do ofertado)
+   * colapsa em not_found, porque a ação certa do modelo é idêntica nos três
+   * casos (oferecer horários de novo). O servidor resolve qual proposta está
+   * em jogo a partir de (tenant, sessão), então o modelo nunca precisa
+   * carregar, repetir ou inventar um identificador de banco.
+   */
+  const resolveSessionBusinessActionMeetingSlot = async (
+    input: ResolveSessionBusinessActionMeetingSlotInput,
+  ): Promise<ResolveSessionBusinessActionMeetingSlotResult> => {
+    if (!processEnabled(env)) return Object.freeze({ outcome: "not_found" });
+    const tenantId = assertUuidV7(input.tenantId, "tenantId");
+    const sessionId = assertUuidV7(input.sessionId, "sessionId");
+    if (!Number.isInteger(input.slotIndex) || input.slotIndex < 0 || input.slotIndex > 49) {
+      throw new PortalBusinessActionBridgeInputError("slotIndex is invalid");
+    }
+
+    try {
+      const receipt = await rpc(client, PORTAL_BUSINESS_ACTION_BRIDGE_RPC.resolveSessionSlot, {
+        p_tenant_id: tenantId,
+        p_session_id: sessionId,
+        p_slot_index: input.slotIndex,
+      });
+      if (receipt.outcome === "not_found") return Object.freeze({ outcome: "not_found" });
+      if (receipt.outcome === "found") {
+        const proposalId = readString(receipt, "proposalId");
+        const slotId = readString(receipt, "slotId");
+        const startAt = readString(receipt, "startAt");
+        const endAt = readString(receipt, "endAt");
+        const timezone = readString(receipt, "timezone");
+        if (!proposalId || !slotId || !startAt || !endAt || !timezone) return Object.freeze({ outcome: "service_unavailable" });
+        return Object.freeze({
+          outcome: "found",
+          proposalId: assertUuidV7(proposalId, "proposalId"),
+          slotId: assertUuidV7(slotId, "slotId"),
+          startAt,
+          endAt,
+          timezone,
+        });
+      }
+      return Object.freeze({ outcome: "service_unavailable" });
+    } catch (error) {
+      if (error instanceof PortalBusinessActionBridgeInputError) throw error;
+      return Object.freeze({ outcome: "service_unavailable" });
+    }
+  };
+
   const reserveBusinessMeetingSlot = async (input: ReserveBusinessMeetingSlotInput): Promise<ReserveBusinessMeetingSlotResult> => {
     if (!processEnabled(env)) return rejection("bridge_disabled");
     const grant = checkedGrant(input.grant);
@@ -576,7 +646,7 @@ export function createPortalBusinessActionBridge(dependencies: PortalBusinessAct
     }
   };
 
-  return Object.freeze({ admitBusinessAction, registerBusinessLead, proposeBusinessMeetingSlots, resolveBusinessActionMeetingSlot, reserveBusinessMeetingSlot });
+  return Object.freeze({ admitBusinessAction, registerBusinessLead, proposeBusinessMeetingSlots, resolveBusinessActionMeetingSlot, resolveSessionBusinessActionMeetingSlot, reserveBusinessMeetingSlot });
 }
 
 /** Production convenience wrappers. Prefer an injected bridge in tests. */
@@ -594,6 +664,10 @@ export async function proposeBusinessMeetingSlots(input: ProposeBusinessMeetingS
 
 export async function resolveBusinessActionMeetingSlot(input: ResolveBusinessActionMeetingSlotInput, dependencies?: PortalBusinessActionBridgeDependencies): Promise<ResolveBusinessActionMeetingSlotResult> {
   return createPortalBusinessActionBridge(dependencies).resolveBusinessActionMeetingSlot(input);
+}
+
+export async function resolveSessionBusinessActionMeetingSlot(input: ResolveSessionBusinessActionMeetingSlotInput, dependencies?: PortalBusinessActionBridgeDependencies): Promise<ResolveSessionBusinessActionMeetingSlotResult> {
+  return createPortalBusinessActionBridge(dependencies).resolveSessionBusinessActionMeetingSlot(input);
 }
 
 export async function reserveBusinessMeetingSlot(input: ReserveBusinessMeetingSlotInput, dependencies?: PortalBusinessActionBridgeDependencies): Promise<ReserveBusinessMeetingSlotResult> {

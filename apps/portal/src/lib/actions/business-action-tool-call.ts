@@ -34,9 +34,10 @@
  *
  * propose_meeting_slots chama proposeGoogleCalendarMeetingSlots (consulta
  * real de FreeBusy ao Google via computeGoogleCalendarAvailableSlots +
- * persistência pela RPC 0052), e confirm_meeting_slot resolve o slotIndex
- * 0-based do modelo para o slot_id real via resolveBusinessActionMeetingSlot
- * (migration 0060) antes de chamar reserveBusinessMeetingSlot. O texto de
+ * persistência pela RPC 0052), e confirm_meeting_slot resolve a POSICAO
+ * 1-based que o modelo leu em voz alta para o slot_id real via
+ * resolveSessionBusinessActionMeetingSlot (migration 0061, que acha sozinha a
+ * proposta viva da sessao) antes de chamar reserveBusinessMeetingSlot. O texto de
  * sucesso de confirm_meeting_slot permanece fora de escopo (ver ADR-041:
  * auto_confirm_scheduling é false em todo tenant hoje, então "reserved"/
  * "replayed" nunca correspondem a uma reunião de fato confirmada no Google
@@ -51,7 +52,7 @@ import { deterministicBusinessActionCommandId } from "@/lib/runtime/business-act
 import {
   admitBusinessAction,
   registerBusinessLead,
-  resolveBusinessActionMeetingSlot,
+  resolveSessionBusinessActionMeetingSlot,
   reserveBusinessMeetingSlot,
   type PortalBusinessActionKind,
   type PortalBusinessActionRejectionCode,
@@ -80,7 +81,7 @@ export interface BusinessActionToolCallDependencies {
   readonly admitBusinessAction?: typeof admitBusinessAction;
   readonly registerBusinessLead?: typeof registerBusinessLead;
   readonly proposeGoogleCalendarMeetingSlots?: typeof proposeGoogleCalendarMeetingSlots;
-  readonly resolveBusinessActionMeetingSlot?: typeof resolveBusinessActionMeetingSlot;
+  readonly resolveSessionBusinessActionMeetingSlot?: typeof resolveSessionBusinessActionMeetingSlot;
   readonly reserveBusinessMeetingSlot?: typeof reserveBusinessMeetingSlot;
   readonly timeoutMs?: number;
 }
@@ -118,13 +119,18 @@ function categorizeRejection(code: PortalBusinessActionRejectionCode): "retryabl
 /**
  * ADR-041 ("Sucesso" row) só prescreve texto literal para register_lead;
  * para propose_meeting_slots pede "lista formatada dos horários oferecidos,
- * para o modelo ler em voz alta" -- sem string fixa. O índice 0-based aqui é
- * deliberado: é exatamente o índice que confirm_meeting_slot's slotIndex
- * espera de volta (mesma numeração, nunca a leitura 1-based natural de uma
- * lista falada), então o texto já ensina o modelo a citar o índice certo.
+ * para o modelo ler em voz alta" -- sem string fixa.
+ *
+ * A numeração é 1-based, e isso é deliberado. A versão anterior imprimia
+ * "Horário 0" para casar com o índice 0-based do banco, o que produzia duas
+ * falhas na call real: soava quebrado quando a agente lia em voz alta, e
+ * obrigava o modelo a fazer aritmética de índice no meio de uma conversa.
+ * Hoje o contrato falado e o contrato da tool são o mesmo número ("opção 2"
+ * é `slotNumber: 2`), e a conversão para 0-based acontece no servidor, em
+ * validateConfirmMeetingSlotArgs.
  */
 function formatProposedSlotsText(slots: readonly { readonly startAt: string; readonly timezone: string }[]): string {
-  const lines = slots.map((slot, index) => `Horário ${index}: ${formatDateTime(slot.startAt, slot.timezone)}`);
+  const lines = slots.map((slot, index) => `Opção ${index + 1}: ${formatDateTime(slot.startAt, slot.timezone)}`);
   return `Horários disponíveis:\n${lines.join("\n")}`;
 }
 
@@ -200,22 +206,35 @@ function validateProposeMeetingSlotsArgs(value: Record<string, unknown>): Propos
 }
 
 interface ConfirmMeetingSlotArgs {
-  readonly proposalId: string;
+  /** Já convertido para 0-based, que é o que portal_business_action_proposal_slots.slot_index guarda. O modelo fala em 1-based. */
   readonly slotIndex: number;
   readonly contactEmail: string;
 }
 
-/** Upper bound mirrors portal_business_action_proposal_slots_index_chk (0052: "slot_index between 0 and 49") -- rejecting here, before the RPC, keeps an out-of-range slotIndex a normal schema violation instead of a Postgres constraint error surfacing through resolveBusinessActionMeetingSlot. */
+/** Upper bound mirrors portal_business_action_proposal_slots_index_chk (0052: "slot_index between 0 and 49") -- rejecting here, before the RPC, keeps an out-of-range slot out of Postgres as a normal schema violation. */
 const MAX_SLOT_INDEX = 49;
 
+/**
+ * O contrato anterior exigia `proposalId` do modelo, que nunca o recebeu:
+ * propose_meeting_slots devolve só a lista formatada, então a única saída era
+ * alucinar um uuid e cair em not_found, o que jogava a agente de volta em
+ * "ofereça horários" num loop infinito bem na hora do sim. Agora o servidor
+ * resolve a proposta pela sessão (0061) e o modelo manda só a POSIÇÃO que leu
+ * em voz alta.
+ *
+ * `slotNumber` é 1-based de propósito: é o número que a agente fala ("o
+ * primeiro horário", "opção 2") e que formatProposedSlotsText imprime. A
+ * conversão para o índice 0-based do banco acontece aqui, no servidor, nunca
+ * na cabeça do modelo.
+ */
 function validateConfirmMeetingSlotArgs(value: Record<string, unknown>): ConfirmMeetingSlotArgs | null {
-  const proposalId = value.proposalId;
-  if (typeof proposalId !== "string" || proposalId.length === 0) return null;
-  const slotIndex = value.slotIndex;
-  if (typeof slotIndex !== "number" || !Number.isInteger(slotIndex) || slotIndex < 0 || slotIndex > MAX_SLOT_INDEX) return null;
+  const slotNumber = value.slotNumber;
+  if (typeof slotNumber !== "number" || !Number.isInteger(slotNumber)) return null;
+  const slotIndex = slotNumber - 1;
+  if (slotIndex < 0 || slotIndex > MAX_SLOT_INDEX) return null;
   const contactEmail = value.contactEmail;
   if (typeof contactEmail !== "string" || contactEmail.length > MAX_EMAIL_CHARS || !EMAIL_PATTERN.test(contactEmail)) return null;
-  return Object.freeze({ proposalId, slotIndex, contactEmail });
+  return Object.freeze({ slotIndex, contactEmail });
 }
 
 /**
@@ -323,22 +342,22 @@ async function admitAndDispatchBusinessAction(
 
   // actionKind === "confirm_meeting_slot"
   const args = validatedArgs as ConfirmMeetingSlotArgs;
-  const resolved = await dependencies.resolveBusinessActionMeetingSlot({
+  const resolved = await dependencies.resolveSessionBusinessActionMeetingSlot({
     tenantId,
-    proposalId: args.proposalId,
+    sessionId,
     slotIndex: args.slotIndex,
   });
   if (resolved.outcome === "service_unavailable") return declaredOutcome("handoff");
   if (resolved.outcome === "not_found") {
-    // portal_business_action_resolve_meeting_slot_service (0060) colapsa de propósito toda causa de
-    // "não encontrado" (proposta inexistente, de outro tenant, ou índice fora do que foi ofertado) no
+    // portal_business_action_resolve_session_meeting_slot_service (0061) colapsa de propósito toda causa de
+    // "não encontrado" (sessão sem proposta viva, proposta expirada, ou posição fora do que foi ofertado) no
     // mesmo outcome anti-oráculo -- tratado aqui como slot_not_offered, o bucket retomável da ADR-041
     // que já cobre exatamente essa situação: "ofereça consultar novos horários com propose_meeting_slots".
     return declaredOutcome(categorizeRejection("slot_not_offered"));
   }
   const reservation = await dependencies.reserveBusinessMeetingSlot({
     grant,
-    proposalId: args.proposalId,
+    proposalId: resolved.proposalId,
     slotId: resolved.slotId,
     contactEmail: args.contactEmail,
   });
@@ -430,7 +449,7 @@ export async function executeBusinessActionToolCall(
     admitBusinessAction: dependencies.admitBusinessAction ?? admitBusinessAction,
     registerBusinessLead: dependencies.registerBusinessLead ?? registerBusinessLead,
     proposeGoogleCalendarMeetingSlots: dependencies.proposeGoogleCalendarMeetingSlots ?? proposeGoogleCalendarMeetingSlots,
-    resolveBusinessActionMeetingSlot: dependencies.resolveBusinessActionMeetingSlot ?? resolveBusinessActionMeetingSlot,
+    resolveSessionBusinessActionMeetingSlot: dependencies.resolveSessionBusinessActionMeetingSlot ?? resolveSessionBusinessActionMeetingSlot,
     reserveBusinessMeetingSlot: dependencies.reserveBusinessMeetingSlot ?? reserveBusinessMeetingSlot,
   };
   try {

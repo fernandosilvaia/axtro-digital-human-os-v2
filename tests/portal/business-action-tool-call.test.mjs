@@ -121,10 +121,10 @@ function loadBusinessActionToolCall(options = {}) {
         if (typeof options.registerLead === "function") return options.registerLead(input);
         return options.registerLeadResult ?? { outcome: "registered", code: "registered", leadId: LEAD_ID };
       },
-      async resolveBusinessActionMeetingSlot(input) {
+      async resolveSessionBusinessActionMeetingSlot(input) {
         calls.resolveSlot.push(input);
         if (typeof options.resolveSlot === "function") return options.resolveSlot(input);
-        return options.resolveSlotResult ?? { outcome: "found", slotId: SLOT_ID, startAt: DEFAULT_PROPOSED_SLOTS[0].startAt, endAt: DEFAULT_PROPOSED_SLOTS[0].endAt, timezone: DEFAULT_PROPOSED_SLOTS[0].timezone };
+        return options.resolveSlotResult ?? { outcome: "found", proposalId: PROPOSAL_ID, slotId: SLOT_ID, startAt: DEFAULT_PROPOSED_SLOTS[0].startAt, endAt: DEFAULT_PROPOSED_SLOTS[0].endAt, timezone: DEFAULT_PROPOSED_SLOTS[0].timezone };
       },
       async reserveBusinessMeetingSlot(input) {
         calls.reserveSlot.push(input);
@@ -221,7 +221,7 @@ test("register_lead registration rejection maps to the Handoff text", async () =
 // propose_meeting_slots
 // ---------------------------------------------------------------------------
 
-test("propose_meeting_slots succeeds and returns a formatted, 0-based-indexed slot list for the model to read aloud", async () => {
+test("propose_meeting_slots succeeds and returns a formatted, 1-based slot list for the model to read aloud", async () => {
   const { actions, calls } = loadBusinessActionToolCall();
   const result = await actions.executeBusinessActionToolCall(
     AGENT_ID, "019b0000-0000-7000-8000-0000000000c1", "presentation", "propose_meeting_slots", "tavus-call-1",
@@ -230,7 +230,7 @@ test("propose_meeting_slots succeeds and returns a formatted, 0-based-indexed sl
   assert.equal(result.status, "success");
   assert.equal(
     result.output,
-    `Horários disponíveis:\nHorário 0: ${formatDateTime(DEFAULT_PROPOSED_SLOTS[0].startAt, DEFAULT_PROPOSED_SLOTS[0].timezone)}\nHorário 1: ${formatDateTime(DEFAULT_PROPOSED_SLOTS[1].startAt, DEFAULT_PROPOSED_SLOTS[1].timezone)}`,
+    `Horários disponíveis:\nOpção 1: ${formatDateTime(DEFAULT_PROPOSED_SLOTS[0].startAt, DEFAULT_PROPOSED_SLOTS[0].timezone)}\nOpção 2: ${formatDateTime(DEFAULT_PROPOSED_SLOTS[1].startAt, DEFAULT_PROPOSED_SLOTS[1].timezone)}`,
   );
   assert.equal(calls.proposeMeetingSlots.length, 1);
   assert.equal(calls.proposeMeetingSlots[0].grantId, GRANT_ID, "the grant issued by admission must flow into the calendar orchestration, never a fresh/fabricated id");
@@ -264,19 +264,20 @@ for (const outcome of ["not_connected", "no_availability", "reauth_required", "s
 // confirm_meeting_slot
 // ---------------------------------------------------------------------------
 
-test("confirm_meeting_slot resolves the model's 0-based slotIndex to a real slotId before reserving, and its genuine reservation is still Handoff this wave (ADR-041: auto_confirm_scheduling is false for every tenant today)", async () => {
+test("confirm_meeting_slot resolves the model's 1-based slotNumber via the live session (0061) to a real slotId before reserving, and its genuine reservation is still Handoff this wave (ADR-041: auto_confirm_scheduling is false for every tenant today)", async () => {
   const { actions, calls } = loadBusinessActionToolCall();
   const result = await actions.executeBusinessActionToolCall(
     AGENT_ID, "019b0000-0000-7000-8000-0000000000c1", "presentation", "confirm_meeting_slot", "tavus-call-1",
-    JSON.stringify({ proposalId: PROPOSAL_ID, slotIndex: 0, contactEmail: "ana@example.test" }),
+    JSON.stringify({ slotNumber: 1, contactEmail: "ana@example.test" }),
   );
   assertResult(result, { status: "error", output: "Ação indisponível agora. Ofereça transferir para o time humano, com a doutrina de handoff já definida." });
   assert.equal(calls.resolveSlot.length, 1);
-  assert.equal(calls.resolveSlot[0].proposalId, PROPOSAL_ID);
-  assert.equal(calls.resolveSlot[0].slotIndex, 0);
+  assert.equal(calls.resolveSlot[0].sessionId, SESSION_ID, "o servidor resolve pela sessao viva, nunca por um proposalId vindo do modelo");
+  assert.equal(calls.resolveSlot[0].proposalId, undefined, "o modelo nunca envia proposalId: o contrato da tool nao tem esse campo");
+  assert.equal(calls.resolveSlot[0].slotIndex, 0, "slotNumber 1 (o que a agente fala) vira o slot_index 0 do banco");
   assert.equal(calls.reserveSlot.length, 1);
-  assert.equal(calls.reserveSlot[0].slotId, SLOT_ID, "the resolved slotId, never the model's raw slotIndex, must reach reserveBusinessMeetingSlot");
-  assert.equal(calls.reserveSlot[0].proposalId, PROPOSAL_ID);
+  assert.equal(calls.reserveSlot[0].slotId, SLOT_ID, "the resolved slotId, never the model's raw position, must reach reserveBusinessMeetingSlot");
+  assert.equal(calls.reserveSlot[0].proposalId, PROPOSAL_ID, "o proposalId vem do servidor (0061), nunca do modelo");
   assert.equal(calls.reserveSlot[0].contactEmail, "ana@example.test");
 });
 
@@ -286,16 +287,55 @@ test("confirm_meeting_slot treats a replayed reservation the same as a fresh one
   });
   const result = await actions.executeBusinessActionToolCall(
     AGENT_ID, "019b0000-0000-7000-8000-0000000000c1", "presentation", "confirm_meeting_slot", "tavus-call-1",
-    JSON.stringify({ proposalId: PROPOSAL_ID, slotIndex: 0, contactEmail: "ana@example.test" }),
+    JSON.stringify({ slotNumber: 1, contactEmail: "ana@example.test" }),
   );
   assertResult(result, { status: "error", output: "Ação indisponível agora. Ofereça transferir para o time humano, com a doutrina de handoff já definida." });
 });
 
-test("confirm_meeting_slot maps an unresolved slotIndex/proposal (0060's anti-oracle not_found) to the retryable text, and never calls reserveBusinessMeetingSlot", async () => {
+// Regressão do defeito que tornava esta tool impossível de chamar. O contrato
+// anterior exigia proposalId, mas propose_meeting_slots nunca entregava esse id
+// ao modelo (o texto de sucesso só traz os horários formatados). O único
+// desfecho possível numa call real era o modelo inventar um uuid, cair em
+// not_found e a agente voltar a oferecer horários, num loop bem na hora do sim.
+// Estes dois testes travam as duas metades da correção: a chamada mínima que o
+// modelo consegue de fato produzir tem que ser aceita, e um proposalId enviado
+// por engano nunca pode voltar a influenciar a resolução.
+test("confirm_meeting_slot é chamável só com o que o modelo realmente tem: a posição que leu em voz alta e o e-mail", async () => {
+  const { actions, calls } = loadBusinessActionToolCall();
+  const result = await actions.executeBusinessActionToolCall(
+    AGENT_ID, "019b0000-0000-7000-8000-0000000000c1", "presentation", "confirm_meeting_slot", "tavus-call-1",
+    JSON.stringify({ slotNumber: 2, contactEmail: "ana@example.test" }),
+  );
+  // O que prova a correção é ter CHEGADO na resolução. No contrato antigo,
+  // validateConfirmMeetingSlotArgs devolvia null por falta de proposalId, então
+  // resolveSlot nunca era chamado e a tool morria como violação de schema antes
+  // da admissão. O texto final continua sendo Handoff nesta onda por outro
+  // motivo, já declarado pela ADR-041 (nenhum tenant tem auto_confirm_scheduling).
+  assert.equal(calls.resolveSlot.length, 1, "a resolução acontece no servidor, a partir da sessão viva");
+  assert.equal(calls.resolveSlot[0].slotIndex, 1, "slotNumber 2 vira o slot_index 1 do banco");
+  assert.equal(calls.reserveSlot.length, 1, "e segue até a reserva, que era inalcançável antes");
+  assert.equal(result.status, "error", "reserva genuína segue Handoff nesta onda, como a ADR-041 declara");
+});
+
+test("confirm_meeting_slot ignora um proposalId que o modelo mande por engano: quem escolhe a proposta é o servidor", async () => {
+  const { actions, calls } = loadBusinessActionToolCall();
+  const result = await actions.executeBusinessActionToolCall(
+    AGENT_ID, "019b0000-0000-7000-8000-0000000000c1", "presentation", "confirm_meeting_slot", "tavus-call-1",
+    JSON.stringify({ slotNumber: 1, proposalId: "019b0000-0000-7000-8000-0000000000ff", contactEmail: "ana@example.test" }),
+  );
+  assert.equal(calls.resolveSlot.length, 1);
+  assert.equal(calls.resolveSlot[0].proposalId, undefined,
+    "um proposalId alucinado nunca pode atravessar a fronteira: a resolução é sempre por (tenant, sessão)");
+  assert.equal(calls.reserveSlot[0].proposalId, PROPOSAL_ID,
+    "o proposalId que chega em reserve é o que o servidor resolveu, nunca o que o modelo mandou");
+  assert.equal(result.status, "error", "reserva genuína segue Handoff nesta onda, como a ADR-041 declara");
+});
+
+test("confirm_meeting_slot maps an unresolved position (0061's anti-oracle not_found) to the retryable text, and never calls reserveBusinessMeetingSlot", async () => {
   const { actions, calls } = loadBusinessActionToolCall({ resolveSlotResult: { outcome: "not_found" } });
   const result = await actions.executeBusinessActionToolCall(
     AGENT_ID, "019b0000-0000-7000-8000-0000000000c1", "presentation", "confirm_meeting_slot", "tavus-call-1",
-    JSON.stringify({ proposalId: PROPOSAL_ID, slotIndex: 3, contactEmail: "ana@example.test" }),
+    JSON.stringify({ slotNumber: 4, contactEmail: "ana@example.test" }),
   );
   assertResult(result, { status: "error", output: "Esse horário não está mais disponível. Ofereça consultar novos horários com propose_meeting_slots." });
   assert.equal(calls.reserveSlot.length, 0);
@@ -305,7 +345,7 @@ test("confirm_meeting_slot maps a resolve-layer service_unavailable to Handoff, 
   const { actions, calls } = loadBusinessActionToolCall({ resolveSlotResult: { outcome: "service_unavailable" } });
   const result = await actions.executeBusinessActionToolCall(
     AGENT_ID, "019b0000-0000-7000-8000-0000000000c1", "presentation", "confirm_meeting_slot", "tavus-call-1",
-    JSON.stringify({ proposalId: PROPOSAL_ID, slotIndex: 0, contactEmail: "ana@example.test" }),
+    JSON.stringify({ slotNumber: 1, contactEmail: "ana@example.test" }),
   );
   assertResult(result, { status: "error", output: "Ação indisponível agora. Ofereça transferir para o time humano, com a doutrina de handoff já definida." });
   assert.equal(calls.reserveSlot.length, 0);
@@ -315,7 +355,7 @@ test("confirm_meeting_slot maps reserveBusinessMeetingSlot's slot_conflict rejec
   const { actions } = loadBusinessActionToolCall({ reserveSlotResult: { outcome: "rejected", code: "slot_conflict" } });
   const result = await actions.executeBusinessActionToolCall(
     AGENT_ID, "019b0000-0000-7000-8000-0000000000c1", "presentation", "confirm_meeting_slot", "tavus-call-1",
-    JSON.stringify({ proposalId: PROPOSAL_ID, slotIndex: 0, contactEmail: "ana@example.test" }),
+    JSON.stringify({ slotNumber: 1, contactEmail: "ana@example.test" }),
   );
   assertResult(result, { status: "error", output: "Esse horário não está mais disponível. Ofereça consultar novos horários com propose_meeting_slots." });
 });
@@ -324,16 +364,16 @@ test("confirm_meeting_slot maps reserveBusinessMeetingSlot's calendar_not_connec
   const { actions } = loadBusinessActionToolCall({ reserveSlotResult: { outcome: "rejected", code: "calendar_not_connected" } });
   const result = await actions.executeBusinessActionToolCall(
     AGENT_ID, "019b0000-0000-7000-8000-0000000000c1", "presentation", "confirm_meeting_slot", "tavus-call-1",
-    JSON.stringify({ proposalId: PROPOSAL_ID, slotIndex: 0, contactEmail: "ana@example.test" }),
+    JSON.stringify({ slotNumber: 1, contactEmail: "ana@example.test" }),
   );
   assertResult(result, { status: "error", output: "Ação indisponível agora. Ofereça transferir para o time humano, com a doutrina de handoff já definida." });
 });
 
-test("confirm_meeting_slot rejects a slotIndex above the table's own 0..49 bound before admission", async () => {
+test("confirm_meeting_slot rejects a slotNumber above the table's own 0..49 bound before admission", async () => {
   const { actions, calls } = loadBusinessActionToolCall();
   const result = await actions.executeBusinessActionToolCall(
     AGENT_ID, "019b0000-0000-7000-8000-0000000000c1", "presentation", "confirm_meeting_slot", "tavus-call-1",
-    JSON.stringify({ proposalId: PROPOSAL_ID, slotIndex: 50, contactEmail: "ana@example.test" }),
+    JSON.stringify({ slotNumber: 51, contactEmail: "ana@example.test" }),
   );
   assert.equal(result.status, "error");
   assert.equal(calls.admit.length, 0);
@@ -430,11 +470,11 @@ test("propose_meeting_slots rejects a durationMinutes outside the closed enum be
   assert.equal(calls.admit.length, 0);
 });
 
-test("confirm_meeting_slot rejects a negative slotIndex before admission", async () => {
+test("confirm_meeting_slot rejects slotNumber 0, which is below the 1-based contract, before admission", async () => {
   const { actions, calls } = loadBusinessActionToolCall();
   const result = await actions.executeBusinessActionToolCall(
     AGENT_ID, "019b0000-0000-7000-8000-0000000000c1", "presentation", "confirm_meeting_slot", "tavus-call-1",
-    JSON.stringify({ proposalId: "proposal-1", slotIndex: -1, contactEmail: "ana@example.test" }),
+    JSON.stringify({ slotNumber: 0, contactEmail: "ana@example.test" }),
   );
   assert.equal(result.status, "error");
   assert.equal(calls.admit.length, 0);
