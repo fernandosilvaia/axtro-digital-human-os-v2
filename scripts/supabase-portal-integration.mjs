@@ -251,9 +251,13 @@ try {
   assert.deepEqual(unknownSweepApplied, ["0067"]);
   assertAiUsageUnknownSweepPhase(databaseUrl);
 
+  const videoConfigSelfServiceApplied = applySupabaseMigrations(databaseUrl, 68, 68);
+  assert.deepEqual(videoConfigSelfServiceApplied, ["0068"]);
+  assertAgentVideoConfigSelfServicePhase(databaseUrl);
+
   assertMigrationReceiptLineage(databaseUrl);
 
-  console.log("SUPABASE PORTAL INTEGRATION PASSED: migrations 0001-0067 in contiguous order, immutable checksums, grants, RLS, transcripts, reservations, data governance and readiness capability");
+  console.log("SUPABASE PORTAL INTEGRATION PASSED: migrations 0001-0068 in contiguous order, immutable checksums, grants, RLS, transcripts, reservations, data governance and readiness capability");
 } catch (error) {
   primaryError = error;
   throw error;
@@ -291,11 +295,11 @@ function supabaseMigrationInventory() {
   const migrations = readdirSync(supabaseMigrationDirectory)
     .filter((name) => /^\d{4}_.+\.sql$/.test(name))
     .sort();
-  assert.equal(migrations.length, 67, "the harness must cover every Supabase-only migration through 0067");
+  assert.equal(migrations.length, 68, "the harness must cover every Supabase-only migration through 0068");
   assert.deepEqual(
     migrations.map((migration) => Number(migration.slice(0, 4))),
-    Array.from({ length: 67 }, (_, index) => index + 1),
-    "Supabase-only migration versions must be contiguous and unique from 0001 through 0067",
+    Array.from({ length: 68 }, (_, index) => index + 1),
+    "Supabase-only migration versions must be contiguous and unique from 0001 through 0068",
   );
   assert.equal(migrations[48], "0049_portal_text_preview_admission.sql");
   assert.equal(migrations[49], "0050_meeting_terminal_notification_claim.sql");
@@ -309,6 +313,7 @@ function supabaseMigrationInventory() {
   assert.equal(migrations[64], "0065_google_calendar_oauth_state_store.sql");
   assert.equal(migrations[65], "0066_agent_video_config_spoken_languages.sql");
   assert.equal(migrations[66], "0067_ai_usage_unknown_timeout_sweep.sql");
+  assert.equal(migrations[67], "0068_agent_video_config_self_service_catches_up.sql");
   assert.equal(migrationChecksum(migrations[48]), "79b24e7fdc768a30b02d3596b71799fae484043e37561ddfcd435f46076b3100");
   assert.equal(migrationChecksum(migrations[49]), "262e033328175f704f8cfef1cafdcb0a2ef9b9aac7e4cc86f2b33890044c7224");
   return migrations;
@@ -809,6 +814,78 @@ function assertAiUsageUnknownSweepPhase(databaseUrl) {
     DELETE FROM public.ai_usage_reconciliation_receipts WHERE tenant_id='${fixture.tenantAlpha}';
     DELETE FROM public.ai_usage_reservations WHERE tenant_id='${fixture.tenantAlpha}' AND id IN ('${reservationId}','${nextId}');
   `), "sweep cleanup");
+}
+
+// D-V2-179: `portal_set_agent_video_config` tinha zero chamadores em todo o
+// repositorio e estava duas migrations atrasada em relacao ao schema que ela
+// mesma escreve (sem replica_id, sem closer_vertical, sem spoken_languages, e
+// language travado em portuguese/english). Esta fase prova que a assinatura
+// nova de fato persiste os quatro campos e recusa exatamente o que a tabela
+// recusaria, em vez de deixar a constraint estourar sem contexto pro
+// self-service.
+function assertAgentVideoConfigSelfServicePhase(databaseUrl) {
+  const agentId = "019f0000-0000-7000-8000-000000001680";
+  assertSucceeded(runSql(databaseUrl, `
+    INSERT INTO public.agents(tenant_id,id,name,role_type,status,disclosure_profile_id)
+    VALUES ('${fixture.tenantAlpha}','${agentId}','Video config self-service fixture','sales','active','default');
+  `), "self-service video config fixture");
+
+  const setConfig = (personaId, replicaId, language, spokenLanguages, closerVertical) => asRoleSql(
+    "authenticated", fixture.userAlpha,
+    `SELECT public.portal_set_agent_video_config('${agentId}','${personaId}',${replicaId === null ? "null" : `'${replicaId}'`},'${language}',${spokenLanguages === null ? "null" : `array[${spokenLanguages.map((l) => `'${l}'`).join(",")}]`},'${closerVertical}');`,
+  );
+
+  // 1) tenant_operator (nao tenant_admin) nao pode configurar video de ninguem.
+  assertSucceeded(runSql(databaseUrl,
+    `UPDATE public.user_tenant_memberships SET role='tenant_operator' WHERE tenant_id='${fixture.tenantAlpha}' AND user_id='${fixture.userAlpha}';`),
+    "rebaixa para tenant_operator");
+  assertFailed(runSql(databaseUrl, setConfig("p000000fixture", null, "english", null, "metodo_silva")),
+    "tenant_operator nao pode configurar video do agente");
+  assertSucceeded(runSql(databaseUrl,
+    `UPDATE public.user_tenant_memberships SET role='tenant_admin' WHERE tenant_id='${fixture.tenantAlpha}' AND user_id='${fixture.userAlpha}';`),
+    "restaura tenant_admin");
+
+  // 2) 'spanish' e vocabulario valido desde a 0066 mas a RPC antiga so aceitava
+  // portuguese/english. Se isto falhar, a RPC ainda esta atras do schema.
+  // replica_id tambem precisa ser aceito: a RPC antiga sempre zerava essa
+  // coluna, entao um agente configurado por replica nunca era alcancavel por
+  // aqui.
+  assertSucceeded(runSql(databaseUrl, setConfig("p000000fixture", "r000000fixture", "spanish", ["spanish", "english"], "life_insurance_qualification")),
+    "tenant_admin configura persona, replica, idioma e vertical regulada");
+
+  const config = queryJson(databaseUrl, asRoleSql("authenticated", fixture.userAlpha,
+    `SELECT public.portal_agent_video_config('${agentId}');`));
+  assert.equal(config.persona_id, "p000000fixture");
+  assert.equal(config.replica_id, "r000000fixture");
+  assert.equal(config.language, "spanish");
+  assert.deepEqual(config.spoken_languages, ["spanish", "english"]);
+  assert.equal(config.closer_vertical, "life_insurance_qualification");
+
+  // 3) A RPC precisa recusar o mesmo que a constraint da tabela recusaria
+  // (idioma de abertura fora do array falado), com mensagem legivel em vez de
+  // um erro de constraint cru.
+  assertFailed(runSql(databaseUrl, setConfig("p000000fixture", null, "portuguese", ["spanish", "english"], "metodo_silva")),
+    "idioma de abertura fora dos idiomas falados e recusado pela RPC");
+
+  // 4) Vertical desconhecida e recusada antes de tocar a tabela.
+  assertFailed(runSql(databaseUrl, setConfig("p000000fixture", null, "english", null, "recruitment_generico")),
+    "closer_vertical desconhecido e recusado");
+
+  // 5) Reconfigurar e upsert: a segunda chamada substitui a primeira, nao
+  // acumula linha nova.
+  assertSucceeded(runSql(databaseUrl, setConfig("p000000outro", null, "english", null, "metodo_silva")),
+    "reconfigurar substitui a config anterior");
+  const reconfigured = queryJson(databaseUrl, asRoleSql("authenticated", fixture.userAlpha,
+    `SELECT public.portal_agent_video_config('${agentId}');`));
+  assert.equal(reconfigured.persona_id, "p000000outro");
+  assert.equal(reconfigured.replica_id, null, "reconfigurar sem replica_id zera a replica anterior");
+  assert.equal(queryScalar(databaseUrl,
+    `SELECT count(*) FROM public.agent_video_config WHERE tenant_id='${fixture.tenantAlpha}' AND agent_id='${agentId}';`),
+    "1", "reconfigurar e upsert, nao acumula linha");
+
+  assertSucceeded(runSql(databaseUrl,
+    `DELETE FROM public.agents WHERE tenant_id='${fixture.tenantAlpha}' AND id='${agentId}';`),
+    "self-service video config cleanup");
 }
 
 function assertMigrationReceiptLineage(databaseUrl) {

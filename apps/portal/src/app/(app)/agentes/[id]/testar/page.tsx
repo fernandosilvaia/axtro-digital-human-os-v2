@@ -2,6 +2,7 @@ import type { Metadata } from "next";
 import { notFound } from "next/navigation";
 
 import { fetchAgentBrainStatus } from "@/lib/actions/agent-brain";
+import { fetchAgentVideoConfigStatus } from "@/lib/actions/agent-video-config";
 import { fetchAgents, fetchTenantOverview } from "@/lib/portal-data";
 import { portalPublicOrigin } from "@/lib/public-origin";
 import { StatusBadge } from "@/components/status-badge";
@@ -13,6 +14,7 @@ import { MeetingSessions } from "./meeting-sessions";
 import { PresentationRoom } from "./presentation-room";
 import { PreviewChat } from "./preview-chat";
 import { VideoCall } from "./video-call";
+import { VideoConfig } from "./video-config";
 
 export const metadata: Metadata = { title: "Testar agente — Axtro Digital Human OS" };
 
@@ -39,6 +41,7 @@ export default async function AgentPreviewPage({ params }: { params: Promise<{ i
   // Status do cerebro e a URL que a persona precisa chamar. `fetchAgentBrainStatus`
   // ja degrada para "nao configurado" em qualquer falha, entao nunca derruba a pagina.
   const brainStatus = await fetchAgentBrainStatus(agent.id);
+  const videoConfigStatus = await fetchAgentVideoConfigStatus(agent.id);
   let brainUrl: string;
   try {
     brainUrl = `${portalPublicOrigin()}/api/brain/${agent.id}/chat/completions`;
@@ -64,6 +67,11 @@ export default async function AgentPreviewPage({ params }: { params: Promise<{ i
           sem fontes, ele não cita preços nem condições.
         </p>
       </header>
+      <VideoConfig
+        agentId={agent.id}
+        status={videoConfigStatus}
+        isAdmin={overview.role === "tenant_admin"}
+      />
       <CustomBrain
         agentId={agent.id}
         agentName={agent.name}
