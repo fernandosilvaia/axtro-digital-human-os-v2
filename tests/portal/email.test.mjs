@@ -168,3 +168,13 @@ test("o rodapé diz de onde veio e por que a pessoa recebeu, nas duas partes", a
     assert.ok(parte.includes("https://checkout.example/abc"), "o destino da ação precisa estar nas duas partes");
   }
 });
+
+test("o corpo do e-mail fica alinhado à esquerda, apesar do td centralizado", async () => {
+  // O align="center" do <td> que centraliza o CARD cascateia text-align para o
+  // conteudo inteiro. Sem reancorar, todo paragrafo sai centralizado, que e o
+  // visual que denuncia e-mail montado as pressas. Achado olhando o render.
+  const payload = await captureSend(() => email.sendInviteEmail({
+    to: "convidado@example.com", workspaceName: "Billion Club", role: "tenant_admin",
+  }));
+  assert.ok(payload.html.includes("text-align:left"), "o card precisa reancorar o alinhamento à esquerda");
+});

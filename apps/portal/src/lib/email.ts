@@ -132,7 +132,11 @@ function renderEmailHtml(content: EmailContent): string {
     // Uma tabela so, para centralizar no Outlook, que ignora margin:auto.
     `<table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background:${BRAND.page};padding:28px 12px">`,
     `<tr><td align="center">`,
-    `<div style="max-width:520px;margin:0 auto;background:${BRAND.surface};border:1px solid ${BRAND.border};border-radius:14px;overflow:hidden">`,
+    // O `align="center"` do <td> acima cascateia text-align para TODO o
+    // conteudo, entao o card precisa reancorar a esquerda. Sem isto cada
+    // paragrafo sai centralizado, que e o visual que denuncia e-mail montado
+    // as pressas. Achado olhando o render, nao a asserção.
+    `<div style="max-width:520px;margin:0 auto;text-align:left;background:${BRAND.surface};border:1px solid ${BRAND.border};border-radius:14px;overflow:hidden">`,
     `<div style="padding:18px 28px;border-bottom:1px solid ${BRAND.border}">`,
     `<span style="font-family:system-ui,-apple-system,'Segoe UI',sans-serif;font-size:13px;font-weight:700;color:${BRAND.ink};letter-spacing:0.02em">${BRAND.product}</span>`,
     `</div>`,
