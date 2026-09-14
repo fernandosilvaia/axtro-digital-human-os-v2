@@ -14,7 +14,22 @@ export interface VideoConversationRequest {
   readonly conversationName: string;
   readonly conversationalContext?: string;
   readonly greeting?: string;
+  /**
+   * Idioma de ABERTURA da conversa. Continua existindo porque a Tavus usa o
+   * primeiro idioma da lista como o idioma em que a call comeca.
+   */
   readonly language?: string;
+  /**
+   * Idiomas que a conversa deve RECONHECER, em codigo de provider (en, es,
+   * pt). Quando presente, e enviado como `languages` e o campo `language`
+   * singular nao vai junto: a Tavus deprecou o singular em favor do array, e
+   * mandar os dois deixaria ambiguo qual vence.
+   *
+   * Restringir o reconhecimento a um conjunto conhecido erra muito menos que
+   * deteccao aberta entre as 42 linguas suportadas, e o primeiro item do
+   * array e o idioma de abertura.
+   */
+  readonly languages?: readonly string[];
   readonly maxCallDurationSeconds?: number;
   /**
    * URL que recebe os callbacks da conversa (docs.tavus.io/sections/
@@ -270,7 +285,9 @@ export function createTavusVideoConversationPort(options: TavusAdapterOptions): 
         properties: {
           max_call_duration: maxSeconds,
           participant_left_timeout: 30,
-          ...(request.language ? { language: request.language } : {}),
+          ...(request.languages !== undefined && request.languages.length > 0
+            ? { languages: [...request.languages] }
+            : request.language ? { language: request.language } : {}),
         },
       });
       const record = (payload ?? {}) as Record<string, unknown>;

@@ -17,6 +17,46 @@ export interface AgentVideoConfigRow {
   readonly language?: string | null;
   /** "platform" = apresenta a própria Axtro; "sales" (padrão) = vende o negócio do tenant (0020). */
   readonly presentation_kind?: "sales" | "platform" | null;
+  /** Vocabulário do domínio, nunca código de provider (0066). Null = um idioma só. */
+  readonly spoken_languages?: readonly string[] | null;
+}
+
+/**
+ * Traduz o vocabulário do domínio para o código que a Tavus espera. A tradução
+ * mora AQUI, na fronteira com o provider, para que o schema e o resto do
+ * portal nunca precisem conhecer o formato de código de um fornecedor: trocar
+ * de fornecedor troca esta função, não a coluna.
+ */
+const PROVIDER_LANGUAGE_CODE: Readonly<Record<string, string>> = {
+  portuguese: "pt",
+  english: "en",
+  spanish: "es",
+};
+
+/**
+ * Monta a lista de idiomas para a chamada do provider, com o idioma de
+ * ABERTURA garantidamente em primeiro: a Tavus usa o primeiro item como a
+ * língua em que a call começa, então a ordem não é cosmética.
+ *
+ * Devolve `undefined` quando o agente não declarou vários idiomas, e aí o
+ * chamador mantém o campo singular de hoje. Valor desconhecido é descartado em
+ * vez de repassado: mandar um código que o provider não entende arriscaria a
+ * call inteira, e cair no comportamento de um idioma só é degradação segura.
+ */
+export function providerLanguageCodes(
+  language: string | null | undefined,
+  spokenLanguages: readonly string[] | null | undefined,
+): readonly string[] | undefined {
+  if (spokenLanguages === null || spokenLanguages === undefined || spokenLanguages.length === 0) return undefined;
+  const opening = PROVIDER_LANGUAGE_CODE[language ?? "portuguese"];
+  const codes = spokenLanguages
+    .map((entry) => PROVIDER_LANGUAGE_CODE[entry])
+    .filter((code): code is string => code !== undefined);
+  if (codes.length === 0) return undefined;
+  const ordered = opening !== undefined && codes.includes(opening)
+    ? [opening, ...codes.filter((code) => code !== opening)]
+    : codes;
+  return Object.freeze(ordered);
 }
 
 export type AgentVideoConfigResult =

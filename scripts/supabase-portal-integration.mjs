@@ -243,9 +243,13 @@ try {
   assert.deepEqual(oauthStateApplied, ["0065"]);
   assertGoogleCalendarOAuthStatePhase(databaseUrl);
 
+  const spokenLanguagesApplied = applySupabaseMigrations(databaseUrl, 66, 66);
+  assert.deepEqual(spokenLanguagesApplied, ["0066"]);
+  assertSpokenLanguagesPhase(databaseUrl);
+
   assertMigrationReceiptLineage(databaseUrl);
 
-  console.log("SUPABASE PORTAL INTEGRATION PASSED: migrations 0001-0065 in contiguous order, immutable checksums, grants, RLS, transcripts, reservations, data governance and readiness capability");
+  console.log("SUPABASE PORTAL INTEGRATION PASSED: migrations 0001-0066 in contiguous order, immutable checksums, grants, RLS, transcripts, reservations, data governance and readiness capability");
 } catch (error) {
   primaryError = error;
   throw error;
@@ -283,11 +287,11 @@ function supabaseMigrationInventory() {
   const migrations = readdirSync(supabaseMigrationDirectory)
     .filter((name) => /^\d{4}_.+\.sql$/.test(name))
     .sort();
-  assert.equal(migrations.length, 65, "the harness must cover every Supabase-only migration through 0065");
+  assert.equal(migrations.length, 66, "the harness must cover every Supabase-only migration through 0066");
   assert.deepEqual(
     migrations.map((migration) => Number(migration.slice(0, 4))),
-    Array.from({ length: 65 }, (_, index) => index + 1),
-    "Supabase-only migration versions must be contiguous and unique from 0001 through 0065",
+    Array.from({ length: 66 }, (_, index) => index + 1),
+    "Supabase-only migration versions must be contiguous and unique from 0001 through 0066",
   );
   assert.equal(migrations[48], "0049_portal_text_preview_admission.sql");
   assert.equal(migrations[49], "0050_meeting_terminal_notification_claim.sql");
@@ -299,6 +303,7 @@ function supabaseMigrationInventory() {
   assert.equal(migrations[62], "0063_agent_video_config_closer_vertical.sql");
   assert.equal(migrations[63], "0064_sync_actor_id_into_app_metadata.sql");
   assert.equal(migrations[64], "0065_google_calendar_oauth_state_store.sql");
+  assert.equal(migrations[65], "0066_agent_video_config_spoken_languages.sql");
   assert.equal(migrationChecksum(migrations[48]), "79b24e7fdc768a30b02d3596b71799fae484043e37561ddfcd435f46076b3100");
   assert.equal(migrationChecksum(migrations[49]), "262e033328175f704f8cfef1cafdcb0a2ef9b9aac7e4cc86f2b33890044c7224");
   return migrations;
@@ -675,6 +680,56 @@ function assertGoogleCalendarOAuthStatePhase(databaseUrl) {
     DELETE FROM public.google_calendar_oauth_states;
     DELETE FROM public.tenants WHERE id='${otherTenant}';
   `), "oauth state cleanup");
+}
+
+// D-V2-175: idiomas falados por agente. O que a fase trava nao e a coluna, e
+// os tres estados invalidos que o banco precisa recusar, porque cada um deles
+// produz uma call quebrada de um jeito diferente e silencioso.
+function assertSpokenLanguagesPhase(databaseUrl) {
+  const agentId = "019f0000-0000-7000-8000-000000001660";
+  assertSucceeded(runSql(databaseUrl, `
+    INSERT INTO public.agents(tenant_id,id,name,role_type,status,disclosure_profile_id)
+    VALUES ('${fixture.tenantAlpha}','${agentId}','Spoken languages fixture','sales','active','default');
+    INSERT INTO public.agent_video_config(tenant_id,agent_id,tavus_persona_id,language)
+    VALUES ('${fixture.tenantAlpha}','${agentId}','p000000idioma','english');
+  `), "spoken languages fixture");
+
+  const setLanguages = (value) =>
+    runSql(databaseUrl, `UPDATE public.agent_video_config SET spoken_languages=${value} WHERE tenant_id='${fixture.tenantAlpha}' AND agent_id='${agentId}';`);
+
+  // 1) NULL e o default, e significa exatamente o comportamento de hoje. Se um
+  // agente existente nascesse com array, todos mudariam de comportamento.
+  assert.equal(queryScalar(databaseUrl,
+    `SELECT spoken_languages IS NULL FROM public.agent_video_config WHERE tenant_id='${fixture.tenantAlpha}' AND agent_id='${agentId}';`),
+    "t", "agente existente nao pode ganhar idiomas por acidente");
+
+  // 2) O caso da Sofia: tres idiomas, com o de abertura dentro do conjunto.
+  assertSucceeded(setLanguages(`array['english','spanish','portuguese']`), "tres idiomas validos");
+
+  // 3) Idioma de abertura FORA da lista e o pior estado possivel: a agente
+  // fala primeiro num idioma que ela mesma nao reconhece, entao nao entende a
+  // resposta. Precisa ser impossivel de gravar, nao apenas evitado no codigo.
+  assertFailed(setLanguages(`array['spanish','portuguese']`),
+    "idioma de abertura precisa estar entre os reconhecidos");
+
+  // 4) Duplicata nao significa nada e seria repassada duas vezes ao provider.
+  assertFailed(setLanguages(`array['english','english']`), "duplicata recusada");
+
+  // 5) Vocabulario fechado: codigo de provider aqui amarraria o schema a um
+  // fornecedor, e um typo viraria um idioma silenciosamente ignorado.
+  assertFailed(setLanguages(`array['en','es']`), "codigo de provider nao pertence ao dominio");
+  assertFailed(setLanguages(`array['english','klingon']`), "idioma desconhecido recusado");
+
+  // 6) A RPC do portal passa a expor a lista, senao a UI nao tem como mostrar.
+  assertSucceeded(setLanguages(`array['english','spanish','portuguese']`), "restaura o caso valido");
+  const config = queryJson(databaseUrl, asRoleSql("authenticated", fixture.userAlpha,
+    `SELECT public.portal_agent_video_config('${agentId}');`));
+  assert.deepEqual(config.spoken_languages, ["english", "spanish", "portuguese"],
+    "portal_agent_video_config precisa devolver os idiomas falados");
+
+  assertSucceeded(runSql(databaseUrl,
+    `DELETE FROM public.agents WHERE tenant_id='${fixture.tenantAlpha}' AND id='${agentId}';`),
+    "spoken languages cleanup");
 }
 
 function assertMigrationReceiptLineage(databaseUrl) {

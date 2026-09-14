@@ -12,7 +12,7 @@ import { admitPortalChannel, assertPortalProviderDispatchActive, bindPortalProvi
 import { createClient } from "@/lib/supabase/server";
 import { logError as trackError } from "@/lib/telemetry";
 import { prepareTavusWebhookCallback, registerTranscriptPlaceholder } from "@/lib/transcripts/register";
-import { fetchKnowledgeDigest, resolveAgentVideoConfig } from "@/lib/video-config";
+import { fetchKnowledgeDigest, providerLanguageCodes, resolveAgentVideoConfig } from "@/lib/video-config";
 
 export interface VideoConversationResult {
   readonly url: string | null;
@@ -227,6 +227,9 @@ export async function startVideoConversation(agentId: string, commandId: string,
     return { url: null, conversationId: null, error: "Este agente ainda não tem avatar de vídeo configurado." };
   }
   const language = config.language ?? "portuguese";
+  // Agente multilingue (0066): quando declarado, a Tavus recebe o array e o
+  // campo singular deprecado nao vai junto.
+  const spokenLanguageCodes = providerLanguageCodes(config.language, config.spoken_languages);
 
   const runtimeAdmission = await admitAuthenticatedTavusChannel(supabase, {
     tenantId: overview.tenant.id,
@@ -295,6 +298,7 @@ export async function startVideoConversation(agentId: string, commandId: string,
             conversationName: providerCorrelationLabel(`preview-${agent.id.slice(0, 8)}`, reservation.reservationId, 120),
             ...(knowledgeDigest ? { conversationalContext: buildKnowledgeContext(knowledgeDigest) } : {}),
             language,
+            ...(spokenLanguageCodes === undefined ? {} : { languages: spokenLanguageCodes }),
             maxCallDurationSeconds: 600,
             callbackUrl,
           }
@@ -309,6 +313,7 @@ export async function startVideoConversation(agentId: string, commandId: string,
               ? `Hi! I'm ${firstName(agent.name)}, digital consultant at ${overview.tenant.legal_name}. Great to see you! Tell me — what brought you here today?`
               : `Oi! Eu sou ${firstName(agent.name)}, consultora digital da ${overview.tenant.legal_name}. Que bom te ver! Me conta — o que te trouxe até aqui hoje?`,
             language,
+            ...(spokenLanguageCodes === undefined ? {} : { languages: spokenLanguageCodes }),
             maxCallDurationSeconds: 600,
             callbackUrl,
           },
