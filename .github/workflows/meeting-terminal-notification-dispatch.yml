@@ -1,6 +1,8 @@
 name: Dispatch meeting terminal notifications
 
 on:
+  schedule:
+    - cron: '*/5 * * * *'
   workflow_dispatch:
 
 concurrency:
@@ -11,9 +13,9 @@ permissions: {}
 
 jobs:
   dispatch:
+    if: github.event_name == 'workflow_dispatch' || vars.MEETING_TERMINAL_NOTIFICATION_DISPATCH_SCHEDULE_ENABLED == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 5
-    environment: production
     env:
       MEETING_TERMINAL_NOTIFICATION_DISPATCH_URL: ${{ vars.MEETING_TERMINAL_NOTIFICATION_DISPATCH_URL }}
     steps:
