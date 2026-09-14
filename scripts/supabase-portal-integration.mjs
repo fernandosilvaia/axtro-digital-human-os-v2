@@ -247,9 +247,13 @@ try {
   assert.deepEqual(spokenLanguagesApplied, ["0066"]);
   assertSpokenLanguagesPhase(databaseUrl);
 
+  const unknownSweepApplied = applySupabaseMigrations(databaseUrl, 67, 67);
+  assert.deepEqual(unknownSweepApplied, ["0067"]);
+  assertAiUsageUnknownSweepPhase(databaseUrl);
+
   assertMigrationReceiptLineage(databaseUrl);
 
-  console.log("SUPABASE PORTAL INTEGRATION PASSED: migrations 0001-0066 in contiguous order, immutable checksums, grants, RLS, transcripts, reservations, data governance and readiness capability");
+  console.log("SUPABASE PORTAL INTEGRATION PASSED: migrations 0001-0067 in contiguous order, immutable checksums, grants, RLS, transcripts, reservations, data governance and readiness capability");
 } catch (error) {
   primaryError = error;
   throw error;
@@ -287,11 +291,11 @@ function supabaseMigrationInventory() {
   const migrations = readdirSync(supabaseMigrationDirectory)
     .filter((name) => /^\d{4}_.+\.sql$/.test(name))
     .sort();
-  assert.equal(migrations.length, 66, "the harness must cover every Supabase-only migration through 0066");
+  assert.equal(migrations.length, 67, "the harness must cover every Supabase-only migration through 0067");
   assert.deepEqual(
     migrations.map((migration) => Number(migration.slice(0, 4))),
-    Array.from({ length: 66 }, (_, index) => index + 1),
-    "Supabase-only migration versions must be contiguous and unique from 0001 through 0066",
+    Array.from({ length: 67 }, (_, index) => index + 1),
+    "Supabase-only migration versions must be contiguous and unique from 0001 through 0067",
   );
   assert.equal(migrations[48], "0049_portal_text_preview_admission.sql");
   assert.equal(migrations[49], "0050_meeting_terminal_notification_claim.sql");
@@ -304,6 +308,7 @@ function supabaseMigrationInventory() {
   assert.equal(migrations[63], "0064_sync_actor_id_into_app_metadata.sql");
   assert.equal(migrations[64], "0065_google_calendar_oauth_state_store.sql");
   assert.equal(migrations[65], "0066_agent_video_config_spoken_languages.sql");
+  assert.equal(migrations[66], "0067_ai_usage_unknown_timeout_sweep.sql");
   assert.equal(migrationChecksum(migrations[48]), "79b24e7fdc768a30b02d3596b71799fae484043e37561ddfcd435f46076b3100");
   assert.equal(migrationChecksum(migrations[49]), "262e033328175f704f8cfef1cafdcb0a2ef9b9aac7e4cc86f2b33890044c7224");
   return migrations;
@@ -730,6 +735,80 @@ function assertSpokenLanguagesPhase(databaseUrl) {
   assertSucceeded(runSql(databaseUrl,
     `DELETE FROM public.agents WHERE tenant_id='${fixture.tenantAlpha}' AND id='${agentId}';`),
     "spoken languages cleanup");
+}
+
+// D-V2-178: uma reserva ambigua bloqueia TODA nova reserva do tenant, e ate
+// aqui nao existia caminho de volta (a rota manual e 404 por desenho ate a
+// M5-02, e a RPC de operador exige evidencia real do provider). A varredura
+// resolve as VENCIDAS assumindo o pior caso. O que esta fase trava e a
+// fronteira: ela nao pode destravar cedo, e nao pode destravar barato.
+function assertAiUsageUnknownSweepPhase(databaseUrl) {
+  const reservationId = "019f0000-0000-7000-8000-000000001670";
+  const costEventId = "019f0000-0000-7000-8000-000000001671";
+  const nextId = "019f0000-0000-7000-8000-000000001672";
+  const nextCostEventId = "019f0000-0000-7000-8000-000000001673";
+  const begin = (id, costId, key) => asRoleSql("service_role", null,
+    `SELECT public.portal_begin_ai_usage_reservation_service('${id}','${costId}','${fixture.tenantAlpha}','${fixture.agentAlpha}',null,'${key}','brain_generation',20000,512,0.05);`);
+
+  assert.equal(queryJson(databaseUrl, begin(reservationId, costEventId, "ai:brain:sweep-one")).outcome, "reserved");
+  // A cerca de dispatch vem ANTES: marcar ambigua so e valido a partir de
+  // `provider_in_flight`, e pular a cerca faria a fixture testar um estado que
+  // producao nunca produz.
+  assert.equal(queryJson(databaseUrl, asRoleSql("service_role", null,
+    `SELECT public.portal_mark_ai_usage_in_flight_service('${reservationId}');`)).acquired, true, "cerca de dispatch");
+  assert.equal(queryScalar(databaseUrl, asRoleSql("service_role", null,
+    `SELECT public.portal_mark_ai_usage_unknown_service('${reservationId}','provider timeout');`)), "t", "marca ambigua");
+
+  // 1) Ambigua RECENTE continua bloqueando. Se a varredura destravasse na
+  // hora, ela viraria um jeito de ignorar a ambiguidade em vez de resolve-la,
+  // e uma chamada que o provider ainda vai faturar passaria despercebida.
+  assert.equal(queryJson(databaseUrl, begin(nextId, nextCostEventId, "ai:brain:sweep-two")).outcome, "blocked_unknown",
+    "ambigua recente precisa continuar bloqueando");
+
+  // 2) O prazo tem piso: ninguem pode pedir uma varredura de 1 segundo.
+  assertFailed(runSql(databaseUrl, asRoleSql("service_role", null,
+    `SELECT public.portal_sweep_stale_ai_usage_unknown_service('${fixture.tenantAlpha}',1);`)),
+    "prazo abaixo do piso recusado");
+
+  // 3) Envelhecida, a proxima tentativa destrava sozinha, sem worker nem rota.
+  assertSucceeded(runSql(databaseUrl,
+    `UPDATE public.ai_usage_reservations SET updated_at = now() - interval '2 hours' WHERE id='${reservationId}';`),
+    "envelhece a ambigua");
+  assert.equal(queryJson(databaseUrl, begin(nextId, nextCostEventId, "ai:brain:sweep-two")).outcome, "reserved",
+    "depois do prazo o tenant volta a poder reservar");
+
+  // 4) A direcao da suposicao e o coracao disto: assume o MAXIMO reservado,
+  // nunca menos. Superestimar o gasto contra o teto interno e seguro; se
+  // assumisse zero, esta valvula viraria um jeito de esconder consumo.
+  const campo = (coluna) => queryScalar(databaseUrl,
+    `SELECT ${coluna} FROM public.ai_usage_reservations WHERE id='${reservationId}';`);
+  assert.equal(campo("state"), "committed");
+  assert.equal(Number(campo("actual_input_tokens")), 20000, "assume o teto de entrada");
+  assert.equal(Number(campo("actual_output_tokens")), 512, "assume o teto de saida");
+  assert.equal(Number(campo("reported_cost_usd")), 0.05, "assume o custo maximo reservado");
+
+  // 5) O recibo diz que a evidencia e uma SUPOSICAO, nao uma fatura. Sem isto,
+  // um gasto assumido seria indistinguivel de um confirmado pelo provider na
+  // auditoria.
+  assert.equal(queryScalar(databaseUrl,
+    `SELECT evidence FROM public.ai_usage_reconciliation_receipts WHERE reservation_id='${reservationId}';`),
+    "timeout_assumed_max");
+  assert.ok(queryScalar(databaseUrl,
+    `SELECT provider_receipt_ref FROM public.ai_usage_reconciliation_receipts WHERE reservation_id='${reservationId}';`)
+    .startsWith("timeout:"), "a referencia precisa denunciar a origem");
+
+  // 6) O caminho de operador NAO foi afrouxado: continua exigindo evidencia
+  // real do provider, para quem tiver a fatura e quiser corrigir para baixo.
+  assertFailed(runSql(databaseUrl, asRoleSql("service_role", null,
+    `SELECT public.portal_reconcile_ai_usage_service('${costEventId}','${reservationId}','timeout_assumed_max','timeout:x');`)),
+    "a RPC de operador continua recusando evidencia que nao seja do provider");
+
+  // `cost_events` e append-only por desenho e nao entra na limpeza: apagar
+  // evidencia de gasto seria exatamente o que a tabela existe para impedir.
+  assertSucceeded(runSql(databaseUrl, `
+    DELETE FROM public.ai_usage_reconciliation_receipts WHERE tenant_id='${fixture.tenantAlpha}';
+    DELETE FROM public.ai_usage_reservations WHERE tenant_id='${fixture.tenantAlpha}' AND id IN ('${reservationId}','${nextId}');
+  `), "sweep cleanup");
 }
 
 function assertMigrationReceiptLineage(databaseUrl) {
