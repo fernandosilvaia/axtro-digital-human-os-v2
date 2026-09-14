@@ -1,10 +1,13 @@
 import type { Metadata } from "next";
 import { notFound } from "next/navigation";
 
+import { fetchAgentBrainStatus } from "@/lib/actions/agent-brain";
 import { fetchAgents, fetchTenantOverview } from "@/lib/portal-data";
+import { portalPublicOrigin } from "@/lib/public-origin";
 import { StatusBadge } from "@/components/status-badge";
 
 import { ClosingProposal } from "./closing-proposal";
+import { CustomBrain } from "./custom-brain";
 import { ExternalMeeting } from "./external-meeting";
 import { MeetingSessions } from "./meeting-sessions";
 import { PresentationRoom } from "./presentation-room";
@@ -33,6 +36,17 @@ export default async function AgentPreviewPage({ params }: { params: Promise<{ i
   // Fuso da CONTA pro agendamento/painel de reuniões — "15:00" tem que ser
   // 15:00 no relógio do dono da conta (auditoria 2026-08-02).
   const timeZone = overview.tenant?.default_timezone ?? "America/New_York";
+  // Status do cerebro e a URL que a persona precisa chamar. `fetchAgentBrainStatus`
+  // ja degrada para "nao configurado" em qualquer falha, entao nunca derruba a pagina.
+  const brainStatus = await fetchAgentBrainStatus(agent.id);
+  let brainUrl: string;
+  try {
+    brainUrl = `${portalPublicOrigin()}/api/brain/${agent.id}/chat/completions`;
+  } catch {
+    // Origem publica mal configurada: mostrar um caminho relativo e melhor que
+    // esconder a secao, porque o operador ainda consegue montar a URL.
+    brainUrl = `/api/brain/${agent.id}/chat/completions`;
+  }
 
   return (
     <>
@@ -50,6 +64,13 @@ export default async function AgentPreviewPage({ params }: { params: Promise<{ i
           sem fontes, ele não cita preços nem condições.
         </p>
       </header>
+      <CustomBrain
+        agentId={agent.id}
+        agentName={agent.name}
+        status={brainStatus}
+        isAdmin={overview.role === "tenant_admin"}
+        brainUrl={brainUrl}
+      />
       <ExternalMeeting agentId={agent.id} agentName={agent.name} timeZone={timeZone} />
       <MeetingSessions agentId={agent.id} timeZone={timeZone} />
       <PresentationRoom agentId={agent.id} agentName={agent.name} />
