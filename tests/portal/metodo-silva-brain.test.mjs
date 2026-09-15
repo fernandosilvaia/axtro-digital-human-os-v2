@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 
 // O portal fica fora do grafo tsc --build (Next compila sozinho), mas estes
-// módulos são puros e sem imports — o type stripping nativo do Node os
+// módulos são puros e sem imports: o type stripping nativo do Node os
 // executa direto do fonte, sem passo de build.
 const brain = await import("../../apps/portal/src/lib/brain/metodo-silva.ts");
 const deck = await import("../../apps/portal/src/lib/presentation/deck.ts");
@@ -13,7 +13,7 @@ const PERSONA_PROMPT_COMFORT_CAP = 14_000;
 test("chat brain messages respect the OpenRouter per-message cap", () => {
   for (const hasKnowledge of [true, false]) {
     const messages = brain.buildCloserChatSystemMessages({
-      agentName: "Rafaela — Closer Solar Residencial",
+      agentName: "Rafaela, Closer Solar Residencial",
       tenantName: "Axtro Solar Demonstração",
       hasKnowledge,
     });
@@ -127,6 +127,6 @@ test("achado D-V2-115: tenantLanguageToBrainLanguage mapeia default_language do 
   assert.equal(brain.tenantLanguageToBrainLanguage("en"), "english");
   assert.equal(brain.tenantLanguageToBrainLanguage("EN-us"), "english", "case-insensitive");
   assert.equal(brain.tenantLanguageToBrainLanguage("pt-BR"), "portuguese");
-  assert.equal(brain.tenantLanguageToBrainLanguage("es-ES"), "portuguese", "espanhol cai em português — doutrina completa não existe pra es ainda");
+  assert.equal(brain.tenantLanguageToBrainLanguage("es-ES"), "portuguese", "espanhol cai em português: doutrina completa não existe pra es ainda");
   assert.equal(brain.tenantLanguageToBrainLanguage(""), "portuguese", "valor vazio/desconhecido cai em português, o default de sempre");
 });

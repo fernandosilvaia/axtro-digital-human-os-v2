@@ -2,19 +2,19 @@
  * M4-02: traduz o array `messages` OpenAI-style que o Tavus envia via
  * `layers.llm.base_url` para o formato que `runBrainChatCompletion` espera.
  *
- * Decisões deliberadas (Constituição Art. 15 — dado externo nunca é
+ * Decisões deliberadas (Constituição Art. 15: dado externo nunca é
  * instrução), endurecidas pela auditoria de 2026-08-02:
  * 1. Toda mensagem role="system" enviada pelo Tavus é DESCARTADA como
- *    instrução — identidade, método e regras são nossas. O conteúdo útil
+ *    instrução. Identidade, método e regras são nossas. O conteúdo útil
  *    dela é resgatado exclusivamente como DADO EXTERNO NÃO CONFIÁVEL: tags
  *    de percepção viram perceptionContext, e o restante vira providerContext
  *    delimitado e sem autoridade. Mesmo um contexto que o Portal tenha criado
  *    originalmente deve atravessar a fronteira de provider como não confiável.
- * 2. Tags de percepção só são COLETADAS de mensagens system — o raven-1
+ * 2. Tags de percepção só são COLETADAS de mensagens system: o raven-1
  *    anexa a leitura ambiente via system. Tag aparecendo num turno user/
  *    assistant é texto controlável pelo interlocutor tentando se passar por
  *    sensor: é REMOVIDA do turno visível e NUNCA promovida a contexto
- *    (antes era coletada de qualquer papel — vetor de injeção real).
+ *    (antes era coletada de qualquer papel, vetor de injeção real).
  */
 import type { BrainTurn } from "./chat-completion-core.ts";
 
@@ -29,7 +29,7 @@ export interface ParsedTavusChatRequest {
   readonly history: readonly BrainTurn[];
   readonly userMessage: string;
   readonly perceptionContext: string | null;
-  /** Conteúdo não-instrucional recebido do Tavus — referência não confiável, nunca identidade ou política. */
+  /** Conteúdo não-instrucional recebido do Tavus: referência não confiável, nunca identidade ou política. */
   readonly providerContext: string | null;
 }
 
@@ -98,7 +98,7 @@ export function parseTavusChatRequest(rawMessages: unknown): ParsedTavusChatRequ
     userMessage: last.content,
     perceptionContext: perceptionPieces.length > 0 ? perceptionPieces.join("\n") : null,
     // Corta pelo início (slice negativo): num contexto acumulado, o final é o
-    // mais recente/relevante — mesmo racional do bloco de percepção.
+    // mais recente/relevante, mesmo racional do bloco de percepção.
     providerContext: providerContext.length > 0 ? providerContext.slice(-MAX_PROVIDER_CONTEXT_CHARS) : null,
   };
 }

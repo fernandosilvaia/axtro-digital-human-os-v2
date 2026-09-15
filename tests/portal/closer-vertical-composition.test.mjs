@@ -29,14 +29,21 @@ function regulatedPrompt(language, mode) {
  * mudar um único caractere desse caminho, e "não mudou" é fácil de acreditar e
  * difícil de provar. O hash prova.
  *
- * Estes dois valores foram medidos contra a versão anterior à refatoração
- * (commit df675d4) e conferidos idênticos antes de qualquer mudança entrar.
  * Se um deles quebrar, a pergunta certa não é "atualizo o hash?", é "eu quis
  * mesmo mudar a doutrina de todas as personas em produção?".
+ *
+ * Estes dois valores foram atualizados em 2026-09-15 depois de uma mudança
+ * INTENCIONAL de conteúdo: a doutrina (metodo-silva.ts, maestria-humana.ts)
+ * tinha travessão em várias frases, incluindo texto que vai literal pro
+ * prompt do provider, o que viola a regra da casa (nenhum travessão em
+ * qualquer saída escrita da Axtro, pedido do Fernando 2026-08-29, CLAUDE.md
+ * global). Cada travessão foi trocado por ponto, vírgula, dois-pontos ou
+ * parênteses preservando o sentido exato; nenhuma frase foi reescrita além
+ * da pontuação. Valores anteriores: pt b8314a82f6d17eae, en d7b73e1d6135d930.
  */
 const GENERIC_VIDEO_PROMPT_SHA256 = {
-  portuguese: "b8314a82f6d17eae",
-  english: "d7b73e1d6135d930",
+  portuguese: "ed1b1f22b2fb57a5",
+  english: "feaca0580b1c35da",
 };
 
 test("a doutrina genérica de vídeo permanece byte a byte idêntica", () => {

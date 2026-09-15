@@ -2,18 +2,18 @@
  * M4-04: núcleo puro (ports-injected) do endpoint HTTP que o Tavus chama
  * como LLM da persona de vídeo (`layers.llm.base_url`). Isola a lógica de
  * auth, parsing e composição do transporte HTTP/SSE (route.ts) para ficar
- * testável sem servidor, Supabase ou rede — mesma disciplina do resto do
+ * testável sem servidor, Supabase ou rede, mesma disciplina do resto do
  * projeto (ports injetadas, sem I/O direto).
  *
- * Classes de falha, deliberadamente diferentes (Constituição Art. 14 —
+ * Classes de falha, deliberadamente diferentes (Constituição Art. 14:
  * degradação declarada):
  * - Falha de AUTENTICAÇÃO (bearer ausente/inválido/desabilitado/agente
- *   errado): rejeição dura antes de tocar qualquer dado de tenant — é
+ *   errado): rejeição dura antes de tocar qualquer dado de tenant. É
  *   fronteira de segurança, não qualidade de resposta.
  * - TETO DE ORÇAMENTO atingido (ou impossível de verificar): falha-fechada
- *   com fala de encerramento educada — dinheiro não vaza por indisponível.
+ *   com fala de encerramento educada. Dinheiro não vaza por indisponível.
  * - Falha DEPOIS de autenticar (RAG indisponível, provider fora do ar,
- *   requisição malformada do Tavus): nunca derruba a call — degrada para
+ *   requisição malformada do Tavus): nunca derruba a call, degrada para
  *   uma fala explícita que mantém o presenter vivo, nunca um 500 cru.
  *   Toda degradação carrega um `degradedReason` que a rota DEVE telemetrar
  *   (auditoria 2026-08-02: antes o catch era vazio e uma indisponibilidade
@@ -38,7 +38,7 @@ export type BudgetVerdict = "allowed" | "exhausted" | "unavailable";
 
 export interface BrainRequestDeps {
   readonly resolveConfig: (secretHash: string) => Promise<ResolvedBrainAgent | null>;
-  /** Teto diário de tokens do tenant — falha-fechada: "unavailable" também degrada sem gerar. */
+  /** Teto diário de tokens do tenant. Falha-fechada: "unavailable" também degrada sem gerar. */
   readonly checkBudget: (tenantId: string) => Promise<BudgetVerdict>;
   readonly retrieveKnowledge: (tenantId: string, queryText: string) => Promise<readonly BrainKnowledgeMatch[]>;
   readonly generate: Parameters<typeof runBrainChatCompletion>[1]["generate"];
@@ -71,16 +71,16 @@ export interface BrainChatHttpResult {
   /** true quando a resposta é um fallback degradado (Art. 14) em vez do texto gerado pelo provider. */
   readonly degraded: boolean;
   readonly degradedReason?: BrainDegradedReason;
-  /** O erro original quando degradedReason = generation_failed — a rota telemetra. */
+  /** O erro original quando degradedReason = generation_failed. A rota telemetra. */
   readonly cause?: unknown;
-  /** Padrões de risco de guardrail detectados na resposta gerada (D-V2-115) — vazio em fallback degradado. A rota telemetra quando não-vazio. */
+  /** Padrões de risco de guardrail detectados na resposta gerada (D-V2-115); vazio em fallback degradado. A rota telemetra quando não-vazio. */
   readonly guardrailFlags: readonly string[];
 }
 
-const FALLBACK_REPLY_PT = "Peço desculpa, deixa eu reorganizar isso rapidinho — pode repetir a última parte pra mim?";
-const FALLBACK_REPLY_EN = "My apologies, let me collect that for a second — could you repeat the last part for me?";
-const BUDGET_REPLY_PT = "Nosso tempo de hoje chegou ao limite da sessão — vou pedir pro time humano continuar com você daqui, com todo o nosso contexto. Obrigada pela conversa até aqui!";
-const BUDGET_REPLY_EN = "We've reached today's session limit — I'll have our human team continue from here with full context. Thank you for the conversation so far!";
+const FALLBACK_REPLY_PT = "Peço desculpa, deixa eu reorganizar isso rapidinho. Pode repetir a última parte pra mim?";
+const FALLBACK_REPLY_EN = "My apologies, let me collect that for a second. Could you repeat the last part for me?";
+const BUDGET_REPLY_PT = "Nosso tempo de hoje chegou ao limite da sessão. Vou pedir pro time humano continuar com você daqui, com todo o nosso contexto. Obrigada pela conversa até aqui!";
+const BUDGET_REPLY_EN = "We've reached today's session limit. I'll have our human team continue from here with full context. Thank you for the conversation so far!";
 const BEARER_PATTERN = /^Bearer\s+([a-f0-9]{64})$/;
 
 function fallbackReply(language: BrainLanguage | undefined): string {
@@ -99,7 +99,7 @@ function extractBearer(authorizationHeader: string | null): string | null {
 
 /**
  * Autentica e resolve o agente. Lança BrainHttpError (rejeição dura, sem
- * tocar dado de tenant) para toda falha de credencial — nunca degrada aqui.
+ * tocar dado de tenant) para toda falha de credencial. Nunca degrada aqui.
  */
 export async function authenticateBrainRequest(
   request: Pick<BrainChatHttpRequest, "authorizationHeader" | "agentIdFromPath">,
@@ -128,7 +128,7 @@ export async function handleBrainChatRequest(
   const agent = await authenticateBrainRequest(request, deps.resolveConfig);
 
   // Teto de gasto ANTES de qualquer geração paga (auditoria 2026-08-02: o
-  // endpoint não tinha teto nenhum — gasto ilimitado na chave da plataforma).
+  // endpoint não tinha teto nenhum: gasto ilimitado na chave da plataforma).
   // Falha-fechada: sem conseguir LER o orçamento, também não gera.
   let budget: BudgetVerdict;
   try {
@@ -160,7 +160,7 @@ export async function handleBrainChatRequest(
   try {
     knowledgeMatches = await deps.retrieveKnowledge(agent.tenantId, parsed.userMessage);
   } catch {
-    // RAG indisponível: segue sem fontes, nunca inventa (Art. 14) — não é motivo pra degradar a fala inteira.
+    // RAG indisponível: segue sem fontes, nunca inventa (Art. 14); não é motivo pra degradar a fala inteira.
     knowledgeMatches = [];
   }
 

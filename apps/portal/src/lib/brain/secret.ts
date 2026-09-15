@@ -1,6 +1,6 @@
 /**
  * Segredo por agente do cérebro customizado (M4-03). Gerado e hasheado na
- * aplicação, nunca em SQL — mesma disciplina de nunca gerar material
+ * aplicação, nunca em SQL: mesma disciplina de nunca gerar material
  * aleatório sensível no banco já usada no resto do projeto (ex.:
  * createUuidV7 sempre client-side). O banco (0018_agent_brain_config.sql)
  * só armazena e compara o hash; o segredo bruto é devolvido ao operador uma

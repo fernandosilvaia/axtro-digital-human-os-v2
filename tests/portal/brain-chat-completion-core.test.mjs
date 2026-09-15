@@ -86,7 +86,7 @@ test("video surface truncates oversized user message and history turns instead o
   assert.equal(longTurn.content.length, 4000);
 });
 
-test("chat surface still REJECTS oversized turns — the sandbox controls its own input", async () => {
+test("chat surface still REJECTS oversized turns: the sandbox controls its own input", async () => {
   const { deps, calls } = fakeDeps();
   await assert.rejects(
     () => core.runBrainChatCompletion({ ...BASE_REQUEST, history: [{ role: "user", content: "x".repeat(9000) }] }, deps),
@@ -99,7 +99,7 @@ test("provider context is folded as a labeled data block, most recent kept on tr
   const { deps, calls } = fakeDeps();
   const providerContext = "INÍCIO-antigo " + "meio ".repeat(900) + "FIM-recente";
   await core.runBrainChatCompletion({ ...BASE_REQUEST, surface: "video", providerContext }, deps);
-  const block = calls.generate[0].messages.find((m) => m.role === "user" && m.content.startsWith("DADOS DE REFERÊNCIA NÃO CONFIÁVEIS — CONTEXTO DO PROVIDER"));
+  const block = calls.generate[0].messages.find((m) => m.role === "user" && m.content.startsWith("DADOS DE REFERÊNCIA NÃO CONFIÁVEIS: CONTEXTO DO PROVIDER"));
   assert.ok(block, "bloco de contexto do provider ausente");
   assert.match(block.content, /FIM-recente/);
   assert.doesNotMatch(block.content, /INÍCIO-antigo/);
@@ -121,7 +121,7 @@ test("knowledge matches produce a labeled, bounded user reference message", asyn
     { source_name: "Rate Card", chunk_text: "Instalação residencial parte de R$ 12.000." },
   ];
   await core.runBrainChatCompletion({ ...BASE_REQUEST, knowledgeMatches }, deps);
-  const knowledgeMessage = calls.generate[0].messages.find((m) => m.role === "user" && m.content.startsWith("DADOS DE REFERÊNCIA NÃO CONFIÁVEIS — RAG DA CONTA"));
+  const knowledgeMessage = calls.generate[0].messages.find((m) => m.role === "user" && m.content.startsWith("DADOS DE REFERÊNCIA NÃO CONFIÁVEIS: RAG DA CONTA"));
   assert.ok(knowledgeMessage, "knowledge block missing");
   assert.match(knowledgeMessage.content, /Manual do Closer/);
   assert.match(knowledgeMessage.content, /Rate Card/);
@@ -135,7 +135,7 @@ test("achado onda 8 (D-V2-117): buildKnowledgeBlock inclui os 5 matches pedidos 
     chunk_text: `Trecho ${index + 1}: ${"conteúdo relevante da fonte autorizada ".repeat(30)}`.slice(0, 1200),
   }));
   await core.runBrainChatCompletion({ ...BASE_REQUEST, knowledgeMatches }, deps);
-  const knowledgeMessage = calls.generate[0].messages.find((m) => m.role === "user" && m.content.startsWith("DADOS DE REFERÊNCIA NÃO CONFIÁVEIS — RAG DA CONTA"));
+  const knowledgeMessage = calls.generate[0].messages.find((m) => m.role === "user" && m.content.startsWith("DADOS DE REFERÊNCIA NÃO CONFIÁVEIS: RAG DA CONTA"));
   assert.ok(knowledgeMessage, "knowledge block missing");
   for (let index = 1; index <= 5; index += 1) {
     assert.match(knowledgeMessage.content, new RegExp(`Fonte ${index}\\]`), `match ${index} foi descartado em vez de incluído com orçamento reduzido`);
@@ -149,13 +149,13 @@ test("achado onda 8 (D-V2-117): chunk truncado corta no limite de palavra e sina
   const longChunk = "isento de multa se cancelado com antecedência mínima de quinze dias corridos a partir da data de assinatura do contrato original ".repeat(10);
   const knowledgeMatches = [{ source_name: "Contrato", chunk_text: longChunk }];
   await core.runBrainChatCompletion({ ...BASE_REQUEST, knowledgeMatches }, deps);
-  const knowledgeMessage = calls.generate[0].messages.find((m) => m.role === "user" && m.content.startsWith("DADOS DE REFERÊNCIA NÃO CONFIÁVEIS — RAG DA CONTA"));
+  const knowledgeMessage = calls.generate[0].messages.find((m) => m.role === "user" && m.content.startsWith("DADOS DE REFERÊNCIA NÃO CONFIÁVEIS: RAG DA CONTA"));
   assert.ok(knowledgeMessage, "knowledge block missing");
   assert.ok(knowledgeMessage.content.includes("…"), "corte deveria sinalizar truncamento com reticências");
   assert.ok(!knowledgeMessage.content.endsWith(longChunk.trim()), "chunk não deveria caber inteiro (teste espera truncamento)");
 });
 
-test("perception context is folded as labeled, untrusted user reference data — never as identity or instruction", async () => {
+test("perception context is folded as labeled, untrusted user reference data: never as identity or instruction", async () => {
   const { deps, calls } = fakeDeps();
   const perceptionContext = "<user_emotions>a pessoa parece cética, braços cruzados</user_emotions>";
   await core.runBrainChatCompletion({ ...BASE_REQUEST, surface: "video", perceptionContext }, deps);
@@ -310,7 +310,7 @@ test("achado D-V2-115: runBrainChatCompletion inclui guardrailFlags no resultado
 test("achado D-V2-115: runBrainChatCompletion propaga o padrão detectado na resposta gerada", async () => {
   const { deps } = fakeDeps({
     generateResult: {
-      text: "Isso é garantido — 30% de desconto só hoje!",
+      text: "Isso é garantido, 30% de desconto só hoje!",
       model: "fake/model",
       usage: { inputTokens: 100, outputTokens: 20 },
     },
