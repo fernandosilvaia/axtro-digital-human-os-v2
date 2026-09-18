@@ -3,14 +3,14 @@ name: Foundation quality gates
 on:
   pull_request:
   push:
-    # Só main: PR já cobre branches de PR. Sem o filtro, cada commit numa
+    # Só main: PR já cobre branches de PR — sem o filtro, cada commit numa
     # branch de PR rodava o workflow em DOBRO (push + pull_request), e os dois
     # runs de e2e mutavam o MESMO tenant de teste em paralelo (auditoria 2026-08-02).
     branches: [main]
   workflow_dispatch:
 
 # Um run por ref: o e2e loga na mesma fixture de cliente e muta as mesmas entidades
-# seed: dois runs simultâneos correm um contra o outro com retries: 0.
+# seed — dois runs simultâneos correm um contra o outro com retries: 0.
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
@@ -96,12 +96,12 @@ jobs:
         run: pnpm typecheck
       - name: Install Playwright Chromium
         run: pnpm --filter @axtro/portal exec playwright install --with-deps chromium
-      - name: "E2E: descoberta pública no build de produção (sem credenciais)"
+      - name: E2E — descoberta pública no build de produção (sem credenciais)
         working-directory: apps/portal
         run: pnpm run e2e:public
 
   check-e2e-secrets:
-    # jobs.<job_id>.if só aceita os contextos github/needs/vars/inputs, não
+    # jobs.<job_id>.if só aceita os contextos github/needs/vars/inputs — não
     # secrets (achado real 2026-08-01: um `if: ${{ secrets... }}` direto no
     # job invalida o workflow INTEIRO, os 4 jobs somem e todo run vira
     # "workflow file issue" com 0 jobs, silenciosamente, sem nenhum erro
@@ -138,14 +138,14 @@ jobs:
     # Roda só quando os segredos da fixture autenticada existem no repositório.
     # DEMO_* permanece apenas como fallback de migração dos nomes antigos.
     # (Settings → Secrets and variables → Actions). Sem eles o job é pulado
-    # inteiro (nunca falha por ausência de credencial), mesmo padrão do
+    # inteiro (nunca falha por ausência de credencial) — mesmo padrão do
     # resto do projeto: implementar + documentar em NEEDS_CONNECTION.md,
     # deixando a credencial real como gate humano. PRs de fork também não
     # têm acesso aos secrets, então o skip aqui é automático e seguro.
     needs: check-e2e-secrets
     runs-on: ubuntu-latest
     # 20min: o webServer do Playwright agora faz `next build && next start`
-    # no CI (valida o build de produção antes do deploy), o build soma
+    # no CI (valida o build de produção antes do deploy) — o build soma
     # ~2min ao job.
     timeout-minutes: 20
     if: ${{ needs.check-e2e-secrets.outputs.has-secrets == 'true' }}
@@ -177,7 +177,7 @@ jobs:
           E2E_TENANT_ADMIN_EMAIL=${{ secrets.E2E_TENANT_ADMIN_EMAIL || secrets.DEMO_EMAIL }}
           E2E_TENANT_ADMIN_PASSWORD=${{ secrets.E2E_TENANT_ADMIN_PASSWORD || secrets.DEMO_PASSWORD }}
           EOF
-      - name: "E2E: ciclos completos de agente/fonte/convite, SEO e middleware (fake providers)"
+      - name: E2E — ciclos completos de agente/fonte/convite, SEO e middleware (fake providers)
         working-directory: apps/portal
         run: pnpm run e2e
 
@@ -211,7 +211,7 @@ jobs:
         # Achado real 2026-08-18: o mirror azure.archive.ubuntu.com pré-configurado
         # nos runners hospedados fica instável às vezes, e "apt-get update"/"install"
         # sem opção de retry/timeout pode ficar mudo por 9+ minutos até o job
-        # inteiro (timeout-minutes: 10) estourar, mascarando como se o teste de
+        # inteiro (timeout-minutes: 10) estourar — mascarando como se o teste de
         # migration tivesse travado, quando o problema nunca chegou a rodar os
         # steps de banco. Retry/timeout curtos no apt + timeout-minutes no próprio
         # step fazem essa falha ficar rápida e óbvia em vez de consumir o budget
