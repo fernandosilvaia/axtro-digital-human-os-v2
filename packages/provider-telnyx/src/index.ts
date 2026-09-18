@@ -1,22 +1,22 @@
 /**
- * Quarto adapter de provider real do projeto: Telnyx — telefonia (Voice +
+ * Quarto adapter de provider real do projeto: Telnyx, telefonia (Voice +
  * Messaging) pro que um closer de vendas precisa hoje: ligar pra um número,
  * mandar um SMS, e saber o status de cada um. Mesmos guardrails dos outros
  * três adapters reais (OpenRouter, Tavus, Recall.ai): fetch injetável,
  * timeout obrigatório, chave nunca aparece em erro/log, erro tipado, caps
  * fechados de input.
  *
- * ATENÇÃO — hipótese de integração, não fato confirmado (classificação do
+ * ATENÇÃO: hipótese de integração, não fato confirmado (classificação do
  * Art. 16 da constituição deste repo: toda afirmação técnica é fato
  * confirmado, decisão, hipótese de benchmark, dependência externa ou item
  * adiado). `TASKS.md` linha ~32 registrava a decisão autônoma anterior de
  * NÃO construir isto especulativamente ("código não testável contra API
  * real vira scaffolding morto"). Essa decisão foi conscientemente revertida
- * por pedido explícito do Fernando Silva em 2026-08-24 — telefonia virou
+ * por pedido explícito do Fernando Silva em 2026-08-24, telefonia virou
  * prioridade de produto nesta rodada, mesmo sem conta/chave Telnyx ainda
  * existir. O modo REAL abaixo foi desenhado lendo a documentação pública
  * real da Telnyx (OpenAPI spec oficial, não memória de treino) e NUNCA foi
- * exercitado contra a API de verdade — é dependência externa não validada
+ * exercitado contra a API de verdade: é dependência externa não validada
  * até uma conta real existir. `createFakeTelnyxPort` (zero rede) é o único
  * modo seguro de usar este pacote até essa validação acontecer.
  *
@@ -24,83 +24,83 @@
  * - Base URL + esquema de auth: https://developers.telnyx.com/docs/api/v2/overview
  *   ("Authorization: Bearer <API_KEY>"). `servers[0].url` da OpenAPI spec
  *   confirma `https://api.telnyx.com/v2`. Difere do Recall.ai (`Authorization`
- *   sem "Bearer") e do Tavus (header `x-api-key`) — cada provider tem seu
+ *   sem "Bearer") e do Tavus (header `x-api-key`). Cada provider tem seu
  *   próprio esquema, nenhum foi assumido por analogia.
- * - Voice — discar: OpenAPI spec pública (raw.githubusercontent.com/
+ * - Voice (discar): OpenAPI spec pública (raw.githubusercontent.com/
  *   team-telnyx/openapi/master/openapi/spec3.json), `paths["/calls"].post`
  *   (operationId `DialCall`) + `components.schemas.CallRequest`. Campos
  *   obrigatórios: `connection_id`, `to`, `from`. Resposta 200 em
  *   `components.schemas.CallWithRecordingId` (`call_control_id`,
  *   `call_leg_id`, `call_session_id`), envelopada em `{"data": ...}`.
- * - Voice — status: mesma spec, `paths["/calls/{call_control_id}"].get`
- *   (operationId `RetrieveCallStatus`) — descrição literal da própria
+ * - Voice (status): mesma spec, `paths["/calls/{call_control_id}"].get`
+ *   (operationId `RetrieveCallStatus`). Descrição literal da própria
  *   Telnyx: "Returns the status of a call (data is available 10 minutes
  *   after call ended)". NÃO é status em tempo real; existe pra reconciliação
  *   tardia, não para acompanhar uma chamada em andamento.
- * - Messaging — enviar: mesma spec, `paths["/messages"].post` (operationId
+ * - Messaging (enviar): mesma spec, `paths["/messages"].post` (operationId
  *   `SendMessage`) + `components.schemas.CreateMessageRequest`. Resposta em
  *   `components.schemas.messaging_OutboundMessagePayload`, também envelopada
  *   em `{"data": ...}`.
- * - Messaging — status: mesma spec, `paths["/messages/{id}"].get`
- *   (operationId `GetMessage`) — descrição literal: só recupera mensagens de
+ * - Messaging (status): mesma spec, `paths["/messages/{id}"].get`
+ *   (operationId `GetMessage`). Descrição literal: só recupera mensagens de
  *   até 10 dias desde a criação.
- * - Webhooks (mecanismo de status escolhido — ver decisão abaixo):
+ * - Webhooks (mecanismo de status escolhido, ver decisão abaixo):
  *   https://developers.telnyx.com/docs/voice/programmable-voice/receiving-webhooks
- *   + a própria OpenAPI spec (chave `webhooks`) — todo webhook Telnyx traz os
+ *   + a própria OpenAPI spec (chave `webhooks`): todo webhook Telnyx traz os
  *   headers `telnyx-timestamp` (unix seconds) e `telnyx-signature-ed25519`
- *   (assinatura Ed25519, base64, do texto `${timestamp}|${raw_body}`) —
- *   citação literal da spec: "Ed25519 signature of timestamp|payload for
+ *   (assinatura Ed25519, base64, do texto `${timestamp}|${raw_body}`).
+ *   Citação literal da spec: "Ed25519 signature of timestamp|payload for
  *   verification". Eventos de voz confirmados na spec: `call.initiated`,
  *   `call.answered`, `call.hangup` (com `hangup_cause` fechado num enum).
  *   Eventos de mensagem confirmados: `message.sent`, `message.finalized`
  *   (status granular de entrega vem em `payload.to[].status`).
  *
- * DECISÃO — webhook vs. polling para status (capacidade 3 do escopo): os
+ * DECISÃO (webhook vs. polling para status, capacidade 3 do escopo): os
  * dois GET acima existem, mas nenhum serve como fonte de status em tempo
  * real (o de chamada só populariza 10min DEPOIS da chamada acabar; o de
  * mensagem é uma consulta pontual, não um fluxo). A doc real da Telnyx é
  * explícita que o webhook é o mecanismo pensado pra acompanhar o ciclo de
- * vida — por isso este pacote expõe AMBOS: `getCallStatus`/`getMessageStatus`
+ * vida, por isso este pacote expõe AMBOS: `getCallStatus`/`getMessageStatus`
  * (polling, com a limitação documentada em cada um) E
  * `verifyTelnyxWebhookSignature`/`parseTelnyxCallWebhookEvent`/
  * `parseTelnyxMessageWebhookEvent` (webhook, o caminho recomendado). A
  * verificação de assinatura mora AQUI, dentro do package, e não em
- * `apps/portal` (onde o mesmo tipo de lógica vive pra Recall.ai/Stripe —
+ * `apps/portal` (onde o mesmo tipo de lógica vive pra Recall.ai/Stripe,
  * ver `apps/portal/src/lib/meetings/webhook.ts` e `.../billing/webhook.ts`)
  * porque esta rodada constrói só o package isolado, sem tocar Server
  * Actions/rotas do portal (fora de escopo aqui). Quando uma onda futura
  * conectar isto ao produto, uma rota `apps/portal/src/app/api/telnyx/
- * webhook/route.ts` deve importar esta função pura — mesmo padrão dos
+ * webhook/route.ts` deve importar esta função pura, mesmo padrão dos
  * outros dois webhooks assinados do repo, só que fisicamente hospedada no
  * package por causa do limite de escopo desta tarefa.
  *
- * AMBIGUIDADE DOCUMENTADA (Art. 16 — não inventar o que a doc não confirma):
+ * AMBIGUIDADE DOCUMENTADA (Art. 16, não inventar o que a doc não confirma):
  * 1. `call_control_id` não tem formato fechado na doc (só `type: string` no
  *    parâmetro de path; o prefixo `v3:` aparece SÓ em exemplos, nunca como
- *    invariante declarado) — diferente do bot id da Recall.ai, documentado
+ *    invariante declarado). Diferente do bot id da Recall.ai, documentado
  *    como UUID. Por isso este pacote valida só presença/tamanho, nunca um
  *    regex de formato, e usa `encodeURIComponent` no path como mitigação
  *    (em vez de confiar num regex que seria inventado).
  * 2. O comportamento de `hangupCall`/`getCallStatus` contra um
  *    `call_control_id` desconhecido ou expirado (404? 422? idempotente como
- *    o `leaveCall` da Recall.ai?) não está confirmado na doc pública — o
+ *    o `leaveCall` da Recall.ai?) não está confirmado na doc pública: o
  *    modo fake escolhe `provider_rejected`/422 como placeholder plausível,
  *    NÃO como contrato confirmado. Validar contra sandbox real antes de
  *    depender disso em produção.
  * 3. A Messaging API (`POST /messages`) NÃO tem nenhum campo de dedup/
- *    idempotência equivalente ao `command_id` do Dial de voz — reenviar o
+ *    idempotência equivalente ao `command_id` do Dial de voz. Reenviar o
  *    mesmo SMS por retry cria DUAS mensagens cobradas, sempre. Isto é uma
  *    lacuna real do provider, não um detalhe que faltou modelar aqui; um
  *    futuro call site em `apps/portal` precisa da mesma reserva idempotente
  *    por `(tenant_id, idempotency_key)` que já existe pra Tavus/Recall
  *    (`beginProviderEffect`), porque a Telnyx não oferece proteção nativa
  *    pra SMS como oferece pra Dial.
- * 4. Retry com backoff exponencial NÃO é implementado dentro deste adapter
- *    — mesmo padrão de `provider-recall`/`provider-tavus`: uma falha vira
+ * 4. Retry com backoff exponencial NÃO é implementado dentro deste adapter,
+ *    mesmo padrão de `provider-recall`/`provider-tavus`: uma falha vira
  *    um erro tipado (`provider_timeout`/`provider_unavailable`/...) numa
  *    única tentativa, e quem decide retentar (com que backoff, quantas
  *    vezes) é a camada de cima, que hoje nem existe pra Telnyx (fora do
- *    escopo desta rodada — nenhuma Server Action foi tocada).
+ *    escopo desta rodada, nenhuma Server Action foi tocada).
  */
 
 import { createHash, createPublicKey, verify, type KeyObject } from "node:crypto";
@@ -134,7 +134,7 @@ export class TelnyxProviderError extends Error {
 // ---------------------------------------------------------------------------
 
 export interface TelnyxCallRequest {
-  /** +E.164. Doc: "The DID or SIP URI to dial out to" — este pacote cobre só o caso DID (número), SIP URI é fora de escopo. */
+  /** +E.164. Doc: "The DID or SIP URI to dial out to". Este pacote cobre só o caso DID (número), SIP URI é fora de escopo. */
   readonly to: string;
   /** +E.164, caller id apresentado ao destino. */
   readonly from: string;
@@ -142,9 +142,9 @@ export interface TelnyxCallRequest {
   readonly connectionId: string;
   /** Sobrescreve, só para esta chamada, o webhook_url configurado na conta. */
   readonly webhookUrl?: string;
-  /** Ecoado em todo webhook subsequente. Doc pede base64, mas não valida no request — não fechamos um regex de base64 aqui por não ser um invariante confirmado. */
+  /** Ecoado em todo webhook subsequente. Doc pede base64, mas não valida no request: não fechamos um regex de base64 aqui por não ser um invariante confirmado. */
   readonly clientState?: string;
-  /** Doc: "Telnyx will ignore other Dial commands with the same command_id" — único mecanismo de idempotência nativo do Dial. */
+  /** Doc: "Telnyx will ignore other Dial commands with the same command_id". Único mecanismo de idempotência nativo do Dial. */
   readonly commandId?: string;
   /** Segundos até desistir se ninguém atender. Doc (texto, não no schema): mínimo 5, máximo 600; default 30. */
   readonly timeoutSecs?: number;
@@ -160,7 +160,7 @@ export interface TelnyxCallStatus {
   readonly callControlId: string;
   readonly callLegId: string;
   readonly callSessionId: string;
-  /** Doc: "For Dial command it will always be false (dialing is asynchronous)" logo após a criação — só fica true depois de atendida. */
+  /** Doc: "For Dial command it will always be false (dialing is asynchronous)" logo após a criação, só fica true depois de atendida. */
   readonly isAlive: boolean;
   readonly callDurationSeconds: number | null;
   readonly startTime: string | null;
@@ -173,7 +173,7 @@ export interface TelnyxVoicePort {
   dialCall(request: TelnyxCallRequest): Promise<TelnyxCall>;
   hangupCall(callControlId: string): Promise<void>;
   /**
-   * `GET /v2/calls/{call_control_id}` — doc oficial: "data is available 10
+   * `GET /v2/calls/{call_control_id}`. Doc oficial: "data is available 10
    * minutes after call ended". NÃO confunda com status em tempo real; para
    * acompanhar uma chamada em andamento use o webhook
    * (`parseTelnyxCallWebhookEvent`/`verifyTelnyxWebhookSignature`).
@@ -212,14 +212,14 @@ export interface TelnyxMessage {
 export interface TelnyxMessagingPort {
   readonly providerId: string;
   sendMessage(request: TelnyxMessageRequest): Promise<TelnyxMessage>;
-  /** `GET /v2/messages/{id}` — doc oficial: só recupera mensagens de até 10 dias desde a criação. */
+  /** `GET /v2/messages/{id}`. Doc oficial: só recupera mensagens de até 10 dias desde a criação. */
   getMessageStatus(messageId: string): Promise<TelnyxMessage>;
 }
 
 export type TelnyxPort = TelnyxVoicePort & TelnyxMessagingPort;
 
 // ---------------------------------------------------------------------------
-// Validação de input (compartilhada entre o adapter real e o fake — o
+// Validação de input (compartilhada entre o adapter real e o fake, o
 // "contrato" de validação precisa ser idêntico nos dois modos, senão o modo
 // fake mentiria sobre o que a API real aceita).
 // ---------------------------------------------------------------------------
@@ -227,7 +227,7 @@ export type TelnyxPort = TelnyxVoicePort & TelnyxMessagingPort;
 const E164_PATTERN = /^\+[1-9]\d{1,14}$/;
 const MAX_CONNECTION_ID_CHARS = 128;
 const MAX_CALL_CONTROL_ID_CHARS = 2000;
-/** Bound defensivo nosso — a doc não fecha um tamanho máximo pra client_state além de "deve ser base64 válido". */
+/** Bound defensivo nosso: a doc não fecha um tamanho máximo pra client_state além de "deve ser base64 válido". */
 const MAX_CLIENT_STATE_CHARS = 2000;
 const MAX_COMMAND_ID_CHARS = 128;
 const MAX_WEBHOOK_URL_CHARS = 2000;
@@ -309,7 +309,7 @@ function parseMessagePayload(payload: unknown): TelnyxMessage {
   // Esta fatia só cobre SMS de saída (o closer discando/mandando pro
   // prospect); uma mensagem inbound devolvida aqui significa que o
   // chamador consultou o id errado, não é um contrato que valha a pena
-  // modelar nesta rodada (fora de escopo — sem inbound SMS no produto).
+  // modelar nesta rodada (fora de escopo, sem inbound SMS no produto).
   if (record.direction !== "outbound") {
     throw new TelnyxProviderError("malformed_provider_response", "Telnyx message payload is not an outbound message");
   }
@@ -365,7 +365,7 @@ export function createTelnyxPort(options: TelnyxAdapterOptions): TelnyxPort {
       }
       throw new TelnyxProviderError("provider_unavailable", "Telnyx request failed before a response");
     }
-    // O timer segue vivo até o CORPO ser consumido — headers rápidos com
+    // O timer segue vivo até o CORPO ser consumido. Headers rápidos com
     // body pendurado não escapam do timeout (mesmo achado de auditoria já
     // corrigido em provider-recall/provider-tavus).
     try {
@@ -382,8 +382,8 @@ export function createTelnyxPort(options: TelnyxAdapterOptions): TelnyxPort {
         throw new TelnyxProviderError("malformed_provider_response", "Telnyx returned non-JSON output");
       }
       // Toda resposta v2 da Telnyx vem envelopada em {"data": ...} (confirmado
-      // na OpenAPI spec pra /calls, /calls/{id}, /messages e /messages/{id})
-      // — diferente do Recall.ai e do Tavus, que devolvem o objeto direto.
+      // na OpenAPI spec pra /calls, /calls/{id}, /messages e /messages/{id}).
+      // Diferente do Recall.ai e do Tavus, que devolvem o objeto direto.
       const record = (parsed ?? {}) as Record<string, unknown>;
       return record.data ?? null;
     } catch (error) {
@@ -426,7 +426,7 @@ export function createTelnyxPort(options: TelnyxAdapterOptions): TelnyxPort {
       validateCallControlId(callControlId);
       // `encodeURIComponent` é a mitigação escolhida pra falta de um formato
       // fechado de call_control_id na doc (ver ambiguidade documentada no
-      // topo do arquivo) — evita que um id malformado altere o path.
+      // topo do arquivo), evita que um id malformado altere o path.
       await call("POST", `/calls/${encodeURIComponent(callControlId)}/actions/hangup`, {});
     },
 
@@ -481,14 +481,14 @@ export function createTelnyxPort(options: TelnyxAdapterOptions): TelnyxPort {
 // ---------------------------------------------------------------------------
 
 /**
- * Mesmo mecanismo de demo do resto do repo — ver
- * `apps/portal/src/lib/knowledge.ts` `fakeProvidersEnabled()`: a env var
+ * Mesmo mecanismo de demo do resto do repo (ver
+ * `apps/portal/src/lib/knowledge.ts` `fakeProvidersEnabled()`): a env var
  * `PORTAL_FAKE_PROVIDERS=1` liga o modo fake em todo o produto sem chave
  * real. Hoje os adapters reais de Recall.ai/Tavus decidem isso no
  * call-site, dentro de `apps/portal`, ANTES de sequer chamar o factory do
  * package. Como este package ainda não está conectado a nenhuma Server
  * Action (fora de escopo desta onda), este helper existe pra que um FUTURO
- * call site em `apps/portal` decida exatamente do mesmo jeito — e pra que
+ * call site em `apps/portal` decida exatamente do mesmo jeito, e pra que
  * este próprio pacote seja testável sem chave real hoje.
  */
 export function telnyxFakeProvidersEnabled(): boolean {
@@ -520,13 +520,13 @@ interface FakeMessageRecord {
 /**
  * Contrato determinístico: mesmo input → mesmo id/status, sempre, sem
  * nenhuma chamada de rede. Reaplica EXATAMENTE as mesmas validações do modo
- * real (`validateCallRequest`/`validateMessageRequest`/...) — um payload
+ * real (`validateCallRequest`/`validateMessageRequest`/...). Um payload
  * malformado é rejeitado da mesma forma nos dois modos, porque o objetivo do
  * fake é deixar o resto do produto testável, não fingir que qualquer input
  * passa.
  *
  * Estado (quais ids existem, se uma chamada ainda está "viva") vive em
- * memória, por instância do port — o suficiente pra um teste ou uma demo
+ * memória, por instância do port, o suficiente pra um teste ou uma demo
  * local fazer `dialCall` seguido de `getCallStatus`/`hangupCall` e ver um
  * resultado coerente, sem persistência nenhuma (não é um banco).
  */
@@ -550,7 +550,7 @@ export function createFakeTelnyxPort(): TelnyxPort {
       validateCallControlId(callControlId);
       const existing = calls.get(callControlId);
       // Comportamento pra id desconhecido NÃO é confirmado contra a API real
-      // (ver ambiguidade documentada no topo do arquivo) — este é um
+      // (ver ambiguidade documentada no topo do arquivo), este é um
       // placeholder plausível, não um contrato provado.
       if (existing === undefined) {
         throw new TelnyxProviderError("provider_rejected", "Fake Telnyx has no active call with this callControlId", 422);
@@ -596,7 +596,7 @@ export function createFakeTelnyxPort(): TelnyxPort {
 // ---------------------------------------------------------------------------
 // Webhooks: verificação de assinatura (Ed25519) + parsing dos eventos
 // cobertos por esta fatia (voz: initiated/answered/hangup; mensagem:
-// sent/finalized). Ver o comentário "DECISÃO — webhook vs. polling" no topo
+// sent/finalized). Ver o comentário "DECISÃO: webhook vs. polling" no topo
 // do arquivo pra por que isto mora aqui em vez de em apps/portal.
 // ---------------------------------------------------------------------------
 
@@ -604,17 +604,17 @@ export function createFakeTelnyxPort(): TelnyxPort {
 const WEBHOOK_SIGNATURE_TOLERANCE_SECONDS = 5 * 60;
 
 export interface TelnyxWebhookSignatureHeaders {
-  /** Header `telnyx-timestamp` — unix seconds, como string. */
+  /** Header `telnyx-timestamp` (unix seconds, como string). */
   readonly timestamp: string | null;
-  /** Header `telnyx-signature-ed25519` — base64. */
+  /** Header `telnyx-signature-ed25519` (base64). */
   readonly signatureEd25519: string | null;
 }
 
 /**
- * Decodifica a chave pública de webhook (base64, 32 bytes crus — formato
+ * Decodifica a chave pública de webhook (base64, 32 bytes crus, formato
  * publicado no portal da Telnyx) pra um `KeyObject` Ed25519 utilizável por
  * `crypto.verify`. A ida-e-volta canônica (`raw.toString("base64") ===
- * input`) evita aceitar lixo que só "parece" base64 — mesma disciplina de
+ * input`) evita aceitar lixo que só "parece" base64, mesma disciplina de
  * `apps/portal/src/lib/meetings/webhook.ts` `parseRecallWebhookSecret`.
  */
 export function parseTelnyxWebhookPublicKey(base64PublicKey: string): KeyObject | null {
@@ -640,7 +640,7 @@ export function parseTelnyxWebhookPublicKey(base64PublicKey: string): KeyObject 
  * assinado com a chave privada de webhook da conta, verificado aqui contra a
  * chave PÚBLICA correspondente. Diferente de HMAC (Recall.ai/Stripe neste
  * repo), a verificação de assinatura assimétrica do `crypto.verify` do Node
- * já é a "comparação em tempo constante" exigida — não há segredo
+ * já é a "comparação em tempo constante" exigida: não há segredo
  * compartilhado pra comparar byte a byte, é uma verificação de assinatura
  * pública. Timestamp fora de ±5min é rejeitado (proteção contra replay).
  */
@@ -685,11 +685,11 @@ export interface TelnyxCallWebhookEvent {
   readonly eventType: TelnyxCallWebhookEventType;
   readonly callControlId: string;
   readonly callSessionId: string;
-  /** Só presente em `call.hangup` (doc: enum fechado — call_rejected, normal_clearing, originator_cancel, timeout, time_limit, user_busy, not_found, no_answer, unspecified). */
+  /** Só presente em `call.hangup` (doc: enum fechado com estes valores: call_rejected, normal_clearing, originator_cancel, timeout, time_limit, user_busy, not_found, no_answer, unspecified). */
   readonly hangupCause?: string;
 }
 
-/** Corpo já parseado como JSON (`JSON.parse` do raw body) — verifique a assinatura ANTES de chamar isto. */
+/** Corpo já parseado como JSON (`JSON.parse` do raw body). Verifique a assinatura ANTES de chamar isto. */
 export function parseTelnyxCallWebhookEvent(rawBody: unknown): TelnyxCallWebhookEvent | null {
   if (rawBody === null || typeof rawBody !== "object") return null;
   const data = (rawBody as Record<string, unknown>).data;
@@ -722,7 +722,7 @@ export interface TelnyxMessageWebhookEvent {
   readonly status: TelnyxMessageDeliveryStatus | null;
 }
 
-/** Corpo já parseado como JSON — verifique a assinatura ANTES de chamar isto. */
+/** Corpo já parseado como JSON. Verifique a assinatura ANTES de chamar isto. */
 export function parseTelnyxMessageWebhookEvent(rawBody: unknown): TelnyxMessageWebhookEvent | null {
   if (rawBody === null || typeof rawBody !== "object") return null;
   const data = (rawBody as Record<string, unknown>).data;

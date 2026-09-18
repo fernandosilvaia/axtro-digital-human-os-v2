@@ -11,11 +11,11 @@ import {
 
 /**
  * M3-09: console expansion for opportunity and call review. This is a new,
- * additive module — it reuses `renderEvidenceLabel`/`escapeHtml` from the
+ * additive module: it reuses `renderEvidenceLabel`/`escapeHtml` from the
  * M1-09 operations console (the same tested fact-vs-hypothesis distinction
  * and HTML escaping) rather than duplicating or rewriting that file.
  * Sensitive fields never reach the rendered HTML at all when the viewer
- * lacks PII access — omission, not client-side hiding.
+ * lacks PII access (omission, not client-side hiding).
  */
 export interface OpportunityCitationView {
   readonly citationLocator: string;
@@ -93,7 +93,7 @@ export function renderOpportunityReviewDocument(modelInput: unknown, authorizedT
 <html lang="pt-BR">
 <head>
 <meta charset="utf-8">
-<title>Revisão de oportunidade — ${escapeHtml(model.sessionId)}</title>
+<title>Revisão de oportunidade: ${escapeHtml(model.sessionId)}</title>
 </head>
 <body>
 <main aria-label="Revisão de oportunidade">
@@ -132,21 +132,21 @@ ${model.viewerHasPiiAccess ? `<ul>${sensitiveHtml}</ul>` : "<p>Sem permissão pa
 }
 
 function renderCitation(citation: OpportunityCitationView): string {
-  return `<li data-trusted="false"><span aria-hidden="true">❝</span> <em>Conteúdo recuperado, não confiável</em> — ${escapeHtml(citation.excerptText)} <cite>${escapeHtml(citation.citationLocator)}</cite></li>`;
+  return `<li data-trusted="false"><span aria-hidden="true">❝</span> <em>Conteúdo recuperado, não confiável</em>: ${escapeHtml(citation.excerptText)} <cite>${escapeHtml(citation.citationLocator)}</cite></li>`;
 }
 
 function renderHypothesis(hypothesis: OperationsHypothesisView): string {
   const label = renderEvidenceLabel({ kind: "hypothesis", expired: hypothesis.expired });
-  return `<li>${escapeHtml(hypothesis.label)} — ${label}</li>`;
+  return `<li>${escapeHtml(hypothesis.label)}: ${label}</li>`;
 }
 
 function renderReceipt(receipt: OperationsActionReceiptView): string {
   const label = renderEvidenceLabel({ kind: "receipt", confirmed: receipt.confirmed_effect, status: receipt.status });
-  return `<li>${escapeHtml(receipt.action)} — ${label}</li>`;
+  return `<li>${escapeHtml(receipt.action)}: ${label}</li>`;
 }
 
 function renderHandoff(handoff: OpportunityHandoffView): string {
-  return `<li>${escapeHtml(HANDOFF_STATUS_LABELS[handoff.status])} — humano: ${escapeHtml(handoff.targetHumanId)}</li>`;
+  return `<li>${escapeHtml(HANDOFF_STATUS_LABELS[handoff.status])}, humano: ${escapeHtml(handoff.targetHumanId)}</li>`;
 }
 
 function renderCostTotal(cost: OperationsCostTotalView): string {

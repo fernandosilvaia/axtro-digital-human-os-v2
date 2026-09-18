@@ -46,7 +46,7 @@ export interface KnowledgeSourceRow {
 /**
  * Deduped per request: the shell layout and every page share one call. The
  * App Router renders layout and page concurrently, so provisioning lives
- * here (not in the layout) — the first caller provisions, everyone else
+ * here (not in the layout). The first caller provisions, everyone else
  * awaits the same promise and sees the provisioned tenant.
  */
 export const fetchTenantOverview = cache(async (): Promise<TenantOverview> => {
@@ -93,7 +93,7 @@ export interface UsageServiceRow {
 export interface UsageSummary {
   readonly tokens_today: number;
   readonly conversations_today: number;
-  /** Custo real de IA (tokens), calculado com preço público de tabela — ver T8/D-V2-077. */
+  /** Custo real de IA (tokens), calculado com preço público de tabela (ver T8/D-V2-077). */
   readonly ai_cost_usd_today: number;
   /** Piso mínimo de vídeo (duração real não é capturada; nunca é o custo exato). */
   readonly video_cost_floor_usd_today: number;
@@ -186,7 +186,7 @@ export interface TranscriptDetail {
 }
 
 /**
- * Histórico de conversa (D-V2-106) — chat de teste, vídeo e reunião externa,
+ * Histórico de conversa (D-V2-106): chat de teste, vídeo e reunião externa,
  * tudo num só lugar para a equipe revisar. Lista somente os resumos visíveis
  * para o tenant autenticado.
  * O limite mantém superfícies de resumo (como o dashboard) pequenas; o RPC

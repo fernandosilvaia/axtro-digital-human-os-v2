@@ -3,7 +3,7 @@
 // Existe porque o MESMO bug ("erro de leitura da RPC virou silenciosamente
 // 'agente sem persona configurada'") foi corrigido em 4 call sites
 // diferentes (video-conversation.ts x2, meeting-bot.ts, agent-video.ts) ao
-// longo de duas rodadas de auditoria (2026-08-02 e 2026-08-06) — a correção
+// longo de duas rodadas de auditoria (2026-08-02 e 2026-08-06): a correção
 // não se propagava porque a lógica estava copiada, não compartilhada. Um
 // quinto call site futuro reintroduziria a mesma classe de bug sem este
 // helper único.
@@ -64,7 +64,7 @@ export type AgentVideoConfigResult =
   | { readonly ok: false; readonly error: string };
 
 /**
- * Falha de LEITURA nunca vira "não configurado" — isso abriria a call com
+ * Falha de LEITURA nunca vira "não configurado". Isso abriria a call com
  * réplica/contexto genérico (degradação não declarada, Art. 14/16) ou, na
  * auto-provisão, criaria uma persona duplicada por cima de uma curada à mão.
  */
@@ -83,7 +83,7 @@ export async function resolveAgentVideoConfig(
 
 /**
  * Digest de conhecimento pro contexto da call. Falha aqui SEMPRE degrada
- * pra chamada sem digest — nunca bloqueia o vídeo (diferente da config,
+ * pra chamada sem digest, nunca bloqueia o vídeo (diferente da config,
  * que é sobre QUEM a agente é; o digest é só o que ela sabe agora).
  */
 export async function fetchKnowledgeDigest(

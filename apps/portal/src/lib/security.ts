@@ -1,7 +1,7 @@
 import { timingSafeEqual } from "node:crypto";
 
 /**
- * Comparação de segredos em tempo constante — nunca `===` direto num bearer
+ * Comparação de segredos em tempo constante: nunca `===` direto num bearer
  * ou token (o early-exit da comparação de string vira canal lateral de
  * timing). Extraído de leads/video-session.ts para ser o ÚNICO ponto dessa
  * disciplina (a auditoria 2026-08-02 achou o webhook do Recall comparando

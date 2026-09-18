@@ -3,7 +3,7 @@
  * assinatura HMAC-SHA256 no cabeçalho `Stripe-Signature`
  * (docs.stripe.com/webhooks/signatures): string assinada
  * `{timestamp}.{raw-body}`, formato `t=<unix>,v1=<hex>[,v1=<hex>...]`
- * (múltiplas `v1=` durante rotação de segredo — basta UMA bater),
+ * (múltiplas `v1=` durante rotação de segredo, basta UMA bater),
  * tolerância de replay de 5min, comparação em tempo constante. Mesmo
  * desenho já usado no webhook do Recall.ai (meetings/webhook.ts).
  *
@@ -14,7 +14,7 @@
  * `metadataPlanId` NUNCA deve ser a fonte de verdade do plano: é setado
  * UMA vez no Checkout e a Stripe não reescreve metadata quando o cliente
  * troca de plano pelo Customer Portal (achado da revisão adversarial
- * 2026-08-03 — confiar nele sozinho cobra/libera o plano ERRADO depois de
+ * 2026-08-03: confiar nele sozinho cobra/libera o plano ERRADO depois de
  * upgrade/downgrade). O caller (route.ts, que conhece os price ids dos
  * planos via env) exige o par exato `licensedPriceId` + `meteredPriceId`;
  * metadata nunca é fallback.
@@ -22,9 +22,9 @@
  * ATENÇÃO API version (2025-03-31.basil, docs.stripe.com/changelog/basil/
  * 2025-03-31/deprecate-subscription-current-period-start-and-end):
  * `current_period_start`/`current_period_end` NÃO existem mais no objeto
- * Subscription — migraram pra cada item (`items.data[].current_period_*`).
+ * Subscription, migraram pra cada item (`items.data[].current_period_*`).
  * O item "licensed" (a mensalidade fixa) é a fonte do período E do price
- * id — sem fallback pro primeiro item da lista: se nenhum item vier
+ * id, sem fallback pro primeiro item da lista: se nenhum item vier
  * marcado "licensed", isso é uma configuração de plano quebrada e o evento
  * é tratado como malformado (Art. 14: nunca adivinha).
  */
@@ -54,7 +54,7 @@ const CUSTOMER_ID_PATTERN = /^cus_[A-Za-z0-9]{1,255}$/;
 const SUBSCRIPTION_ID_PATTERN = /^sub_[A-Za-z0-9]{1,255}$/;
 const PRICE_ID_PATTERN = /^price_[A-Za-z0-9]{1,255}$/;
 
-/** Tipo de evento tratado por parseStripeSubscriptionEvent — exposto pra route.ts distinguir "fora de escopo" de "payload malformado" (a diferença importa pra telemetria). */
+/** Tipo de evento tratado por parseStripeSubscriptionEvent, exposto pra route.ts distinguir "fora de escopo" de "payload malformado" (a diferença importa pra telemetria). */
 export function isHandledStripeSubscriptionEventType(eventType: unknown): boolean {
   return typeof eventType === "string" && HANDLED_EVENT_TYPES.has(eventType);
 }
@@ -105,13 +105,13 @@ export function verifyStripeWebhookSignature(
 export interface ParsedStripeSubscriptionEvent {
   readonly eventId: string;
   readonly eventType: string;
-  /** Momento em que a Stripe gerou o evento — usado como guarda monotônica contra entrega fora de ordem. */
+  /** Momento em que a Stripe gerou o evento, usado como guarda monotônica contra entrega fora de ordem. */
   readonly eventCreatedIso: string;
   readonly tenantId: string;
   readonly checkoutIntentId: string | null;
   /** Alegação externa comparada pelo writer; nunca é fonte de verdade do catálogo. */
   readonly metadataPlanId: string;
-  /** Price id do item "licensed" da assinatura — fonte de verdade do plano (o caller resolve id→plano via env). */
+  /** Price id do item "licensed" da assinatura, fonte de verdade do plano (o caller resolve id→plano via env). */
   readonly licensedPriceId: string | null;
   /** Par obrigatório do catálogo: uma assinatura válida tem exatamente um item metered. */
   readonly meteredPriceId: string | null;
@@ -128,7 +128,7 @@ function unixToIso(value: unknown): string | null {
   return Number.isFinite(date.getTime()) ? date.toISOString() : null;
 }
 
-/** Devolve null pra evento fora do escopo mapeado ou payload malformado — nunca lança. */
+/** Devolve null pra evento fora do escopo mapeado ou payload malformado, nunca lança. */
 export function parseStripeSubscriptionEvent(body: unknown): ParsedStripeSubscriptionEvent | null {
   if (body === null || typeof body !== "object") return null;
   const event = body as Record<string, unknown>;

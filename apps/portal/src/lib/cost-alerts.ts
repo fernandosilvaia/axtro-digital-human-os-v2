@@ -1,9 +1,9 @@
 // Alertas proativos de custo (D-V2-107): antes, nenhum dos 4 tetos diários
 // do produto (vídeo, tokens do brain, tokens do chat de teste, vídeo do
-// lead) avisava ninguém antes de cortar — o dono só descobria quando um
+// lead) avisava ninguém antes de cortar. O dono só descobria quando um
 // cliente reclamava que o agente parou de responder (gap declarado em
 // docs/COST_OPTIMIZATION.md). Chamado inline, no MESMO ponto que já lê o
-// uso atual pra decidir bloquear — nenhuma query nova de "quanto usei
+// uso atual pra decidir bloquear: nenhuma query nova de "quanto usei
 // hoje". Fire-and-forget em todo call site (nunca aguardado): nunca
 // adiciona latência real no caminho de um turno de chat/vídeo ao vivo.
 import type { SupabaseClient } from "@supabase/supabase-js";
@@ -28,12 +28,12 @@ interface MaybeAlertCostCapOptions {
 
 /**
  * Dispara e-mail aos admins do tenant quando o uso de hoje cruza 80% ou
- * 100% de um teto diário. Best-effort: nunca lança, nunca bloqueia — todo
+ * 100% de um teto diário. Best-effort: nunca lança, nunca bloqueia, todo
  * call site deve chamar sem `await`. Dedup via portal_claim_cost_alert_service
  * (0031): no máximo 1 e-mail por (tenant, teto, threshold, dia UTC), mesmo
  * sob chamadas concorrentes.
  *
- * `supabaseOverride` é só pra teste (injeta um client fake) — os 4 call
+ * `supabaseOverride` é só pra teste (injeta um client fake), os 4 call
  * sites de produção nunca passam o 2º argumento; o client de service role
  * real só é criado DEPOIS do fast-path (nunca antes), pra nunca lançar por
  * falta de SUPABASE_SERVICE_ROLE_KEY no caminho comum (uso bem abaixo do teto).

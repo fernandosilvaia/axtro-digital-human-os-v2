@@ -1,7 +1,7 @@
 /**
  * M3-02: in-memory store mirroring database/migrations/0004_knowledge_governance.sql
- * column-for-column (ADR-031). No PostgreSQL, provider, or network dependency
- * — the real schema is proven separately by scripts/database-integration.mjs.
+ * column-for-column (ADR-031). No PostgreSQL, provider, or network dependency:
+ * the real schema is proven separately by scripts/database-integration.mjs.
  */
 import { UUID_V7_PATTERN as TENANT_ID_PATTERN } from "@axtro/domain";
 

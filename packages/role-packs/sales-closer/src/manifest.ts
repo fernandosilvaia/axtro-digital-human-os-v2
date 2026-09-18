@@ -4,7 +4,7 @@ import type { RolePackManifest } from "@axtro/contracts-ts";
  * M3-01: the Sales Closer Role Pack manifest. Per
  * docs/architecture/ROLE_AND_SKILL_PACKS.md, effective capabilities are an
  * intersection of platform + region/sector + tenant + agent grants + this
- * manifest + skill packs — a Role Pack never widens tenant policy, it only
+ * manifest + skill packs: a Role Pack never widens tenant policy, it only
  * narrows what the generic kernel already allows.
  */
 export const ROLE_PACK_ID = "sales-closer";

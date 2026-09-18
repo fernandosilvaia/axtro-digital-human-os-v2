@@ -2,7 +2,7 @@
  * M2-09: perception is evidence, not truth (Constitution Art. 4). Every
  * signal carries source, evidence, confidence, a versioned detector,
  * purpose, privacy class and a TTL. Only the M2-allowed categories from
- * docs/architecture/MULTIMODAL_PERCEPTION_ENGINE.md exist as types — there
+ * docs/architecture/MULTIMODAL_PERCEPTION_ENGINE.md exist as types: there
  * is no way to construct a lie-detection, diagnosis, protected-attribute,
  * solvency/risk, biometric-identity or emotion-as-fact signal because those
  * kinds are simply not in the closed vocabulary below.

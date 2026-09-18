@@ -9,7 +9,7 @@ import { parseRolePackManifest } from "./manifest.js";
  * pack must be installed (globally known, validated) before any tenant can
  * enable it, and a tenant can disable/remove it independently of every
  * other tenant. This is process-local (no persistence layer exists yet for
- * tenant-level pack enablement) — the same accepted limitation M1 documented
+ * tenant-level pack enablement): the same accepted limitation M1 documented
  * for its process-local stores.
  */
 export class RolePackRegistryError extends Error {

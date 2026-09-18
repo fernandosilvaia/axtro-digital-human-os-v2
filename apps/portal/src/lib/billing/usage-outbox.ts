@@ -293,8 +293,8 @@ export async function dispatchBillingUsageOutbox(
         continue;
       }
       try {
-        // A row failing schema validation isn't necessarily corrupt forever —
-        // it could be a transient serialization glitch — so it gets the same
+        // A row failing schema validation isn't necessarily corrupt forever
+        // (it could be a transient serialization glitch), so it gets the same
         // attempt budget as any other dispatch failure before giving up
         // (achado onda 6, auditoria M5-01): dead-lettering on the very first
         // lease denied it the retries every other failure path gets.

@@ -84,7 +84,7 @@ export function AppShell({ email, roleLabel, children }: AppShellProps) {
     if (!isMobileNavigation || !menuOpen) return;
     // The sidebar's visibility:hidden->visible transition flips at 0% of the
     // CSS transition per spec, but Chromium doesn't treat descendants as
-    // focusable until the browser has actually painted that style change —
+    // focusable until the browser has actually painted that style change:
     // one requestAnimationFrame (before paint) is still too early, so this
     // waits for the frame after paint instead.
     const raf1 = window.requestAnimationFrame(() => {

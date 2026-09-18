@@ -19,7 +19,7 @@ import { logError as trackError } from "@/lib/telemetry";
 
 /**
  * Server actions de cobrança (D-V2-101): assinar um plano (Checkout) e
- * gerenciar a assinatura existente (Customer Portal da Stripe — troca de
+ * gerenciar a assinatura existente (Customer Portal da Stripe: troca de
  * plano, forma de pagamento, faturas e cancelamento vivem lá, não aqui:
  * reimplementar isso na nossa UI duplicaria o que a Stripe já resolve
  * nativamente, e criar uma SEGUNDA Checkout Session pra um tenant que já
@@ -51,9 +51,9 @@ export async function startCheckout(formData: FormData): Promise<void> {
   }
   if (overview.role !== "tenant_admin") {
     // Ação de servidor é POST-ável direto (o botão só fica escondido na UI
-    // pra quem não é admin — isso é UX, não fronteira de segurança).
+    // pra quem não é admin, isso é UX, não fronteira de segurança).
     // Mesmo controle de papel que toda RPC administrativa do projeto já
-    // aplica (ex.: portal_invite_member) — achado da revisão adversarial 2026-08-03.
+    // aplica (ex.: portal_invite_member), achado da revisão adversarial 2026-08-03.
     redirect("/configuracoes?billing_error=apenas_admin");
   }
 
@@ -82,21 +82,21 @@ export async function startCheckout(formData: FormData): Promise<void> {
   const existing = (statusData ?? {}) as BillingStatusRow;
   const hasCustomer = typeof existing.stripe_customer_id === "string";
   if (hasCustomer && hasNonTerminalSubscription(existing.status)) {
-    // Já tem assinatura viva (qualquer status não-terminal — active/trialing/
+    // Já tem assinatura viva (qualquer status não-terminal: active/trialing/
     // past_due/unpaid/paused/incomplete): troca ou reativação é no Customer
     // Portal, nunca um checkout novo (evita duas assinaturas cobrando em
     // paralelo da mesma conta). Achado D-V2-107: antes só bloqueava
     // status !== 'canceled', deixando 'unpaid'/'incomplete_expired'/'paused'
     // travados sem conseguir assinar nem gerenciar (a UI só mostra o botão
-    // "gerenciar" pra status ACTIVE_STATUSES) — corrigido nos dois lados
+    // "gerenciar" pra status ACTIVE_STATUSES), corrigido nos dois lados
     // (aqui e em billing-section.tsx) com a mesma classificação compartilhada.
     redirect("/configuracoes?billing_error=ja_assinante");
   }
   // Terminal (cancelou, ou a janela de confirmação de pagamento expirou) e
   // voltou a assinar: reaproveita o Customer existente em vez de criar um
-  // novo com o mesmo e-mail — sem isso, o histórico de fatura/forma de
+  // novo com o mesmo e-mail: sem isso, o histórico de fatura/forma de
   // pagamento fragmenta no dashboard Stripe a cada ciclo (achado da
-  // auditoria 2026-08-06, estendido a incomplete_expired em D-V2-107 —
+  // auditoria 2026-08-06, estendido a incomplete_expired em D-V2-107,
   // mesmo racional, também é um estado terminal).
   const existingCustomerId = hasCustomer && existing.status !== null && existing.status !== undefined && BILLING_TERMINAL_STATUSES.has(existing.status)
     ? existing.stripe_customer_id

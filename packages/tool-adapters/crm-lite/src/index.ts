@@ -1,6 +1,6 @@
 /**
  * M3-03: tenant-scoped, read-only CRM adapter. No write capability exists in
- * this package at all — structural enforcement, not a permission check.
+ * this package at all: structural enforcement, not a permission check.
  * Every read is audited with requester, purpose, and which fields (PII or
  * not) were actually granted vs. denied.
  */

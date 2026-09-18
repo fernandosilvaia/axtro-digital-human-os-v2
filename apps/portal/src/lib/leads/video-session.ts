@@ -1,14 +1,14 @@
 /**
  * Endpoint chamado pelo control-tower (a ligação de voz da Raissa) quando um
  * lead topa emendar pra vídeo na hora. Servidor-a-servidor, sem sessão de
- * usuário — autenticado por um segredo estático único (RAISSA_TOOLS_SECRET),
+ * usuário: autenticado por um segredo estático único (RAISSA_TOOLS_SECRET),
  * diferente do segredo por agente do M4 (aqui só existe UM chamador
  * conhecido e UMA agente institucional, não é multi-tenant).
  *
  * Núcleo puro (ports injetadas), mesmo padrão de handle-chat-request.ts:
  * falha de autenticação rejeita duro sem tocar Tavus; falha depois de
  * autenticar (persona não configurada, provider fora do ar) degrada para um
- * erro tipado — o chamador decide o fallback (Art. 14: nunca promete o que
+ * erro tipado, o chamador decide o fallback (Art. 14: nunca promete o que
  * não existe; aqui o "não existe" vira "agende" do lado do control-tower).
  */
 import { constantTimeEquals } from "../security.ts";
@@ -46,7 +46,7 @@ export interface VideoSessionRequest {
   readonly expectedSecret: string | null;
   readonly leadName?: string | null;
   readonly language?: string | null;
-  /** Resumo da ligação de voz que já aconteceu (dor, porte, o que o lead disse) — a Raissa Vídeo continua a conversa em vez de recomeçar do zero. Dado não confiável (Art. 15): vira contexto, nunca instrução de sistema. */
+  /** Resumo da ligação de voz que já aconteceu (dor, porte, o que o lead disse). A Raissa Vídeo continua a conversa em vez de recomeçar do zero. Dado não confiável (Art. 15): vira contexto, nunca instrução de sistema. */
   readonly context?: string | null;
 }
 
@@ -61,7 +61,7 @@ function extractBearer(authorizationHeader: string | null): string | null {
   return token.length > 0 ? token : null;
 }
 
-/** Comparação em tempo constante para um segredo estático único — nunca `===` direto num bearer. */
+/** Comparação em tempo constante para um segredo estático único, nunca `===` direto num bearer. */
 const secretsMatch = constantTimeEquals;
 
 export function authenticateVideoSessionRequest(request: Pick<VideoSessionRequest, "authorizationHeader" | "expectedSecret">): void {

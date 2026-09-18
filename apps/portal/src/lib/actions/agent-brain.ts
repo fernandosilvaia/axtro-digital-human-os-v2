@@ -6,14 +6,14 @@ import { createClient } from "@/lib/supabase/server";
 /**
  * Gestão do segredo do cérebro customizado por agente (M4-03, 0018_agent_brain_config).
  * O segredo bruto é gerado aqui, hasheado antes de qualquer chamada ao
- * banco, e devolvido ao chamador só nesta resposta — nunca persistido em
+ * banco, e devolvido ao chamador só nesta resposta: nunca persistido em
  * texto puro, nunca lido de volta depois. As guardas de dado (tenant_admin,
  * tenant scoping) vivem nas RPCs SECURITY DEFINER da migration.
  */
 
 export interface BrainSecretActionState {
   readonly error: string | null;
-  /** Presente só na resposta de rotação bem-sucedida — exibição única. */
+  /** Presente só na resposta de rotação bem-sucedida (exibição única). */
   readonly secret: string | null;
 }
 

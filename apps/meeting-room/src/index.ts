@@ -23,7 +23,7 @@ const ROOM_REFERENCE_PATTERN = /^[a-z0-9][a-z0-9_.:-]{0,127}$/;
  * Bootstraps a single fake meeting room end-to-end: provider registry, one
  * deterministic ChannelPort connection, and the normalized RoomTransport on
  * top of it. This is the only place `@axtro/provider-fakes` is composed with
- * `@axtro/meeting-gateway` for M2-01 — everything downstream (turn coordinator,
+ * `@axtro/meeting-gateway` for M2-01: everything downstream (turn coordinator,
  * behavior/scene directors) depends on `RoomTransport`, never on this wiring.
  */
 export async function createFakeMeetingRoomRuntime(input: CreateFakeMeetingRoomRuntimeInput): Promise<FakeMeetingRoomRuntime> {

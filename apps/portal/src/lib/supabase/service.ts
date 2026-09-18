@@ -1,11 +1,11 @@
 import { createClient as createSupabaseClient, type SupabaseClient } from "@supabase/supabase-js";
 
 /**
- * Client de service role — ÚNICO lugar do portal com acesso que ignora RLS.
+ * Client de service role: ÚNICO lugar do portal com acesso que ignora RLS.
  * Uso restrito a caminhos servidor-a-servidor sem sessão de usuário (M4-04:
  * o Tavus chamando nosso endpoint de LLM), onde não existe `auth.uid()` para
  * as RPCs `portal_*` resolverem. Todo chamador deve filtrar por tenant_id
- * explicitamente — este client não tem a rede de segurança da RLS por trás
+ * explicitamente. Este client não tem a rede de segurança da RLS por trás
  * (Constituição Art. 9: isolamento de tenant é controle de segurança, não
  * conveniência).
  *

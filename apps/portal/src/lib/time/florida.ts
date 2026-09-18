@@ -1,11 +1,11 @@
 /**
  * Conversão de horário local da Flórida (America/New_York) para UTC, sem
- * depender de biblioteca de datas — usa só `Intl.DateTimeFormat`, que já
+ * depender de biblioteca de datas: usa só `Intl.DateTimeFormat`, que já
  * carrega as regras de fuso/horário de verão do sistema. Existe porque o
  * Fernando agenda calls no horário dele (Flórida), mas toda API externa
  * (Recall.ai `join_at`) exige ISO 8601 em UTC.
  *
- * America/New_York alterna entre EST (UTC-5) e EDT (UTC-4) — nunca hardcode
+ * America/New_York alterna entre EST (UTC-5) e EDT (UTC-4). Nunca hardcode
  * o offset; sempre pergunte ao `Intl` qual vale NAQUELE instante específico.
  */
 
@@ -19,7 +19,7 @@ export class FloridaTimeError extends Error {
   }
 }
 
-/** Lê as partes nomeadas (`year`/`month`/`day`/`hour`/`minute`/`second`/`weekday`...) de um `Intl.DateTimeFormat` num instante — o mesmo passo repetido por toda função deste arquivo que precisa "que horas são, NAQUELE fuso, NAQUELE instante". */
+/** Lê as partes nomeadas (`year`/`month`/`day`/`hour`/`minute`/`second`/`weekday`...) de um `Intl.DateTimeFormat` num instante, o mesmo passo repetido por toda função deste arquivo que precisa "que horas são, NAQUELE fuso, NAQUELE instante". */
 function formatPartsRecord(formatter: Intl.DateTimeFormat, atMs: number): Record<string, string> {
   return Object.fromEntries(formatter.formatToParts(new Date(atMs)).map((part) => [part.type, part.value]));
 }
@@ -52,7 +52,7 @@ function timeZoneOffsetMinutesAt(timeZone: string, atMs: number): number {
  * `wallClock` é hora LOCAL do fuso `timeZone` (IANA), sem offset embutido.
  * Devolve o ISO 8601 em UTC correspondente, pronto pro `joinAtIso` do
  * Recall.ai. Generalizado do caso Flórida (auditoria 2026-08-02: o produto
- * é multi-tenant e cada conta tem `default_timezone` próprio — um dono em
+ * é multi-tenant e cada conta tem `default_timezone` próprio. Um dono em
  * São Paulo que agendava "15:00" colocava o bot 1-2h errado).
  */
 export function wallClockToUtcIso(wallClock: string, timeZone: string): string {
@@ -74,7 +74,7 @@ export function wallClockToUtcIso(wallClock: string, timeZone: string): string {
   let actualUtcMs = guessUtcMs - offsetMinutes * 60_000;
   // Segunda iteração: perto das transições de horário de verão, o offset no
   // instante-chute (wall-clock lido como UTC) pode divergir do offset no
-  // instante REAL — ex.: "03:30" do dia do spring-forward avaliava EST e
+  // instante REAL, ex.: "03:30" do dia do spring-forward avaliava EST e
   // devolvia 1h atrasado. Recalcular no instante encontrado e reaplicar
   // corrige (auditoria 2026-08-02).
   const offsetAtActual = timeZoneOffsetMinutesAt(timeZone, actualUtcMs);
@@ -108,7 +108,7 @@ const ISO_WEEKDAY_BY_SHORT_NAME: Readonly<Record<string, number>> = {
 /**
  * Generalização do MESMO passo que `timeZoneOffsetMinutesAt` já faz pra
  * calcular offset (pergunta ao `Intl` "que horas são NAQUELE fuso, NAQUELE
- * instante"), agora devolvendo a data/hora inteira decomposta — inclusive o
+ * instante"), agora devolvendo a data/hora inteira decomposta, inclusive o
  * dia da semana, que `wallClockToUtcIso`/`timeZoneOffsetMinutesAt` nunca
  * precisaram até agora (ADR-039, onda 1b-iv: descobrir "hoje é dia útil no
  * fuso do tenant?" e "que horas são agora, LÁ?" pra montar a janela de busca

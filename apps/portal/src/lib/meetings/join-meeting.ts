@@ -2,8 +2,8 @@
  * Núcleo puro (ports injetadas) que coloca um agente numa reunião externa
  * de verdade. Entrada IMEDIATA: cria a sala de vídeo do agente (Tavus) e o
  * bot do Recall.ai já com a câmera ligada nessa sala. Entrada AGENDADA:
- * cria SÓ o bot sentinela com join_at — a sala Tavus NÃO é criada agora
- * (auditoria 2026-08-02: a sala expirava — máx. 1800s — muito antes do
+ * cria SÓ o bot sentinela com join_at, a sala Tavus NÃO é criada agora
+ * (auditoria 2026-08-02: a sala expirava, máx. 1800s, muito antes do
  * horário marcado, dinheiro gasto numa sala morta); quem liga a câmera é o
  * webhook de status do Recall quando o bot entra de verdade na reunião.
  */
@@ -23,7 +23,7 @@ export interface JoinMeetingDeps {
   readonly resolveAgentPersona: (agentId: string) => Promise<AgentPersonaForMeeting | null>;
   /**
    * `url` é a página que o bot renderiza como câmera (o palco do rosto);
-   * `humanUrl`, quando presente, é a sala em si — para um humano acompanhar.
+   * `humanUrl`, quando presente, é a sala em si, para um humano acompanhar.
    */
   readonly createVideoConversation: (persona: AgentPersonaForMeeting) => Promise<{ url: string; conversationId: string; humanUrl?: string }>;
   readonly createMeetingBot: (params: {
@@ -40,7 +40,7 @@ export interface JoinMeetingDeps {
     meetingUrl: string;
     conversationId: string | null;
   }) => Promise<void>;
-  /** Encerra a sala Tavus já criada quando o bot falha — sem isto a sala paga ficava aberta (auditoria 2026-08-02). Best-effort. */
+  /** Encerra a sala Tavus já criada quando o bot falha. Sem isto a sala paga ficava aberta (auditoria 2026-08-02). Best-effort. */
   readonly endVideoConversation: (conversationId: string) => Promise<void>;
   /** Compensação obrigatória se a persistência falhar depois da criação. */
   readonly leaveMeetingBot: (botId: string) => Promise<void>;
@@ -90,7 +90,7 @@ export async function handleJoinMeeting(request: JoinMeetingRequest, deps: JoinM
     throw new JoinMeetingError("agent_not_configured", "this agent has no video persona configured");
   }
 
-  // Agendado: NÃO cria a sala Tavus agora — ela expiraria (máx. 1800s) antes
+  // Agendado: NÃO cria a sala Tavus agora, ela expiraria (máx. 1800s) antes
   // do horário. O webhook de status do Recall cria a sala e liga a câmera
   // quando o bot realmente entra (auditoria 2026-08-02).
   let conversation: { url: string; conversationId: string; humanUrl?: string } | null = null;
@@ -109,14 +109,14 @@ export async function handleJoinMeeting(request: JoinMeetingRequest, deps: JoinM
       botName: persona.agentName,
       ...(joinAtIso ? { joinAtIso } : {}),
       // Entrada imediata: já liga a câmera na criação do bot. Com a câmera
-      // ligada, o bot roda uma chamada WebRTC completa dentro da página — o
+      // ligada, o bot roda uma chamada WebRTC completa dentro da página: o
       // variant default (250 millicores) produz áudio picotado e robotizado
       // (comprovado ao vivo, D-V2-093); 4 cores resolve.
       ...(conversation ? { outputMediaWebpageUrl: conversation.url, variant: "web_4_core" as const } : {}),
     });
   } catch (botError) {
     if (conversation) {
-      // A sala Tavus já existe e é paga — encerra best-effort em vez de
+      // A sala Tavus já existe e é paga: encerra best-effort em vez de
       // deixá-la aberta sem ninguém (endConversation é idempotente).
       try {
         await deps.endVideoConversation(conversation.conversationId);

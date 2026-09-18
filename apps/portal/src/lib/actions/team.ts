@@ -39,7 +39,7 @@ export async function inviteMember(_prevState: TeamActionState, formData: FormDa
     return { error: INVITE_ERROR_MESSAGES[error.message] ?? `Não foi possível convidar: ${error.message}`, done: false };
   }
 
-  // Notificação por e-mail (T2): melhor esforço — o convite já está válido no
+  // Notificação por e-mail (T2): melhor esforço, o convite já está válido no
   // banco; falha de e-mail nunca o desfaz, só muda a mensagem de sucesso.
   let emailSent = false;
   try {
@@ -69,7 +69,7 @@ export interface RevokeInviteState {
 
 /**
  * Achado D-V2-109 (auditoria 2026-08-11): o botão "Revogar" chamava esta
- * action via `<form action>` sem feedback nenhum — sem estado de
+ * action via `<form action>` sem feedback nenhum, sem estado de
  * carregamento, e um erro real (RPC fora do ar, RLS) ficava mudo pro admin,
  * inconsistente com removeMember/MemberRemoveButton no mesmo arquivo.
  * Mesmo padrão dos dois agora: recebe o id direto, devolve {error}.
@@ -89,7 +89,7 @@ export async function revokeInvite(inviteId: string): Promise<RevokeInviteState>
 
 const REMOVE_MEMBER_ERROR_MESSAGES: Readonly<Record<string, string>> = {
   "only a tenant_admin can remove members": "Somente administradores podem remover membros.",
-  "use sign out to remove yourself": "Você não pode remover a si mesmo — use \"Sair da conta\".",
+  "use sign out to remove yourself": "Você não pode remover a si mesmo. Use \"Sair da conta\".",
   "member not found in this account": "Esse membro não está mais nesta conta.",
   "cannot remove the last administrator of the account": "Não é possível remover o último administrador da conta.",
 };
@@ -100,7 +100,7 @@ export interface RemoveMemberState {
 
 /**
  * Revoga o acesso de um membro já aceito na equipe (achado da auditoria
- * 2026-08-06: só existia "Revogar" pra convite pendente — um colaborador
+ * 2026-08-06: só existia "Revogar" pra convite pendente. Um colaborador
  * desligado ficava sem forma de perder acesso pelo portal). A RPC garante
  * tenant_admin, escopo por tenant e nunca deixa a conta sem administrador.
  */

@@ -5,7 +5,7 @@
  * chat de teste de agente do portal (control-plane). O pipeline realtime de
  * voz/avatar de M2 continua fake-first atrás dos contratos congelados de
  * `@axtro/provider-contracts` (`providerMode: "fake"`) até o bake-off
- * credenciado (D-V2-048) — este pacote não toca aqueles ports.
+ * credenciado (D-V2-048). Este pacote não toca aqueles ports.
  *
  * Guardrails estruturais:
  * - egress fixo em https://openrouter.ai (o chamador não escolhe URL);
@@ -39,7 +39,7 @@ export interface TextGenerationUsage {
   /**
    * Custo faturado em USD reportado pelo próprio OpenRouter (usage.cost,
    * pedido via `usage: {include: true}` no request). Ausente quando o
-   * provider não reporta — o caller decide se estima por tabela.
+   * provider não reporta. O caller decide se estima por tabela.
    */
   readonly reportedCostUsd?: number;
 }
@@ -111,7 +111,7 @@ interface RateLimitRetryAttempt {
  * Uma única retentativa em HTTP 429 antes de desistir (achado onda 7,
  * D-V2-116): sem isto, uma contenção momentânea de capacidade compartilhada
  * no OpenRouter (rate limit é por definição transitório, ao contrário de um
- * 400/422 permanente) derrubava a chamada inteira na primeira resposta —
+ * 400/422 permanente) derrubava a chamada inteira na primeira resposta:
  * abortando um lote de embedding de conhecimento sem salvar nada, ou
  * devolvendo a fala de fallback genérica no meio de uma geração de texto.
  * O timer de timeout é recriado por tentativa e segue vivo até o corpo da
@@ -141,7 +141,7 @@ async function fetchWithRateLimitRetry(
     }
     if (response.status === 429 && attempt === 1) {
       clearTimeout(timer);
-      // O corpo do 429 nunca é lido — sem drenar/cancelar o stream, o socket
+      // O corpo do 429 nunca é lido: sem drenar/cancelar o stream, o socket
       // subjacente fica preso aguardando o corpo até o keep-alive expirar,
       // vazando conexões do pool sob rate-limit sustentado.
       await response.body?.cancel().catch(() => {});
@@ -150,7 +150,7 @@ async function fetchWithRateLimitRetry(
     }
     return { response, clearTimer: () => clearTimeout(timer) };
   }
-  // Inatingível — o loop de 2 tentativas sempre retorna ou lança acima.
+  // Inatingível: o loop de 2 tentativas sempre retorna ou lança acima.
   throw new TextGenerationError("provider_unavailable", `${providerLabel} request failed`);
 }
 
@@ -220,7 +220,7 @@ export function createOpenRouterTextGenerationPort(options: OpenRouterAdapterOpt
             ...(privacy === undefined ? {} : {
               provider: privacy.routingConfiguration.provider,
             }),
-            // Pede o custo faturado real na resposta (usage.cost) — evita
+            // Pede o custo faturado real na resposta (usage.cost): evita
             // dupla manutenção de preço de tabela no SQL pro caminho de chat
             // e cobre qualquer OPENROUTER_MODEL configurado (0027).
             usage: { include: true },
@@ -231,7 +231,7 @@ export function createOpenRouterTextGenerationPort(options: OpenRouterAdapterOpt
         privacy?.revalidateBeforeDispatch,
       );
 
-      // O timer segue vivo até o corpo ser consumido — headers rápidos com
+      // O timer segue vivo até o corpo ser consumido: headers rápidos com
       // body pendurado não escapam do timeout (auditoria 2026-08-02).
       try {
         if (!response.ok) {
@@ -316,7 +316,7 @@ export function createOpenRouterEmbeddingPort(options: OpenRouterAdapterOptions)
           body: JSON.stringify({
             model: request.model,
             input: request.inputs,
-            // Pede o custo faturado real na resposta (usage.cost) — sem isto
+            // Pede o custo faturado real na resposta (usage.cost): sem isto
             // normalizeReportedCost sempre recebe undefined e todo commit de
             // ingestão cai no fallback max_cost_usd em vez do gasto real
             // (mesmo padrão do port de chat acima).

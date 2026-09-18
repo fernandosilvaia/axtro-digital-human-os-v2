@@ -11,7 +11,7 @@ import { assertEmbeddingFitsReservedInput } from "./ai-budget/envelope.ts";
 /**
  * Ingestão e recuperação de conhecimento real (RAG) do portal.
  * Embeddings via OpenRouter (endpoint OpenAI-compat) com a MESMA chave já
- * configurada para o chat — nenhuma credencial nova (D-V2-070).
+ * configurada para o chat, nenhuma credencial nova (D-V2-070).
  */
 
 export const EMBEDDING_MODEL = "openai/text-embedding-3-small";

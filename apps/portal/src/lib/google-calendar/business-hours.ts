@@ -1,6 +1,6 @@
 /**
  * ADR-039, onda 1b-iv ("Agendar reunião: reserva durável no padrão do
- * ADR-036") — a frase-chave que este arquivo implementa: "Fuso horário e
+ * ADR-036"), a frase-chave que este arquivo implementa: "Fuso horário e
  * janela de busca (quantos dias à frente, horário comercial) são resolvidos
  * pelo SERVIDOR a partir da conexão de calendário do tenant, nunca
  * informados pelo modelo". Módulo puro (sem I/O, sem provider): dado um
@@ -9,7 +9,7 @@
  * a janela de uma única consulta `queryFreeBusy` e gerar slots candidatos
  * dentro dela; `availability.ts` faz essa segunda parte.
  *
- * Políticas padrão (decisão de design desta rodada — a ADR deixa isso em
+ * Políticas padrão (decisão de design desta rodada: a ADR deixa isso em
  * nível de design, ver "Migração 0051", coluna
  * `portal_business_action_calendar_connections.default_timezone`):
  * - Horário comercial: 09:00-18:00 no fuso da conexão do tenant.
@@ -21,12 +21,12 @@
  *   "agora" até 18:00) conta como o primeiro dia da janela.
  * - Se "agora" é um dia útil mas ainda ANTES das 09:00 (ex.: 03:00 da
  *   madrugada), o dia inteiro (09:00-18:00) ainda não começou e conta como
- *   o primeiro dia cheio — mesma regra que qualquer dia útil futuro, só que
+ *   o primeiro dia cheio, mesma regra que qualquer dia útil futuro, só que
  *   por acaso é hoje.
  *
  * Generaliza o MESMO padrão de `time/florida.ts` (só `Intl.DateTimeFormat`,
  * nunca offset hardcoded, sempre pergunta ao `Intl` o que vale NAQUELE
- * instante) — `wallClockPartsAt` decompõe "que dia/hora é agora, NAQUELE
+ * instante): `wallClockPartsAt` decompõe "que dia/hora é agora, NAQUELE
  * fuso" (inclusive dia da semana, que nenhuma função de `florida.ts`
  * precisava até esta onda); `wallClockToUtcIso` converte cada fronteira de
  * dia útil (09:00/18:00 local) de volta pra um instante UTC, com o mesmo
@@ -81,7 +81,7 @@ function isWeekendIsoWeekday(isoWeekday: number): boolean {
 }
 
 /**
- * Aritmética de dia de calendário nunca depende de fuso — só quando um dia+
+ * Aritmética de dia de calendário nunca depende de fuso, só quando um dia+
  * hora LOCAL vira um instante UTC de verdade (`wallClockToUtcIso`, abaixo) o
  * fuso importa. Por isso soma em cima de `Date.UTC` "ingênuo", nunca em cima
  * de um instante real de `clock.now()`.
@@ -110,7 +110,7 @@ function validateHourRange(businessStartHour: number, businessEndHour: number): 
 /**
  * Devolve os intervalos de horário comercial (UTC) dos próximos
  * `businessDaysCount` dias úteis a partir de `options.clock` (ou o relógio
- * real), no fuso `timeZone` — ver as políticas no cabeçalho do arquivo.
+ * real), no fuso `timeZone`, ver as políticas no cabeçalho do arquivo.
  * Nunca devolve um intervalo degenerado (start >= end): o dia corrente é
  * omitido da janela quando o expediente de hoje já terminou.
  */
@@ -144,7 +144,7 @@ export function computeBusinessDayWindows(timeZone: string, options: BusinessDay
       cursor = addCalendarDays(cursor, 1);
       continue;
     }
-    // Cada dia de calendário só é visitado uma vez, sempre avançando — se
+    // Cada dia de calendário só é visitado uma vez, sempre avançando: se
     // `cursor` bater com `today`, só pode ser a primeira iteração deste laço.
     const isToday = cursor.year === today.year && cursor.month === today.month && cursor.day === today.day;
     const restOfTodayApplies = isToday && nowMinuteOfDay >= businessStartMinuteOfDay && nowMinuteOfDay < businessEndMinuteOfDay;

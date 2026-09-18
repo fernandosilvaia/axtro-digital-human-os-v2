@@ -11,7 +11,7 @@ import { logEvent } from "@/lib/telemetry";
 
 /**
  * Fechamento ao vivo (D-V2-123): depois de um closer pedir a decisão numa
- * call, um admin revisa empresa/e-mail/plano e dispara a proposta — nunca
+ * call, um admin revisa empresa/e-mail/plano e dispara a proposta, nunca
  * a própria IA, meio da call ("IA rascunha, humano manda",
  * docs/BRIEFING_RAISSA_CLOSER_VIDEO.md §6). O checkout real de prospect fica
  * deliberadamente fechado até ganhar intent durável e reconciliação próprios.
@@ -40,14 +40,14 @@ export async function sendClosingProposal(
     return { error: "Informe um e-mail válido para o prospect.", done: false };
   }
   if (!isPlanId(planIdRaw)) {
-    return { error: "Plano inválido — escolha um dos planos listados.", done: false };
+    return { error: "Plano inválido. Escolha um dos planos listados.", done: false };
   }
   const plan = PLAN_CATALOG[planIdRaw];
 
   const supabase = await createClient();
   const { data: { user } } = await supabase.auth.getUser();
   if (user === null) {
-    return { error: "Sua sessão pode ter expirado — recarregue a página e faça login de novo.", done: false };
+    return { error: "Sua sessão pode ter expirado. Recarregue a página e faça login de novo.", done: false };
   }
 
   const overview = await fetchTenantOverview();
@@ -65,7 +65,7 @@ export async function sendClosingProposal(
   }
 
   if (isRateLimited(`closing-proposal:${overview.tenant.id}`, 60_000, 6)) {
-    return { error: "Muitas propostas em pouco tempo — aguarde um minuto antes de tentar de novo.", done: false };
+    return { error: "Muitas propostas em pouco tempo. Aguarde um minuto antes de tentar de novo.", done: false };
   }
 
   if (!fakeProvidersEnabled()) {

@@ -1,7 +1,7 @@
 /**
  * M3-07: draft a follow-up (email/tasks) tied to session evidence, never
  * sending externally unless a separate approval path is explicitly enabled.
- * This is a standalone, additive module — it does not reuse or modify the
+ * This is a standalone, additive module. It does not reuse or modify the
  * M1-08 post-call workflow engine above it in this file, to avoid touching
  * that already-frozen checkpointed machinery.
  */
@@ -83,7 +83,7 @@ export function createSandboxFollowUpWorkflow(generator: FollowUpDraftGenerator,
       if (existing !== undefined) return existing;
 
       attemptCounts.set(key, (attemptCounts.get(key) ?? 0) + 1);
-      // A transient failure here propagates to the caller uncaught — the
+      // A transient failure here propagates to the caller uncaught: the
       // attempt counter already advanced, so a subsequent run() with the
       // same idempotencyKey is a real retry, not a fresh attempt.
       const content = await generator.generate(input.evidence);

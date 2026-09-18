@@ -3,7 +3,7 @@
  * directives instead of prose, and tracks per-session degradation state so
  * a recovery (S2S back up, avatar warm again, network improved) never
  * causes the Presenter to deliver the same logical turn's output twice.
- * Art. 14: reconnection and termination are explicit states — nothing here
+ * Art. 14: reconnection and termination are explicit states. Nothing here
  * auto-recovers silently; a caller must call `recover` once it has verified
  * the capability is actually healthy again.
  */

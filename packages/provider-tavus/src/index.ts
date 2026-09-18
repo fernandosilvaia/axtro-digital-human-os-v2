@@ -1,5 +1,5 @@
 /**
- * Segundo adapter de provider real (ADR-034): Tavus CVI — conversa em VÍDEO
+ * Segundo adapter de provider real (ADR-034): Tavus CVI, conversa em VÍDEO
  * com avatar humanizado. Mesmos guardrails do adapter OpenRouter: egress fixo,
  * fetch injetável, chave nunca vaza, caps fechados, timeout obrigatório.
  * Os ports realtime fake de M0-M2 continuam intocados; este é o caminho de
@@ -33,9 +33,9 @@ export interface VideoConversationRequest {
   readonly maxCallDurationSeconds?: number;
   /**
    * URL que recebe os callbacks da conversa (docs.tavus.io/sections/
-   * webhooks-and-callbacks) — usado pra capturar o transcript quando a
+   * webhooks-and-callbacks), usado pra capturar o transcript quando a
    * call termina (evento `application.transcription_ready`). Sem
-   * assinatura/HMAC nesses callbacks (confirmado na doc — Tavus não
+   * assinatura/HMAC nesses callbacks (confirmado na doc, Tavus não
    * assina); a rota que recebe precisa da própria camada de autenticação
    * (token na URL, mesmo padrão do webhook do Recall.ai).
    */
@@ -69,7 +69,7 @@ export class VideoProviderError extends Error {
 
 /**
  * Criação de persona (auto-provisão de vídeo para agentes de clientes novos):
- * a persona carrega prompt, voz, percepção e modelo no provider — criar uma
+ * a persona carrega prompt, voz, percepção e modelo no provider: criar uma
  * por agente é o que dá vídeo a QUALQUER tenant, não só aos agentes demo
  * configurados à mão.
  */
@@ -164,8 +164,8 @@ export function isTrustedTavusConversationUrl(value: unknown): value is string {
  * `conflictIsNull` espelha `notFoundIsSuccess`: um 409 (nome de tool já
  * existe na conta, confirmado na doc real do Tavus,
  * docs.tavus.io/api-reference/tools/create-tool) vira `null` em vez de
- * lançar, pro chamador decidir o que "já existe" significa pro seu caso —
- * nunca se aplica à criação/mutação de conversa ou persona, só quando o
+ * lançar, pro chamador decidir o que "já existe" significa pro seu caso.
+ * Nunca se aplica à criação/mutação de conversa ou persona, só quando o
  * chamador pede explicitamente.
  */
 async function tavusRequest(
@@ -196,7 +196,7 @@ async function tavusRequest(
     }
     throw new VideoProviderError("provider_unavailable", "Tavus request failed before a response");
   }
-  // O timer segue vivo até o CORPO ser consumido — headers rápidos com body
+  // O timer segue vivo até o CORPO ser consumido: headers rápidos com body
   // pendurado não podem escapar do timeout (auditoria 2026-08-02).
   try {
     if (!response.ok) {
@@ -208,7 +208,7 @@ async function tavusRequest(
       const code: VideoProviderErrorCode = response.status >= 500 ? "provider_unavailable" : "provider_rejected";
       throw new VideoProviderError(code, `Tavus respondeu HTTP ${response.status}`, response.status);
     }
-    // 204/corpo vazio é sucesso (caso real do POST /conversations/{id}/end) —
+    // 204/corpo vazio é sucesso (caso real do POST /conversations/{id}/end),
     // exigir JSON aqui transformava operação bem-sucedida em erro.
     if (response.status === 204) return null;
     const text = await response.text();

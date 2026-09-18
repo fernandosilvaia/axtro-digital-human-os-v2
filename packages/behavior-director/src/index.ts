@@ -4,7 +4,7 @@ import { createHash } from "node:crypto";
  * M2-05: converts dialogue intent into bounded, provider-capability-validated
  * avatar/voice behavior, per docs/architecture/BEHAVIOR_PRESENCE_DIRECTOR.md.
  * `BehaviorIntent` carries goal/energy/warmth/pacing/pause-profile/nonverbal
- * intent only — never a free animation command or raw text.
+ * intent only, never a free animation command or raw text.
  */
 export const BEHAVIOR_CANONICAL_STATES = [
   "idle_ready",

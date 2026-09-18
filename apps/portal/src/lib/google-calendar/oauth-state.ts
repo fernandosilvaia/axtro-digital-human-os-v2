@@ -1,10 +1,10 @@
 /**
  * CSRF `state` do fluxo de conexão OAuth do Google Calendar (ADR-039, onda
- * 1b-ii) — a primeira rota de callback OAuth por redirect de navegador deste
+ * 1b-ii), a primeira rota de callback OAuth por redirect de navegador deste
  * repositório; todo outro `api/*` existente é webhook push
  * (provider → servidor), sem essa superfície de ataque. Sem validar `state`
  * corretamente, um atacante poderia induzir um `tenant_admin` vítima a
- * conectar a conta Google DO ATACANTE ao tenant da vítima (ou vice-versa) —
+ * conectar a conta Google DO ATACANTE ao tenant da vítima (ou vice-versa):
  * o CSRF clássico de OAuth (RFC 6749 §10.12).
  *
  * POR QUE ISTO DEIXOU DE SER UM MAP EM MEMÓRIA (D-V2-174)
@@ -71,7 +71,7 @@ function hashState(state: string): string {
 /**
  * Gera e persiste um `state` novo amarrado a `(tenantId, actorId)`. Chamado
  * uma vez por tentativa de conexão, no início do fluxo (Server Action
- * `startGoogleCalendarConnection`) — cada clique em "Conectar"/"Reconectar"
+ * `startGoogleCalendarConnection`), cada clique em "Conectar"/"Reconectar"
  * gera um `state` novo e independente.
  *
  * Lança se a persistência falhar: seguir para o Google com um `state` que o
@@ -106,7 +106,7 @@ export interface ConsumedGoogleCalendarOAuthState {
 /**
  * Consome (remove) e valida um `state` recebido na rota de callback.
  * `null` cobre uniformemente "nunca existiu", "já foi consumido antes"
- * (replay) e "expirou" — a rota de callback nunca precisa (nem deve)
+ * (replay) e "expirou": a rota de callback nunca precisa (nem deve)
  * distinguir esses três casos pro usuário final; todos viram o mesmo aviso
  * genérico "tente conectar de novo". Falha de infraestrutura também vira
  * `null`: recusar é o comportamento seguro quando não dá para provar que o

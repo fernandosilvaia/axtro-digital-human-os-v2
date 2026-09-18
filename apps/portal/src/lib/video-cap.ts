@@ -1,9 +1,9 @@
 // Módulo exclusivo de servidor: teto de conversas de vídeo por tenant +
 // cobrança de overage (D-V2-101). O teto DIÁRIO é a rede de segurança
 // contra abuso/bug (existe independente de assinatura, nunca muda com o
-// plano — falha fechada: se a leitura de uso falhar, a conversa NÃO abre).
-// O teto MENSAL vem do plano contratado e, quando estourado, NÃO bloqueia
-// — a conversa acontece normalmente e a unidade extra é cobrada como
+// plano, falha fechada: se a leitura de uso falhar, a conversa NÃO abre).
+// O teto MENSAL vem do plano contratado e, quando estourado, NÃO bloqueia:
+// a conversa acontece normalmente e a unidade extra é cobrada como
 // overage (Stripe Billing Meter), que é o modelo de negócio inteiro
 // (docs/PRICING_UNIT_ECONOMICS.md): margem sã mesmo no pior caso de uso.
 import { createStripeBillingPort, StripeBillingError } from "@axtro/provider-stripe";
@@ -27,7 +27,7 @@ export const VIDEO_TRIAL_CAP_MESSAGE =
 
 /**
  * "allowed_overage": dentro do teto diário de segurança, mas já passou do
- * incluído mensal do plano — a conversa é permitida e cobrada como
+ * incluído mensal do plano, a conversa é permitida e cobrada como
  * overage. Callers devem tratar "allowed" e "allowed_overage" como
  * igualmente liberados pra decidir se a conversa acontece; a diferença só
  * importa depois, pra decidir se chama reportConversationOverageIfNeeded.
@@ -57,7 +57,7 @@ export async function checkVideoCap(
   const conversationsToday = Number(status.conversations_today ?? 0);
   // Alerta proativo (D-V2-107): fire-and-forget, nunca atrasa a decisão de
   // liberar/bloquear a conversa. tenant_id vem do MESMO retorno da RPC que
-  // já líamos aqui (0031 acrescentou o campo) — zero query nova.
+  // já líamos aqui (0031 acrescentou o campo), zero query nova.
   if (typeof status.tenant_id === "string") {
     void maybeAlertCostCap({ tenantId: status.tenant_id, capKind: "daily_video_conversations", current: conversationsToday, cap: DAILY_VIDEO_CONVERSATION_CAP });
   }
@@ -71,7 +71,7 @@ export async function checkVideoCap(
   }
 
   // Sem assinatura ativa: teto mensal de trial ATIVO por padrão desde
-  // D-V2-112 (ver BILLING_TRIAL_LIMIT_ENABLED em lib/billing/plans.ts) —
+  // D-V2-112 (ver BILLING_TRIAL_LIMIT_ENABLED em lib/billing/plans.ts),
   // só cai pro comportamento antigo (sem teto mensal) com a env var
   // explicitamente setada como "false".
   if (isTrialLimitEnabled() && conversationsThisPeriod >= TRIAL_INCLUDED_CONVERSATIONS_PER_MONTH) {
@@ -83,7 +83,7 @@ export async function checkVideoCap(
 /**
  * Reporta 1 unidade de overage à Stripe quando a conversa que acabou de ser
  * logada (costEventId) passou do incluído do plano. Nunca bloqueia nem
- * lança — é side-effect de cobrança de uma conversa que JÁ aconteceu; falha
+ * lança: é side-effect de cobrança de uma conversa que JÁ aconteceu; falha
  * aqui vira telemetria, nunca reverte o que já foi feito. Chave de
  * idempotência amarrada ao costEventId: retry nunca cobra duas vezes a
  * mesma conversa.
@@ -97,11 +97,11 @@ export async function reportConversationOverageIfNeeded(
   const apiKey = (process.env.STRIPE_SECRET_KEY ?? "").trim();
   if (apiKey.length === 0) {
     // Achado onda 8 (D-V2-117): retorno mudo aqui significa que overage
-    // real nunca é cobrado E ninguém nunca fica sabendo — nem um log. O
+    // real nunca é cobrado E ninguém nunca fica sabendo, nem um log. O
     // alerta de taxa de erro (D-V2-114) só existe pra quem chama
     // trackError; sem isso, esta lacuna é literalmente invisível. Guard de
     // fake mode (achado da própria auto-revisão) por consistência com os
-    // demais call sites desta onda — baixa chance de disparar aqui (exige
+    // demais call sites desta onda, baixa chance de disparar aqui (exige
     // overage real ativo), mas o mesmo princípio se aplica.
     if (!fakeProvidersEnabled()) {
       trackError("billing_overage_report_stripe_key_missing", new Error("STRIPE_SECRET_KEY not configured"), { cost_event_id: costEventId });
@@ -113,7 +113,7 @@ export async function reportConversationOverageIfNeeded(
     const { data, error: statusError } = await supabase.rpc("portal_billing_status");
     if (statusError) {
       // Falha de leitura aqui não pode virar "nada a reportar" em
-      // silêncio — sem isso, uma conversa que É overage nunca é cobrada e
+      // silêncio: sem isso, uma conversa que É overage nunca é cobrada e
       // nem fica visível pra investigar (achado da revisão adversarial
       // 2026-08-03, mesma disciplina de checkVideoCap).
       trackError("billing_overage_status_read_failed", statusError, { cost_event_id: costEventId });
@@ -135,13 +135,13 @@ export async function reportConversationOverageIfNeeded(
       // Uma retentativa antes de desistir (achado onda 7, D-V2-116): a
       // idempotencyKey acima foi desenhada exatamente pra tornar isto
       // seguro (mesmo costEventId nunca cobra duas vezes), mas nada
-      // reaproveitava essa segurança — um 429/5xx transitório da Stripe
+      // reaproveitava essa segurança: um 429/5xx transitório da Stripe
       // descartava a unidade de overage em silêncio, para sempre.
       //
       // SÓ retenta em erro TRANSITÓRIO (achado da própria auto-revisão: um
       // retry incondicional dobrava o pior caso de latência bloqueante do
-      // usuário pra ~40s mesmo em erro PERMANENTE — ex.: customer_id
-      // malformado — que nunca teria sucesso na 2ª tentativa de qualquer
+      // usuário pra ~40s mesmo em erro PERMANENTE, ex.: customer_id
+      // malformado, que nunca teria sucesso na 2ª tentativa de qualquer
       // forma). provider_rejected/malformed_provider_response/missing_api_key
       // não são retentados: falham rápido, como antes desta onda.
       const isTransient = firstError instanceof StripeBillingError

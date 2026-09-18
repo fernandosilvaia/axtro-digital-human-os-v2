@@ -14,7 +14,7 @@ const DELETE_TRANSCRIPT_ERROR_MESSAGES: Readonly<Record<string, string>> = {
 /**
  * Exclusão sob pedido de uma conversa (achado P1 confirmado, auditoria
  * 2026-08-12): a /privacidade promete exclusão de histórico a qualquer
- * momento, mas não existia RPC nem UI pra cumprir isso — migration 0034.
+ * momento, mas não existia RPC nem UI pra cumprir isso (migration 0034).
  */
 export async function deleteConversationTranscript(id: string): Promise<DeleteTranscriptState> {
   const supabase = await createClient();

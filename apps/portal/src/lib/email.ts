@@ -1,5 +1,5 @@
 // Módulo exclusivo de servidor (importado apenas por server actions, mesma
-// convenção de knowledge.ts): envio de e-mail transacional via Resend —
+// convenção de knowledge.ts): envio de e-mail transacional via Resend,
 // mesmo provedor do SMTP de auth (D-V2-063, domínio axtroai.com verificado).
 // Sem RESEND_API_KEY (ou em PORTAL_FAKE_PROVIDERS=1) o envio vira mock
 // logado: o fluxo do produto nunca quebra por falta de chave.
@@ -173,12 +173,12 @@ interface SendHtmlEmailOptions {
 const TRANSIENT_RETRY_DELAY_MS = 400;
 const MAX_TRANSIENT_RETRY_DELAY_MS = 2000;
 
-/** 429 (rate limit) e 5xx são retryable por definição; 401/402/403/422/etc são permanentes — retentar não ajudaria e só atrasaria um e-mail que vai falhar de qualquer jeito (achado onda 8, D-V2-117, mesma disciplina condicional de D-V2-116). */
+/** 429 (rate limit) e 5xx são retryable por definição; 401/402/403/422/etc são permanentes: retentar não ajudaria e só atrasaria um e-mail que vai falhar de qualquer jeito (achado onda 8, D-V2-117, mesma disciplina condicional de D-V2-116). */
 function isTransientResendStatus(status: number): boolean {
   return status === 429 || status >= 500;
 }
 
-/** Núcleo de envio compartilhado — mock sem chave, timeout, retry condicional, log sem PII. */
+/** Núcleo de envio compartilhado: mock sem chave, timeout, retry condicional, log sem PII. */
 async function sendHtmlEmail(options: SendHtmlEmailOptions): Promise<EmailSendResult> {
   const apiKey = process.env.RESEND_API_KEY ?? "";
   if (apiKey.trim().length === 0 || process.env.PORTAL_FAKE_PROVIDERS === "1") {
@@ -186,13 +186,13 @@ async function sendHtmlEmail(options: SendHtmlEmailOptions): Promise<EmailSendRe
     return { sent: false, reason: "mocked_no_key" };
   }
 
-  // Uma chave estável por CHAMADA (não por tentativa) — a Resend suporta
+  // Uma chave estável por CHAMADA (não por tentativa): a Resend suporta
   // Idempotency-Key (docs.resend.com/api-reference/emails/send-email) e
   // aceitar isso torna a retentativa abaixo segura mesmo no caso ambíguo
   // de a 1ª tentativa ter estourado o timeout DEPOIS da Resend já ter
   // aceitado o envio (achado da própria auto-revisão, onda 8, D-V2-117):
   // sem isto, retentar em QUALQUER exceção arriscava duplicar um e-mail
-  // transacional real (convite, alerta de bloqueio) — mesma disciplina de
+  // transacional real (convite, alerta de bloqueio), mesma disciplina de
   // idempotencyKey já usada pra Stripe em video-cap.ts.
   const idempotencyKey = crypto.randomUUID();
 
@@ -228,13 +228,13 @@ async function sendHtmlEmail(options: SendHtmlEmailOptions): Promise<EmailSendRe
       clearTimeout(timer);
     }
   }
-  // Inatingível — o loop de 2 tentativas sempre retorna ou lança acima.
+  // Inatingível: o loop de 2 tentativas sempre retorna ou lança acima.
   return { sent: false, reason: "provider_error" };
 }
 
 /**
  * E-mail de convite de equipe (modelo e-mail pré-aprovado, D-V2-060): avisa o
- * convidado para criar a conta com ESTE e-mail — o provisionamento o coloca
+ * convidado para criar a conta com ESTE e-mail. O provisionamento o coloca
  * no workspace automaticamente. Falha aqui nunca desfaz o convite.
  */
 export async function sendInviteEmail(options: {
@@ -266,7 +266,7 @@ export async function sendInviteEmail(options: {
 
 /**
  * E-mail aos admins do tenant quando um agente é ativado (T9): visibilidade
- * de mudança de estado que afeta o que os clientes veem. Best-effort — nunca
+ * de mudança de estado que afeta o que os clientes veem. Best-effort: nunca
  * desfaz a ativação já aplicada no banco.
  */
 export async function sendAgentActivatedEmail(options: {
@@ -303,8 +303,8 @@ const MEETING_STATUS_LABEL: Readonly<Record<string, string>> = {
 
 /**
  * E-mail aos admins quando uma reunião externa termina (achado da auditoria
- * 2026-08-06): o evento de negócio mais importante do produto — "seu agente
- * acabou de representar você numa reunião de verdade" — não disparava nada;
+ * 2026-08-06): o evento de negócio mais importante do produto ("seu agente
+ * acabou de representar você numa reunião de verdade") não disparava nada;
  * o dono só sabia se voltasse a abrir /testar e olhar a tabela. Best-effort,
  * mesma disciplina dos outros e-mails deste módulo.
  */
@@ -338,10 +338,10 @@ export async function sendMeetingEndedEmail(options: {
 }
 
 /**
- * E-mail aos admins quando um teto diário de uso cruza 80% ou 100% (D-V2-107
- * — gap declarado em docs/COST_OPTIMIZATION.md: "os tetos cortam, mas não
+ * E-mail aos admins quando um teto diário de uso cruza 80% ou 100% (D-V2-107,
+ * gap declarado em docs/COST_OPTIMIZATION.md: "os tetos cortam, mas não
  * avisam antes"). Dedup de disparo é responsabilidade do chamador
- * (lib/cost-alerts.ts) — esta função só formata e envia.
+ * (lib/cost-alerts.ts). Esta função só formata e envia.
  */
 export async function sendCostCapAlertEmail(options: {
   readonly to: readonly string[];
@@ -387,7 +387,7 @@ export async function sendCostCapAlertEmail(options: {
  * vivo (D-V2-123): a única mensagem deste arquivo que sai pra um endereço
  * fora do tenant, nunca reaproveitada pelos outros e-mails (todos internos,
  * pra admins já cadastrados). "IA rascunha, humano manda" (doutrina já
- * documentada em docs/BRIEFING_RAISSA_CLOSER_VIDEO.md §6) — este envio
+ * documentada em docs/BRIEFING_RAISSA_CLOSER_VIDEO.md §6). Este envio
  * exige clique explícito de um admin depois de revisar empresa/e-mail/
  * plano, nunca dispara sozinho no meio de uma call.
  */

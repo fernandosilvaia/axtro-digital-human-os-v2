@@ -1,6 +1,6 @@
 /**
  * Monta a URL de autorização do Google (tela de consentimento) e o
- * `redirect_uri` que a Server Action de connect e a rota de callback usam —
+ * `redirect_uri` que a Server Action de connect e a rota de callback usam:
  * o MESMO valor byte-idêntico nos dois lados, porque o Google exige isso na
  * troca de token (`exchangeGoogleAuthorizationCode`), e porque só um
  * `redirect_uri` fica cadastrado no Google Cloud Console (ver
@@ -15,7 +15,7 @@ const GOOGLE_CALENDAR_OAUTH_CALLBACK_PATH = "/api/google-calendar/oauth/callback
  * `https://www.googleapis.com/auth/calendar` é o escopo que
  * `packages/provider-google-calendar` já assume (FreeBusy + Events).
  * `openid email` é pedido só para decodificar a claim `email` do `id_token`
- * na troca de token (ver `id-token.ts`) — nenhum escopo adicional além do
+ * na troca de token (ver `id-token.ts`), nenhum escopo adicional além do
  * estritamente necessário.
  */
 const GOOGLE_CALENDAR_OAUTH_SCOPES = "https://www.googleapis.com/auth/calendar openid email";
@@ -32,7 +32,7 @@ export interface GoogleCalendarAuthorizationUrlInput {
 
 /**
  * `access_type=offline` + `prompt=consent` são os dois parâmetros que o
- * Google documenta como necessários para receber um `refresh_token` — mesmo
+ * Google documenta como necessários para receber um `refresh_token`. Mesmo
  * assim, um usuário que já autorizou antes sem revogar pode não recebê-lo
  * de novo (comportamento do próprio Google, tratado como erro tipado em
  * `exchangeGoogleAuthorizationCode`, nunca assumido silenciosamente aqui).

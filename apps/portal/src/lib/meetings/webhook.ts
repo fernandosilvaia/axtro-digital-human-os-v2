@@ -2,13 +2,13 @@
  * Núcleo puro do webhook de status do Recall.ai (docs.recall.ai/docs/bot-status-change-events).
  * Autenticação por token na própria URL do webhook (mecanismo oficial
  * documentado) MAIS assinatura HMAC opcional (docs.recall.ai/docs/
- * authenticating-requests-from-recallai — formato Standard Webhooks/Svix,
+ * authenticating-requests-from-recallai: formato Standard Webhooks/Svix,
  * confirmado 2026-08-01 depois que o Fernando gerou o segredo do
  * workspace no dashboard deles; antes disso o formato não estava
  * confirmado na doc e só o token era usado). Mapeia os eventos de status
  * do bot pro enum fechado de `meeting_bot_sessions.status`; eventos de
  * outro tipo (breakout room, participant_events) são ignorados nesta
- * versão — não é mentira nem erro, é escopo declarado (Art. 14: sem
+ * versão: não é mentira nem erro, é escopo declarado (Art. 14: sem
  * cobertura, não inventa).
  */
 
@@ -53,7 +53,7 @@ export interface RecallWebhookSignatureHeaders {
  * Verifica a assinatura HMAC-SHA256 no formato Standard Webhooks: secreto
  * `whsec_<base64>`, string assinada `{id}.{timestamp}.{raw-body}`,
  * cabeçalho `webhook-signature` podendo trazer múltiplas assinaturas
- * espaço-separadas (`v1,<sig> v1,<sig> ...`, rotação de segredo) — basta
+ * espaço-separadas (`v1,<sig> v1,<sig> ...`, rotação de segredo). Basta
  * UMA bater. Comparação em tempo constante; timestamp fora de ±5min é
  * rejeitado (proteção contra replay).
  */
@@ -127,10 +127,10 @@ export function statusForRecallEvent(event: string): "joining" | "in_call" | "en
 }
 
 /**
- * `transcript.done` (docs.recall.ai/docs/async-transcription — "Transcript
+ * `transcript.done` (docs.recall.ai/docs/async-transcription: "Transcript
  * Status Change" webhook) tem um shape DIFERENTE dos eventos `bot.*` de
  * status: `data.bot.id` continua lá (mesma convenção), mas o id que
- * importa aqui é `data.transcript.id` — usado pra buscar o conteúdo
+ * importa aqui é `data.transcript.id`, usado pra buscar o conteúdo
  * (GET /transcript/{id}/, dois hops: metadata → download_url → conteúdo).
  * D-V2-106.
  */

@@ -16,7 +16,7 @@ import { logError as trackError } from "@/lib/telemetry";
  * 1b-ii). `startGoogleCalendarConnection` é a metade "connect" do fluxo
  * OAuth: autentica, confere `tenant_admin` (mesmo padrão de billing.ts),
  * gera o `state` anti-CSRF (`oauth-state.ts`) e redireciona pro Google (ou,
- * em modo fake, direto pra própria rota de callback — mesmo espírito de
+ * em modo fake, direto pra própria rota de callback, mesmo espírito de
  * `createDeterministicFakeCheckoutPort` em billing.ts, que também nunca
  * manda o navegador pra um domínio de terceiro real em modo fake).
  * `disconnectGoogleCalendar` chama a RPC de revogação; a RPC já trata
@@ -45,7 +45,7 @@ export async function startGoogleCalendarConnection(): Promise<void> {
   }
   if (overview.role !== "tenant_admin") {
     // Ação de servidor é POST-ável direto (o botão só fica escondido na UI
-    // pra quem não é admin) — mesmo controle de papel que toda RPC
+    // pra quem não é admin), mesmo controle de papel que toda RPC
     // administrativa do projeto já aplica, mesmo padrão de billing.ts.
     redirect("/configuracoes?calendar_error=apenas_admin");
   }
@@ -56,7 +56,7 @@ export async function startGoogleCalendarConnection(): Promise<void> {
     redirect("/configuracoes?calendar_error=sessao_invalida");
   }
 
-  // Mesmo limiter tenant-scoped já usado pelo checkout (billing.ts) — aqui
+  // Mesmo limiter tenant-scoped já usado pelo checkout (billing.ts): aqui
   // limita quantos `state` pendentes um tenant pode gerar sem completar o
   // fluxo, defesa em profundidade além do bound de tamanho do Map em
   // oauth-state.ts.
@@ -87,7 +87,7 @@ export async function startGoogleCalendarConnection(): Promise<void> {
   if (fakeProviders) {
     // Modo demonstração sem credencial real: nunca manda o navegador pro
     // domínio real do Google (mesmo espírito do checkout fake da Stripe em
-    // billing.ts) — em vez disso, redireciona direto pra nossa própria rota
+    // billing.ts). Em vez disso, redireciona direto pra nossa própria rota
     // de callback com um `code` fake, exercitando o mesmo caminho de
     // validação de `state`/RPC de conexão que o modo real usa.
     redirect(`/api/google-calendar/oauth/callback?code=${encodeURIComponent(FAKE_GOOGLE_OAUTH_AUTHORIZATION_CODE)}&state=${encodeURIComponent(state)}`);
@@ -108,7 +108,7 @@ export interface DisconnectGoogleCalendarState {
 export async function disconnectGoogleCalendar(): Promise<DisconnectGoogleCalendarState> {
   const supabase = await createClient();
   const { data: { user } } = await supabase.auth.getUser();
-  if (user === null) return { error: "Sessão expirada — faça login de novo." };
+  if (user === null) return { error: "Sessão expirada. Faça login de novo." };
 
   const overview = await fetchTenantOverview();
   if (!overview.provisioned || overview.tenant === undefined) return { error: "Conta ainda não provisionada." };
@@ -117,7 +117,7 @@ export async function disconnectGoogleCalendar(): Promise<DisconnectGoogleCalend
   const actorId = typeof user.app_metadata?.actor_id === "string" ? user.app_metadata.actor_id : null;
   if (actorId === null || !UUID_V7_PATTERN.test(actorId)) {
     trackError("calendar_disconnect_missing_actor", new Error("authenticated session is missing a tenant actor id"), { tenant_id: overview.tenant.id });
-    return { error: "Sessão inválida — recarregue a página e tente de novo." };
+    return { error: "Sessão inválida. Recarregue a página e tente de novo." };
   }
 
   try {

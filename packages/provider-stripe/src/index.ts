@@ -1,25 +1,25 @@
 /**
- * Quarto adapter de provider real do projeto: Stripe — cobrança dos planos
+ * Quarto adapter de provider real do projeto: Stripe, cobrança dos planos
  * do Digital Human OS (D-V2-101). Mesma disciplina dos outros três
  * (OpenRouter, Tavus, Recall.ai): chave nunca aparece em erro/log, fetch
  * injetável, timeout obrigatório, validação fechada antes da rede.
  *
  * Diferença estrutural: a API da Stripe é form-urlencoded (não JSON), com
- * notação de colchetes para campos aninhados/arrays — `toFormBody` faz essa
+ * notação de colchetes para campos aninhados/arrays. `toFormBody` faz essa
  * serialização. `Stripe-Version` é fixada explicitamente (prática
  * recomendada pela própria Stripe): a integração usa a API de Billing
  * Meters (não a `usage_records` legada, removida a partir da versão
- * 2025-03-31.basil — docs.stripe.com/billing/subscriptions/usage-based/
+ * 2025-03-31.basil, ver docs.stripe.com/billing/subscriptions/usage-based/
  * implementation-guide) para cobrar overage.
  *
  * Modelo de cobrança (docs.stripe.com/billing/subscriptions/build-
  * subscriptions + implementation-guide, confirmado 2026-08-03): cada
- * assinatura tem DOIS itens — um price recorrente "licensed" (mensalidade
+ * assinatura tem DOIS itens: um price recorrente "licensed" (mensalidade
  * fixa) e um price "metered" vinculado a um Meter compartilhado
  * (`event_name` único pro produto inteiro; o preço por unidade difere por
- * plano, mas o meter é o mesmo — Stripe agrega os eventos por
+ * plano, mas o meter é o mesmo: Stripe agrega os eventos por
  * stripe_customer_id e fatura contra o item metered QUE aquele cliente tem
- * assinado). A unidade cobrada é CONVERSA de vídeo, não minuto — o produto
+ * assinado). A unidade cobrada é CONVERSA de vídeo, não minuto. O produto
  * não mede duração real de chamada hoje (gap já declarado em
  * docs/COST_OPTIMIZATION.md), então cobrar por minuto seria uma promessa
  * de precisão que o sistema não cumpre (Art. 16).
@@ -59,7 +59,7 @@ export interface CreateCheckoutSessionRequest {
   readonly cancelUrl: string;
   /** Immutable, second-precision expiry persisted before provider dispatch. */
   readonly expiresAtIso: string;
-  /** Chave de idempotência da Stripe — duplo clique/retry/duas abas não criam duas assinaturas. */
+  /** Chave de idempotência da Stripe: duplo clique/retry/duas abas não criam duas assinaturas. */
   readonly idempotencyKey: string;
 }
 
@@ -70,7 +70,7 @@ export interface CheckoutSession {
 }
 
 /**
- * Sessão de checkout pra um prospect sem conta/tenant no produto — usada
+ * Sessão de checkout pra um prospect sem conta/tenant no produto, usada
  * pelo fechamento ao vivo de um closer (D-V2-123), não pelo autosserviço.
  * Sem `checkoutIntentId`/`tenantId`: não existe assinatura durável nem
  * conflito de assinatura concorrente a proteger aqui, só uma sessão avulsa
@@ -99,9 +99,9 @@ export interface PortalSession {
 export interface ReportOverageUsageRequest {
   readonly stripeCustomerId: string;
   readonly eventName: string;
-  /** Unidades de overage deste evento (conversas acima do incluído) — inteiro positivo. */
+  /** Unidades de overage deste evento (conversas acima do incluído), inteiro positivo. */
   readonly quantity: number;
-  /** Chave de idempotência da Stripe — evita duplicar cobrança em retry. */
+  /** Chave de idempotência da Stripe: evita duplicar cobrança em retry. */
   readonly idempotencyKey: string;
   /**
    * Instante atribuído ao evento no Meter, em ISO 8601. Opcional para manter
@@ -296,7 +296,7 @@ export function createStripeBillingPort(options: StripeAdapterOptions): StripeBi
       }
       throw new StripeBillingError("provider_unavailable", "Stripe request failed before a response");
     }
-    // O timer segue vivo até o corpo ser consumido — headers rápidos com
+    // O timer segue vivo até o corpo ser consumido: headers rápidos com
     // body pendurado não escapam do timeout (achado P1 da auditoria
     // 2026-08-11, mesmo padrão já corrigido em provider-openrouter e
     // provider-tavus na auditoria 2026-08-02; este header do arquivo já

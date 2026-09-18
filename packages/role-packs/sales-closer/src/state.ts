@@ -1,7 +1,7 @@
 /**
  * Pure helpers that produce a `sales.installed` / `sales.updated` event
  * payload shape (contracts/schemas/sales_state.schema.json). This package
- * never mints event envelopes, IDs or timestamps itself — that authority
+ * never mints event envelopes, IDs or timestamps itself: that authority
  * belongs to the session-application layer, consistent with M1's lifecycle
  * command boundary.
  */
@@ -95,7 +95,7 @@ export interface SalesStatePatch {
 
 /**
  * Applies a partial change on top of the current sales state. This never
- * regresses `funnel_stage` past `closed_won`/`closed_lost` — a closed deal
+ * regresses `funnel_stage` past `closed_won`/`closed_lost`: a closed deal
  * is a terminal funnel state for this pack.
  */
 export function applySalesUpdate(current: SalesStatePayload, patch: SalesStatePatch): SalesStatePayload {

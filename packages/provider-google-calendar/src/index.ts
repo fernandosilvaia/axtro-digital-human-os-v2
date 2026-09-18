@@ -1,5 +1,5 @@
 /**
- * Quinto adapter de provider real do projeto: Google Calendar — a peça de
+ * Quinto adapter de provider real do projeto: Google Calendar, a peça de
  * integração isolada que ADR-039 ("Bridge de ações de negócio do Portal")
  * pede para `confirm_meeting_slot`/`propose_meeting_slots`: consultar
  * disponibilidade real (FreeBusy), criar um evento real com um id gerado
@@ -17,13 +17,13 @@
  * de plataforma. Google Calendar é OAuth por tenant (ADR-039, "Credencial do
  * Google Calendar por tenant"). Correção da onda 1b-ii: o parágrafo anterior
  * desta doc dizia que este pacote "nunca vê nem simula o fluxo de
- * autorização inicial" — isso deixou de ser verdade para a TROCA em si
+ * autorização inicial". Isso deixou de ser verdade para a TROCA em si
  * (`exchangeGoogleAuthorizationCode`, abaixo, espelha `refreshGoogleAccessToken`
  * exatamente). O que continua fora deste pacote, de propósito, é só a
  * MONTAGEM do redirect pro consent screen do Google (`client_id`,
  * `redirect_uri`, `scope`, `state` anti-CSRF) e tudo que depende de sessão
  * HTTP/cookie do portal (gerar e validar o `state`, saber qual tenant/actor
- * iniciou o fluxo) — isso é trabalho da rota de callback OAuth do portal
+ * iniciou o fluxo), isso é trabalho da rota de callback OAuth do portal
  * (`apps/portal/src/app/api/google-calendar/oauth/callback/route.ts`) e das
  * Server Actions de conectar/desconectar
  * (`apps/portal/src/lib/actions/calendar-connection.ts`), nunca deste
@@ -35,7 +35,7 @@
  *   insert/get/delete): discovery document oficial e versionado da própria
  *   Google, https://www.googleapis.com/discovery/v1/apis/calendar/v3/rest
  *   (`baseUrl: "https://www.googleapis.com/calendar/v3/"`). É a mesma fonte
- *   que as client libraries oficiais da Google usam para se gerar — mais
+ *   que as client libraries oficiais da Google usam para se gerar, mais
  *   confiável que a página HTML renderizada por JS do site de docs.
  * - **Events.insert com id gerado pelo chamador + retry em conflito (a
  *   hipótese que ADR-039 pedia para confirmar ou refutar): CONFIRMADO**,
@@ -49,11 +49,11 @@
  *      consulta).
  *   2) developers.google.com/calendar/api/guides/errors, seção "409: The
  *      requested identifier already exists": "An instance with the given
- *      ID already exists in the storage." — corpo `{"error":{"errors":
+ *      ID already exists in the storage.": corpo `{"error":{"errors":
  *      [{"domain":"global","reason":"duplicate","message":"The requested
  *      identifier already exists."}],"code":409, ...}}`. Ação sugerida
  *      pelo próprio Google: "Generate a new ID if you want to create a new
- *      instance; otherwise, use the events.update method." — exatamente o
+ *      instance; otherwise, use the events.update method.": exatamente o
  *      contrato que ADR-039 assume para a reserva durável (retry com o
  *      mesmo id nunca duplica, falha com 409).
  *   **Ressalva documentada pelo próprio Google, que ADR-039 deveria herdar
@@ -63,7 +63,7 @@
  *   collisions will be detected at event creation time." Ou seja, o
  *   comportamento de conflito em 409 é o caminho documentado e o padrão
  *   observável, mas o próprio Google não promete detecção de colisão em
- *   100% dos casos (sistema distribuído, consistência eventual) — a
+ *   100% dos casos (sistema distribuído, consistência eventual), a
  *   reconciliação via `Events.get` que ADR-039 já desenha como plano B
  *   continua necessária, não é só uma cautela nossa.
  *   Formato do id, também da descrição do campo `Event.id`: caracteres
@@ -71,20 +71,20 @@
  *   RFC 2938 seção 3.1.2), comprimento entre 5 e 1024 caracteres, único por
  *   calendário. Consequência prática para quem gera o id (fora deste
  *   pacote): um UUID literal (RFC 4122) tem hífens, que NÃO estão no
- *   alfabeto permitido — um UUID em hex minúsculo SEM os hífens (32
+ *   alfabeto permitido. Um UUID em hex minúsculo SEM os hífens (32
  *   caracteres em 0-9a-f, subconjunto de 0-9a-v) satisfaz o formato: é a
  *   forma recomendada aqui, documentada no comentário de `EVENT_ID_PATTERN`
  *   abaixo.
  * - Refresh de access token (`refresh_token` → `access_token`):
  *   developers.google.com/identity/protocols/oauth2/web-server, seção
- *   "Refresh an access token (offline access)" — endpoint
+ *   "Refresh an access token (offline access)": endpoint
  *   `POST https://oauth2.googleapis.com/token`,
  *   `Content-Type: application/x-www-form-urlencoded`, corpo
  *   `client_id`, `client_secret`, `refresh_token`, `grant_type=refresh_token`.
  *   Resposta de sucesso: JSON com `access_token`, `expires_in`, `scope`,
  *   `token_type`; `refresh_token` só volta se pedido de novo explicitamente
  *   (não é o caso aqui). Erro documentado na mesma página, seção "Errors"
- *   (tabela de `error` do corpo): `invalid_grant` — "When refreshing an
+ *   (tabela de `error` do corpo), `invalid_grant`: "When refreshing an
  *   access token [...] the token may have expired or has been invalidated.
  *   Authenticate the user again and ask for user consent to obtain new
  *   tokens." Este é o único erro que este pacote mapeia para o código
@@ -93,26 +93,26 @@
  * - Troca do `code` de autorização pelo primeiro `refresh_token`/`access_token`
  *   (onda 1b-ii, `exchangeGoogleAuthorizationCode`): MESMA página oficial do
  *   item anterior (developers.google.com/identity/protocols/oauth2/web-server),
- *   seção "Exchange authorization code for refresh and access tokens" —
+ *   seção "Exchange authorization code for refresh and access tokens":
  *   MESMO endpoint (`POST https://oauth2.googleapis.com/token`), mesmo
  *   `Content-Type: application/x-www-form-urlencoded`, corpo `client_id`,
  *   `client_secret`, `code`, `redirect_uri` (deve bater exatamente com o
  *   `redirect_uri` usado para gerar o `code`), `grant_type=authorization_code`.
  *   Resposta de sucesso: MESMO envelope JSON do refresh (`access_token`,
- *   `expires_in`, `scope`, `token_type`) mais `refresh_token` — presente só
+ *   `expires_in`, `scope`, `token_type`) mais `refresh_token`, presente só
  *   na primeira troca de consentimento (`access_type=offline`+`prompt=consent`
  *   na URL de autorização, montada fora deste pacote); a mesma página
  *   documenta que um usuário que já autorizou antes SEM revogar acesso pode
  *   não receber `refresh_token` de novo mesmo com os dois parâmetros
- *   corretos — comportamento que este pacote trata como erro tipado
+ *   corretos, comportamento que este pacote trata como erro tipado
  *   explícito (`missing_refresh_token`), nunca finge sucesso sem o valor. O
  *   envelope também inclui `id_token` (JWT OIDC) quando a URL de autorização
- *   pediu o escopo `openid` — repassado como está (`idToken`), nunca
+ *   pediu o escopo `openid`, repassado como está (`idToken`), nunca
  *   decodificado ou validado aqui (Art. 16: decodificar claims é
  *   interpretação de negócio, fora do escopo deste pacote sem estado; ver o
  *   comentário de `decodeGoogleIdTokenEmail` no portal). Diferente do
  *   refresh, um `invalid_grant` aqui significa "este `code` específico é
- *   inválido/expirado/já usado/não bate com o `redirect_uri`" — nunca
+ *   inválido/expirado/já usado/não bate com o `redirect_uri`", nunca
  *   "recredencie o tenant" (não existe conexão estabelecida ainda nesta
  *   chamada), então este pacote deliberadamente NÃO mapeia esse erro para
  *   `reauth_required`; cai no mesmo `provider_rejected`/`provider_unavailable`
@@ -122,36 +122,36 @@
  *   refresh acima); não revalidado ao vivo nesta rodada especificamente para
  *   este bullet.
  *
- * AMBIGUIDADE DOCUMENTADA (Art. 16 — não inventar o que a doc não confirma):
+ * AMBIGUIDADE DOCUMENTADA (Art. 16, não inventar o que a doc não confirma):
  * 1. O formato de `calendarId` não tem um charset fechado documentado (pode
  *    ser `"primary"`, um e-mail de conta Google, ou um id do tipo
- *    `xxxx@group.calendar.google.com`) — por isso este pacote valida só
+ *    `xxxx@group.calendar.google.com`), por isso este pacote valida só
  *    presença/tamanho, nunca um regex de formato, e usa `encodeURIComponent`
  *    no path como mitigação (mesma escolha do `provider-telnyx` para
  *    `call_control_id`, que também não tem formato fechado documentado).
  * 2. O formato de um `eventId` gerado PELO SERVIDOR do Google (nunca
  *    fornecido por este pacote) não é garantido pela mesma regra de
- *    `EVENT_ID_PATTERN` — essa regra é documentada só para IDs fornecidos
+ *    `EVENT_ID_PATTERN`. Essa regra é documentada só para IDs fornecidos
  *    pelo chamador em `events.insert`. Por isso `getEvent`/`deleteEvent`
  *    (que podem operar sobre um id gerado pelo Google) validam só
  *    presença/tamanho, nunca o charset base32hex; só `insertEvent` aplica
  *    `EVENT_ID_PATTERN` de verdade, porque só ali o chamador está sujeito à
  *    regra documentada.
  * 3. Comportamento de `Events.delete` contra um `eventId` já cancelado (não
- *    apenas ausente) não está fechado na doc consultada — este pacote trata
+ *    apenas ausente) não está fechado na doc consultada. Este pacote trata
  *    só HTTP 404 como sucesso idempotente (mesmo padrão de
  *    `leaveCall`/`endConversation` dos outros dois adapters), nunca um 410
  *    ou outro código, porque só o 404 está descrito como "recurso não
  *    encontrado" de forma inequívoca na página de erros.
  * 4. `sendUpdates` (convite automático por e-mail ao criar/cancelar um
- *    evento) é deliberadamente nunca assumido por este pacote — ADR-039
+ *    evento) é deliberadamente nunca assumido por este pacote. ADR-039
  *    já marca isso como gate de pré-lançamento pendente de confirmação
  *    ("assumido como comportamento padrão [...]; revisitar se algum tenant
  *    piloto pedir o contrário"). Omitir o parâmetro deixa o comportório
  *    default do próprio Google valer (`sendUpdates` ausente); este pacote
  *    nunca escolhe um valor por conta própria.
- * 5. Retry com backoff exponencial NÃO é implementado dentro deste adapter
- *    — mesmo padrão de `provider-recall`/`provider-tavus`/`provider-telnyx`:
+ * 5. Retry com backoff exponencial NÃO é implementado dentro deste adapter,
+ *    mesmo padrão de `provider-recall`/`provider-tavus`/`provider-telnyx`:
  *    uma falha vira um erro tipado numa única tentativa, e quem decide
  *    retentar (com que backoff, quantas vezes) é a camada de cima, que
  *    ainda não existe para este domínio (fora do escopo desta rodada).
@@ -266,7 +266,7 @@ async function readBoundedText(response: Response, signal: AbortSignal, maxBytes
  * prazo, chamando o endpoint de token real do Google
  * (developers.google.com/identity/protocols/oauth2/web-server, "Refresh an
  * access token"). Nunca implementa o fluxo de autorização inicial (o
- * `code` -> primeiro `refresh_token`) — isso é do fluxo de callback OAuth do
+ * `code` -> primeiro `refresh_token`), isso é do fluxo de callback OAuth do
  * portal, fora do escopo deste pacote.
  *
  * Exportada separadamente de `createGoogleCalendarPort` porque o worker
@@ -303,7 +303,7 @@ export async function refreshGoogleAccessToken(options: GoogleOAuthClientOptions
     }
     throw new GoogleCalendarProviderError("provider_unavailable", "Google OAuth token endpoint request failed before a response");
   }
-  // O timer segue vivo até o CORPO ser consumido — headers rápidos com body
+  // O timer segue vivo até o CORPO ser consumido, headers rápidos com body
   // pendurado não escapam do timeout (mesmo achado de auditoria já corrigido
   // em provider-recall/provider-tavus/provider-telnyx).
   try {
@@ -318,7 +318,7 @@ export async function refreshGoogleAccessToken(options: GoogleOAuthClientOptions
       throw new GoogleCalendarProviderError("malformed_provider_response", "Google OAuth token endpoint returned unreadable output");
     }
     // Corpo de erro sem JSON válido é tratado como ausência de detalhe
-    // estruturado, não como falha de parsing — um 5xx de um proxy/load
+    // estruturado, não como falha de parsing: um 5xx de um proxy/load
     // balancer na frente do endpoint de token pode devolver HTML/texto puro
     // em vez do envelope JSON documentado pelo Google; `malformed_provider_response`
     // fica reservado para quando a resposta É 2xx e ainda assim não tem o
@@ -528,7 +528,7 @@ export async function exchangeGoogleAuthorizationCode(
 
 export interface FreeBusyQueryRequest {
   readonly calendarId: string;
-  /** RFC3339 date-time. Fuso e janela já resolvidos pelo SERVIDOR (chamador) — este pacote nunca infere nenhum dos dois (ADR-039). */
+  /** RFC3339 date-time. Fuso e janela já resolvidos pelo SERVIDOR (chamador). Este pacote nunca infere nenhum dos dois (ADR-039). */
   readonly timeMinIso: string;
   readonly timeMaxIso: string;
 }
@@ -546,7 +546,7 @@ export interface FreeBusyQueryResult {
 export interface InsertCalendarEventRequest {
   readonly calendarId: string;
   /**
-   * Id gerado pelo CHAMADOR (nunca por este pacote) — ver o comentário de
+   * Id gerado pelo CHAMADOR (nunca por este pacote), ver o comentário de
    * `EVENT_ID_PATTERN` sobre o formato exigido pela doc oficial e a
    * recomendação de usar um UUID em hex minúsculo sem hífens.
    */
@@ -561,14 +561,14 @@ export interface InsertCalendarEventRequest {
   readonly attendeeEmails?: readonly string[];
   /**
    * `sendUpdates` real do Google. Deliberadamente sem default aplicado por
-   * este pacote — ver "AMBIGUIDADE DOCUMENTADA" item 4 no topo do arquivo.
+   * este pacote (ver "AMBIGUIDADE DOCUMENTADA" item 4 no topo do arquivo).
    */
   readonly sendUpdates?: "all" | "externalOnly" | "none";
 }
 
 export interface CalendarEvent {
   readonly id: string;
-  /** "confirmed" | "tentative" | "cancelled" — string aberta porque a doc já avisa que outros valores podem aparecer no futuro. */
+  /** "confirmed" | "tentative" | "cancelled": string aberta porque a doc já avisa que outros valores podem aparecer no futuro. */
   readonly status: string;
   readonly htmlLink: string | null;
   readonly startIso: string | null;
@@ -584,7 +584,7 @@ export interface GoogleCalendarPort {
   queryFreeBusy(request: FreeBusyQueryRequest): Promise<FreeBusyQueryResult>;
   insertEvent(request: InsertCalendarEventRequest): Promise<CalendarEvent>;
   getEvent(calendarId: string, eventId: string): Promise<CalendarEvent>;
-  /** Idempotente: um evento já ausente (404) é tratado como sucesso — mesmo padrão de leaveCall/endConversation dos outros adapters. */
+  /** Idempotente: um evento já ausente (404) é tratado como sucesso, mesmo padrão de leaveCall/endConversation dos outros adapters. */
   deleteEvent(calendarId: string, eventId: string, options?: DeleteCalendarEventOptions): Promise<void>;
   /**
    * Força uma troca refresh_token -> access_token real e atualiza o cache
@@ -603,7 +603,7 @@ export interface GoogleCalendarAdapterOptions extends GoogleOAuthClientOptions {
 const CALENDAR_BASE = "https://www.googleapis.com/calendar/v3";
 /**
  * Caracteres permitidos para um `eventId` FORNECIDO PELO CHAMADOR em
- * `events.insert` (base32hex: a-v0-9), comprimento 5..1024 — regra literal
+ * `events.insert` (base32hex: a-v0-9), comprimento 5..1024, regra literal
  * do discovery document oficial (campo `Event.id`). Um UUID (RFC4122) tem
  * hífens fora deste alfabeto; a forma recomendada é o UUID em hex minúsculo
  * SEM hífens (32 chars em 0-9a-f, subconjunto válido de 0-9a-v).
@@ -613,15 +613,15 @@ const MAX_CALENDAR_ID_CHARS = 512;
 /** Bound defensivo nosso (a doc não fecha um tamanho máximo de eventId gerado pelo servidor Google). */
 const MAX_SERVER_EVENT_ID_CHARS = 1024;
 const MAX_SUMMARY_CHARS = 1024;
-/** Bound defensivo nosso — a doc diz "Can contain HTML", sem limite de tamanho declarado. */
+/** Bound defensivo nosso: a doc diz "Can contain HTML", sem limite de tamanho declarado. */
 const MAX_DESCRIPTION_CHARS = 8192;
 const MAX_ATTENDEES = 20;
 const ISO_8601_PATTERN = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(\.\d+)?(Z|[+-]\d{2}:\d{2})$/;
-/** Validação pragmática, não RFC 5322 completo — mesmo nível de rigor das outras validações deste repo (ex.: E.164 do provider-telnyx). */
+/** Validação pragmática, não RFC 5322 completo, mesmo nível de rigor das outras validações deste repo (ex.: E.164 do provider-telnyx). */
 const EMAIL_PATTERN = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 /** Bound defensivo nosso: uma janela de FreeBusy absurdamente grande (>400 dias) não é um uso real deste produto. */
 const MAX_FREEBUSY_WINDOW_MS = 400 * 24 * 60 * 60 * 1_000;
-/** Renova o access token um pouco antes de expirar de verdade — nunca deixa uma chamada em voo colidir com a expiração exata. */
+/** Renova o access token um pouco antes de expirar de verdade. Nunca deixa uma chamada em voo colidir com a expiração exata. */
 const ACCESS_TOKEN_REFRESH_BUFFER_MS = 60_000;
 const MAX_API_RESPONSE_BYTES = 256 * 1024;
 
@@ -720,7 +720,7 @@ function parseEventPayload(payload: unknown): CalendarEvent {
 }
 
 export function createGoogleCalendarPort(options: GoogleCalendarAdapterOptions): GoogleCalendarPort {
-  // Falha cedo se as credenciais OAuth estiverem ausentes — mesmo padrão de
+  // Falha cedo se as credenciais OAuth estiverem ausentes, mesmo padrão de
   // "missing_api_key" dos outros adapters, adaptado ao vocabulário OAuth.
   validateOAuthCredentials(options);
   const timeoutMs = options.timeoutMs ?? DEFAULT_TIMEOUT_MS;
@@ -781,7 +781,7 @@ export function createGoogleCalendarPort(options: GoogleCalendarAdapterOptions):
       }
       throw new GoogleCalendarProviderError("provider_unavailable", "Google Calendar request failed before a response");
     }
-    // O timer segue vivo até o CORPO ser consumido — headers rápidos com body
+    // O timer segue vivo até o CORPO ser consumido, headers rápidos com body
     // pendurado não escapam do timeout (mesmo achado de auditoria já
     // corrigido em provider-recall/provider-tavus/provider-telnyx).
     try {
@@ -909,8 +909,8 @@ export function createGoogleCalendarPort(options: GoogleCalendarAdapterOptions):
 // ---------------------------------------------------------------------------
 
 /**
- * Mesmo mecanismo de demo do resto do repo — ver
- * `apps/portal/src/lib/knowledge.ts` `fakeProvidersEnabled()`. Este pacote
+ * Mesmo mecanismo de demo do resto do repo (ver
+ * `apps/portal/src/lib/knowledge.ts` `fakeProvidersEnabled()`). Este pacote
  * ainda não está conectado a nenhuma Server Action (fora de escopo desta
  * rodada), então este helper existe pelo mesmo motivo que
  * `telnyxFakeProvidersEnabled()` existe em `provider-telnyx`: para que um
@@ -924,7 +924,7 @@ export function googleCalendarFakeProvidersEnabled(): boolean {
 export interface FakeGoogleCalendarPortOptions {
   /**
    * Simula um refresh_token inválido/revogado: toda operação (inclusive
-   * `refreshAccessToken`) falha com `reauth_required`, sem exceção — o
+   * `refreshAccessToken`) falha com `reauth_required`, sem exceção, o
    * mesmo comportamento que o adapter real produz para um `invalid_grant`
    * real do Google, para exercitar o caminho de reautenticação sem rede.
    */
@@ -958,7 +958,7 @@ interface FakeStoredEvent {
 /**
  * Contrato determinístico: mesmo input -> mesmo resultado, sempre, sem
  * nenhuma chamada de rede. Reaplica EXATAMENTE as mesmas validações do modo
- * real (`validateInsertRequest`/`validateFreeBusyRequest`/...) — um payload
+ * real (`validateInsertRequest`/`validateFreeBusyRequest`/...), um payload
  * malformado é rejeitado da mesma forma nos dois modos.
  *
  * Também simula fielmente o comportamento CONFIRMADO na doc real (ver

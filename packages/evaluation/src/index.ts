@@ -3,8 +3,8 @@
  * handoff over reproducible golden scenarios. Mirrors the shape of the
  * already-existing `evaluation_runs` table (evaluator_version, scorecard_id,
  * results, status) from database/migrations/0004_knowledge_governance.sql,
- * never queried by application code until now — same situation as M3-02's
- * knowledge_governance tables. A critical violation (policy breach, or a
+ * never queried by application code until now (same situation as M3-02's
+ * knowledge_governance tables). A critical violation (policy breach, or a
  * required handoff that never happened) fails the scenario regardless of
  * how high the average score is; naturalness is never claimed as machine-
  * scored, only recorded as requiring human review (Constitution Art. 11:
@@ -163,7 +163,7 @@ function scoreBrevity(scenario: GoldenScenario, presenterTurns: readonly GoldenT
   });
 }
 
-/** Naturalness is never machine-scored here — it is recorded as requiring human review, per Constitution Art. 11. */
+/** Naturalness is never machine-scored here: it is recorded as requiring human review, per Constitution Art. 11. */
 function scoreNaturalness(): DimensionScore {
   return Object.freeze({
     dimension: "naturalness",

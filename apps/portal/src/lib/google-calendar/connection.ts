@@ -3,7 +3,7 @@
  * Configurações mostrar "conectado como fulano@gmail.com" / "não conectado"
  * / "precisa reconectar". `portal_google_calendar_connection_context_service`
  * é `service_role`-only (nunca decodifica nem expõe o `vault_secret_id` além
- * da própria referência opaca) — por isso este helper, diferente de todo
+ * da própria referência opaca). Por isso este helper, diferente de todo
  * outro fetch em `portal-data.ts`, usa `createServiceRoleClient()` em vez do
  * client autenticado por sessão, filtrando por `tenantId` explicitamente
  * (Art. 9: isolamento de tenant é controle de segurança, não conveniência).

@@ -22,7 +22,7 @@ import { acquireProviderDispatch, beginProviderEffect, commitProviderEffectOrCom
 import { createServiceRoleClient } from "@/lib/supabase/service";
 
 /**
- * Coloca um agente numa reunião externa de verdade (Zoom/Meet/Teams) —
+ * Coloca um agente numa reunião externa de verdade (Zoom/Meet/Teams),
  * capacidade central do produto (D-V2-089), disponível pra qualquer cliente
  * com um agente configurado, não só pro fluxo interno da Axtro.
  */
@@ -34,7 +34,7 @@ export interface JoinExternalMeetingResult {
 }
 
 export interface StopExternalMeetingResult {
-  /** True iff the Recall bot is confirmed OUT of the real external meeting — the operator-facing definition of "stopped". */
+  /** True iff the Recall bot is confirmed OUT of the real external meeting: the operator-facing definition of "stopped". */
   readonly stopped: boolean;
   readonly recallStopped: boolean;
   readonly tavusStopped: boolean;
@@ -70,7 +70,7 @@ function requiredEnv(name: string): string {
  * A reserva durável é a autoridade entre réplicas e não expira; este guard só
  * reduz trabalho repetido dentro do processo enquanto o primeiro request roda.
  *
- * Checado logo ANTES da chamada aos providers pagos (não no topo da função —
+ * Checado logo ANTES da chamada aos providers pagos (não no topo da função:
  * achado da auto-revisão): checagens gratuitas que falham por razão
  * não-relacionada (config ausente, teto excedido, horário inválido, agente
  * não encontrado) não devem consumir o slot de dedup, senão uma retentativa
@@ -122,7 +122,7 @@ export async function joinExternalMeeting(
   const recallRegion = requiredEnv("RECALL_API_REGION");
   if (tavusApiKey.length === 0 || recallApiKey.length === 0) {
     // Achado onda 8 (D-V2-117): a checagem de região logo abaixo já chama
-    // trackError — chave ausente aqui não chamava, mesma função com
+    // trackError: chave ausente aqui não chamava, mesma função com
     // comportamento inconsistente pra duas configs igualmente quebradas.
     // Guard de fake mode (achado da própria auto-revisão): mesmo esta
     // função não tendo um caminho simulado de verdade pra reunião externa,
@@ -139,7 +139,7 @@ export async function joinExternalMeeting(
   }
 
   // Fuso do agendamento: o default_timezone do tenant (multi-tenant de
-  // verdade — "15:00" tem que ser 15:00 no relógio do DONO da conta, não da
+  // verdade: "15:00" tem que ser 15:00 no relógio do DONO da conta, não da
   // Flórida; auditoria 2026-08-02). Flórida segue como default por compat.
   const timeZone = typeof joinTimeZone === "string" && joinTimeZone.trim().length > 0 ? joinTimeZone.trim() : "America/New_York";
   let joinAtIso: string | undefined;
@@ -148,20 +148,20 @@ export async function joinExternalMeeting(
       joinAtIso = wallClockToUtcIso(joinAtWallClock.trim(), timeZone);
     } catch (error) {
       if (error instanceof FloridaTimeError) {
-        return { conversationUrl: null, scheduled: false, error: `Horário inválido — use o formato AAAA-MM-DDTHH:mm no fuso ${timeZone}.` };
+        return { conversationUrl: null, scheduled: false, error: `Horário inválido. Use o formato AAAA-MM-DDTHH:mm no fuso ${timeZone}.` };
       }
       throw error;
     }
     if (new Date(joinAtIso).getTime() <= Date.now()) {
       // Achado ao vivo W7 (2026-08-14, auto-revisão de D-V2-121): uma folga
-      // aqui já foi tentada e removida — ela convertia silenciosamente um
+      // aqui já foi tentada e removida. Ela convertia silenciosamente um
       // agendamento deliberado (câmera desligada até confirmação) em entrada
       // imediata (câmera ligada na hora), quebrando a promessa explícita da
       // UI pra quem chegou até aqui de propósito marcando "agendar para mais
       // tarde". O caminho de entrada IMEDIATA (external-meeting.tsx, D-V2-121)
-      // já nunca passa por aqui — ele não envia scheduleAt — então este erro
+      // já nunca passa por aqui (ele não envia scheduleAt), então este erro
       // só alcança quem escolheu agendar e digitou um horário que já passou.
-      return { conversationUrl: null, scheduled: false, error: `O horário agendado já passou — escolha um horário futuro (fuso ${timeZone}).` };
+      return { conversationUrl: null, scheduled: false, error: `O horário agendado já passou. Escolha um horário futuro (fuso ${timeZone}).` };
     }
   }
 
@@ -274,7 +274,7 @@ export async function joinExternalMeeting(
     return {
       conversationUrl: null,
       scheduled: Boolean(joinAtIso),
-      error: "Uma tentativa de entrar nesta reunião já está em andamento — aguarde alguns segundos antes de tentar de novo.",
+      error: "Uma tentativa de entrar nesta reunião já está em andamento. Aguarde alguns segundos antes de tentar de novo.",
     };
   }
 
@@ -290,7 +290,7 @@ export async function joinExternalMeeting(
           if (!config.configured || !config.persona_id) return null;
           return {
             personaId: config.persona_id,
-            agentName: providerCorrelationLabel(`${agent.name} — assistente de IA`, recallReservation.reservationId!, 100),
+            agentName: providerCorrelationLabel(`${agent.name}, assistente de IA`, recallReservation.reservationId!, 100),
           };
         },
         createVideoConversation: async (persona) => {
@@ -320,7 +320,7 @@ export async function joinExternalMeeting(
           }, serviceClient);
           return {
             // O bot do Recall.ai renderiza a página que passamos como câmera
-            // dele. A URL CRUA do Tavus abre uma tela de "digite seu nome" —
+            // dele. A URL CRUA do Tavus abre uma tela de "digite seu nome":
             // o bot transmitiria o formulário, não a agente. Por isso o bot
             // recebe /rosto-agente, que entra na sala sozinha e mostra só o
             // rosto dela sangrando na tela.
@@ -362,7 +362,7 @@ export async function joinExternalMeeting(
             terminalBeforeDelivery = true;
             return;
           }
-          // Placeholder do histórico (D-V2-106) — o webhook do Recall
+          // Placeholder do histórico (D-V2-106): o webhook do Recall
           // (transcript.done) preenche `turns` quando a reunião termina.
           if (!(await registerTranscriptPlaceholder(tenantId, agentId, "meeting", params.botId))) {
             throw new Error("meeting transcript placeholder persistence failed");
@@ -410,7 +410,7 @@ export async function joinExternalMeeting(
         return { conversationUrl: null, scheduled: false, error: "Este agente ainda não tem uma persona de vídeo configurada." };
       }
       if (error.code === "invalid_request") {
-        return { conversationUrl: null, scheduled: false, error: "URL da reunião inválida — use um link https de Zoom, Meet ou Teams." };
+        return { conversationUrl: null, scheduled: false, error: "URL da reunião inválida. Use um link https de Zoom, Meet ou Teams." };
       }
       trackError("meeting_bot_join_failed", error, { agent_id: agentId });
       return { conversationUrl: null, scheduled: false, error: "Não foi possível colocar o agente na reunião agora. Tente de novo." };
@@ -427,7 +427,7 @@ export async function joinExternalMeeting(
 /**
  * Operator-initiated "encerrar agora" for a live external meeting (M5-03 P0
  * follow-up, D-V2-135/136). Correct-but-inert while
- * participantScopedMeetingAdmissionReady() stays false — joinExternalMeeting
+ * participantScopedMeetingAdmissionReady() stays false. joinExternalMeeting
  * cannot create a real reservation today, so there is nothing this can ever
  * find to stop, same ADR-038 gate as the join side.
  *

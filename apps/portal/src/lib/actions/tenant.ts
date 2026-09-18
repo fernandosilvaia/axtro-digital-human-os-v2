@@ -9,11 +9,11 @@ export interface TenantProfileActionState {
   readonly saved: boolean;
 }
 
-// Mesmo padrão de INVITE_ERROR_MESSAGES (team.ts) — sem isso, erro de RPC
+// Mesmo padrão de INVITE_ERROR_MESSAGES (team.ts): sem isso, erro de RPC
 // aparecia cru em inglês ("only a tenant_admin can edit the tenant profile")
 // na única tela de perfil da conta (achado da auditoria 2026-08-06).
 const PROFILE_ERROR_MESSAGES: Readonly<Record<string, string>> = {
-  "authentication required": "Sessão expirada — recarregue a página e entre novamente.",
+  "authentication required": "Sessão expirada. Recarregue a página e entre novamente.",
   "no tenant provisioned": "Sua conta ainda não terminou de ser provisionada.",
   "only a tenant_admin can edit the tenant profile": "Somente administradores podem editar o perfil da conta.",
 };
@@ -30,7 +30,7 @@ export async function updateTenantProfile(
     return { error: "O nome da conta precisa ter entre 1 e 200 caracteres.", saved: false };
   }
   if (!/^[a-z]{2}-[A-Z]{2}$/.test(defaultLanguage)) {
-    return { error: "Idioma inválido — use o formato pt-BR.", saved: false };
+    return { error: "Idioma inválido. Use o formato pt-BR.", saved: false };
   }
   if (defaultTimezone.length === 0 || defaultTimezone.length > 64) {
     return { error: "Fuso horário inválido.", saved: false };

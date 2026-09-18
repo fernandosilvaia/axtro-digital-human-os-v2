@@ -1,7 +1,7 @@
 /**
  * Núcleo puro do webhook de eventos de e-mail da Resend (achado onda 8,
  * D-V2-117): sem isto, um bounce/complaint pós-aceite (endereço inválido,
- * caixa cheia, marcado como spam) nunca chegava ao produto — o e-mail de
+ * caixa cheia, marcado como spam) nunca chegava ao produto. O e-mail de
  * convite de membro ou de alerta de bloqueio de conta podia falhar depois
  * do "sent: true" sem NENHUM sinal, nem pro admin do tenant nem pra Axtro.
  *
@@ -9,12 +9,12 @@
  * verify-webhooks-requests): cabeçalhos `svix-id`/`svix-timestamp`/
  * `svix-signature`, segredo no formato `whsec_<base64>`, conteúdo assinado
  * `{svix-id}.{svix-timestamp}.{raw-body}`, HMAC-SHA256 em base64, tolerância
- * de replay de 5min — mesmo desenho de janela/comparação em tempo constante
+ * de replay de 5min, mesmo desenho de janela/comparação em tempo constante
  * já usado nos webhooks da Stripe (billing/webhook.ts) e do Recall
  * (meetings/webhook.ts), adaptado pro formato específico da Svix.
  *
  * Escopo deliberado: só sinaliza QUE um bounce/complaint aconteceu (pra
- * telemetria/alerta de taxa de erro, D-V2-114) — não persiste status de
+ * telemetria/alerta de taxa de erro, D-V2-114), não persiste status de
  * entrega por convite/e-mail individual em tabela nova (feature maior,
  * fora do escopo desta correção).
  */
@@ -55,7 +55,7 @@ export function verifyResendWebhookSignature(
 
   const expected = createHmac("sha256", secretBytes).update(`${svixId}.${svixTimestamp}.${rawBody}`).digest();
 
-  // svix-signature: lista separada por espaço de "v1,<base64>" (rotação de segredo pode trazer mais de um) — basta uma bater.
+  // svix-signature: lista separada por espaço de "v1,<base64>" (rotação de segredo pode trazer mais de um). Basta uma bater.
   for (const part of svixSignatureHeader.split(" ")) {
     const separatorIndex = part.indexOf(",");
     if (separatorIndex === -1) continue;
@@ -76,7 +76,7 @@ export function verifyResendWebhookSignature(
 
 export interface ParsedResendEvent {
   readonly eventType: string;
-  /** Id do e-mail na Resend — não é PII, serve pra correlacionar com o dashboard da Resend. */
+  /** Id do e-mail na Resend: não é PII, serve pra correlacionar com o dashboard da Resend. */
   readonly emailId: string;
 }
 

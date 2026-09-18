@@ -1,7 +1,7 @@
 /**
  * M3-05: generate a proposal preview from confirmed inputs and an approved
  * template, never send it. Every price comes from either a prior receipt or
- * a currently-valid catalog entry — never from unconfirmed model text. This
+ * a currently-valid catalog entry, never from unconfirmed model text. This
  * package has no send capability at all (structural, like the CRM-lite and
  * Specialist Fabric "no write/publish surface" pattern).
  */

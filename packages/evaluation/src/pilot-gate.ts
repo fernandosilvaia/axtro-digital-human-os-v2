@@ -1,7 +1,7 @@
 /**
  * M3-10: aggregates reviewed internal calls into the Sales Closer Alpha
  * pilot gate report. This module only aggregates evidence a caller already
- * has (M3-08 evaluation results, M2-11 cost data) — it never generates,
+ * has (M3-08 evaluation results, M2-11 cost data): it never generates,
  * simulates or approves a real internal pilot. `requiresHumanApprovalForCustomerBeta`
  * is always `true`: no decision this module produces is itself a beta
  * approval (per HANDOFF_TO_CODEX.md: "customer beta requires a separate

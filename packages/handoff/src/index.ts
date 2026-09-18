@@ -1,7 +1,7 @@
 /**
  * M3-06: warm human handoff. This package owns the handoff proposal
  * lifecycle (one pending proposal per session at a time) but never mutates
- * `active_presenter_id` itself — that authority stays with the domain's
+ * `active_presenter_id` itself: that authority stays with the domain's
  * existing `presenter.changed` compare-and-swap (Art. 2, One Mouth Rule).
  * Every accepted transfer calls the injected `PresenterFloorChanger` exactly
  * once, so the floor changes exactly once per accepted transfer, never
@@ -60,7 +60,7 @@ export interface ChangePresenterOutcome {
   readonly accepted: boolean;
 }
 
-/** The one authority that actually mutates active_presenter_id — the domain's presenter.changed CAS event. */
+/** The one authority that actually mutates active_presenter_id: the domain's presenter.changed CAS event. */
 export interface PresenterFloorChanger {
   changePresenter(input: ChangePresenterInput): Promise<ChangePresenterOutcome>;
 }
@@ -192,7 +192,7 @@ export function createHandoffCoordinator(
         expectedPresenterId: proposal.targetHumanId,
         newPresenterId: proposal.currentPresenterId,
       });
-      if (!outcome.accepted) throw new HandoffError("rollback CAS failed — the floor no longer matches the expected human presenter");
+      if (!outcome.accepted) throw new HandoffError("rollback CAS failed: the floor no longer matches the expected human presenter");
       const resolved: HandoffProposal = Object.freeze({ ...proposal, status: "rolled_back" });
       proposals.set(handoffId, resolved);
       return resolved;

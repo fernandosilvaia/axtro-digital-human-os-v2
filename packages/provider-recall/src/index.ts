@@ -1,5 +1,5 @@
 /**
- * Terceiro adapter de provider real do projeto: Recall.ai — envia o agente
+ * Terceiro adapter de provider real do projeto: Recall.ai, envia o agente
  * de vídeo (Tavus/Digital Human OS) pra dentro de reuniões externas de
  * verdade (Zoom, Google Meet, Microsoft Teams), como um participante comum.
  * Capacidade central do produto (D-V2-08x): qualquer cliente do Human
@@ -8,7 +8,7 @@
  *
  * Mecanismo (confirmado na doc oficial, docs.recall.ai/docs/stream-media):
  * o bot entra na reunião-alvo e a "Output Media" API renderiza uma página
- * web como se fosse a câmera dele — a URL que passamos é literalmente a
+ * web como se fosse a câmera dele, a URL que passamos é literalmente a
  * sala de vídeo do agente (ex.: a URL devolvida por
  * /api/leads/video-session ou por startVideoConversation), então o bot
  * "empresta" essa página como rosto pros outros participantes.
@@ -16,7 +16,7 @@
  * Mesmos guardrails dos outros dois adapters reais (OpenRouter, Tavus):
  * chave nunca aparece em erro/log, fetch injetável, timeout obrigatório,
  * caps fechados. Diferença: a Recall.ai é sharded por região (a conta do
- * cliente é provisionada numa região fixa) — a região é config explícita,
+ * cliente é provisionada numa região fixa). A região é config explícita,
  * nunca adivinhada.
  */
 
@@ -25,7 +25,7 @@ export type RecallRegion = "us-east-1" | "us-west-2" | "eu-central-1" | "ap-nort
 /**
  * Tamanho da máquina que roda a página de Output Media dentro do bot
  * (doc oficial "Addressing audio and video issues: bot variants"):
- * `web` = 250 millicores/750MB — insuficiente pra uma chamada WebRTC completa
+ * `web` = 250 millicores/750MB: insuficiente pra uma chamada WebRTC completa
  * (áudio picotado/robotizado, comprovado ao vivo em 2026-07-31);
  * `web_4_core` = 2250 millicores/5250MB; `web_gpu` = 6000 millicores + WebGL.
  */
@@ -36,11 +36,11 @@ export interface CreateMeetingBotRequest {
   readonly botName?: string;
   /** ISO 8601. Quando ausente, o bot tenta entrar imediatamente. */
   readonly joinAtIso?: string;
-  /** Quando presente, o bot já entra com a câmera assumida (a sala de vídeo do agente) — sem precisar de uma segunda chamada a startCameraWebpage. Para o bot "sentinela" (entra silencioso, decide depois), deixe ausente. */
+  /** Quando presente, o bot já entra com a câmera assumida (a sala de vídeo do agente), sem precisar de uma segunda chamada a startCameraWebpage. Para o bot "sentinela" (entra silencioso, decide depois), deixe ausente. */
   readonly outputMediaWebpageUrl?: string;
   /** Aplicado aos 3 platforms (Zoom/Meet/Teams). Ausente = default do provider (`web`). */
   readonly variant?: MeetingBotVariant;
-  /** Habilita transcrição da reunião (docs.recall.ai/docs/async-transcription) — necessária pra capturar o histórico da conversa depois do evento `transcript.done`. */
+  /** Habilita transcrição da reunião (docs.recall.ai/docs/async-transcription), necessária pra capturar o histórico da conversa depois do evento `transcript.done`. */
   readonly enableTranscription?: boolean;
 }
 
@@ -52,7 +52,7 @@ export interface TranscriptMetadata {
   readonly transcriptId: string;
   /** Bot canônico cujo recording contém este transcript. */
   readonly botId: string;
-  /** URL assinada (fora do domínio da Recall.ai) de onde baixar o conteúdo — null enquanto ainda não está pronta. */
+  /** URL assinada (fora do domínio da Recall.ai) de onde baixar o conteúdo, null enquanto ainda não está pronta. */
   readonly downloadUrl: string | null;
 }
 
@@ -86,7 +86,7 @@ export class MeetingBotError extends Error {
 /**
  * Port pro agente entrar em reuniões externas (Zoom/Meet/Teams) e assumir a
  * câmera com a sala de vídeo do agente. `leaveCall` é irreversível (doc
- * oficial) — nunca chamado automaticamente por engano, sempre por decisão
+ * oficial), nunca chamado automaticamente por engano, sempre por decisão
  * explícita do chamador.
  */
 export interface MeetingBotPort {
@@ -95,7 +95,7 @@ export interface MeetingBotPort {
   startCameraWebpage(botId: string, webpageUrl: string): Promise<void>;
   stopCameraWebpage(botId: string): Promise<void>;
   leaveCall(botId: string): Promise<void>;
-  /** GET /api/v1/bot/{expectedBotId}/ — vincula o artifact ao bot antes de devolver a URL. */
+  /** GET /api/v1/bot/{expectedBotId}/: vincula o artifact ao bot antes de devolver a URL. */
   fetchTranscriptMetadata(transcriptId: string, expectedBotId?: string): Promise<TranscriptMetadata>;
   /** Baixa e faz o parse do conteúdo em downloadUrl (docs.recall.ai/docs/async-transcription). */
   downloadTranscript(downloadUrl: string): Promise<readonly TranscriptBlock[]>;
@@ -203,7 +203,7 @@ export function createRecallMeetingBotPort(options: RecallAdapterOptions): Meeti
       }
       throw new MeetingBotError("provider_unavailable", "Recall.ai request failed before a response");
     }
-    // O timer segue vivo até o corpo ser consumido — headers rápidos com
+    // O timer segue vivo até o corpo ser consumido: headers rápidos com
     // body pendurado não escapam do timeout (achado P1 da auditoria
     // 2026-08-11, mesmo padrão já corrigido em provider-openrouter e
     // provider-tavus na auditoria 2026-08-02; este adapter tinha ficado de
@@ -423,7 +423,7 @@ export function createRecallMeetingBotPort(options: RecallAdapterOptions): Meeti
     async downloadTranscript(downloadUrl: string): Promise<readonly TranscriptBlock[]> {
       let currentUrl = parseSafeDownloadUrl(downloadUrl);
       if (currentUrl === null) throw new MeetingBotError("invalid_request", "downloadUrl host is not authorized");
-      // URL assinada de storage (fora do domínio da Recall.ai) — sem header
+      // URL assinada de storage (fora do domínio da Recall.ai), sem header
       // de Authorization da API, e SEM base/timeout compartilhado do call().
       const controller = new AbortController();
       const timer = setTimeout(() => controller.abort(), timeoutMs);

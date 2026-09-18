@@ -1,6 +1,6 @@
 // Formatação de data/hora no fuso do tenant, à prova de string inválida
 // (achado da auto-revisão D-V2-115): `Intl.DateTimeFormat`/`toLocaleDateString`
-// lançam `RangeError` pra um `timeZone` IANA desconhecido — sem essa defesa,
+// lançam `RangeError` pra um `timeZone` IANA desconhecido. Sem essa defesa,
 // um `default_timezone` corrompido/legado derrubaria a página inteira em vez
 // de só mostrar a data num fuso levemente errado. `default_timezone` só é
 // validado hoje pelo dropdown fixo da UI de configurações (nenhuma checagem

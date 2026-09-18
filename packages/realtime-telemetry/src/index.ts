@@ -2,7 +2,7 @@
  * M2-11: latency, quality and cost telemetry for the realtime path, per
  * docs/operations/LATENCY_BUDGETS.md. This package owns its own closed span
  * vocabulary rather than widening `@axtro/observability`'s frozen M0
- * `TELEMETRY_SPAN_NAMES` (D-V2-047) — every sample is still correlated by
+ * `TELEMETRY_SPAN_NAMES` (D-V2-047). Every sample is still correlated by
  * `generationId`, matching the turn-coordinator/avatar/scene generation
  * fencing used across M2.
  */

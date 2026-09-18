@@ -2,7 +2,7 @@
  * Glue compartilhada de histórico de conversa (D-V2-106) entre os 3 pontos
  * de integração (chat sandbox, vídeo/apresentação, reunião externa):
  * placeholder criado no momento em que a conversa nasce (contexto
- * autenticado, tenant conhecido de verdade) — os webhooks do Tavus/Recall
+ * autenticado, tenant conhecido de verdade). Os webhooks do Tavus/Recall
  * só PREENCHEM `turns` depois, nunca criam a linha (Art. 9: um webhook
  * externo não é fonte confiável de qual tenant é dono da conversa).
  */
@@ -82,7 +82,7 @@ export async function prepareTavusWebhookCallback(
 
 /**
  * Registra o placeholder (turns=[]) assim que a conversa/bot nasce.
- * Best-effort: nunca bloqueia nem atrasa a conversa em si — falha vira
+ * Best-effort: nunca bloqueia nem atrasa a conversa em si, falha vira
  * telemetria; sem o placeholder, o webhook mais tarde só não vai achar a
  * linha (found=false, também telemetrado lá) e a conversa simplesmente
  * fica sem histórico registrado, nunca um erro visível pro usuário.

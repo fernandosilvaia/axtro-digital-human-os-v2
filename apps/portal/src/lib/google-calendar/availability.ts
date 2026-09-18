@@ -2,7 +2,7 @@
  * ADR-039, onda 1b-iv: calcula disponibilidade real de calendário, dentro do
  * horário comercial multi-dia que `business-hours.ts` já resolve
  * server-side. Módulo puro em relação a Supabase/RPC (não sabe nada de
- * tenant/grant/receipt) — recebe um `port` de calendário já pronto (real ou
+ * tenant/grant/receipt), recebe um `port` de calendário já pronto (real ou
  * fake, decisão de `propose-meeting-slots.ts`) e devolve slots candidatos,
  * nunca decide sozinho o que fazer com eles.
  */
@@ -23,10 +23,10 @@ const MEETING_DURATION_MINUTES_SET: ReadonlySet<number> = new Set(MEETING_DURATI
 
 /** Bem abaixo do teto que a RPC aceita (ADR-039 onda 1b-iv, decisão desta rodada). */
 export const DEFAULT_MAX_PROPOSED_SLOTS = 10;
-/** Mesmo teto que `portal_business_action_proposal_slots_index_chk` (0..49) aceita — nunca pedimos mais do que a RPC aceitaria. */
+/** Mesmo teto que `portal_business_action_proposal_slots_index_chk` (0..49) aceita, nunca pedimos mais do que a RPC aceitaria. */
 export const MAX_PROPOSED_SLOTS_CEILING = 50;
 
-/** Exatamente o shape que `portal_propose_business_meeting_slots_service` espera em cada elemento de `p_slots` (mais `timezone`, útil pro chamador/UI — descartado ao montar o payload da RPC, ver `propose-meeting-slots.ts`). */
+/** Exatamente o shape que `portal_propose_business_meeting_slots_service` espera em cada elemento de `p_slots` (mais `timezone`, útil pro chamador/UI, descartado ao montar o payload da RPC, ver `propose-meeting-slots.ts`). */
 export interface ProposedCalendarSlot {
   readonly id: string;
   /** ISO 8601 UTC. */
@@ -63,10 +63,10 @@ interface BusyIntervalMs {
 
 /**
  * Reimplementação local, deliberadamente NÃO importada de
- * `packages/tool-adapters/calendar/src/index.ts` — decisão de design desta
+ * `packages/tool-adapters/calendar/src/index.ts`, decisão de design desta
  * rodada. Aquele pacote é o walking skeleton M3-04 que ADR-039 cita como já
  * modelando "a forma certa do problema" (propor é sem efeito, confirmar é
- * escrita separada), mas sua `mergeIntervals` não é exportada — é um detalhe
+ * escrita separada), mas sua `mergeIntervals` não é exportada: é um detalhe
  * interno do `Map` de processo que a própria ADR diz que NÃO é reaproveitado
  * pra armazenamento (as RPCs 0052/0053 são a versão durável). Alargar a
  * superfície pública daquele pacote só pra importar uma função de ~10 linhas
@@ -96,12 +96,12 @@ function hasConflict(candidate: BusyIntervalMs, merged: readonly BusyIntervalMs[
  * Calcula até `maxSlots` horários candidatos livres, dentro do horário
  * comercial dos próximos dias úteis (`business-hours.ts`), chamando
  * `queryFreeBusy` UMA única vez para a janela inteira (nunca uma chamada por
- * dia — desnecessário e mais lento, ADR-039 onda 1b-iv). `port` aceita
+ * dia, desnecessário e mais lento, ADR-039 onda 1b-iv). `port` aceita
  * qualquer objeto com `queryFreeBusy` (não o `GoogleCalendarPort` completo):
  * `propose-meeting-slots.ts` passa o port real/fake de verdade; testes podem
  * passar um objeto mínimo. Cada slot dentro do primeiro dia da janela (o
  * "resto de hoje", quando aplicável) começa exatamente em `clock.now()`, não
- * alinhado a uma grade de horário — dias inteiros seguintes alinham a
+ * alinhado a uma grade de horário. Dias inteiros seguintes alinham a
  * `businessStartHour` (mesmo espírito de "cursor stepping from window
  * start" que `packages/tool-adapters/calendar` já usa).
  */

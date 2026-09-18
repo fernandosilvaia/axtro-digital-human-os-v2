@@ -1,9 +1,9 @@
-// Rate limit em memória, sliding window — mesmo padrão já usado no endpoint
+// Rate limit em memória, sliding window. Mesmo padrão já usado no endpoint
 // de chat do brain (api/brain/[agentId]/chat/completions/route.ts), agora
 // extraído pra ser reaproveitado em superfícies pré-autenticação (signup,
 // login) onde não existe tenant_id pra escopar um teto no banco (0015).
 // Processo único no Railway; se um dia houver réplicas, isto vira
-// melhor-esforço por instância — o teto diário de custo (video-cap.ts) e o
+// melhor-esforço por instância. O teto diário de custo (video-cap.ts) e o
 // BILLING_TRIAL_LIMIT continuam sendo a proteção dura de gasto real.
 const timestampsByKey = new Map<string, number[]>();
 
@@ -13,7 +13,7 @@ const timestampsByKey = new Map<string, number[]>();
  * autenticado (todo IP único que visita /signup, /login, etc.) e nunca
  * eram removidas do Map.
  *
- * NUNCA usar `Map.clear()` aqui — achado P1 CONFIRMADO pela auto-revisão
+ * NUNCA usar `Map.clear()` aqui. Achado P1 CONFIRMADO pela auto-revisão
  * desta mesma onda (D-V2-115): algumas superfícies públicas podem alimentar
  * chaves controláveis pelo cliente. A rota de lead M5-01 autentica primeiro
  * e usa uma chave fixa; signup/login continuam sendo consumidores públicos.
@@ -21,8 +21,8 @@ const timestampsByKey = new Map<string, number[]>();
  * IP/usuário já bloqueado, transformando uma
  * correção de vazamento de memória num botão de reset de proteção de
  * abuso pra todo mundo. Em vez disso: evict de UMA entrada por vez (a
- * mais antiga por toque — LRU real via delete+reinsert a cada uso, não só
- * por ordem de criação) — limita o mesmo jeito, mas nunca dá a um
+ * mais antiga por toque, LRU real via delete+reinsert a cada uso, não só
+ * por ordem de criação), limita o mesmo jeito, mas nunca dá a um
  * atacante um gatilho único e barato que reseta o estado de terceiros.
  */
 const RATE_LIMIT_MAX_TRACKED_KEYS = 5000;
@@ -33,7 +33,7 @@ export function isRateLimited(key: string, windowMs: number, maxRequests: number
   const existing = timestampsByKey.get(key);
   if (existing !== undefined) {
     // Remove e reinsere pra mover a chave pro fim da ordem de iteração do
-    // Map (mais recentemente usada) — sem isso, a eviction seria só por
+    // Map (mais recentemente usada). Sem isso, a eviction seria só por
     // ordem de CRIAÇÃO, evictando uma chave ativa só porque foi vista cedo.
     timestampsByKey.delete(key);
   }

@@ -1,7 +1,7 @@
 /**
  * M2-08: time-bounded, silent specialists behind a bounded queue and
  * per-type bulkhead, per docs/architecture/SPECIALIST_AGENT_FABRIC.md. The
- * One Mouth Rule (Art. 2) is mechanically enforced by omission — this
+ * One Mouth Rule (Art. 2) is mechanically enforced by omission: this
  * module's public surface has no publish/speak method, and a
  * `SpecialistResult` can carry only structured, expiring, untrusted data.
  * A slow specialist never blocks the Presenter: every request is raced

@@ -1,6 +1,6 @@
 /**
  * M3-04: propose available slots and require an explicit, separate
- * confirmation before any external write. Default mode is dry-run — a
+ * confirmation before any external write. Default mode is dry-run: a
  * caller must set `dryRun: false` AND `approved: true` before the injected
  * write sink is ever invoked. Timezone and conflict checks are explicit,
  * never inferred.
@@ -155,7 +155,7 @@ export function createCalendarProposalPort(
         return finalize(Object.freeze({ status: "unknown_slot", externalEventId: null, dryRun }));
       }
 
-      // Re-check for conflicts at confirmation time — availability may have changed since the proposal.
+      // Re-check for conflicts at confirmation time. Availability may have changed since the proposal.
       const busyByParticipant = await Promise.all(
         proposal.participantIds.map((participantId) => availability.busyIntervals(participantId, request.selectedSlot.startMs, request.selectedSlot.endMs)),
       );

@@ -19,7 +19,7 @@ const RATE_LIMIT_MESSAGE = "Muitas tentativas em sequência. Aguarde um pouco e 
  * vídeo REAL na Tavus automaticamente e gera custo real sem exigir cartão.
  * 5/hora é folga generosa pra qualquer usuário legítimo (mesmo reentrando
  * com typo) e ainda corta um loop de script na mesma origem. Não impede um
- * atacante trocando de IP — é defesa em profundidade, não a barreira única;
+ * atacante trocando de IP: é defesa em profundidade, não a barreira única;
  * o teto duro de gasto é BILLING_TRIAL_LIMIT_ENABLED (billing/plans.ts).
  */
 const SIGNUP_RATE_LIMIT_WINDOW_MS = 60 * 60_000;
@@ -33,7 +33,7 @@ const SIGNIN_RATE_LIMIT_MAX = 10;
  * requestPasswordReset era a única ação de auth sem teto de app (achado
  * confirmado por revisão adversarial, 2026-08-26): sem isto, um script podia
  * bater em /recuperar-senha sem limite, esgotando o teto compartilhado de
- * 30 e-mails/hora do projeto inteiro na Supabase (D-V2-063) — atrapalhando
+ * 30 e-mails/hora do projeto inteiro na Supabase (D-V2-063), atrapalhando
  * confirmação de cadastro e convite de QUALQUER tenant. 5/hora por IP mantém
  * a mesma resposta indistinguível de sempre (nunca revela se a conta existe)
  * e ainda deixa folga generosa pro reenvio genuíno de um usuário real.
@@ -51,7 +51,7 @@ async function clientIp(): Promise<string> {
   return requestHeaders.get("x-real-ip") ?? "unknown";
 }
 
-// O Supabase Auth responde em inglês ("Invalid login credentials") — as telas
+// O Supabase Auth responde em inglês ("Invalid login credentials"). As telas
 // de maior tráfego do produto não podem destoar do resto da UI em pt-BR.
 // Mapeamento por código quando existir, com fallback por trecho da mensagem
 // (mesmo padrão de dicionário de resources.ts/team.ts).
@@ -62,7 +62,7 @@ function authErrorMessage(error: { code?: string | undefined; message: string },
     return "E-mail ou senha incorretos.";
   }
   if (code === "email_not_confirmed" || message.includes("not confirmed")) {
-    return "Confirme seu e-mail antes de entrar — enviamos um link na criação da conta.";
+    return "Confirme seu e-mail antes de entrar. Enviamos um link na criação da conta.";
   }
   if (code === "over_email_send_rate_limit" || code === "over_request_rate_limit" || message.includes("rate limit")) {
     return "Muitas tentativas em sequência. Aguarde um minuto e tente de novo.";
@@ -81,7 +81,7 @@ function authErrorMessage(error: { code?: string | undefined; message: string },
 /**
  * user_already_exists precisa de tratamento à parte de authErrorMessage()
  * (nunca vira texto exibido): revelar "já existe conta com esse e-mail" pro
- * visitante do /signup é um oracle de enumeração — o mesmo princípio que
+ * visitante do /signup é um oracle de enumeração, o mesmo princípio que
  * requestPasswordReset já aplica (resposta idêntica pra e-mail existente ou
  * não). Achado P2, auditoria 2026-08-12.
  */
@@ -116,7 +116,7 @@ export async function signUp(_prevState: AuthActionState, formData: FormData): P
   const { error } = await supabase.auth.signUp({ email, password });
   if (error) {
     // Nunca revelar que o e-mail já tem conta: mesma resposta de sucesso,
-    // sem reenviar nada — fecha o oracle de enumeração via /signup.
+    // sem reenviar nada. Fecha o oracle de enumeração via /signup.
     if (isAccountExistsError(error)) redirect("/login?confirm=1");
     return { error: authErrorMessage(error, "signup") };
   }

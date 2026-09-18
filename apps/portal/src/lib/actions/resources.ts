@@ -86,7 +86,7 @@ export async function createKnowledgeSource(
     return { error: `O conteúdo pode ter no máximo ${MAX_CONTENT_CHARS.toLocaleString("pt-BR")} caracteres.`, done: false };
   }
   // Modo demonstração tem embeddings determinísticos (embedChunks resolve
-  // sozinho) — a guarda de chave só vale fora dele (contrato T3: todos os
+  // sozinho). A guarda de chave só vale fora dele (contrato T3: todos os
   // fluxos de UI testáveis sem chave; auditoria 2026-08-02).
   if (content.length > 0 && !fakeProvidersEnabled() && (process.env.OPENROUTER_API_KEY ?? "").trim().length === 0) {
     return { error: "O provider de embeddings ainda não está configurado neste ambiente.", done: false };
@@ -113,9 +113,9 @@ export async function createKnowledgeSource(
   if (content.length > 0) {
     const ingestError = await ingestContentForSource(supabase, overview.tenant.id, sourceId, content);
     if (ingestError) {
-      // NUNCA sugerir reenviar este form: a fonte JÁ foi criada — reenvio
+      // NUNCA sugerir reenviar este form: a fonte JÁ foi criada. Reenvio
       // criaria uma duplicata pendente e queimaria mais uma vaga do limite.
-      return { error: `A fonte foi registrada, mas ${ingestError} Ela aparece como pendente na lista abaixo — adicione o conteúdo por lá quando quiser tentar de novo.`, done: false };
+      return { error: `A fonte foi registrada, mas ${ingestError} Ela aparece como pendente na lista abaixo. Adicione o conteúdo por lá quando quiser tentar de novo.`, done: false };
     }
   }
 
@@ -182,12 +182,12 @@ async function ingestContentForSource(
       })();
     if (embedded.outcome === "denied") {
       if (embedded.reason === "capped") {
-        return "o limite diário de ingestões da conta foi atingido — tente novamente amanhã.";
+        return "o limite diário de ingestões da conta foi atingido. Tente novamente amanhã.";
       }
-      return "o orçamento da ingestão está indisponível ou aguarda reconciliação — tente novamente mais tarde.";
+      return "o orçamento da ingestão está indisponível ou aguarda reconciliação. Tente novamente mais tarde.";
     }
     if (embedded.outcome === "not_acquired") {
-      return "esta ingestão já está em processamento — aguarde antes de tentar novamente.";
+      return "esta ingestão já está em processamento. Aguarde antes de tentar novamente.";
     }
     if (embedded.outcome === "commit_pending") {
       trackError("ai_usage_commit_failed", new Error("knowledge ingestion reservation did not commit"), { source_id: sourceId, operation: "knowledge_ingestion_embedding" });
@@ -203,7 +203,7 @@ async function ingestContentForSource(
     });
     if (ingestError) {
       if (ingestError.message === "daily knowledge ingestion limit reached for this account") {
-        return "o limite diário de ingestões da conta foi atingido — tente novamente amanhã.";
+        return "o limite diário de ingestões da conta foi atingido. Tente novamente amanhã.";
       }
       return `a ingestão falhou (${ingestError.message}).`;
     }
@@ -223,7 +223,7 @@ export async function updateKnowledgeSourceContent(
   const content = String(formData.get("content") ?? "").trim();
 
   if (!isUuidV7(sourceId)) {
-    return { error: "Fonte inválida — recarregue a página.", done: false };
+    return { error: "Fonte inválida. Recarregue a página.", done: false };
   }
   if (content.length === 0 || content.length > MAX_CONTENT_CHARS) {
     return { error: `O conteúdo precisa ter entre 1 e ${MAX_CONTENT_CHARS.toLocaleString("pt-BR")} caracteres.`, done: false };
@@ -248,7 +248,7 @@ export async function updateKnowledgeSourceContent(
 }
 
 /**
- * Ativação/pausa de agente (T1). A guarda de PROVIDER vive aqui — é
+ * Ativação/pausa de agente (T1). A guarda de PROVIDER vive aqui. É
  * conhecimento do ambiente: ativar exige ao menos o provider de texto
  * configurado (o chat é a capacidade mínima de um agente ativo). As guardas
  * de dado (admin, transições, disclosure) vivem na RPC 0014.
@@ -281,10 +281,10 @@ export async function setAgentStatus(
 
   // Ativação dispara dois efeitos best-effort que nunca desfazem a mudança
   // já aplicada: (1) auto-provisão da persona de vídeo se o agente ainda não
-  // tem (P1 — é o que dá videochamada/apresentação/reunião externa a agentes
+  // tem (P1: é o que dá videochamada/apresentação/reunião externa a agentes
   // de clientes novos, não só aos demo configurados à mão); (2) e-mail aos
   // admins do tenant (T9). `changed` (0014) distingue uma transição real de
-  // um no-op idempotente — achado P2 confirmado (auditoria 2026-08-12): sem
+  // um no-op idempotente. Achado P2 confirmado (auditoria 2026-08-12): sem
   // checar isso, chamar a action duas vezes com status='active' (duas abas,
   // ou clique duplo que escapa do disabled={pending}) reprovisionava vídeo
   // e reenviava o e-mail "Agente ativado" mesmo sem nenhuma mudança real.
@@ -307,7 +307,7 @@ export async function setAgentStatus(
         if (video.attempted && !video.provisioned) {
           videoProvisioningWarning = video.blockedByGovernance
             ? "Agente ativado. A persona de vídeo será concluída pelo fluxo governado de onboarding antes de liberar chamadas ao vivo."
-            : "Agente ativado, mas o vídeo ainda não foi configurado — confirme a configuração do provider com a equipe da plataforma.";
+            : "Agente ativado, mas o vídeo ainda não foi configurado. Confirme a configuração do provider com a equipe da plataforma.";
         }
       }
       const admins = (adminEmailsResult.data ?? []) as string[];
@@ -320,7 +320,7 @@ export async function setAgentStatus(
       }
     } catch (notifyError) {
       trackError("agent_activation_side_effects_failed", notifyError, { agent_id: agentId });
-      videoProvisioningWarning = "Agente ativado, mas o vídeo ainda não foi configurado — confirme a configuração do provider com a equipe da plataforma.";
+      videoProvisioningWarning = "Agente ativado, mas o vídeo ainda não foi configurado. Confirme a configuração do provider com a equipe da plataforma.";
     }
   }
 
@@ -329,13 +329,13 @@ export async function setAgentStatus(
   return { error: null, done: true, ...(videoProvisioningWarning ? { warning: videoProvisioningWarning } : {}) };
 }
 
-/** Exclui um agente ainda em rascunho (sem histórico de sessões) — libera o limite da conta. */
+/** Exclui um agente ainda em rascunho (sem histórico de sessões), liberando o limite da conta. */
 export async function deleteDraftAgent(agentId: string): Promise<ResourceActionState> {
   const supabase = await createClient();
   const { error } = await supabase.rpc("portal_delete_draft_agent", { p_agent_id: agentId });
   if (error) {
     if (error.message === "only draft agents can be deleted") {
-      return { error: "Só agentes em rascunho podem ser excluídos — pause o agente primeiro.", done: false };
+      return { error: "Só agentes em rascunho podem ser excluídos. Pause o agente primeiro.", done: false };
     }
     if (error.message === "agent has session history and cannot be deleted") {
       return { error: "Este agente tem histórico de conversas e não pode ser excluído.", done: false };
@@ -347,7 +347,7 @@ export async function deleteDraftAgent(agentId: string): Promise<ResourceActionS
   return { error: null, done: true };
 }
 
-/** Exclui uma fonte já revogada (ou nunca ingerida) — libera o limite e apaga o conteúdo. */
+/** Exclui uma fonte já revogada (ou nunca ingerida), liberando o limite e apagando o conteúdo. */
 export async function deleteKnowledgeSource(sourceId: string): Promise<ResourceActionState> {
   const supabase = await createClient();
   const { error } = await supabase.rpc("portal_delete_knowledge_source", { p_source_id: sourceId });
@@ -377,7 +377,7 @@ export async function setKnowledgeSourceStatus(
   });
   if (error) {
     if (error.message === "source has no ingested content to activate") {
-      return { error: "Esta fonte ainda não tem conteúdo ingerido — adicione conteúdo antes de ativar.", done: false };
+      return { error: "Esta fonte ainda não tem conteúdo ingerido. Adicione conteúdo antes de ativar.", done: false };
     }
     if (error.message === "only a tenant_admin can change knowledge sources") {
       return { error: "Somente administradores podem alterar fontes.", done: false };
