@@ -1,4 +1,4 @@
-# ARCHITECTURE — mapa de entrada
+# ARCHITECTURE: mapa de entrada
 
 **Canônicos (fonte da verdade):** `ARCHITECTURE_CONSTITUTION.md` (18 artigos + ADRs em
 `docs/adr/`), `docs/architecture/SYSTEM_ARCHITECTURE.md`. Este arquivo é o mapa de 2 minutos.
@@ -6,10 +6,10 @@
 ## Duas camadas
 
 1. **Kernel M0-M3** (`packages/`, `apps/api|realtime-worker|...`): plataforma genérica de
-   funcionários digitais — domínio, contratos (48 schemas), tenancy/RLS, Action Runtime,
+   funcionários digitais: domínio, contratos (48 schemas), tenancy/RLS, Action Runtime,
    Turn Coordinator, percepção, Role Pack de vendas, avaliação. 100% fake-first, verde,
    congelada por release gates (M1-11, M2-13, M3).
-2. **Produto** (`apps/portal/`): Next.js 16 + Supabase real — auth, dashboard, agentes,
+2. **Produto** (`apps/portal/`): Next.js 16 + Supabase real: auth, dashboard, agentes,
    conhecimento (RAG real), equipe, chat com Cérebro Método Silva, vídeo Tavus por persona,
    modo apresentação. Deploy Railway.
 
@@ -28,6 +28,6 @@
 
 ## O Cérebro (Método Silva)
 
-`apps/portal/src/lib/brain/metodo-silva.ts` — prompts nos 9 blocos do "System Prompt Silva";
+`apps/portal/src/lib/brain/metodo-silva.ts`: prompts nos 9 blocos do "System Prompt Silva";
 manuais completos como fontes RAG do tenant; cofre local gitignored `knowledge-vault/`
 (IP proprietária, repo público). Decisões: D-V2-073/074/075, ADR-035.

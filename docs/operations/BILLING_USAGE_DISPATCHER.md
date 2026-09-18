@@ -1,4 +1,4 @@
-# Runbook — dispatcher de uso faturável do Stripe
+# Runbook: dispatcher de uso faturável do Stripe
 
 ## Escopo e invariantes
 

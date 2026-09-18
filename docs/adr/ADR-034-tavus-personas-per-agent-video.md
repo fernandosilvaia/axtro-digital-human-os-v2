@@ -5,7 +5,7 @@
 ## Contexto
 
 O primeiro agente de vídeo (Rafaela) usava o modo réplica do Tavus: um rosto
-stock + contexto por chamada, herdando a voz padrão da réplica — que tem
+stock + contexto por chamada, herdando a voz padrão da réplica, que tem
 sotaque americano ao falar português. O usuário pediu um agente institucional
 da Axtro com voz brasileira natural, excelente lip sync, análise de
 comportamento do interlocutor, baixa latência e sensibilidade a interrupção.
@@ -17,7 +17,7 @@ próprio `system_prompt`/`context`.
 
 ## Decisão
 
-1. Persona "Aurora — Axtro AI Institucional" criada no Tavus (`pdd6c8593976`)
+1. Persona "Aurora: Axtro AI Institucional" criada no Tavus (`pdd6c8593976`)
    com: percepção `raven-1` (análise de comportamento), STT `tavus-advanced`
    com `participant_interrupt_sensitivity: high` + `smart_turn_detection`, e
    TTS Cartesia falando português (idioma forçado na conversa). O prompt

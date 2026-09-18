@@ -1,4 +1,4 @@
-# Design QA — Axtro Closer AI Human
+# Design QA: Axtro Closer AI Human
 
 ## Scope and comparison target
 
@@ -44,16 +44,16 @@ The dashboard redesign is verified through type checking, linting and its data/k
 
 ## Comparison history
 
-1. **Final desktop comparison — passed.** Source and implementation were normalized into `/private/tmp/axtro-closer-design-comparison-final.png`. The review found no P0/P1/P2 mismatch in the hero’s hierarchy, frame geometry, photo treatment, CTA visibility or divider rhythm.
-2. **Responsive validation — passed.** At 390 × 844, controls remain visible, the CTA stack is usable, proof copy wraps without collision, and the Raissa frame remains correctly cropped. Evidence: the two mobile captures above.
+1. **Final desktop comparison: passed.** Source and implementation were normalized into `/private/tmp/axtro-closer-design-comparison-final.png`. The review found no P0/P1/P2 mismatch in the hero’s hierarchy, frame geometry, photo treatment, CTA visibility or divider rhythm.
+2. **Responsive validation: passed.** At 390 × 844, controls remain visible, the CTA stack is usable, proof copy wraps without collision, and the Raissa frame remains correctly cropped. Evidence: the two mobile captures above.
 
 ## Validation evidence
 
 - Browser console errors/warnings on the landing: none.
-- `node --test tests/ui/portal-seo-surface.test.mjs` — 6 passing.
-- `pnpm --filter @axtro/portal typecheck` — passing.
-- `pnpm lint` — passing.
-- `pnpm --filter @axtro/portal e2e:public` — 3 passing in a production build.
+- `node --test tests/ui/portal-seo-surface.test.mjs`: 6 passing.
+- `pnpm --filter @axtro/portal typecheck`: passing.
+- `pnpm lint`: passing.
+- `pnpm --filter @axtro/portal e2e:public`: 3 passing in a production build.
 
 ## Implementation checklist
 

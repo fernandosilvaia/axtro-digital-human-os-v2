@@ -36,13 +36,13 @@ Accepted decisions for V2. The Constitution has precedence. A change to an accep
 | `ADR-030-framework-neutral-operations-console.md` | Framework-neutral read-only operations console | Accepted |
 | `ADR-031-knowledge-and-rag-retrieval.md` | Tenant-scoped knowledge retrieval as a pure port over an in-memory store | Accepted |
 | `ADR-032-user-session-tenant-mapping.md` | Human user sessions map to tenant context via a signed JWT claim, never a header | Accepted |
-- [ADR-033](ADR-033-openrouter-text-generation.md) — OpenRouter como primeiro provider real (port de texto do control-plane)
-- [ADR-034](ADR-034-tavus-personas-per-agent-video.md) — Persona Tavus por agente (voz BR, percepção, interrupção) + config de vídeo tenant-scoped
-- [ADR-035](ADR-035-percepcao-emocional-profunda.md) — Percepção emocional profunda como capacidade central (emenda o Art. 4 da Constituição)
-- [ADR-036](ADR-036-durable-provider-effect-reservations.md) — Reservas duráveis, barreira de resultado desconhecido e outbox de cobrança para efeitos pagos
-- [ADR-037](ADR-037-cost-event-conversation-unit.md) — CostEvent 2.1.0 para a unidade comercial fechada `conversation`
-- [ADR-038](ADR-038-portal-channel-runtime-bridge.md) — Bridge durável dos canais Portal para sessão, consentimento, floor, cenas e receipts
-- [ADR-039](ADR-039-portal-business-action-bridge.md) — Bridge de ações de negócio do Portal (agendar reunião via Google Calendar, registrar lead) sob o funil do Art. 7, independente do flag do ADR-038
+- [ADR-033](ADR-033-openrouter-text-generation.md): OpenRouter como primeiro provider real (port de texto do control-plane)
+- [ADR-034](ADR-034-tavus-personas-per-agent-video.md): Persona Tavus por agente (voz BR, percepção, interrupção) + config de vídeo tenant-scoped
+- [ADR-035](ADR-035-percepcao-emocional-profunda.md): Percepção emocional profunda como capacidade central (emenda o Art. 4 da Constituição)
+- [ADR-036](ADR-036-durable-provider-effect-reservations.md): Reservas duráveis, barreira de resultado desconhecido e outbox de cobrança para efeitos pagos
+- [ADR-037](ADR-037-cost-event-conversation-unit.md): CostEvent 2.1.0 para a unidade comercial fechada `conversation`
+- [ADR-038](ADR-038-portal-channel-runtime-bridge.md): Bridge durável dos canais Portal para sessão, consentimento, floor, cenas e receipts
+- [ADR-039](ADR-039-portal-business-action-bridge.md): Bridge de ações de negócio do Portal (agendar reunião via Google Calendar, registrar lead) sob o funil do Art. 7, independente do flag do ADR-038
 - [ADR-040](ADR-040-closer-checkout-stripe-connect.md): checkout do cliente final do tenant via Stripe Connect Standard (cobrança direta), quarta ação do `BusinessActionIntent` do ADR-039, catálogo fechado por tenant e reserva durável no padrão do ADR-036. Autonomia da geração do link ainda depende de decisão do dono do produto.
 - [ADR-041](ADR-041-business-action-tool-call-funnel.md): funil de tool call da chamada de vídeo ao vivo (roteador cliente por action_kind, resolução de sessão/presenter/geração ao vivo, schema fechado de register_lead/propose_meeting_slots/confirm_meeting_slot), conectando o BusinessActionIntent do ADR-039 e o SceneIntent do ADR-038 a uma tool call real, ainda atrás das mesmas duas flags desligadas.
 - [ADR-042](ADR-042-portal-text-preview-recovery-boundary.md): recuperação contract-first de `turn_outcome_recorded`, separação do bundle de aplicação e hard-close obrigatório do preview legado até os gates operacionais.

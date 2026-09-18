@@ -1,4 +1,4 @@
-# TESTING — como testar tudo
+# TESTING: como testar tudo
 
 ## Pipeline completa (a mesma do CI)
 
@@ -70,6 +70,6 @@ curl -s https://portal-production-b43e.up.railway.app/api/health
 
 ## Testes do cérebro Método Silva
 
-`tests/portal/metodo-silva-brain.test.mjs` — caps de prompt por adapter,
+`tests/portal/metodo-silva-brain.test.mjs`: caps de prompt por adapter,
 disclosure sempre presente, maestria emocional (ADR-035) com as 4 proibições,
 arco do deck sem números nos slides. Rodam dentro de `pnpm test`.

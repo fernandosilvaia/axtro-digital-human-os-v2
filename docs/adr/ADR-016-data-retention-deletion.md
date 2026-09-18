@@ -29,13 +29,13 @@ A jurisdiction, regulated vertical, provider contract or backup architecture req
 
 - The "documented recovery windows" this ADR references did not exist as a
   concrete artifact until `docs/operations/DISASTER_RECOVERY.md` (P1 finding,
-  audit wave 5) — that document is now the recovery-window reference for the
+  audit wave 5): that document is now the recovery-window reference for the
   hosted Supabase project. PITR status and a real restore test are still
   pending confirmation, tracked there.
 - `conversation_transcripts` (migration 0029, shipped after this ADR) had no
   deletion or retention/purge mechanism at all until migration `0034`
   (`portal_delete_conversation_transcript`, `portal_delete_conversation_transcript_service`,
-  `portal_purge_old_conversation_transcripts_service`) — written but not yet
+  `portal_purge_old_conversation_transcripts_service`), written but not yet
   applied to production pending Fernando's authorization. The purge RPC is
   parameterized (no default retention period baked in): the actual retention
   window this ADR calls for ("shortest configured period") is still a

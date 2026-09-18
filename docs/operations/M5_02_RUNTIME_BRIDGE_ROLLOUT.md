@@ -1,4 +1,4 @@
-# Runbook — expansão do runtime bridge M5-02
+# Runbook: expansão do runtime bridge M5-02
 
 ## Limite de autoridade
 
@@ -81,7 +81,7 @@ direta de Tavus, Recall ou lead-video.
    término concorrentes recebem no máximo uma lease de dispatch, que retry/
    lease expirada não aceita settle antigo e que o resultado HTTP público não
    contém provider ref, reservation ou token. `provider_accepted` significa
-   aceite do pedido pelo provider — não silêncio físico de áudio/vídeo.
+   aceite do pedido pelo provider, não silêncio físico de áudio/vídeo.
 
 ## Promoção, rollback e observação
 

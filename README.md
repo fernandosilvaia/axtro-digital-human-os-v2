@@ -7,7 +7,7 @@ O primeiro produto é o **Sales Closer Role Pack**, mas o kernel não é acoplad
 ## Estado real da entrega
 
 **Duas camadas, ambas verdes.** O kernel M0-M3 (fundação genérica de
-funcionários digitais — domínio, contratos, tenancy/RLS, Action Runtime,
+funcionários digitais: domínio, contratos, tenancy/RLS, Action Runtime,
 Turn Coordinator, percepção, Role Pack de vendas) está completo e congelado
 por release gates, 100% fake-first. Em cima dele, o **produto** (`apps/portal/`)
 está NO AR em produção: auth real, RAG real, agentes de vídeo Tavus com o
@@ -95,7 +95,7 @@ ficam fora do caminho crítico de áudio para áudio.
 2. Apenas um Presenter possui a voz da sessão.
 3. Estado estruturado e receipts são a fonte da verdade.
 4. O LLM propõe. Policy, contratos e motores determinísticos decidem.
-5. Percepção lê expressões, corpo e comportamento para entender o cliente com maestria — declarada no disclosure, com evidência e validade; nunca identificação biométrica oculta nem inferência de atributos protegidos (ADR-035).
+5. Percepção lê expressões, corpo e comportamento para entender o cliente com maestria, declarada no disclosure, com evidência e validade; nunca identificação biométrica oculta nem inferência de atributos protegidos (ADR-035).
 6. O agente se identifica como virtual e não se apresenta como humano.
 7. Toda ação externa passa por contrato, autorização, idempotência e auditoria.
 8. Dados de tenant são isolados por RLS, identidades de serviço e testes negativos.
@@ -114,7 +114,7 @@ database/migrations/    schema portátil, RLS e matriz de tenancy
 database/supabase-only/ SQL específico do projeto Supabase hospedado (auth.users)
 docs/                   produto, arquitetura, segurança, operações, ADRs e playbooks
 scripts/                gates reproduzíveis de arquitetura e segurança
-knowledge-vault/        cofre local gitignored — manuais Método Silva (IP proprietária)
+knowledge-vault/        cofre local gitignored: manuais Método Silva (IP proprietária)
 .codex/                 configuração e 8 subagentes especializados
 .agents/skills/         4 workflows reutilizáveis para Codex
 legacy/v1/              documentação original preservada, não normativa
@@ -166,5 +166,5 @@ O kernel M0-M3 está congelado e auditado; o produto (`apps/portal/`) está em
 produção real com clientes de demonstração, mas ainda não passou por
 bake-off credenciado de provider, piloto interno real (M3-10) nem parecer
 jurídico por jurisdição (obrigatório antes de mercados regulados, dada a
-percepção emocional ativa — ADR-035). Ver `docs/NEEDS_CONNECTION.md` para a
+percepção emocional ativa, ADR-035). Ver `docs/NEEDS_CONNECTION.md` para a
 lista exata do que falta e de quem depende.

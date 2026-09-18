@@ -1,4 +1,4 @@
-# Custos e FinOps — estado após o hardening 2026-08-02 (D-V2-100)
+# Custos e FinOps: estado após o hardening 2026-08-02 (D-V2-100)
 
 > Regra do projeto (Art. 16): números com fonte e data; estimativa nunca se
 > apresenta como medição. Preços de tabela conforme D-V2-078 (2026-07-22).
@@ -17,7 +17,7 @@
 | **Reunião externa (agendada/sentinela)** | Recall (+Tavus no attach) | ✅ **NOVO** no attach | ✅ idem | ✅ **NOVO**: sala só nasce quando o bot entra; `automatic_leave` corta bot ocioso (waiting room 900s, sozinho 900s, todos saíram 30s) |
 
 Antes desta rodada, as 4 linhas marcadas **NOVO** eram gasto sem teto e/ou
-invisível no ledger — os maiores buracos financeiros do produto.
+invisível no ledger: os maiores buracos financeiros do produto.
 
 ## Economias estruturais desta rodada (mecanismo, não promessa)
 
@@ -30,51 +30,51 @@ invisível no ledger — os maiores buracos financeiros do produto.
 3. **Sala órfã em falha de bot**: encerrada no caminho de erro (antes ficava
    aberta os 900–1800s inteiros).
 4. **Loop de fallback do cérebro**: o P1 do prompt >4000 chars fazia toda
-   chamada degradar — pagando STT/TTS/vídeo do Tavus numa call que nunca
+   chamada degradar: pagando STT/TTS/vídeo do Tavus numa call que nunca
    respondia de verdade. Corrigido na raiz.
 
 ## Superfície de custo nova: transcrição de reunião externa (D-V2-106)
 
 Habilitar `enableTranscription: true` no bot da Recall.ai (histórico de
-conversa) liga a transcrição assíncrona deles — **cobrada separada da
+conversa) liga a transcrição assíncrona deles, **cobrada separada da
 bot-hora**: US$ 0,15/hora de gravação transcrita (recall.ai/blog/
 new-recall-ai-pricing-for-2026, 2026-08-03), empilhado sobre o US$ 0,50/hora
 de bot já contabilizado. Numa reunião de referência de ~30min isso é
-+US$ 0,075 — pequeno frente ao piso de vídeo Tavus (US$ 0,175/conversa), mas
++US$ 0,075, pequeno frente ao piso de vídeo Tavus (US$ 0,175/conversa), mas
 **ainda não entra no ledger** (`cost_events`): o evento de custo de reunião
 externa registra só o bot-hora + o piso de vídeo, não a transcrição. Gap
-honestamente declarado — candidato de próxima onda (mesma disciplina do
+honestamente declarado, candidato de próxima onda (mesma disciplina do
 "custo por conversa é piso, não exato" já aceito pro Tavus).
 
 O chat de teste e o vídeo/apresentação hospedados pelo Tavus não somam
 custo novo: a transcrição ali vem do `application.transcription_ready`
-callback já incluído no preço da conversa (confirmado na doc oficial —
+callback já incluído no preço da conversa (confirmado na doc oficial,
 não é um add-on cobrado à parte).
 
 ## Não medido / honestamente pendente
 
-- Duração real de cada conversa Tavus continua não capturada — o ledger
+- Duração real de cada conversa Tavus continua não capturada: o ledger
   registra piso por conversa (declarado desde D-V2-078). Medir exige
   webhook de fim de conversa do Tavus (candidato futuro).
 - Custo por fluxo/por cliente existe no painel (7d por serviço); custo por
   funcionalidade fina (ex.: apresentação vs. conversa) não é separado.
-- ~~Alerta proativo de custo~~ — implementado (D-V2-107, 2026-08-11, migration
+- ~~Alerta proativo de custo~~, implementado (D-V2-107, 2026-08-11, migration
   0031 ainda não aplicada): e-mail aos admins quando um dos 4 tetos diários
   (vídeo do portal, vídeo do lead institucional, tokens do brain, tokens do
   chat de teste) cruza 80% ou 100% do uso do dia. `apps/portal/src/lib/
-  cost-alerts.ts` — chamado inline, no MESMO ponto que cada teto já lê o uso
+  cost-alerts.ts`: chamado inline, no MESMO ponto que cada teto já lê o uso
   atual (zero query nova); dedup por `(tenant, teto, threshold, dia UTC)` via
   `portal_claim_cost_alert_service`, nunca duplica sob chamadas concorrentes.
 - Transcrição de reunião externa (Recall, US$0,15/hora) não entra no ledger
-  ainda — ver seção acima.
+  ainda, ver seção acima.
 - **Novo (D-V2-108, 2026-08-11)**: o RAG do caminho de vídeo (`/api/brain`,
   migration 0032 ainda não aplicada) gera uma chamada de embedding por turno
-  pra buscar conhecimento autorizado — esse custo NÃO entra no ledger
+  pra buscar conhecimento autorizado: esse custo NÃO entra no ledger
   (`cost_events`), diferente do caminho de chat de teste (que loga via
   `portal.knowledge_retrieval`). Decisão deliberada: `portal_log_ai_usage_service`
   (0019) tem preço fixo de chat, não de embedding, e adicionar um parâmetro
   de serviço exigiria alterar a assinatura de uma função já em produção
-  (risco real — lição de D-V2-103) por um valor irrelevante: uma query de
+  (risco real, lição de D-V2-103) por um valor irrelevante: uma query de
   busca é ~30-100 tokens a US$0,02/1M, fração de centavo por conversa, já
   dominado pelo piso Tavus (US$0,175/conversa). Mesmo espírito de "custo por
   conversa é piso, não exato" já aceito no resto do produto.

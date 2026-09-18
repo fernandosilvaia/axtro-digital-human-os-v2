@@ -942,7 +942,7 @@ categoria ALTO):**
 - Suporte estrutural a taxa de plataforma (`application_fee_amount`), com o
   percentual em si tratado como decisão de negócio pendente, não técnica.
 - Migração `0052` (número confirmado livre depois da renumeração da onda 1a do
-  ADR-039 — D-V2-145 em `docs/operations/DECISIONS_LOG.md`).
+  ADR-039, D-V2-145 em `docs/operations/DECISIONS_LOG.md`).
 - Escopo V1: cobrança única (`mode: "payment"`), sem assinatura recorrente
   para o cliente final, sem ferramenta de reembolso dentro do Portal (o
   tenant usa o próprio dashboard Stripe para isso), sem desconto, sem

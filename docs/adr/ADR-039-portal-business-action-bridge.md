@@ -1,6 +1,6 @@
 # ADR-039: Bridge de ações de negócio do Portal (agendar reunião, registrar lead)
 
-**Status:** Aceito (2026-08-24). Os dois pontos de decisão que bloqueavam o início da implementação (auto-confirmação sem operador humano; as 2 finalidades novas de consentimento) foram resolvidos por Fernando Silva — ver "Decisões do dono do produto" abaixo. Os itens restantes são gates de pré-lançamento (não bloqueiam o início do código).
+**Status:** Aceito (2026-08-24). Os dois pontos de decisão que bloqueavam o início da implementação (auto-confirmação sem operador humano; as 2 finalidades novas de consentimento) foram resolvidos por Fernando Silva, ver "Decisões do dono do produto" abaixo. Os itens restantes são gates de pré-lançamento (não bloqueiam o início do código).
 **Data:** 2026-08-24
 **Relacionados:** Art. 5, Art. 6, Art. 7, Art. 8, Art. 9, Art. 15 da Constituição; ADR-004, ADR-005, ADR-007, ADR-009, ADR-010, ADR-015, ADR-016, ADR-032, ADR-035, ADR-036, ADR-038
 
@@ -254,7 +254,7 @@ esta tabela nova no mesmo ciclo, em vez de subir um segundo processo.
 
 Esta era a decisão de maior risco não óbvio do documento inteiro. Fernando
 decidiu explicitamente (2026-08-24): quer a IA agindo sem um operador humano
-na confirmação — "a IA agente sem humano na operação". A confirmação que
+na confirmação: "a IA agente sem humano na operação". A confirmação que
 gate a criação do evento real não é um passo de um funcionário do tenant; é
 a própria resposta afirmativa do participante na chamada, capturada no
 transcript e ecoada de volta como a tool call tipada `confirm_meeting_slot`
@@ -352,7 +352,7 @@ A última migration de `database/supabase-only/` era `0048_tavus_stage_settlemen
 quando este design foi escrito, tornando `0049` o próximo número livre. Antes desta
 migration mergear, porém, uma sessão concorrente aplicou em produção suas próprias
 `0049_portal_text_preview_admission.sql` e `0050_meeting_terminal_notification_claim.sql`
-(feature não relacionada) — o número livre real na hora do merge passou a ser `0051`
+(feature não relacionada): o número livre real na hora do merge passou a ser `0051`
 (D-V2-145 em `docs/operations/DECISIONS_LOG.md` registra a renumeração).
 
 Tabelas novas, todas com `tenant_id app.uuid_v7 not null`, RLS forçada, sem
@@ -457,13 +457,13 @@ confirmada libera a reserva.
 ## Decisões do dono do produto
 
 **Resolvidas antes do início do código (2026-08-24):**
-- **Auto-confirmação sem operador humano**: decidido — ver "Aprovação
+- **Auto-confirmação sem operador humano**: decidido, ver "Aprovação
   automática vs. confirmação humana: decidido" acima. A confirmação vem da
   própria resposta do participante na chamada, nunca de um funcionário do
   tenant; `auto_confirm_scheduling` fica disponível desde a onda 1, com
   rollout dark (`false`) por tenant até aprovação.
 - **Provider de calendário**: Google Calendar (não Cal.com), o que já está
-  refletido em todo este documento — implica OAuth por tenant, não uma chave
+  refletido em todo este documento: implica OAuth por tenant, não uma chave
   de API única.
 - **As 2 finalidades novas de consentimento** (`lead_data_capture`,
   `meeting_scheduling`): aprovadas, reaproveitando a tela de checkbox
@@ -474,11 +474,11 @@ confirmada libera a reserva.
   consentimento, custódia via Supabase Vault) antes de qualquer tenant
   conectar uma conta real.
 - Política de retenção explícita de PII do lead/prospect (pessoa que nunca
-  usou o Portal, não é dono de conta) — provisoriamente alinhada ao mesmo
+  usou o Portal, não é dono de conta), provisoriamente alinhada ao mesmo
   prazo já usado para dado de contato em `ADR-016`, a confirmar antes do
   primeiro tenant piloto real.
 - Confirmação de uma frase sobre o convite automático por e-mail ao prospect
-  no `confirm_meeting_slot` (`sendUpdates` do Google) — assumido como
+  no `confirm_meeting_slot` (`sendUpdates` do Google), assumido como
   comportamento padrão porque é o objetivo do produto; revisitar se algum
   tenant piloto pedir o contrário.
 - Aplicação da migration 0051 em produção segue o mesmo gate humano de toda

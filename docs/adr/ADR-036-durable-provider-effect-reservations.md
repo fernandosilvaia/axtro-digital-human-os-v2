@@ -19,7 +19,7 @@ paid effect again.
 An in-memory dedup window cannot coordinate Railway replicas or survive a
 restart. A time-limited database claim is also unsafe: expiry does not prove
 that an external effect was rejected. Stripe reporting has the same problem in
-the other direction—an accepted conversation can permanently lose its billed
+the other direction: an accepted conversation can permanently lose its billed
 overage when the synchronous request or its single retry fails.
 
 Subscription Checkout is also an external paid/account effect. A minute-bucket

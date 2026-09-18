@@ -11,12 +11,12 @@
 rejects a tenant header selector for user identities." The code comment on
 `resolveAuthorizedRequestContext` says why: "User tenant selection needs a
 later, claim-based public contract and must not be inferred from a header."
-That later moment is now — `apps/portal` (new this session, real Supabase
+That later moment is now: `apps/portal` (new this session, real Supabase
 Auth) needs a real human end user to reach tenant-scoped data safely.
 
 Two things had to be decided together, not separately: how a verified human
 session maps to a `TenantContext`, and how a signed-up user gets a tenant to
-belong to in the first place (asked directly; answer: self-serve — signup
+belong to in the first place (asked directly; answer: self-serve, signup
 creates the user's own tenant, no admin invite step exists yet).
 
 ## Decision
@@ -24,10 +24,10 @@ creates the user's own tenant, no admin invite step exists yet).
 - **Claim source, not header.** `SupabaseSessionIdentityVerifier`
   (`packages/auth`) verifies the session JWT's signature against the
   project's own JWKS endpoint (`jose`'s `createRemoteJWKSet`, asymmetric
-  ES256 — confirmed live on the `digital-human-os` project) and reads
+  ES256, confirmed live on the `digital-human-os` project) and reads
   `tenant_id`/`actor_id`/`tenant_role` only from the `app_metadata` claims.
   No shared signing secret is ever held by application code. A token missing
-  those claims authenticates no tenant — it fails closed, exactly like the
+  those claims authenticates no tenant: it fails closed, exactly like the
   service path.
 - **Claims come from the database, injected at token-mint time**, via
   Supabase's Custom Access Token Hook (`public.custom_access_token_hook`,
@@ -39,13 +39,13 @@ creates the user's own tenant, no admin invite step exists yet).
 - **A brand-new function, not a modified one.** `resolveAuthorizedUserRequestContext`
   is new and async; `resolveAuthorizedRequestContext` (sync, service-only,
   M0-09-tested) is untouched. The two never share a request-tenant-selection
-  code path — mirrors the M3-06 pattern of extending via a new, injected
+  code path: mirrors the M3-06 pattern of extending via a new, injected
   collaborator instead of editing a frozen, tested mechanism.
 - **`actorId` must still be a real UUIDv7.** Supabase's own user id
   (`auth.users.id`) is a random UUIDv4 and cannot satisfy `parseActorId`.
   `user_tenant_memberships.actor_id` is a second, application-generated
   UUIDv7 (via `@axtro/domain`'s `createUuidV7()`), created once at
-  provisioning time and carried in the JWT claim from then on — the "runner
+  provisioning time and carried in the JWT claim from then on: the "runner
   never creates UUIDs, application code does" rule (`database/README.md`)
   holds even though a SQL function does the insert.
 - **Self-serve tenant provisioning via a `SECURITY DEFINER` RPC, not a
@@ -54,7 +54,7 @@ creates the user's own tenant, no admin invite step exists yet).
   existing tenant if one is already provisioned), and creates `tenants` +
   `tenant_settings` + `user_tenant_memberships` in one transaction using a
   tenant id and actor id the **caller** generates in TypeScript and passes
-  in — the function only validates and inserts, it never invents an id. This
+  in: the function only validates and inserts, it never invents an id. This
   keeps the real Supabase `service_role` secret out of the picture entirely,
   consistent with the user's explicit instruction to gather real provider
   keys only at the very end of this phase, not now.
@@ -87,13 +87,13 @@ creates the user's own tenant, no admin invite step exists yet).
 A logged-in portal user with a confirmed session and a provisioned
 membership resolves a real, tenant-scoped `AuthorizedRequestContext` with
 zero shared secrets in application code. `apps/api` does not consume this
-yet — no caller exists today that needs it, so wiring it in is deferred
+yet: no caller exists today that needs it, so wiring it in is deferred
 until the portal has a concrete reason to call the internal API on a user's
 behalf. One manual step remains outside this session's tool access: the
 Custom Access Token Hook function is deployed, but **enabling** it
 (`Authentication > Hooks` in the Supabase dashboard, or the Management API's
-auth-config endpoint) is not exposed through the MCP tools available here —
-someone with dashboard access must flip that one switch before the claim
+auth-config endpoint) is not exposed through the MCP tools available here.
+Someone with dashboard access must flip that one switch before the claim
 injection takes effect on real logins.
 
 ## Revisit trigger
