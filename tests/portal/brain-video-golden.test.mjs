@@ -73,7 +73,10 @@ test("golden: requisição real do Tavus atravessa parser + núcleo + validador 
     },
   );
 
-  assert.equal(result.reply, "Entendi — me conta: como vocês fazem isso hoje?");
+  // A fixture do provider fake devolve travessão de propósito: prova que
+  // sanitizeSpokenReply (D-V2-180) limpa mesmo passando pelo validador REAL
+  // do adapter, não só num teste isolado da função.
+  assert.equal(result.reply, "Entendi, me conta: como vocês fazem isso hoje?");
   assert.equal(calls.length, 1, "o adapter real rejeitou a composição antes da rede");
 
   const body = JSON.parse(calls[0].init.body);

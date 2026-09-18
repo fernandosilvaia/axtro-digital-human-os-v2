@@ -32,18 +32,35 @@ function regulatedPrompt(language, mode) {
  * Se um deles quebrar, a pergunta certa não é "atualizo o hash?", é "eu quis
  * mesmo mudar a doutrina de todas as personas em produção?".
  *
- * Estes dois valores foram atualizados em 2026-09-15 depois de uma mudança
- * INTENCIONAL de conteúdo: a doutrina (metodo-silva.ts, maestria-humana.ts)
- * tinha travessão em várias frases, incluindo texto que vai literal pro
- * prompt do provider, o que viola a regra da casa (nenhum travessão em
- * qualquer saída escrita da Axtro, pedido do Fernando 2026-08-29, CLAUDE.md
- * global). Cada travessão foi trocado por ponto, vírgula, dois-pontos ou
- * parênteses preservando o sentido exato; nenhuma frase foi reescrita além
- * da pontuação. Valores anteriores: pt b8314a82f6d17eae, en d7b73e1d6135d930.
+ * Primeira atualização em 2026-09-15: a doutrina (metodo-silva.ts,
+ * maestria-humana.ts) tinha travessão em várias frases, incluindo texto que
+ * vai literal pro prompt do provider, o que viola a regra da casa (nenhum
+ * travessão em qualquer saída escrita da Axtro, pedido do Fernando
+ * 2026-08-29, CLAUDE.md global). Cada travessão foi trocado por ponto,
+ * vírgula, dois-pontos ou parênteses preservando o sentido exato.
+ *
+ * Segunda atualização no mesmo dia, depois de testar a Sofia com crédito
+ * real do OpenRouter pela primeira vez (D-V2-180): mesmo com o prompt limpo
+ * de travessão, o modelo (Claude Haiku 4.5) continuou gerando travessão na
+ * própria fala, e uma resposta veio com **negrito** markdown, que vira
+ * áudio literal na chamada de vídeo. Instrução no meio do prompt (RITMO DE
+ * VÍDEO) não foi suficiente sozinha; um bloco final dedicado (REGRA DE
+ * ESTILO / STYLE RULE, o último texto antes do modelo gerar) resolveu nos
+ * testes reais. A instrução também parou de citar o caractere travessão
+ * literalmente dentro de si mesma (mostrar o glifo como "exemplo do que não
+ * fazer" parecia induzir o modelo a repeti-lo).
+ *
+ * Terceira atualização, minutos depois: a mesma fala real também escapou
+ * itálico markdown (`*can*`) que a instrução anterior não cobria porque só
+ * falava de negrito/lista/cabeçalho. Adicionado "itálico" explicitamente
+ * nas duas superfícies (chat e vídeo, pt e en).
+ *
+ * Valores anteriores: pt b8314a82f6d17eae/ed1b1f22b2fb57a5/25e6f7ef2a2ca00e,
+ * en d7b73e1d6135d930/feaca0580b1c35da/c7bb9dbac7c79599.
  */
 const GENERIC_VIDEO_PROMPT_SHA256 = {
-  portuguese: "ed1b1f22b2fb57a5",
-  english: "feaca0580b1c35da",
+  portuguese: "bb14aa41574a2343",
+  english: "08ba6e46ebfcbb5c",
 };
 
 test("a doutrina genérica de vídeo permanece byte a byte idêntica", () => {

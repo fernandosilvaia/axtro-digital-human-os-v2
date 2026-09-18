@@ -318,3 +318,35 @@ test("achado D-V2-115: runBrainChatCompletion propaga o padrão detectado na res
   const result = await core.runBrainChatCompletion(BASE_REQUEST, deps);
   assert.deepEqual(result.guardrailFlags, ["guaranteed_claim", "unauthorized_discount"]);
 });
+
+// D-V2-180: verificado ao vivo com crédito real do OpenRouter que o modelo
+// (Claude Haiku 4.5) continua gerando travessão e markdown de vez em quando
+// mesmo com a instrução explícita no prompt (probabilística, não garante).
+// A regra da casa é "nunca, em hipótese alguma": só uma rede determinística
+// depois da geração cumpre essa barra.
+test("D-V2-180: sanitizeSpokenReply troca travessão por vírgula, exceto no fim da frase", () => {
+  assert.equal(core.sanitizeSpokenReply("Entendi — me conta mais."), "Entendi, me conta mais.");
+  assert.equal(core.sanitizeSpokenReply("Vamos com calma — sem pressa."), "Vamos com calma, sem pressa.");
+  assert.equal(core.sanitizeSpokenReply("Faz sentido —"), "Faz sentido.");
+  assert.equal(core.sanitizeSpokenReply("Não tem travessão aqui."), "Não tem travessão aqui.");
+});
+
+test("D-V2-180: sanitizeSpokenReply remove marcação markdown que viraria áudio literal", () => {
+  assert.equal(core.sanitizeSpokenReply("Isso **funciona** muito bem."), "Isso funciona muito bem.");
+  assert.equal(core.sanitizeSpokenReply("O que eu *posso* fazer é isso."), "O que eu posso fazer é isso.");
+  assert.equal(core.sanitizeSpokenReply("# Título\nTexto normal."), "Título\nTexto normal.");
+  assert.equal(core.sanitizeSpokenReply("- primeiro item\n- segundo item"), "primeiro item\nsegundo item");
+});
+
+test("D-V2-180: runBrainChatCompletion devolve a resposta já sanitizada, e é ela que alimenta detectGuardrailRisk", async () => {
+  const { deps } = fakeDeps({
+    generateResult: {
+      text: "Isso é **garantido** — 30% de desconto só hoje!",
+      model: "fake/model",
+      usage: { inputTokens: 100, outputTokens: 20 },
+    },
+  });
+  const result = await core.runBrainChatCompletion(BASE_REQUEST, deps);
+  assert.equal(result.reply, "Isso é garantido, 30% de desconto só hoje!");
+  assert.deepEqual(result.guardrailFlags, ["guaranteed_claim", "unauthorized_discount"]);
+});

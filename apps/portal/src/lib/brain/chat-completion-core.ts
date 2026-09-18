@@ -119,6 +119,34 @@ export function detectGuardrailRisk(reply: string): readonly string[] {
   return flags;
 }
 
+const EM_DASH_PATTERN = /\s*—\s*/g;
+const MARKDOWN_BOLD_PATTERN = /\*\*([^*]+)\*\*/g;
+const MARKDOWN_ITALIC_PATTERN = /\*([^*\n]+)\*/g;
+const MARKDOWN_HEADER_PATTERN = /^#{1,6}\s+/gm;
+const MARKDOWN_BULLET_PATTERN = /^[-*]\s+/gm;
+const TRAILING_COMMA_PATTERN = /,(\s*)$/;
+
+/**
+ * Rede determinística contra o que a instrução de estilo do prompt
+ * (metodo-silva.ts, REGRA DE ESTILO / STYLE RULE) só reduz a probabilidade
+ * de acontecer: verificado ao vivo com crédito real do OpenRouter (D-V2-180,
+ * Claude Haiku 4.5) que o modelo continua ocasionalmente gerando travessão e
+ * marcação de negrito ou itálico mesmo com a instrução explícita no prompt.
+ * A regra da casa é "nunca, em hipótese alguma" (CLAUDE.md global); uma instrução de
+ * prompt sozinha é só probabilística, não cumpre essa barra. Aplicado em
+ * toda resposta gerada, chat e vídeo: no vídeo o texto vira áudio direto, e
+ * marcação markdown não filtrada seria lida ou soletrada pelo provider.
+ */
+export function sanitizeSpokenReply(text: string): string {
+  const withoutMarkdown = text
+    .replace(MARKDOWN_BOLD_PATTERN, "$1")
+    .replace(MARKDOWN_ITALIC_PATTERN, "$1")
+    .replace(MARKDOWN_HEADER_PATTERN, "")
+    .replace(MARKDOWN_BULLET_PATTERN, "");
+  const withoutEmDash = withoutMarkdown.replace(EM_DASH_PATTERN, ", ");
+  return withoutEmDash.replace(TRAILING_COMMA_PATTERN, ".$1").trim();
+}
+
 export class BrainChatValidationError extends Error {
   constructor(message: string) {
     super(message);
@@ -367,5 +395,6 @@ export async function runBrainChatCompletion(request: BrainChatRequest, deps: Br
 
   const result = await deps.generate(messages, maxOutputTokens);
   await deps.logGenerationUsage(result.usage.inputTokens, result.usage.outputTokens, result.usage.reportedCostUsd);
-  return { reply: result.text, usage: result.usage, guardrailFlags: detectGuardrailRisk(result.text) };
+  const reply = sanitizeSpokenReply(result.text);
+  return { reply, usage: result.usage, guardrailFlags: detectGuardrailRisk(reply) };
 }

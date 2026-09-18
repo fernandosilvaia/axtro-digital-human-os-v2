@@ -318,7 +318,7 @@ export async function POST(
   const port = createOpenRouterTextGenerationPort({
     apiKey,
     appUrl: "https://portal-production-b43e.up.railway.app",
-    appTitle: "Axtro Digital Human OS — Brain",
+    appTitle: "Axtro Digital Human OS Brain",
   });
   const reservationMaterial = `${authenticatedConfig.tenantId}:${agentId}:${providerRequestScope}:${JSON.stringify(canonicalMessages)}`;
   const serviceClient = createServiceRoleClient();
