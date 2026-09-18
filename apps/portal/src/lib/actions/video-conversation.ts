@@ -44,24 +44,24 @@ export interface PresentationConversationResult {
 
 /**
  * Dedup de curta janela contra duplo-clique/duas abas/retry de rede (achado
- * onda 7, D-V2-116) — mesmo padrão já aplicado a joinExternalMeeting em
+ * onda 7, D-V2-116): mesmo padrão já aplicado a joinExternalMeeting em
  * D-V2-114 (meeting-bot.ts), que ficou de fora dessa correção por engano.
  * Sem isto, duas chamadas a port.createConversation (Tavus, recurso pago
  * real, ~US$0,175/conversa de piso) criavam duas salas pra uma intenção só.
  *
  * `tenant_id` é OBRIGATÓRIO na chave (achado da própria auto-revisão desta
- * onda): `agents.id` NÃO é globalmente único — a PRIMARY KEY é composta
+ * onda): `agents.id` NÃO é globalmente único, a PRIMARY KEY é composta
  * `(tenant_id, id)` (database/migrations/0002_control_plane.sql) e
  * `portal_create_agent` aceita um `p_id` escolhido pelo chamador sem checar
  * outros tenants. Uma chave só por agentId permitiria um tenant atacante
  * criar um agente-isca com o `id` de um agente de OUTRO tenant e envenenar
- * o slot de dedup da vítima antes de qualquer chamada real à Tavus — nega
+ * o slot de dedup da vítima antes de qualquer chamada real à Tavus: nega
  * o recurso pago principal de um cliente pagante de graça. `timestampsByKey`
  * (rate-limit.ts) é um Map único por processo, sem escopo de tenant algum,
  * então o isolamento tem que vir da própria chave.
  *
- * Checado logo ANTES da chamada paga — depois de todas as validações
- * gratuitas (cap, config, digest) — pra não consumir o slot de dedup numa
+ * Checado logo ANTES da chamada paga, depois de todas as validações
+ * gratuitas (cap, config, digest), pra não consumir o slot de dedup numa
  * falha genuína não-relacionada.
  */
 const VIDEO_CONVERSATION_DEDUP_WINDOW_MS = 30_000;
@@ -192,7 +192,7 @@ export async function startVideoConversation(agentId: string, commandId: string,
     // usuário e zero sinal pro operador. Guard de fake mode (achado da
     // própria auto-revisão): sem ele, o modo demo LEGÍTIMO do produto
     // (PORTAL_FAKE_PROVIDERS=1, sem chave real de propósito) disparava
-    // esse mesmo log de erro toda vez — falso positivo tratando ambiente
+    // esse mesmo log de erro toda vez: falso positivo tratando ambiente
     // corretamente configurado como quebrado.
     if (!fakeProvidersEnabled()) {
       trackError("video_conversation_tavus_key_missing", new Error("TAVUS_API_KEY not configured"), { agent_id: agentId, mode: "video" });
@@ -243,7 +243,7 @@ export async function startVideoConversation(agentId: string, commandId: string,
   const runtimeGrant = runtimeAdmission.grant;
 
   // createTavusVideoConversationPort é validação local síncrona (chave
-  // presente mas curta demais lança aqui) — roda ANTES do guard de dedup,
+  // presente mas curta demais lança aqui): roda ANTES do guard de dedup,
   // não depois, senão uma falha de config pura já teria consumido o slot
   // de dedup do agente por engano (achado da própria auto-revisão desta
   // onda: mesma preocupação que motivou o posicionamento do guard em si).
@@ -274,7 +274,7 @@ export async function startVideoConversation(agentId: string, commandId: string,
     return { url: null, conversationId: null, error: "A chamada não pôde ser registrada com segurança. Tente novamente." };
   }
   if (isRateLimited(videoConversationDedupKey(overview.tenant.id, commandId, "video"), VIDEO_CONVERSATION_DEDUP_WINDOW_MS, 1)) {
-    return { url: null, conversationId: null, error: "Uma chamada já está sendo aberta para este agente — aguarde alguns segundos antes de tentar de novo." };
+    return { url: null, conversationId: null, error: "Uma chamada já está sendo aberta para este agente. Aguarde alguns segundos antes de tentar de novo." };
   }
   const dispatchFailure = await claimTavusRuntimeDispatch(runtimeGrant);
   if (dispatchFailure) {
@@ -292,7 +292,7 @@ export async function startVideoConversation(agentId: string, commandId: string,
     const conversation = await port.createConversation(
       personaId
         ? {
-            // A persona já carrega prompt, voz, percepção e interrupção — reforçamos
+            // A persona já carrega prompt, voz, percepção e interrupção: reforçamos
             // idioma, duração e (quando houver) o conhecimento autorizado da conta.
             personaId,
             conversationName: providerCorrelationLabel(`preview-${agent.id.slice(0, 8)}`, reservation.reservationId, 120),
@@ -306,12 +306,12 @@ export async function startVideoConversation(agentId: string, commandId: string,
             replicaId,
             conversationName: providerCorrelationLabel(`preview-${agent.id.slice(0, 8)}`, reservation.reservationId, 120),
             conversationalContext: buildVideoSalesContext(agent.name, overview.tenant.legal_name, knowledgeDigest, language),
-            // Saudação e contexto no MESMO idioma passado ao provider — um
+            // Saudação e contexto no MESMO idioma passado ao provider: um
             // agente configurado em inglês abria a call ouvindo pt-BR
             // (achado da auditoria 2026-08-02, fechado nesta onda).
             greeting: language === "english"
-              ? `Hi! I'm ${firstName(agent.name)}, digital consultant at ${overview.tenant.legal_name}. Great to see you! Tell me — what brought you here today?`
-              : `Oi! Eu sou ${firstName(agent.name)}, consultora digital da ${overview.tenant.legal_name}. Que bom te ver! Me conta — o que te trouxe até aqui hoje?`,
+              ? `Hi! I'm ${firstName(agent.name)}, digital consultant at ${overview.tenant.legal_name}. Great to see you! Tell me, what brought you here today?`
+              : `Oi! Eu sou ${firstName(agent.name)}, consultora digital da ${overview.tenant.legal_name}. Que bom te ver! Me conta, o que te trouxe até aqui hoje?`,
             language,
             ...(spokenLanguageCodes === undefined ? {} : { languages: spokenLanguageCodes }),
             maxCallDurationSeconds: 600,
@@ -333,7 +333,7 @@ export async function startVideoConversation(agentId: string, commandId: string,
       await compensateVideoConversation(port, reservation.reservationId, conversation.conversationId, "runtime_binding_failed").catch(() => undefined);
       return { url: null, conversationId: null, error: runtimeAdmissionError(bindingFailure.code) };
     }
-    // Placeholder do histórico (D-V2-106) — o webhook da Tavus preenche
+    // Placeholder do histórico (D-V2-106): o webhook da Tavus preenche
     // `turns` quando a call terminar (application.transcription_ready).
     if (!(await registerTranscriptPlaceholder(overview.tenant.id, agentId, "video", conversation.conversationId))) {
       try {
@@ -360,7 +360,7 @@ export async function startVideoConversation(agentId: string, commandId: string,
 /**
  * Sala de APRESENTAÇÃO: a agente conduz um deck de slides ao vivo (tools
  * next_slide/previous_slide/go_to_slide anexadas à persona) enquanto vende
- * pela Reunião Silva. Exige persona configurada — o modo réplica não tem
+ * pela Reunião Silva. Exige persona configurada: o modo réplica não tem
  * tools. O digest de conhecimento divide o teto de 6000 chars do contexto
  * com o roteiro do deck.
  */
@@ -394,7 +394,7 @@ export async function startPresentationConversation(agentId: string, commandId: 
     ? buildPlatformDeck(firstName(agent.name))
     : buildSalesDeck({ agentName: firstName(agent.name), tenantName: overview.tenant.legal_name, language });
 
-  // Modo demonstração (T3): sem sala de vídeo real — o deck volta navegável
+  // Modo demonstração (T3): sem sala de vídeo real, o deck volta navegável
   // manualmente, sem tocar o provider nem o ledger.
   if (fakeMode) {
     return { url: null, conversationId: "simulated", deck, error: null, simulated: true };
@@ -402,7 +402,7 @@ export async function startPresentationConversation(agentId: string, commandId: 
 
   const personaId = config.configured ? config.persona_id ?? null : null;
   if (!personaId) {
-    return { url: null, conversationId: null, deck: null, error: "Este agente ainda não tem persona de vídeo configurada — o modo apresentação exige uma." };
+    return { url: null, conversationId: null, deck: null, error: "Este agente ainda não tem persona de vídeo configurada. O modo apresentação exige uma." };
   }
 
   const runtimeAdmission = await admitAuthenticatedTavusChannel(supabase, {
@@ -424,7 +424,7 @@ export async function startPresentationConversation(agentId: string, commandId: 
   if (knowledgeDigest) contextParts.push("", buildKnowledgeContext(knowledgeDigest));
   const conversationalContext = contextParts.join("\n").slice(0, 5900);
 
-  // Validação local síncrona ANTES do guard de dedup — mesma razão da
+  // Validação local síncrona ANTES do guard de dedup, mesma razão da
   // startVideoConversation acima (achado da auto-revisão desta onda).
   const port = createTavusVideoConversationPort({ apiKey });
   const reservationInput = {
@@ -451,7 +451,7 @@ export async function startPresentationConversation(agentId: string, commandId: 
     return { url: null, conversationId: null, deck: null, error: "A apresentação não pôde ser registrada com segurança." };
   }
   if (isRateLimited(videoConversationDedupKey(overview.tenant.id, commandId, "presentation"), VIDEO_CONVERSATION_DEDUP_WINDOW_MS, 1)) {
-    return { url: null, conversationId: null, deck: null, error: "Uma apresentação já está sendo aberta para este agente — aguarde alguns segundos antes de tentar de novo." };
+    return { url: null, conversationId: null, deck: null, error: "Uma apresentação já está sendo aberta para este agente. Aguarde alguns segundos antes de tentar de novo." };
   }
   const dispatchFailure = await claimTavusRuntimeDispatch(runtimeGrant);
   if (dispatchFailure) {
@@ -524,12 +524,12 @@ async function compensateVideoConversation(
 }
 
 function firstName(agentName: string): string {
-  return agentName.split(/[\s—-]+/)[0] ?? agentName;
+  return agentName.split(/[\s,-]+/)[0] ?? agentName;
 }
 
 function buildKnowledgeContext(digest: string): string {
   return [
-    "CONHECIMENTO AUTORIZADO DA CONTA — sua única fonte de fatos sobre produtos, preços, condições e políticas nesta chamada.",
+    "CONHECIMENTO AUTORIZADO DA CONTA: sua única fonte de fatos sobre produtos, preços, condições e políticas nesta chamada.",
     "Cite apenas o que está aqui; o que não estiver, diga com naturalidade que confirma com o time e conduza para o próximo passo. Nunca invente números.",
     "",
     digest,
@@ -537,20 +537,20 @@ function buildKnowledgeContext(digest: string): string {
 }
 
 function buildVideoSalesContext(agentName: string, tenantLegalName: string, knowledgeDigest: string | null, language: string = "portuguese"): string {
-  // Mesma doutrina nos dois idiomas — um agente configurado em inglês
+  // Mesma doutrina nos dois idiomas: um agente configurado em inglês
   // recebia contexto mandando falar pt-BR (auditoria 2026-08-02).
   const context = language === "english"
     ? [
         `You are "${agentName}", a digital sales closer for the account "${tenantLegalName}" on the Axtro Digital Human OS platform. You are on a LIVE sales VIDEO CALL with a potential customer.`,
         "Your mission is to drive the COMPLETE SALE in this conversation: build rapport, uncover the real need, present the solution connected to that need, handle objections with empathy and confidence, and CLOSE.",
-        "PERSONALITY: warm and consultative. You genuinely care about the customer's problem — listen, validate what you heard, and only then move forward. Calm confidence, never arrogance.",
-        "VIDEO PACING (critical): speak in VERY SHORT turns — at most 1 to 2 sentences at a time, and ONE question per turn. Never dump lists or spoken paragraphs. Let the customer talk more than you.",
-        "FIRM CLOSING: whenever there is a buying signal or a resolved objection, ask for the commitment clearly — for example: \"Can I schedule your technical visit this week?\" or \"I'll send you the formal proposal today, deal?\". Don't wait for the customer to ask; lead. If they decline, understand why and try an alternative close before backing off.",
+        "PERSONALITY: warm and consultative. You genuinely care about the customer's problem: listen, validate what you heard, and only then move forward. Calm confidence, never arrogance.",
+        "VIDEO PACING (critical): speak in VERY SHORT turns, at most 1 to 2 sentences at a time, and ONE question per turn. Never dump lists or spoken paragraphs. Let the customer talk more than you.",
+        "FIRM CLOSING: whenever there is a buying signal or a resolved objection, ask for the commitment clearly, for example: \"Can I schedule your technical visit this week?\" or \"I'll send you the formal proposal today, deal?\". Don't wait for the customer to ask; lead. If they decline, understand why and try an alternative close before backing off.",
         "Inviolable rules:",
-        "1. You are an AI agent and never pretend to be human — if asked, confirm naturally in one sentence and get back to the sale.",
+        "1. You are an AI agent and never pretend to be human. If asked, confirm naturally in one sentence and get back to the sale.",
         knowledgeDigest
           ? "2. The AUTHORIZED KNOWLEDGE at the end of this context is your only source of facts about products, prices and terms. Quote only what is in it; anything else, say naturally that you'll confirm with the team and move to the next step. Never invent numbers."
-          : "2. This account has not connected its official pricing sources yet: do NOT quote prices or ranges. When asked about price, turn it into progress: \"the price depends on sizing — I'll get you the exact number in the proposal; can I schedule the technical visit?\".",
+          : "2. This account has not connected its official pricing sources yet: do NOT quote prices or ranges. When asked about price, turn it into progress: \"the price depends on sizing, I'll get you the exact number in the proposal; can I schedule the technical visit?\".",
         "3. Never promise what has not been configured on the account. No invented discounts, invented deadlines or invented guarantees.",
         "4. Speak natural, warm English, like on a real video call.",
         "5. Every one of your turns ends by leading: a discovery question, an objection treatment or a closing ask.",
@@ -558,14 +558,14 @@ function buildVideoSalesContext(agentName: string, tenantLegalName: string, know
     : [
         `Você é "${agentName}", vendedora digital (Sales Closer) da conta "${tenantLegalName}" na plataforma Axtro Digital Human OS. Você está numa VIDEOCHAMADA de vendas ao vivo com um cliente em potencial.`,
         "Sua missão é conduzir a VENDA COMPLETA nesta conversa: criar rapport, descobrir a necessidade real, apresentar a solução conectada a essa necessidade, tratar objeções com empatia e segurança, e FECHAR.",
-        "PERSONALIDADE: calorosa e consultiva. Você genuinamente se importa com o problema do cliente — escuta, valida o que ouviu, e só então avança. Confiança tranquila, nunca arrogância.",
-        "RITMO DE VÍDEO (crítico): fale em turnos BEM CURTOS — no máximo 1 a 2 frases por vez, e UMA pergunta por turno. Nunca despeje listas ou parágrafos falados. Deixe o cliente falar mais do que você.",
-        "FECHAMENTO FIRME: toda vez que houver sinal de interesse ou uma objeção resolvida, peça o compromisso com clareza — por exemplo: \"Posso agendar sua visita técnica ainda essa semana?\" ou \"Te mando a proposta formal hoje, fechado?\". Não espere o cliente pedir; conduza. Se ele recusar, entenda o porquê e tente um fechamento alternativo antes de recuar.",
+        "PERSONALIDADE: calorosa e consultiva. Você genuinamente se importa com o problema do cliente: escuta, valida o que ouviu, e só então avança. Confiança tranquila, nunca arrogância.",
+        "RITMO DE VÍDEO (crítico): fale em turnos BEM CURTOS, no máximo 1 a 2 frases por vez, e UMA pergunta por turno. Nunca despeje listas ou parágrafos falados. Deixe o cliente falar mais do que você.",
+        "FECHAMENTO FIRME: toda vez que houver sinal de interesse ou uma objeção resolvida, peça o compromisso com clareza, por exemplo: \"Posso agendar sua visita técnica ainda essa semana?\" ou \"Te mando a proposta formal hoje, fechado?\". Não espere o cliente pedir; conduza. Se ele recusar, entenda o porquê e tente um fechamento alternativo antes de recuar.",
         "Regras invioláveis:",
-        "1. Você é uma agente de IA e nunca finge ser humana — se perguntarem, confirme com naturalidade em uma frase e volte pra venda.",
+        "1. Você é uma agente de IA e nunca finge ser humana. Se perguntarem, confirme com naturalidade em uma frase e volte pra venda.",
         knowledgeDigest
           ? "2. O CONHECIMENTO AUTORIZADO ao final deste contexto é sua única fonte de fatos sobre produtos, preços e condições. Cite apenas o que está nele; o que não estiver, diga com naturalidade que confirma com o time e conduza para o próximo passo. Nunca invente números."
-          : "2. Esta conta ainda não conectou as fontes oficiais de preços: NÃO cite valores, nem faixas. Quando pedirem preço, transforme em avanço: \"o valor depende do dimensionamento — te entrego o número exato na proposta; posso agendar a visita técnica?\".",
+          : "2. Esta conta ainda não conectou as fontes oficiais de preços: NÃO cite valores, nem faixas. Quando pedirem preço, transforme em avanço: \"o valor depende do dimensionamento, te entrego o número exato na proposta; posso agendar a visita técnica?\".",
         "3. Nunca prometa o que não foi configurado na conta. Nada de descontos inventados, prazos inventados ou garantias inventadas.",
         "4. Fale português brasileiro natural e caloroso, como numa conversa de vídeo real.",
         "5. Todo turno seu termina conduzindo: uma pergunta de descoberta, um tratamento de objeção ou um pedido de fechamento.",

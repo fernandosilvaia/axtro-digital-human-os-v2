@@ -7,7 +7,7 @@ import { revokeInvite } from "@/lib/actions/team";
 
 /**
  * Achado D-V2-109: sem estado de carregamento e engolindo erro de RPC em
- * silêncio — inconsistente com InviteForm/MemberRemoveButton no mesmo
+ * silêncio: inconsistente com InviteForm/MemberRemoveButton no mesmo
  * arquivo. Sem confirmação dupla (diferente de MemberRemoveButton): revogar
  * um convite pendente é reversível (basta convidar de novo), stakes bem
  * menores que remover um membro já ativo.

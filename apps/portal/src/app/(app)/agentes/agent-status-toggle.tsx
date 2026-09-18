@@ -29,7 +29,7 @@ export function AgentStatusToggle({ agentId, status }: { agentId: string; status
         return;
       }
       if (result.warning) setWarning(result.warning);
-      // Next 16 em build de produção descarta a revalidação da server action de forma intermitente (flake pego pelo e2e em modo produção, D-V2-103) — router.refresh() explícito torna a atualização da UI determinística.
+      // Next 16 em build de produção descarta a revalidação da server action de forma intermitente (flake pego pelo e2e em modo produção, D-V2-103): router.refresh() explícito torna a atualização da UI determinística.
       router.refresh();
     });
   }

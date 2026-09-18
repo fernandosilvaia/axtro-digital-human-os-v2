@@ -8,9 +8,9 @@ import { useEffect, useRef, useState } from "react";
  * O bot do Recall.ai renderiza ESTA página e transmite o que ela mostra como
  * a câmera dele dentro do Meet/Zoom/Teams. Por isso ela precisa:
  *   1. entrar na sala do Tavus SOZINHA (a URL crua do Tavus abre uma tela de
- *      "digite seu nome" — o bot transmitiria o formulário, não a agente);
+ *      "digite seu nome", o bot transmitiria o formulário, não a agente);
  *   2. mostrar só o vídeo da agente, sangrando na tela inteira, sem UI;
- *   3. TOCAR o áudio dela — é o áudio desta página que o bot manda pra reunião;
+ *   3. TOCAR o áudio dela: é o áudio desta página que o bot manda pra reunião;
  *   4. entrar na sala usando o áudio da REUNIÃO como microfone, senão a agente
  *      não escuta ninguém.
  *
@@ -44,7 +44,7 @@ export function FaceStage({ roomUrl }: { roomUrl: string }) {
 
     // Watchdog (auditoria 2026-08-02): se a sala aceitou o join mas a agente
     // nunca publica vídeo (conversa expirada/encerrada), a página ficava em
-    // "Conectando…" pra sempre — e é isso que o bot transmitiria como câmera
+    // "Conectando…" pra sempre, e é isso que o bot transmitiria como câmera
     // dentro da reunião real. 45s sem track remoto → estado de erro honesto.
     const watchdog = setTimeout(() => {
       if (!cancelled) {
@@ -69,19 +69,19 @@ export function FaceStage({ roomUrl }: { roomUrl: string }) {
             audioRef.current.srcObject = new MediaStream([event.track]);
             // A voz dela precisa TOCAR nesta página: é o áudio da página que o
             // bot captura e manda pra reunião. autoPlay sozinho pode ser
-            // barrado por política de autoplay — chamamos play() explicitamente.
+            // barrado por política de autoplay, chamamos play() explicitamente.
             void audioRef.current.play().catch(() => undefined);
           }
         }) as never);
 
         // Áudio da reunião → microfone da agente. Dentro do bot do Recall.ai,
         // getUserMedia devolve o áudio da REUNIÃO (o bot concede a permissão
-        // sozinho, sem clique — documentado em docs.recall.ai/docs/stream-media).
+        // sozinho, sem clique, documentado em docs.recall.ai/docs/stream-media).
         // Sem isso a agente entra surda: foi exatamente o que aconteceu no
         // primeiro teste ao vivo.
         let audioSource: MediaStreamTrack | undefined;
         try {
-          // O "microfone" aqui É o áudio já mixado da reunião — processá-lo de
+          // O "microfone" aqui É o áudio já mixado da reunião: processá-lo de
           // novo (AGC/echo-cancel/noise-suppression do Chrome) distorce e
           // bombeia o volume. Pedimos o sinal cru.
           const meetingStream = await navigator.mediaDevices.getUserMedia({
@@ -90,7 +90,7 @@ export function FaceStage({ roomUrl }: { roomUrl: string }) {
           audioSource = meetingStream.getAudioTracks()[0];
         } catch {
           // Fora do bot (ex.: conferindo a página no navegador) não há permissão
-          // nem áudio de reunião — segue só com vídeo, sem quebrar a página.
+          // nem áudio de reunião, segue só com vídeo, sem quebrar a página.
         }
         if (cancelled) return;
 

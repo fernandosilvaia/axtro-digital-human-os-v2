@@ -16,7 +16,7 @@ import { PreviewChat } from "./preview-chat";
 import { VideoCall } from "./video-call";
 import { VideoConfig } from "./video-config";
 
-export const metadata: Metadata = { title: "Testar agente — Axtro Digital Human OS" };
+export const metadata: Metadata = { title: "Testar agente, Axtro Digital Human OS" };
 
 export default async function AgentPreviewPage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
@@ -35,7 +35,7 @@ export default async function AgentPreviewPage({ params }: { params: Promise<{ i
   }
   const agent = agents.find((candidate) => candidate.id === id);
   if (!agent) notFound();
-  // Fuso da CONTA pro agendamento/painel de reuniões — "15:00" tem que ser
+  // Fuso da CONTA pro agendamento/painel de reuniões: "15:00" tem que ser
   // 15:00 no relógio do dono da conta (auditoria 2026-08-02).
   const timeZone = overview.tenant?.default_timezone ?? "America/New_York";
   // Status do cerebro e a URL que a persona precisa chamar. `fetchAgentBrainStatus`
@@ -61,7 +61,7 @@ export default async function AgentPreviewPage({ params }: { params: Promise<{ i
           Testar {agent.name} <StatusBadge status={agent.status} />
         </h1>
         <p style={{ color: "var(--text-muted)", margin: "4px 0 0", fontSize: "0.9rem" }}>
-          Chat e salas de vídeo são sandbox — não alcançam clientes reais. Já a seção de reunião
+          Chat e salas de vídeo são sandbox, não alcançam clientes reais. Já a seção de reunião
           externa coloca o agente numa reunião de verdade: use com um link seu para testar.
           O agente se apresenta como IA e responde fatos apenas com base nas fontes de conhecimento ativas da conta;
           sem fontes, ele não cita preços nem condições.

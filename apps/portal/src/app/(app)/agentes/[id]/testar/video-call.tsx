@@ -232,7 +232,7 @@ export function VideoCall({ agentId, agentName }: { agentId: string; agentName: 
         <div style={{ flex: 1, minWidth: 240 }}>
           <h3 style={{ fontSize: "0.95rem", marginBottom: 4 }}>Conversa em vídeo ao vivo 🎥</h3>
           <p style={{ color: "var(--text-muted)", fontSize: "0.84rem", margin: 0 }}>
-            {agentName} aparece em vídeo, te escuta e conduz a venda por voz — como numa reunião real.
+            {agentName} aparece em vídeo, te escuta e conduz a venda por voz, como numa reunião real.
           </p>
         </div>
         {providerStopConfirmed && (

@@ -15,7 +15,7 @@ const CLOSER_PILLARS = [
   {
     number: "01",
     title: "O momento de interesse não vira espera",
-    body: "Transforme uma intenção já criada em um convite claro para a próxima conversa — sem inventar urgência nem perder o contexto pelo caminho.",
+    body: "Transforme uma intenção já criada em um convite claro para a próxima conversa, sem inventar urgência nem perder o contexto pelo caminho.",
   },
   {
     number: "02",
@@ -33,7 +33,7 @@ const OPERATING_STEPS = [
   {
     number: "01",
     title: "Interesse",
-    body: "Sua operação reconhece o momento em que vale abrir uma conversa — sem prometer disponibilidade que não existe.",
+    body: "Sua operação reconhece o momento em que vale abrir uma conversa, sem prometer disponibilidade que não existe.",
   },
   {
     number: "02",
@@ -204,7 +204,7 @@ export default function LandingPage() {
         </section>
 
         <section className="proof-strip closer-proof-strip" aria-label="Pilares da experiência">
-          <span className="proof-strip-label">Uma conversa que respeita o momento — e o controle da sua operação</span>
+          <span className="proof-strip-label">Uma conversa que respeita o momento, e o controle da sua operação</span>
           <div className="proof-strip-items">
             <span>CONTEXTO AUTORIZADO</span><i /> <span>DISCLOSURE DE IA</span><i /> <span>SUPERVISÃO HUMANA</span>
           </div>

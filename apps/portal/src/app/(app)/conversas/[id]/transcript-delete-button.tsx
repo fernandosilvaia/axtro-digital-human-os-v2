@@ -6,7 +6,7 @@ import { useState, useTransition } from "react";
 import { deleteConversationTranscript } from "@/lib/actions/transcripts";
 
 /**
- * Exclusão de uma conversa (achado P1, auditoria 2026-08-12 — a
+ * Exclusão de uma conversa (achado P1, auditoria 2026-08-12: a
  * /privacidade promete exclusão sob pedido, mas não havia UI pra isso).
  * Dois cliques deliberados, mesmo padrão de member-remove-button.tsx: é
  * destrutivo e irreversível, diferente de revogar convite.

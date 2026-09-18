@@ -2,11 +2,11 @@
 
 /**
  * Error boundary das rotas públicas de primeiro contato (/login, /signup,
- * /recuperar-senha, /nova-senha) — achado D-V2-107: só o segmento
+ * /recuperar-senha, /nova-senha), achado D-V2-107: só o segmento
  * autenticado (app) tinha error.tsx (auditoria 2026-08-02); essas rotas
  * também chamam Supabase Auth direto (lib/actions/auth.ts) e, se as env
  * vars de Supabase ficarem vazias/erradas em produção, caem na tela crua de
- * erro do Next em inglês — exatamente no funil de conversão de novos
+ * erro do Next em inglês: exatamente no funil de conversão de novos
  * clientes. Mesma disciplina do (app)/error.tsx: recuperação é um clique,
  * nunca um beco (Art. 14).
  */
@@ -26,7 +26,7 @@ export default function PublicError({ error, reset }: { readonly error: Error & 
         </div>
         <h1 style={{ fontSize: "1.3rem" }}>Algo falhou ao carregar esta página</h1>
         <p className="subtitle" style={{ margin: "8px 0 18px" }}>
-          Pode ser uma instabilidade passageira de conexão. Nada foi perdido — tente de novo.
+          Pode ser uma instabilidade passageira de conexão. Nada foi perdido, tente de novo.
         </p>
         <button type="button" className="btn btn-primary" onClick={reset} style={{ padding: "10px 22px" }}>
           Tentar de novo

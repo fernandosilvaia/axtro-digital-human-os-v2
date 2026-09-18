@@ -232,8 +232,8 @@ export async function POST(request: NextRequest): Promise<Response> {
           try {
             conversation = await port.createConversation({
             personaId,
-            conversationName: providerCorrelationLabel(`Lead ${safeName} — vídeo`, reservation.reservationId, 120),
-            ...(name ? { greeting: `Oi ${safeName}! Que bom falar com você agora — bora continuar por vídeo?` } : {}),
+            conversationName: providerCorrelationLabel(`Lead ${safeName}, vídeo`, reservation.reservationId, 120),
+            ...(name ? { greeting: `Oi ${safeName}! Que bom falar com você agora, bora continuar por vídeo?` } : {}),
             ...(lang ? { language: lang } : {}),
             // Resumo da ligação de voz que já aconteceu, quando o chamador manda —
             // dado não confiável (Art. 15): contexto de conversa, nunca instrução de

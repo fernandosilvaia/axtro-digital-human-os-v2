@@ -21,7 +21,7 @@ const env = Object.fromEntries(
 const E2E_TENANT_ADMIN_EMAIL = env.E2E_TENANT_ADMIN_EMAIL ?? "";
 const E2E_TENANT_ADMIN_PASSWORD = env.E2E_TENANT_ADMIN_PASSWORD ?? "";
 const RAFAELA_ID = "019f6de0-0000-7000-8000-0000000a0001";
-const BRUNO_NAME = "Bruno — Closer Empresarial";
+const BRUNO_NAME = "Bruno, Closer Empresarial";
 
 function authCookiesAreIdentical(
   left: readonly Readonly<{ name: string; value: string; domain: string; path: string }>[],
@@ -56,11 +56,11 @@ test("landing pública renderiza e aponta para login", async ({ page }) => {
 
 test("superfícies públicas de SEO/AEO respondem 200 sem sessão", async ({ request }) => {
   // Achado real 2026-07-24: llms.txt/llms-full.txt ficaram fora da lista de
-  // exclusão do middleware de auth e voltavam 307 para /login — quebrava o
+  // exclusão do middleware de auth e voltavam 307 para /login: quebrava o
   // propósito de AEO (crawlers de IA não autenticam). Só um teste HTTP real
   // pega essa classe de bug; asserção de string no source (portal-seo-surface
   // .test.mjs) não pegou. Cobre todas as rotas públicas do middleware.
-  // /rosto-agente é a CÂMERA do bot do Recall.ai nas reuniões externas — o
+  // /rosto-agente é a CÂMERA do bot do Recall.ai nas reuniões externas: o
   // bot navega sem sessão nossa; se o matcher do middleware derrubar essa
   // rota, o agente perde o rosto em TODAS as reuniões Meet/Zoom/Teams em
   // produção. /recuperar-senha idem para usuários sem senha. Mesma classe
@@ -74,7 +74,7 @@ test("superfícies públicas de SEO/AEO respondem 200 sem sessão", async ({ req
 test("rotas /api/* servidor-a-servidor nunca redirecionam para /login", async ({ request }) => {
   // Mesma classe de bug do achado de 2026-07-24 (llms.txt), desta vez em
   // /api/brain e /api/leads/video-session (2026-07-29): cada rota ali tem a
-  // própria autenticação por segredo/bearer, nunca sessão de cookie — mas o
+  // própria autenticação por segredo/bearer, nunca sessão de cookie, mas o
   // matcher do middleware só excluía api/health, então as outras caíam no
   // 307 pro /login antes de tocar a lógica da rota. O matcher agora exclui
   // api/* inteiro; este teste prova isso com HTTP real, não com leitura de
@@ -108,7 +108,7 @@ test("login da fixture de cliente leva à central com progresso e custos explici
   await expect(page.getByRole("progressbar", { name: "Prontidão operacional confirmada" })).toHaveAttribute("aria-valuenow", /\d+/);
   // T8: painel de custo (ledger de efeitos pagos, M5-01 renomeou de "estimado" para "atribuído").
   await expect(page.getByText("Custo atribuído hoje")).toBeVisible();
-  await expect(page.getByText("Ledger estimado/reportado — não é a fatura conciliada")).toBeVisible();
+  await expect(page.getByText("Ledger estimado/reportado: não é a fatura conciliada")).toBeVisible();
 });
 
 test("demo isolada preserva cookies, tenant e papel do cliente autenticado", async ({ page, context }) => {
@@ -211,7 +211,7 @@ test("apresentação simulada abre o deck e navega slides", async ({ page }) => 
   await login(page);
   await page.goto(`/agentes/${RAFAELA_ID}/testar`);
   // Bridge de runtime (M5-02) exige as 5 confirmações de consentimento antes
-  // de habilitar "Iniciar apresentação" — sem isto o botão fica desabilitado
+  // de habilitar "Iniciar apresentação": sem isto o botão fica desabilitado
   // pra sempre e o teste estoura o timeout. Escopado ao fieldset da
   // apresentação: a página também renderiza consentimento pro vídeo/reunião
   // externa com texto parecido, e um getByLabel solto bate nos dois.
@@ -222,7 +222,7 @@ test("apresentação simulada abre o deck e navega slides", async ({ page }) => 
   await presentationConsent.getByLabel(/análise comportamental/).check();
   await presentationConsent.getByLabel(/análise visual/).check();
   await page.getByRole("button", { name: "Iniciar apresentação" }).click();
-  await expect(page.getByText("Modo demonstração — sem provider de vídeo")).toBeVisible({ timeout: 30_000 });
+  await expect(page.getByText("Modo demonstração: sem provider de vídeo")).toBeVisible({ timeout: 30_000 });
   await expect(page.getByText("1/7")).toBeVisible();
   await page.getByRole("button", { name: "Próximo →" }).click();
   await expect(page.getByText("2/7")).toBeVisible();
@@ -242,7 +242,7 @@ test("configurações: seção de plano visível e ciclo completo de convite (cr
   await login(page);
   await page.goto("/configuracoes");
   // D-V2-101 trocou a seção estática "Plano e contratação" pela cobrança
-  // real ("Plano e cobrança", com card de plano OU aviso de indisponível —
+  // real ("Plano e cobrança", com card de plano OU aviso de indisponível:
   // os dois estados válidos do BillingSection desacoplado).
   await expect(page.getByText("Plano e cobrança")).toBeVisible();
   await expect(page.getByRole("link", { name: "Ver todos os planos" })).toBeVisible();
@@ -264,11 +264,11 @@ test("conhecimento: revogar e reativar uma fonte restaura o estado", async ({ pa
   await login(page);
   await page.goto("/conhecimento");
   // Precisa ser uma fonte COM conteúdo ingerido: reativar exige versões
-  // (achado real — a fonte seed "FAQ" nunca teve ingestão e não reativa).
-  const sourceName = "Método Silva — Biblioteca de Objeções e Respostas (Kit 05)";
+  // (achado real: a fonte seed "FAQ" nunca teve ingestão e não reativa).
+  const sourceName = "Método Silva, Biblioteca de Objeções e Respostas (Kit 05)";
   await expect(page.getByText(sourceName)).toBeVisible();
 
-  // Auto-reparo: run anterior pode ter morrido com a fonte revogada — reativa
+  // Auto-reparo: run anterior pode ter morrido com a fonte revogada, reativa
   // antes, senão o botão "Revogar" não existe e o teste quebra pra sempre.
   const leftoverReactivate = page.getByRole("button", { name: `Reativar a fonte ${sourceName}` });
   if (await leftoverReactivate.isVisible().catch(() => false)) {
@@ -297,12 +297,12 @@ test("ciclo de vida completo do agente: criar → ativar → pausar → excluir"
   await login(page);
   await page.goto("/agentes");
 
-  // Nome único por execução — e o teste limpa atrás de si via exclusão.
+  // Nome único por execução, e o teste limpa atrás de si via exclusão.
   const agentName = `E2E Ciclo ${Date.now().toString(36)}`;
   await page.fill("#agent-name", agentName);
   await page.getByRole("button", { name: "Criar rascunho" }).click();
   const row = page.locator("tr", { hasText: agentName });
-  // 30s: no CI o e2e roda contra o build de produção num runner lento —
+  // 30s: no CI o e2e roda contra o build de produção num runner lento,
   // action + revalidação + RSC levam mais que no dev server local.
   await expect(row).toBeVisible({ timeout: 30_000 });
 

@@ -5,16 +5,16 @@ import { SubmitOnceButton } from "./submit-once-button";
 
 const ERROR_MESSAGE: Readonly<Record<string, string>> = {
   apenas_admin: "Só um administrador da conta pode conectar ou desconectar o Google Calendar.",
-  conta_nao_provisionada: "Sua conta ainda não terminou de ser provisionada — recarregue em instantes.",
+  conta_nao_provisionada: "Sua conta ainda não terminou de ser provisionada, recarregue em instantes.",
   sessao_invalida: "Não foi possível confirmar sua sessão. Recarregue a página e tente de novo.",
   sessao_divergente: "A sessão mudou no meio da conexão (ex.: outro login). Tente conectar de novo.",
-  tentativas_excedidas: "Muitas tentativas de conexão em pouco tempo — aguarde um minuto e tente de novo.",
+  tentativas_excedidas: "Muitas tentativas de conexão em pouco tempo, aguarde um minuto e tente de novo.",
   nao_configurado: "A conexão com o Google Calendar ainda não está configurada neste ambiente. Fale com o suporte.",
-  consentimento_negado: "A conexão foi cancelada — você precisa aceitar o acesso à agenda no Google para conectar.",
+  consentimento_negado: "A conexão foi cancelada, você precisa aceitar o acesso à agenda no Google para conectar.",
   callback_invalido: "O retorno do Google veio incompleto. Tente conectar de novo.",
   state_invalido: "Esta tentativa de conexão expirou ou já foi usada. Tente conectar de novo.",
   falha_na_troca: "O Google recusou a conexão. Tente novamente em instantes.",
-  sem_refresh_token: "O Google não devolveu uma credencial de acesso contínuo desta vez — isso costuma acontecer quando esta conta Google já autorizou o acesso antes. Revogue o acesso em myaccount.google.com/permissions e tente conectar de novo.",
+  sem_refresh_token: "O Google não devolveu uma credencial de acesso contínuo desta vez, isso costuma acontecer quando esta conta Google já autorizou o acesso antes. Revogue o acesso em myaccount.google.com/permissions e tente conectar de novo.",
   sem_email_google: "Não foi possível confirmar o e-mail da conta Google conectada. Tente novamente.",
   falha_ao_conectar: "Não foi possível salvar a conexão agora. Tente novamente em instantes.",
 };
@@ -51,7 +51,7 @@ export function CalendarSection({
 
       {connection === null ? (
         <p style={{ color: "var(--text-muted)", fontSize: "0.88rem", margin: 0 }}>
-          As informações de conexão estão indisponíveis neste momento. Recarregue a página em instantes —
+          As informações de conexão estão indisponíveis neste momento. Recarregue a página em instantes,
           o restante das configurações continua funcionando normalmente.
         </p>
       ) : connection.outcome === "found" && connection.status === "connected" ? (
@@ -89,7 +89,7 @@ function ReauthRequiredCard({ email, isAdmin }: { email: string; isAdmin: boolea
   return (
     <div>
       <p style={{ color: "var(--text-muted)", fontSize: "0.86rem", margin: "0 0 14px" }}>
-        A conexão com <strong>{email}</strong> precisa ser refeita — o Google invalidou o acesso anterior
+        A conexão com <strong>{email}</strong> precisa ser refeita, o Google invalidou o acesso anterior
         (ex.: revogação manual, senha trocada). Os agendamentos ficam indisponíveis até reconectar.
       </p>
       {isAdmin ? (
@@ -109,7 +109,7 @@ function NotConnectedCard({ isAdmin }: { isAdmin: boolean }) {
   return (
     <div>
       <p style={{ color: "var(--text-muted)", fontSize: "0.86rem", margin: "0 0 14px" }}>
-        Nenhuma agenda Google conectada ainda — os agentes não conseguem propor nem confirmar horários
+        Nenhuma agenda Google conectada ainda, os agentes não conseguem propor nem confirmar horários
         de reunião até uma conta ser conectada.
       </p>
       {isAdmin ? (

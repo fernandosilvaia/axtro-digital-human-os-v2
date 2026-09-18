@@ -7,7 +7,7 @@ import { CalendarSection } from "./calendar-section";
 import { TeamSection } from "./team-section";
 import { TenantProfileForm } from "./tenant-profile-form";
 
-export const metadata: Metadata = { title: "Configurações — Axtro Digital Human OS" };
+export const metadata: Metadata = { title: "Configurações, Axtro Digital Human OS" };
 
 export default async function SettingsPage({
   searchParams,
@@ -35,7 +35,7 @@ export default async function SettingsPage({
 
   // A leitura de cobrança degrada SOZINHA: uma falha aqui (RPC de billing
   // indisponível, ambiente sem a migration 0026) não pode derrubar perfil,
-  // equipe e convites junto — só o card de plano mostra o aviso.
+  // equipe e convites junto, só o card de plano mostra o aviso.
   let billing = null;
   try {
     billing = await fetchBillingStatus();
@@ -45,7 +45,7 @@ export default async function SettingsPage({
 
   // Mesma degradação isolada da cobrança acima: uma falha aqui (RPC
   // indisponível, ambiente sem a migration 0052) nunca derruba o resto da
-  // página — só o card do Google Calendar mostra o aviso.
+  // página, só o card do Google Calendar mostra o aviso.
   let calendarConnection: GoogleCalendarConnectionContext | null = null;
   if (overview.tenant) {
     try {

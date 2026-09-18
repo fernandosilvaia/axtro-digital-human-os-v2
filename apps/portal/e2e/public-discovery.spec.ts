@@ -128,7 +128,7 @@ test("documentos e endpoints de descoberta são públicos, consistentes e sem su
   expect(robots).toContain(`${CANONICAL_ORIGIN}/sitemap.xml`);
 
   // RFC 9309: um bot com bloco próprio usa SÓ esse bloco, sem herdar o
-  // disallow do "*" — cada bloco "allow" precisa repetir os paths privados
+  // disallow do "*": cada bloco "allow" precisa repetir os paths privados
   // (achado da revisão da Auditoria 360, corrigido junto com robots.ts).
   for (const bot of ["OAI-SearchBot", "Claude-SearchBot", "Claude-User"] as const) {
     const block = robots.match(new RegExp(`User-Agent:\\s*${bot}\\s*\\n([\\s\\S]*?)(?=\\n\\s*\\n|User-Agent:|$)`, "i"))?.[1] ?? "";

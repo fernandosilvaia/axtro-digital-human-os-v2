@@ -6,7 +6,7 @@ import { StatusBadge } from "@/components/status-badge";
 import { CreateSourceForm } from "./create-source-form";
 import { SourceActions } from "./source-actions";
 
-export const metadata: Metadata = { title: "Conhecimento — Axtro Digital Human OS" };
+export const metadata: Metadata = { title: "Conhecimento, Axtro Digital Human OS" };
 
 const SOURCE_TYPE_LABELS: Record<string, string> = {
   document: "Documento",
@@ -42,7 +42,7 @@ export default async function KnowledgePage() {
       <header style={{ marginBottom: 22 }}>
         <h1 style={{ fontSize: "1.4rem" }}>Base de conhecimento</h1>
         <p style={{ color: "var(--text-muted)", margin: "4px 0 0", fontSize: "0.9rem" }}>
-          Fontes autorizadas que seus agentes podem citar — sempre com rastreabilidade e revogação imediata.
+          Fontes autorizadas que seus agentes podem citar, sempre com rastreabilidade e revogação imediata.
         </p>
       </header>
 

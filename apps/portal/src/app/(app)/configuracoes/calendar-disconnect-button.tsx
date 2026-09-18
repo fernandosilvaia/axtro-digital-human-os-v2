@@ -8,7 +8,7 @@ import { disconnectGoogleCalendar } from "@/lib/actions/calendar-connection";
 /**
  * Desconecta o Google Calendar do tenant (apaga o segredo do Vault e marca
  * `revoked`). Dois cliques deliberados, mesmo padrão de
- * `member-remove-button.tsx`: desarma em 8s sem confirmar — revogar acesso
+ * `member-remove-button.tsx`: desarma em 8s sem confirmar. Revogar acesso
  * à agenda real de alguém tem stakes altos o bastante pra merecer
  * confirmação, mas não tão altos quanto remover um membro (não perde dados,
  * é reversível reconectando de novo).

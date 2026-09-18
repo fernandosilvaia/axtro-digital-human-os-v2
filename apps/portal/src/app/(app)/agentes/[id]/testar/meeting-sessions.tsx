@@ -3,7 +3,7 @@ import { logError as trackError } from "@/lib/telemetry";
 
 /**
  * Painel das reuniões externas deste agente. A RPC (0021) e o webhook de
- * status do Recall.ai já existiam em produção — mas nenhuma UI lia a lista:
+ * status do Recall.ai já existiam em produção, mas nenhuma UI lia a lista:
  * quem agendava um bot fechava a aba e perdia toda a visibilidade (achado
  * "RPC órfã" da auditoria 2026-08-02). Server component, refletindo o status
  * mais recente a cada carregamento da página.
@@ -48,7 +48,7 @@ export async function MeetingSessions({ agentId, timeZone }: { agentId: string; 
   const { data, error } = await supabase.rpc("portal_list_meeting_bot_sessions");
   if (error) {
     trackError("portal_list_meeting_bot_sessions_failed", error, { agent_id: agentId });
-    return null; // Painel é informativo — falha de leitura não polui a página de teste.
+    return null; // Painel é informativo, falha de leitura não polui a página de teste.
   }
   const sessions = (Array.isArray(data) ? (data as MeetingSessionRow[]) : []).filter(
     (session) => session.agentId === agentId,

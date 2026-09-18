@@ -9,7 +9,7 @@ import { FaceStage } from "./face-stage";
  * reuniões externas (Output Media). Recebe apenas uma capability aleatória
  * curta e resolve a sala no servidor, mostrando só o rosto da agente.
  *
- * Por que pública: o bot do Recall.ai roda num navegador sem sessão nossa —
+ * Por que pública: o bot do Recall.ai roda num navegador sem sessão nossa,
  * não há sessão de usuário disponível. A capability é tenant-bound, expira
  * em prazo curto e só seu hash fica persistido. A room URL, que é um bearer,
  * nunca aparece na URL pública/logável desta rota.
@@ -17,7 +17,7 @@ import { FaceStage } from "./face-stage";
  * `noindex` explícito: é superfície técnica, não conteúdo público.
  */
 export const metadata: Metadata = {
-  title: "Palco do agente — Axtro Digital Human OS",
+  title: "Palco do agente, Axtro Digital Human OS",
   robots: { index: false, follow: false },
   referrer: "no-referrer",
 };

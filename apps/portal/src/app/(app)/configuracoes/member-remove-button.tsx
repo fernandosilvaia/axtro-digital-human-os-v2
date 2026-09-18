@@ -6,7 +6,7 @@ import { useState, useTransition } from "react";
 import { removeMember } from "@/lib/actions/team";
 
 /**
- * Revoga o acesso de um membro já aceito (achado da auditoria 2026-08-06 —
+ * Revoga o acesso de um membro já aceito (achado da auditoria 2026-08-06:
  * só existia "Revogar" pra convite pendente). Dois cliques deliberados,
  * mesmo padrão de agent-delete-button.tsx: desarma em 8s sem confirmar.
  */

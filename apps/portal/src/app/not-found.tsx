@@ -1,5 +1,5 @@
 /**
- * 404 em pt-BR — sem ele, agente inexistente ou link quebrado caía na tela
+ * 404 em pt-BR: sem ele, agente inexistente ou link quebrado caía na tela
  * padrão do Next em inglês ("This page could not be found"), destoando de
  * todo o resto do produto (auditoria 2026-08-02).
  */

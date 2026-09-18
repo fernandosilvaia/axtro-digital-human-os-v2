@@ -4,7 +4,7 @@ import Link from "next/link";
 import { formatDateTime } from "@/lib/format-date";
 import { fetchConversationTranscripts, fetchTenantOverview } from "@/lib/portal-data";
 
-export const metadata: Metadata = { title: "Conversas — Axtro Digital Human OS" };
+export const metadata: Metadata = { title: "Conversas, Axtro Digital Human OS" };
 
 const SURFACE_LABELS: Record<string, string> = {
   chat: "Chat de teste",
@@ -31,7 +31,7 @@ export default async function ConversationsPage() {
       <header style={{ marginBottom: 22 }}>
         <h1 style={{ fontSize: "1.4rem" }}>Conversas</h1>
         <p style={{ color: "var(--text-muted)", margin: "4px 0 0", fontSize: "0.9rem" }}>
-          Histórico das conversas conduzidas pelos seus agentes — chat de teste, vídeo e reunião externa.
+          Histórico das conversas conduzidas pelos seus agentes: chat de teste, vídeo e reunião externa.
         </p>
       </header>
 
@@ -40,8 +40,8 @@ export default async function ConversationsPage() {
           <div className="icon" aria-hidden="true">◈</div>
           <h3>Nenhuma conversa registrada ainda</h3>
           <p>
-            Assim que um agente conduzir uma conversa — no chat de teste, numa sala de vídeo ou numa
-            reunião externa — ela aparece aqui pra você revisar.
+            Assim que um agente conduzir uma conversa (no chat de teste, numa sala de vídeo ou numa
+            reunião externa), ela aparece aqui pra você revisar.
           </p>
         </div>
       ) : (

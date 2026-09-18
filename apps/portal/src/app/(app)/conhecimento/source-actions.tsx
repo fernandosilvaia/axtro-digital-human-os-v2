@@ -28,14 +28,14 @@ export function SourceActions({ sourceId, sourceName, status }: SourceActionsPro
   const [confirmingDelete, setConfirmingDelete] = useState(false);
   const canDisable = status === "active" || status === "stale";
   const canActivate = status === "disabled" || status === "stale";
-  // Exclusão só de fonte já revogada ou nunca ingerida — a promessa de
+  // Exclusão só de fonte já revogada ou nunca ingerida: a promessa de
   // revogação explícita fica preservada (a RPC recusa qualquer outro estado).
   const canDelete = status === "disabled" || status === "pending";
 
   const onDelete = () => {
     if (!confirmingDelete) {
       setConfirmingDelete(true);
-      // Desarma em 5s sem clique — confirmação destrutiva não fica armada
+      // Desarma em 5s sem clique: confirmação destrutiva não fica armada
       // pra sempre (auditoria 2026-08-02).
       setTimeout(() => setConfirmingDelete(false), 8000); // 8s: ver agent-delete-button (5s desarmava antes do clique legítimo em prod)
       return;
@@ -120,7 +120,7 @@ export function SourceActions({ sourceId, sourceName, status }: SourceActionsPro
             rows={4}
             required
             maxLength={80000}
-            placeholder="Cole o novo conteúdo — substitui a versão anterior por completo."
+            placeholder="Cole o novo conteúdo, substitui a versão anterior por completo."
             style={{ width: "100%", resize: "vertical", fontSize: "0.78rem", lineHeight: 1.45 }}
           />
           <div style={{ display: "flex", gap: 8, alignItems: "center", marginTop: 6 }}>

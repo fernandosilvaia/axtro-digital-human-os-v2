@@ -9,8 +9,8 @@ const initialState: ResourceActionState = { error: null, done: false };
 
 const CONTENT_PLACEHOLDER: Record<string, string> = {
   url: "Não buscamos a URL sozinhos: abra a página, copie o texto relevante e cole aqui. Com o texto colado, a fonte é ingerida com embeddings reais e fica ativa.",
-  document: "Cole aqui o conteúdo do documento (texto). Com conteúdo, a fonte é ingerida com embeddings reais e fica ativa — os agentes passam a citar apenas o que estiver aqui.",
-  faq: "Cole aqui as perguntas e respostas (texto). Com conteúdo, a fonte é ingerida com embeddings reais e fica ativa — os agentes passam a citar apenas o que estiver aqui.",
+  document: "Cole aqui o conteúdo do documento (texto). Com conteúdo, a fonte é ingerida com embeddings reais e fica ativa: os agentes passam a citar apenas o que estiver aqui.",
+  faq: "Cole aqui as perguntas e respostas (texto). Com conteúdo, a fonte é ingerida com embeddings reais e fica ativa: os agentes passam a citar apenas o que estiver aqui.",
 };
 
 export function CreateSourceForm() {
@@ -66,7 +66,7 @@ export function CreateSourceForm() {
         />
       </div>
       <p style={{ fontSize: "0.76rem", color: "var(--text-faint)", margin: "10px 0 0" }}>
-        Com conteúdo, a fonte é dividida em trechos, indexada com embeddings e ativada na hora — vira a
+        Com conteúdo, a fonte é dividida em trechos, indexada com embeddings e ativada na hora: vira a
         única base de fatos dos agentes da conta. Sem conteúdo, ela fica pendente e nada é citado.
       </p>
       {state.error && <p className="form-error" role="alert" style={{ margin: "10px 0 0" }}>{state.error}</p>}

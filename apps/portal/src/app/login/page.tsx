@@ -28,7 +28,7 @@ export default async function LoginPage({
         <p className="subtitle">Acesse o painel da sua conta.</p>
         {confirm === "1" && (
           <p className="notice" role="status">
-            Conta criada. Confirme seu e-mail antes de entrar — enviamos um link de verificação.
+            Conta criada. Confirme seu e-mail antes de entrar: enviamos um link de verificação.
           </p>
         )}
         <LoginForm />

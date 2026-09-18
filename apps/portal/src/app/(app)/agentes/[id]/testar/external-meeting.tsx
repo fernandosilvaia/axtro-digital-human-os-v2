@@ -13,10 +13,10 @@ const EXTERNAL_MEETING_AVAILABLE = false;
 /**
  * Leva o agente para uma reunião externa de verdade (Google Meet, Zoom,
  * Teams): o bot do Recall.ai entra na reunião e a sala de vídeo do agente
- * vira a câmera dele — os outros participantes veem e ouvem a agente como
+ * vira a câmera dele: os outros participantes veem e ouvem a agente como
  * um participante comum.
  *
- * O modo padrão é entrada IMEDIATA — pensado pra alguém já numa call ao
+ * O modo padrão é entrada IMEDIATA, pensado pra alguém já numa call ao
  * vivo colando o link na hora. O campo de data só aparece se a pessoa
  * escolher agendar explicitamente; assim "agora" nunca depende de acertar
  * um datetime-local no segundo exato (achado ao vivo 2026-08-14: o campo de
@@ -42,7 +42,7 @@ export function ExternalMeeting({ agentId, agentName, timeZone }: { agentId: str
     setStopError(null);
     setStopped(false);
     const commandId = crypto.randomUUID();
-    // scheduleAt só é enviado quando a pessoa optou por agendar — entrada
+    // scheduleAt só é enviado quando a pessoa optou por agendar, entrada
     // imediata nunca lê este campo, então não existe como um valor "agora"
     // digitado ali virar sentinela silenciosa ou "horário já passou" por
     // atraso entre digitar e clicar.
@@ -170,7 +170,7 @@ export function ExternalMeeting({ agentId, agentName, timeZone }: { agentId: str
                 }}
               />
               <p style={{ fontSize: "0.74rem", color: "var(--text-faint)", margin: "6px 0 0" }}>
-                No horário marcado ela entra silenciosa, como sentinela — a câmera liga depois,
+                No horário marcado ela entra silenciosa, como sentinela: a câmera liga depois,
                 quando confirmamos que ela realmente entrou na chamada.
               </p>
             </div>
@@ -183,7 +183,7 @@ export function ExternalMeeting({ agentId, agentName, timeZone }: { agentId: str
           <div className="saved-flag" role="status" style={{ margin: "0 0 12px", display: "block" }}>
             {success.scheduled
               ? `✓ ${agentName} vai entrar na reunião no horário marcado.`
-              : `✓ ${agentName} está entrando na reunião agora — pode levar alguns segundos para aparecer.`}
+              : `✓ ${agentName} está entrando na reunião agora, pode levar alguns segundos para aparecer.`}
             {trustedConversationUrl && (
               <>
                 {" "}

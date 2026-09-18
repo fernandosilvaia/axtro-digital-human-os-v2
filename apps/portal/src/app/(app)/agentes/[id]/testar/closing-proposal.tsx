@@ -9,9 +9,9 @@ const initialState: ProposalActionState = { error: null, done: false };
 
 /**
  * Fechamento ao vivo (D-V2-123): depois da call, um admin revisa e dispara
- * a proposta — nunca a IA sozinha ("IA rascunha, humano manda"). Fica no
+ * a proposta, nunca a IA sozinha ("IA rascunha, humano manda"). Fica no
  * Testar do agente porque é o mesmo lugar onde a conversa/apresentação
- * aconteceu — o link de checkout sai por e-mail pro prospect, não aqui.
+ * aconteceu: o link de checkout sai por e-mail pro prospect, não aqui.
  */
 export function ClosingProposal({ agentId, agentName }: { agentId: string; agentName: string }) {
   const [state, formAction, pending] = useActionState(sendClosingProposal, initialState);
@@ -22,7 +22,7 @@ export function ClosingProposal({ agentId, agentName }: { agentId: string; agent
         Fechar e enviar proposta 📩
       </h3>
       <p style={{ color: "var(--text-muted)", fontSize: "0.84rem", margin: "0 0 14px" }}>
-        Depois de {agentName} conduzir o fechamento numa call, registre a empresa e o plano combinado —
+        Depois de {agentName} conduzir o fechamento numa call, registre a empresa e o plano combinado:
         a proposta com o link de confirmação vai por e-mail pro prospect. Revisão sua, nunca automático.
       </p>
 
@@ -50,7 +50,7 @@ export function ClosingProposal({ agentId, agentName }: { agentId: string; agent
         {state.error && <p className="form-error" role="alert" style={{ margin: "12px 0 0" }}>{state.error}</p>}
         {state.done && !state.error && (
           <p className="saved-flag" role="status" style={{ marginTop: 12 }}>
-            ✓ Proposta enviada — o prospect recebeu o link de confirmação por e-mail.
+            ✓ Proposta enviada, o prospect recebeu o link de confirmação por e-mail.
           </p>
         )}
 

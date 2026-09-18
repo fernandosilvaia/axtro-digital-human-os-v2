@@ -1,13 +1,13 @@
 import { createPageMetadata } from "@/lib/site";
 
 export const metadata = createPageMetadata({
-  title: "Privacidade — Axtro Digital Human OS",
+  title: "Privacidade, Axtro Digital Human OS",
   description: "Como o Axtro Digital Human OS trata dados pessoais.",
   path: "/privacidade",
 });
 
 /**
- * Aviso de privacidade v1 — descreve APENAS o que o produto realmente faz
+ * Aviso de privacidade v1: descreve APENAS o que o produto realmente faz
  * hoje, sem promessas genéricas. Sujeito a revisão jurídica formal
  * (PENDENCIAS_EXTERNAS): esta página é transparência operacional, não
  * parecer de advogado.
@@ -31,11 +31,11 @@ export default function PrivacyPage() {
         <p><strong>Conversas com as agentes.</strong> As agentes se identificam sempre como IA.
         A conversa em texto opera sem exigir nenhuma finalidade opcional. A conversa em vídeo (voz
         e imagem processadas em tempo real para realizar a conversa) hoje exige consentimento
-        simultâneo a todas as finalidades opcionais abaixo — não é possível iniciar uma conversa em
+        simultâneo a todas as finalidades opcionais abaixo. Não é possível iniciar uma conversa em
         vídeo consentindo só parte delas; a análise visual ou comportamental é declarada nesse
         consentimento e não é usada para identificação biométrica.</p>
-        <p><strong>Histórico de conversa.</strong> Quando você consente a transcrição persistente —
-        hoje, sempre junto das demais finalidades opcionais de vídeo — a plataforma retém a
+        <p><strong>Histórico de conversa.</strong> Quando você consente a transcrição persistente
+        (hoje, sempre junto das demais finalidades opcionais de vídeo), a plataforma retém a
         transcrição da interação para revisão no workspace. A conversa em texto nunca cria esse
         histórico. O acesso ao histórico segue as permissões do workspace.</p>
         <p><strong>Com quem compartilhamos.</strong> Provedores de infraestrutura sob contrato:
@@ -45,7 +45,7 @@ export default function PrivacyPage() {
         consentimento individual aplicável) e Resend (e-mails transacionais). Não vendemos dados
         pessoais.</p>
         <p><strong>Seus direitos (LGPD).</strong> Você pode solicitar acesso, correção ou exclusão
-        dos seus dados — incluindo o histórico de conversas — a qualquer momento pelo e-mail
+        dos seus dados (incluindo o histórico de conversas) a qualquer momento pelo e-mail
         fernando@axtroai.com. Fontes de conhecimento podem ser revogadas e excluídas diretamente no
         portal, com efeito imediato.</p>
         <p><strong>Retenção.</strong> Dados da conta permanecem enquanto a conta existir. Quando

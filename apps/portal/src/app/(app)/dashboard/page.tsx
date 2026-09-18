@@ -10,7 +10,7 @@ import {
 } from "@/lib/portal-data";
 import { StatusBadge } from "@/components/status-badge";
 
-export const metadata: Metadata = { title: "Visão geral — Axtro Closer AI Human" };
+export const metadata: Metadata = { title: "Visão geral, Axtro Closer AI Human" };
 
 const METRICS = [
   { key: "agents", label: "Agentes configurados", hint: "Presenças digitais sob controle da equipe" },
@@ -152,7 +152,7 @@ export default async function DashboardPage() {
             <div>
               <span className="metric-label">Custo atribuído hoje</span>
               <div className="metric-value">{formatUsd(usage.total_cost_usd_today)}</div>
-              <div className="metric-hint">Ledger estimado/reportado — não é a fatura conciliada</div>
+              <div className="metric-hint">Ledger estimado/reportado: não é a fatura conciliada</div>
             </div>
             <div>
               <span className="metric-label">Serviços com atividade (7 dias)</span>
@@ -215,7 +215,7 @@ export default async function DashboardPage() {
           <p className="workspace-section-lead">Mantenha a operação pronta sem perder o contexto que sustenta cada conversa.</p>
           <ol style={{ margin: 0, paddingLeft: 20, color: "var(--text-muted)", fontSize: "0.9rem", display: "grid", gap: 10 }}>
             <li>
-              <strong style={{ color: "var(--text)" }}>Defina a presença</strong> em Agentes — a equipe decide qual agente pode conduzir cada contexto.
+              <strong style={{ color: "var(--text)" }}>Defina a presença</strong> em Agentes: a equipe decide qual agente pode conduzir cada contexto.
             </li>
             <li>
               <strong style={{ color: "var(--text)" }}>Autorize o conhecimento</strong> que pode apoiar a conversa antes de colocá-lo em campo.

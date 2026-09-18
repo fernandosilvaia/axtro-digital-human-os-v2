@@ -6,7 +6,7 @@ import { fetchConversationTranscript, fetchTenantOverview } from "@/lib/portal-d
 
 import { TranscriptDeleteButton } from "./transcript-delete-button";
 
-export const metadata: Metadata = { title: "Conversa — Axtro Digital Human OS" };
+export const metadata: Metadata = { title: "Conversa, Axtro Digital Human OS" };
 
 const SURFACE_LABELS: Record<string, string> = {
   chat: "Chat de teste",
@@ -23,7 +23,7 @@ export default async function ConversationDetailPage({ params }: { params: Promi
   } catch {
     return (
       <div className="error-banner" role="alert">
-        Não foi possível carregar esta conversa — ela pode não existir ou pertencer a outra conta.{" "}
+        Não foi possível carregar esta conversa: ela pode não existir ou pertencer a outra conta.{" "}
         <Link href="/conversas" style={{ color: "inherit", textDecoration: "underline" }}>Voltar</Link>
       </div>
     );
@@ -56,7 +56,7 @@ export default async function ConversationDetailPage({ params }: { params: Promi
           <p>
             {transcript.surface === "chat"
               ? "Essa conversa ainda não tem mensagens."
-              : "A transcrição chega quando a chamada termina — pode levar alguns instantes depois do encerramento."}
+              : "A transcrição chega quando a chamada termina, pode levar alguns instantes depois do encerramento."}
           </p>
         </div>
       ) : (

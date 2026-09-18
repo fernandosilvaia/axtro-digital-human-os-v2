@@ -6,8 +6,8 @@ import { useState, useTransition } from "react";
 import { deleteDraftAgent } from "@/lib/actions/resources";
 
 /**
- * Exclusão de agente em rascunho (admin). Dois cliques deliberados — o
- * segundo confirma — porque exclusão é irreversível e libera o limite da
+ * Exclusão de agente em rascunho (admin). Dois cliques deliberados: o
+ * segundo confirma, porque exclusão é irreversível e libera o limite da
  * conta. Agentes com histórico de sessões são recusados pela RPC.
  */
 export function AgentDeleteButton({ agentId, agentName }: { agentId: string; agentName: string }) {
@@ -20,7 +20,7 @@ export function AgentDeleteButton({ agentId, agentName }: { agentId: string; age
     if (!confirming) {
       setConfirming(true);
       // Confirmação destrutiva não fica "armada" pra sempre: desarma em 8s
-      // sem clique (auditoria 2026-08-02 — clique acidental atrasado excluía).
+      // sem clique (auditoria 2026-08-02, clique acidental atrasado excluía).
       // 8s e não 5s: no build de produção o re-render RSC pós-action é mais
       // lento e 5s desarmava ANTES do segundo clique legítimo (pego pelo e2e
       // em modo produção, D-V2-103).

@@ -4,7 +4,7 @@ import { formatUsdCents, PLAN_CATALOG, PLAN_ORDER } from "@/lib/billing/plans";
 import { createPageMetadata } from "@/lib/site";
 
 export const metadata = createPageMetadata({
-  title: "Preços — Axtro Closer AI Human",
+  title: "Preços, Axtro Closer AI Human",
   description: "Planos do Axtro Closer AI Human com conversas de vídeo incluídas por mês e uso adicional transparente.",
   path: "/precos",
 });
@@ -88,7 +88,7 @@ export default function PricingPage() {
       </div>
 
       <p style={{ marginTop: 28, color: "var(--text-faint)", fontSize: "0.82rem", maxWidth: 640 }}>
-        Crie sua conta gratuitamente e assine o plano em Configurações — sem cartão para explorar
+        Crie sua conta gratuitamente e assine o plano em Configurações, sem cartão para explorar
         a plataforma primeiro. Preços em dólar (custo de operação é 100% em USD); troca e
         cancelamento de plano a qualquer momento, sem multa.
       </p>

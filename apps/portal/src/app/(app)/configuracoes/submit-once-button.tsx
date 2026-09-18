@@ -6,8 +6,8 @@ import { useFormStatus } from "react-dom";
 /**
  * Botão de submit que se desabilita assim que clicado, até a server action
  * terminar (redirect ou erro). Sem isso, o botão "Assinar" aceitava duplo
- * clique/duas abas e cada clique gerava uma Checkout Session Stripe distinta
- * — mesmo com a chave de idempotência do lado servidor (billing.ts), um
+ * clique/duas abas e cada clique gerava uma Checkout Session Stripe distinta,
+ * mesmo com a chave de idempotência do lado servidor (billing.ts), um
  * botão vivo continua deixando o usuário disparar N requisições em paralelo
  * antes da primeira responder (achado da auditoria 2026-08-06).
  */

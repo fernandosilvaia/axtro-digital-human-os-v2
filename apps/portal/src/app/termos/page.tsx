@@ -1,12 +1,12 @@
 import { createPageMetadata } from "@/lib/site";
 
 export const metadata = createPageMetadata({
-  title: "Termos de Uso — Axtro Digital Human OS",
+  title: "Termos de Uso, Axtro Digital Human OS",
   description: "Condições de uso do Axtro Digital Human OS.",
   path: "/termos",
 });
 
-/** Termos v1 — honestos e mínimos; sujeitos a revisão jurídica formal. */
+/** Termos v1: honestos e mínimos; sujeitos a revisão jurídica formal. */
 export default function TermsPage() {
   return (
     <main style={{ maxWidth: 720, margin: "0 auto", padding: "48px 24px", lineHeight: 1.65 }}>
@@ -23,7 +23,7 @@ export default function TermsPage() {
         contornar limites técnicos da conta. Você é responsável pelo conteúdo das fontes de
         conhecimento que cadastrar e por ter o direito de usá-lo.</p>
         <p><strong>Disponibilidade.</strong> O serviço em fase de avaliação é fornecido no estado
-        em que se encontra, sem SLA formal — acordos de nível de serviço fazem parte do contrato
+        em que se encontra, sem SLA formal: acordos de nível de serviço fazem parte do contrato
         comercial.</p>
         <p><strong>Encerramento.</strong> Você pode encerrar sua conta a qualquer momento
         solicitando pelo e-mail fernando@axtroai.com; dados são tratados conforme o

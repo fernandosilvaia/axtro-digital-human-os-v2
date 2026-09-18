@@ -32,7 +32,7 @@ function allConsentConfirmed(consent: VideoChannelConsent): boolean {
 
 /**
  * Ícones e cor de destaque por tipo de slide. Puramente decorativos/
- * metafóricos (bússola, colunas, balança) — nunca um gráfico com trend
+ * metafóricos (bússola, colunas, balança), nunca um gráfico com trend
  * implícito, pra não parecer dado inventado (deck.ts: "zero dado inventado
  * também na tela"). SVG inline: sem asset externo pra hospedar/carregar.
  */
@@ -87,7 +87,7 @@ function ProgressDots({ total, current }: { total: number; current: number }) {
   );
 }
 
-/** Conteúdo do slide varia por tipo: pilares viram cards em grade, prova vira selos — não apenas uma lista de texto repetida 7 vezes. */
+/** Conteúdo do slide varia por tipo: pilares viram cards em grade, prova vira selos, não apenas uma lista de texto repetida 7 vezes. */
 function SlideBody({ slide, accent }: { slide: DeckSlide; accent: string }) {
   if (slide.kind === "pillars" && slide.bullets) {
     return (
@@ -393,7 +393,7 @@ export function PresentationRoom({ agentId, agentName }: { agentId: string; agen
         <div style={{ flex: 1, minWidth: 240 }}>
           <h3 style={{ fontSize: "0.95rem", marginBottom: 4 }}>Apresentação ao vivo 🎬</h3>
           <p style={{ color: "var(--text-muted)", fontSize: "0.84rem", margin: 0 }}>
-            {agentName} conduz a reunião com slides na tela — ela mesma avança a apresentação enquanto conversa com você, como numa sala de conferência real.
+            {agentName} conduz a reunião com slides na tela, ela mesma avança a apresentação enquanto conversa com você, como numa sala de conferência real.
           </p>
         </div>
         <fieldset style={{ width: "100%", border: 0, padding: 0, margin: 0, display: "grid", gap: 8 }}>
@@ -522,7 +522,7 @@ export function PresentationRoom({ agentId, agentName }: { agentId: string; agen
               role="note"
               style={{ width: "100%", aspectRatio: "3 / 4", borderRadius: 12, background: "#0c0c1c", border: "1px dashed rgba(129,120,255,0.35)", display: "flex", alignItems: "center", justifyContent: "center", padding: 18, textAlign: "center", color: "var(--text-muted)", fontSize: "0.82rem" }}
             >
-              Modo demonstração — sem provider de vídeo. Navegue o deck manualmente para revisar a apresentação de {agentName}.
+              Modo demonstração: sem provider de vídeo. Navegue o deck manualmente para revisar a apresentação de {agentName}.
             </div>
           ) : (
             <>
@@ -563,7 +563,7 @@ export function PresentationRoom({ agentId, agentName }: { agentId: string; agen
           {error && <p className="form-error" role="alert" style={{ margin: 0 }}>{error}</p>}
           <p style={{ fontSize: "0.74rem", color: "var(--text-faint)", margin: 0 }}>
             {simulated
-              ? "Modo demonstração — navegue o deck manualmente para revisar a apresentação."
+              ? "Modo demonstração: navegue o deck manualmente para revisar a apresentação."
               : `Navegue os slides manualmente. Comandos de cena originados pelo modelo permanecem bloqueados até receberem manifesto, geração e recibo validados pelo servidor. Libere câmera e microfone quando o navegador pedir; a sala encerra em 15 minutos.`}
           </p>
         </div>

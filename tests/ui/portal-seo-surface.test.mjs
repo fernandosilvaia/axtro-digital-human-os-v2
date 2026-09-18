@@ -40,7 +40,7 @@ test("public portal SEO surface keeps private routes out of indexing", () => {
   const proxy = read("apps/portal/src/proxy.ts");
   assert.match(proxy, /robots\.txt\|sitemap\.xml\|manifest\.json\|opengraph-image/);
   // Achado real 2026-07-24: llms.txt/llms-full.txt ficaram fora do matcher
-  // de exclusão do middleware de auth — o smoke test HTTP pós-deploy pegou
+  // de exclusão do middleware de auth: o smoke test HTTP pós-deploy pegou
   // um 307 para /login em vez do conteúdo público (quebra o propósito de
   // AEO). Esta asserção de source complementa o teste HTTP real em
   // apps/portal/e2e/portal.spec.ts, que é quem realmente teria pego a falha.
@@ -160,5 +160,5 @@ test("dashboard exposes a data-backed operational next step", () => {
   assert.match(dashboard, /aria-valuenow=\{readinessPercent\}/);
   assert.match(dashboard, /aria-label="Prontidão operacional confirmada"/);
   assert.match(dashboard, /nextAction\.href/);
-  assert.match(dashboard, /Ledger estimado\/reportado — não é a fatura conciliada/);
+  assert.match(dashboard, /Ledger estimado\/reportado: não é a fatura conciliada/);
 });

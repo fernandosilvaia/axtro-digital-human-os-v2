@@ -7,7 +7,7 @@ import { AgentStatusToggle } from "./agent-status-toggle";
 import { AgentDeleteButton } from "./agent-delete-button";
 import { CreateAgentForm } from "./create-agent-form";
 
-export const metadata: Metadata = { title: "Agentes — Axtro Digital Human OS" };
+export const metadata: Metadata = { title: "Agentes, Axtro Digital Human OS" };
 
 const ROLE_TYPE_LABELS: Record<string, string> = {
   sales: "Sales Closer",
@@ -35,7 +35,7 @@ export default async function AgentsPage() {
       <header style={{ marginBottom: 22 }}>
         <h1 style={{ fontSize: "1.4rem" }}>Agentes</h1>
         <p style={{ color: "var(--text-muted)", margin: "4px 0 0", fontSize: "0.9rem" }}>
-          Apresentadores digitais da sua conta — cada um com papel, políticas e provedores próprios.
+          Apresentadores digitais da sua conta, cada um com papel, políticas e provedores próprios.
         </p>
       </header>
 
