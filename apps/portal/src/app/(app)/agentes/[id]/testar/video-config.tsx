@@ -3,12 +3,8 @@
 import { useRouter } from "next/navigation";
 import { useState, useTransition } from "react";
 
-import {
-  CLOSER_VERTICALS,
-  VIDEO_LANGUAGES,
-  setAgentVideoConfig,
-  type VideoConfigStatus,
-} from "@/lib/actions/agent-video-config";
+import { setAgentVideoConfig, type VideoConfigStatus } from "@/lib/actions/agent-video-config";
+import { CLOSER_VERTICALS, VIDEO_LANGUAGES } from "@/lib/video-config-options";
 
 /**
  * Persona de vídeo do agente (D-V2-179, `portal_set_agent_video_config`).

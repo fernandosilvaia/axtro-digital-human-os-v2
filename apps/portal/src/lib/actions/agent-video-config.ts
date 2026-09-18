@@ -25,18 +25,6 @@ export interface VideoConfigStatus {
   readonly closerVertical: string | null;
 }
 
-export const CLOSER_VERTICALS = [
-  { value: "metodo_silva", label: "Método Silva (genérico)" },
-  { value: "life_insurance_qualification", label: "Life Insurance · qualificação" },
-  { value: "life_insurance_recruitment", label: "Life Insurance · recrutamento" },
-] as const;
-
-export const VIDEO_LANGUAGES = [
-  { value: "portuguese", label: "Português" },
-  { value: "english", label: "Inglês" },
-  { value: "spanish", label: "Espanhol" },
-] as const;
-
 function mapRpcError(message: string): string {
   if (message.includes("only a tenant_admin")) {
     return "Somente administradores podem configurar o vídeo deste agente.";
