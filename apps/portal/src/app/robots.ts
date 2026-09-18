@@ -3,7 +3,7 @@ import type { MetadataRoute } from "next";
 import { absoluteUrl } from "@/lib/site";
 
 // Cada regra do array vira um bloco User-Agent independente no robots.txt
-// gerado — por RFC 9309, um bot com bloco próprio usa SÓ esse bloco, sem
+// gerado: por RFC 9309, um bot com bloco próprio usa SÓ esse bloco, sem
 // herdar o do "*". Por isso os paths privados precisam ser repetidos em
 // TODO bloco que permite crawling (achado da revisão da Auditoria 360:
 // OAI-SearchBot/Claude-SearchBot/Claude-User tinham só `allow: "/"`, sem

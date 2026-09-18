@@ -24,21 +24,21 @@ import { prepareTavusWebhookCallback, registerTranscriptPlaceholder } from "@/li
  *
  * Além de atualizar o status da sessão, este webhook fecha o ciclo do bot
  * SENTINELA agendado: quando um bot entra na call (in_call) e a sessão dele
- * ainda não tem sala Tavus (agendado não cria sala na hora — ela expiraria
+ * ainda não tem sala Tavus (agendado não cria sala na hora, ela expiraria
  * antes do horário), é AQUI que a sala nasce e a câmera é ligada.
  */
 export const dynamic = "force-dynamic";
 
 const IN_CALL_EVENTS = new Set(["bot.in_call_not_recording", "bot.in_call_recording", "bot.recording_permission_allowed"]);
 
-// Mesmo teto do caminho Tavus (lib/transcripts/tavus-webhook.ts) — achado P1
+// Mesmo teto do caminho Tavus (lib/transcripts/tavus-webhook.ts): achado P1
 // da auto-revisão 2026-08-11: sem isso, um bloco de fala contínua >8000
 // chars OU uma reunião com >1000 blocos de diarização (uma call de até 40min,
 // automatic_leave.in_call_not_recording_timeout=2400s) faz o validador SQL
-// (app.validate_transcript_turns, 0029) rejeitar o array INTEIRO — a
+// (app.validate_transcript_turns, 0029) rejeitar o array INTEIRO: a
 // transcrição inteira era perdida em silêncio, sem nem um salvamento
 // parcial. Trunca por turno E corta o array ANTES do teto do banco, com
-// folga — parcial é sempre melhor que nada.
+// folga. Parcial é sempre melhor que nada.
 const MAX_TURN_CHARS = 4000;
 const MAX_TURNS = 500;
 const MAX_RECALL_WEBHOOK_BYTES = 64 * 1024;
@@ -423,10 +423,10 @@ async function notifyMeetingEnded(botId: string, status: "ended" | "failed"): Pr
 }
 
 /**
- * Reunião terminou e a transcrição ficou pronta (D-V2-106) — busca o
+ * Reunião terminou e a transcrição ficou pronta (D-V2-106): busca o
  * conteúdo em 2 hops (metadata → download_url → conteúdo, docs.recall.ai/
  * docs/async-transcription) e grava como histórico. A Recall não dá um
- * `role` explícito por bloco (diferente do Tavus) — só o nome do
+ * `role` explícito por bloco (diferente do Tavus), só o nome do
  * participante; o bloco cujo nome bate com o nome do agente vira
  * 'assistant', o resto (o lead e qualquer outro participante real) vira
  * 'user'. Best-effort: nunca derruba o webhook.
@@ -435,10 +435,10 @@ async function notifyMeetingEnded(botId: string, status: "ended" | "failed"): Pr
  * confirmado 3x): esse match é por NOME, então um participante que renomeia
  * a si mesmo pra bater exatamente com o nome do agente sai marcado como
  * 'assistant' na transcrição. `isHost` não serve de sinal melhor (o bot
- * normalmente entra como convidado, não host — quem agendou a reunião é
+ * normalmente entra como convidado, não host: quem agendou a reunião é
  * que costuma ser host). Corrigir de verdade exigiria capturar o
  * participant_id do PRÓPRIO bot via evento de participante em tempo real
- * durante a call (não capturado hoje) — fora do escopo desta rodada.
+ * durante a call (não capturado hoje), fora do escopo desta rodada.
  * Impacto aceito: pior caso é um rótulo trocado numa tela de leitura
  * (não vaza dado entre tenants, não abre acesso indevido).
  */
@@ -467,7 +467,7 @@ async function processMeetingTranscript(botId: string, transcriptId: string): Pr
   const recallPort = createRecallMeetingBotPort({ apiKey: recallApiKey, region: recallRegion, transcriptDownloadHosts: parseRecallTranscriptDownloadHosts(process.env.RECALL_TRANSCRIPT_DOWNLOAD_HOSTS) ?? [] });
   const metadata = await recallPort.fetchTranscriptMetadata(transcriptId, botId);
   if (metadata.downloadUrl === null) {
-    // Transcrição ainda processando — a Recall reenvia transcript.done quando estiver pronta de verdade.
+    // Transcrição ainda processando: a Recall reenvia transcript.done quando estiver pronta de verdade.
     logEvent("recall_webhook_transcript_not_ready", { bot_id: botId, transcript_id: transcriptId });
     return "not_ready";
   }
@@ -482,7 +482,7 @@ async function processMeetingTranscript(botId: string, transcriptId: string): Pr
   if (rawTurns.length === 0) return "empty";
   const turns = rawTurns.slice(0, MAX_TURNS);
   if (rawTurns.length > MAX_TURNS) {
-    // Parcial é sempre melhor que a rejeição total do validador SQL —
+    // Parcial é sempre melhor que a rejeição total do validador SQL,
     // telemetrado pra visibilidade, nunca bloqueia o salvamento do que coube.
     logEvent("recall_webhook_transcript_truncated", { bot_id: botId, raw_turns: rawTurns.length, kept_turns: turns.length });
   }
@@ -600,7 +600,7 @@ export async function POST(request: NextRequest): Promise<Response> {
 
   const parsed = parseRecallWebhookPayload(body);
   if (parsed === null) {
-    // Evento fora do escopo mapeado (ex.: participant_events, breakout room) — não é erro, só nada a fazer aqui.
+    // Evento fora do escopo mapeado (ex.: participant_events, breakout room): não é erro, só nada a fazer aqui.
     return completeOrRetry({ ok: true, handled: false });
   }
   const status = statusForRecallEvent(parsed.event);

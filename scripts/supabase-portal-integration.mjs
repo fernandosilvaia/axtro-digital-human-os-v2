@@ -2586,10 +2586,10 @@ async function assertTerminationFencePhase(databaseUrl, { expectedSchemaVersion,
   assert.equal(queryScalar(databaseUrl, "SELECT has_function_privilege('authenticated','public.portal_begin_provider_effect_termination_service(app.uuid_v7,app.uuid_v7,app.uuid_v7,uuid,app.uuid_v7,app.uuid_v7,text,text,integer)','EXECUTE');"), "f");
 
   // tenantAlpha/userAlpha/actorAlpha already has a tenant_admin membership
-  // from the base prelude (line ~178) — reusing it avoids inventing a new
+  // from the base prelude (line ~178): reusing it avoids inventing a new
   // membership fixture just for this phase. This phase runs immediately
   // after migrations, before any other test has given a tenant a
-  // subscription — portal_begin_provider_effect_service returns
+  // subscription. portal_begin_provider_effect_service returns
   // outcome:"capped"/bucket:"billing_status" for a tenant with none (0040
   // line ~856), identical in shape to a cap-bucket exhaustion. The
   // subscription/reservation fixtures are deleted at the end of this
@@ -2633,7 +2633,7 @@ async function assertTerminationFencePhase(databaseUrl, { expectedSchemaVersion,
       '019f0000-0000-7000-8000-000000004603','019f0000-0000-7000-8000-000000004604','${tenantId}','${fixture.userBeta}',
       '${fixture.actorBeta}','${agentId}','${idempotencyKey}','recall'
     );`)),
-  "termination requires the CALLER's actor to hold a tenant_admin membership on the target tenant — a foreign actor cannot even attempt it", /tenant admin membership required/);
+  "termination requires the CALLER's actor to hold a tenant_admin membership on the target tenant: a foreign actor cannot even attempt it", /tenant admin membership required/);
   assertFailed(runSql(databaseUrl, asRoleSql("service_role", null,
     beginTerminationSql("019f0000-0000-7000-8000-000000004615", "019f0000-0000-7000-8000-000000004616", { actorId: fixture.actorBeta }))),
   "a user-to-actor mismatch is rejected with the same tenant-admin boundary", /tenant admin membership required/);

@@ -15,7 +15,7 @@
 //
 // This question exists because the investigation behind this script found
 // no production code path that calls endConversation/leaveCall on a human's
-// direct request — only as failure-compensation or background reconciliation
+// direct request, only as failure-compensation or background reconciliation
 // (see docs/operations/TERMINATION_LATENCY_CANARY.md for the full context).
 // Before that gap is closed, we want a real number, not an assumption.
 //
@@ -24,7 +24,7 @@
 //      including a loud, explicit confirmation value.
 //   2. Attaches to an ALREADY-RUNNING conversation/bot that a human started
 //      through the normal app (the portal's own "testar" flow, or a real
-//      Recall bot join) — it deliberately does NOT create paid resources
+//      Recall bot join): it deliberately does NOT create paid resources
 //      itself, so it never touches provider_effect_reservations /
 //      beginProviderEffect / completeProviderEffect. See README rule 6.
 //   3. Calls the real termination method from the real provider port
@@ -33,13 +33,13 @@
 //      timestamps.
 //   4. Reads independent-witness timestamps for when media actually stopped,
 //      either from an observer NDJSON file (produced by a companion
-//      observer — see the runbook for the two documented designs, one per
+//      observer, see the runbook for the two documented designs, one per
 //      channel) or, if none is supplied, from a manual human keypress
 //      (coarser, reaction-time-biased, but requires zero new dependencies
 //      and works today).
 //   5. Computes delta_ms, evaluates it against a pass/fail threshold, and
 //      writes full evidence to .canary-evidence/ as JSON. Never only prints
-//      to stdout — a canary that isn't evidenced is an anecdote.
+//      to stdout: a canary that isn't evidenced is an anecdote.
 //
 // WHAT THIS SCRIPT DELIBERATELY DOES NOT DO (v1 scope):
 //   - Start a Tavus conversation or Recall bot itself. Reuse the real app
@@ -64,7 +64,7 @@ const HERE = path.dirname(fileURLToPath(import.meta.url));
 const REPO_ROOT = path.join(HERE, "..", "..");
 const EVIDENCE_DIR = path.join(REPO_ROOT, ".canary-evidence");
 
-// Deliberately loud and specific — not "1" or "true". A human has to read
+// Deliberately loud and specific, not "1" or "true". A human has to read
 // this and mean it. Mirrors the spirit of AXTRO_ALLOW_LOCAL_DATABASE_URL=1
 // used elsewhere in scripts/, turned up for a canary that touches real
 // external meetings and real spend.
@@ -105,7 +105,7 @@ function usage() {
                     channel (defaults: tavus=${DEFAULT_THRESHOLD_MS.tavus}, \
 recall-leave=${DEFAULT_THRESHOLD_MS["recall-leave"]}, \
 recall-camera=${DEFAULT_THRESHOLD_MS["recall-camera"]}). These defaults are
-                    an initial proposal, not a validated SLA — tune them
+                    an initial proposal, not a validated SLA: tune them
                     after the first empirical runs.
   --dry-run         parse args, run the env-var gate, and print what would
                     happen, but never call a real provider and never prompt
@@ -159,7 +159,7 @@ function runGate(channel, { dryRun }) {
   if (confirm !== REQUIRED_CONFIRM_VALUE) {
     throw new CanaryGateError(
       `TERMINATION_LATENCY_CANARY_CONFIRM must be exactly "${REQUIRED_CONFIRM_VALUE}". ` +
-        "This is deliberately not a boolean flag — read scripts/canaries/README.md first.",
+        "This is deliberately not a boolean flag. Read scripts/canaries/README.md first.",
     );
   }
   if (dryRun) return {};
@@ -230,7 +230,7 @@ async function waitForObserverEvent(observerFilePath, afterIso, { timeoutMs = 20
       try {
         parsed.push(JSON.parse(line));
       } catch {
-        // Ignore partial/in-progress lines — the observer may still be
+        // Ignore partial/in-progress lines: the observer may still be
         // mid-write. We'll see the complete line on the next poll.
       }
     }
@@ -250,7 +250,7 @@ async function promptManualObserverTimestamp() {
   const rl = createInterface({ input: process.stdin, output: process.stdout });
   console.log(
     "\nNo --observer-file supplied. Falling back to a manual signal.\n" +
-      "This is reaction-time-biased (typically +200-400ms of human lag) —\n" +
+      "This is reaction-time-biased (typically +200-400ms of human lag):\n" +
       "treat results from this mode as a rough upper bound, not a tight\n" +
       "measurement. Prefer a real observer for any run whose result will\n" +
       "gate a decision.\n",

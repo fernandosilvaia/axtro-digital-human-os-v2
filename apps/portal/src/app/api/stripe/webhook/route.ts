@@ -13,7 +13,7 @@ import { createServiceRoleClient, ServiceRoleUnavailableError } from "@/lib/supa
 import { logError as trackError, logEvent } from "@/lib/telemetry";
 
 /**
- * Recebe eventos de assinatura da Stripe (D-V2-101) — servidor-a-servidor,
+ * Recebe eventos de assinatura da Stripe (D-V2-101): servidor-a-servidor,
  * sem sessão de usuário, mesmo padrão de /api/recall/webhook: assinatura
  * HMAC obrigatória (STRIPE_WEBHOOK_SECRET), corpo cru lido ANTES do parse
  * JSON (a assinatura é sobre os bytes exatos que a Stripe mandou).
@@ -23,7 +23,7 @@ import { logError as trackError, logEvent } from "@/lib/telemetry";
  * sem ação (Art. 14: escopo declarado).
  *
  * O PLANO é resolvido pelo par exato licensed+metered (`resolvePlanId`),
- * NUNCA pela metadata sozinha — a Stripe não reescreve metadata quando o
+ * NUNCA pela metadata sozinha: a Stripe não reescreve metadata quando o
  * cliente troca de plano pelo Customer Portal, então confiar só nela cobra
  * o plano errado depois de upgrade/downgrade. Price desconhecido agora falha
  * fechado; não há fallback de metadata no writer financeiro estrito.
@@ -72,7 +72,7 @@ export async function POST(request: NextRequest): Promise<Response> {
   const webhookSecret = (process.env.STRIPE_WEBHOOK_SECRET ?? "").trim();
   if (webhookSecret.length === 0) {
     // Achado onda 8 (D-V2-117): sem isto, TODO webhook de assinatura da
-    // Stripe falhava em silêncio — só apareceria no dashboard da Stripe
+    // Stripe falhava em silêncio: só apareceria no dashboard da Stripe
     // (ninguém monitora ativamente), nunca no alerta de taxa de erro do
     // próprio produto (D-V2-114).
     trackError("stripe_webhook_secret_missing", new Error("STRIPE_WEBHOOK_SECRET not configured"));
@@ -163,7 +163,7 @@ export async function POST(request: NextRequest): Promise<Response> {
   if (parsed === null) {
     // "Fora de escopo" (invoice.*, checkout.session.*...) é silêncio
     // esperado (Art. 14). Mas se o TIPO é um dos 3 tratados e mesmo assim
-    // o parse falhou, o payload não tem tenant_id/plan_id válidos — sinal
+    // o parse falhou, o payload não tem tenant_id/plan_id válidos: sinal
     // de assinatura órfã (ex.: criada manualmente no dashboard Stripe pra
     // suporte) que ficava invisível pra investigar, inconsistente com o
     // resto deste arquivo (achado da auditoria 2026-08-06).

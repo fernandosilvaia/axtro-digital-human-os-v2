@@ -1,6 +1,6 @@
 // Provisiona o catálogo de cobrança na Stripe (D-V2-101): 1 Meter
 // compartilhado (overage de conversas) + 3 Products, cada um com 2 Prices
-// (licensed fixo mensal + metered vinculado ao meter). Idempotente — roda
+// (licensed fixo mensal + metered vinculado ao meter). Idempotente: roda
 // quantas vezes quiser, sempre pelo mesmo lookup_key; nunca duplica.
 //
 // Uso:
@@ -17,11 +17,11 @@ if (apiKey.length === 0) {
 }
 // sk_live_ é a chave secreta padrão de produção; rk_live_ é uma chave
 // RESTRITA (escopo customizável no dashboard) mas igualmente válida em
-// produção pros endpoints que este script chama (products/prices/meters) —
+// produção pros endpoints que este script chama (products/prices/meters):
 // bloquear só sk_live_ deixava rk_live_ passar batido (achado da revisão
 // adversarial 2026-08-03).
 if (apiKey.startsWith("sk_live_") || apiKey.startsWith("rk_live_")) {
-  console.error("Recusado: esta chave é de PRODUÇÃO (sk_live_/rk_live_). Rode primeiro em modo teste (sk_test_/rk_test_) — chave real de produção exige autorização explícita do Fernando (gate humano, ver CLAUDE.md da raiz AxtroAI).");
+  console.error("Recusado: esta chave é de PRODUÇÃO (sk_live_/rk_live_). Rode primeiro em modo teste (sk_test_/rk_test_). Chave real de produção exige autorização explícita do Fernando (gate humano, ver CLAUDE.md da raiz AxtroAI).");
   process.exit(1);
 }
 
@@ -94,7 +94,7 @@ async function ensureProduct(planId, planName) {
     return found.id;
   }
   const created = await stripe("POST", "/products", {
-    name: `Digital Human OS — ${planName}`,
+    name: `Digital Human OS: ${planName}`,
     metadata: { axtro_plan_id: planId },
   });
   console.log(`+ Product criado: ${created.id} (${planName})`);

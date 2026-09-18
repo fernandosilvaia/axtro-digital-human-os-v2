@@ -17,7 +17,7 @@ import { createServiceRoleClient } from "@/lib/supabase/service";
 import { logError as trackError } from "@/lib/telemetry";
 
 /**
- * Callback OAuth do Google Calendar (ADR-039, onda 1b-ii) — a primeira rota
+ * Callback OAuth do Google Calendar (ADR-039, onda 1b-ii): a primeira rota
  * de callback OAuth por redirect de navegador deste repositório; toda outra
  * rota em `api/*` é webhook push (provider → servidor via POST), sem sessão
  * de usuário. Esta é diferente: o Google redireciona o NAVEGADOR do
@@ -35,25 +35,25 @@ import { logError as trackError } from "@/lib/telemetry";
  *    ao tenant da vítima.
  * 4. Reautentica a sessão atual (`supabase.auth.getUser()` + RPC de
  *    overview, mesmo padrão de `billing.ts`) e confirma que ainda é o MESMO
- *    tenant_admin amarrado ao `state` — nunca confia só no `state` sozinho;
+ *    tenant_admin amarrado ao `state`. Nunca confia só no `state` sozinho;
  *    um logout+login como outro membro dentro da janela de 10 minutos não
  *    pode reaproveitar o `state` de outra identidade.
  * 5. Troca `code` por tokens (real ou fake conforme `PORTAL_FAKE_PROVIDERS`,
- *    mesmo padrão de todo outro provider deste repo) — `missing_refresh_token`
+ *    mesmo padrão de todo outro provider deste repo): `missing_refresh_token`
  *    vira um aviso específico orientando revogar acesso em
  *    myaccount.google.com/permissions.
  * 6. Decodifica o e-mail da conta conectada a partir do `id_token` (nunca
- *    valida assinatura — ver `id-token.ts`); usa `"primary"` como
+ *    valida assinatura, ver `id-token.ts`); usa `"primary"` como
  *    `calendarId` (alias documentado do Google pro calendário principal da
  *    própria identidade autenticada pelo token, sem chamada HTTP extra).
  * 7. Chama `portal_connect_google_calendar_service` (service_role).
  * 8. Redireciona pra `/configuracoes?calendar_status=connected` (sucesso)
- *    ou `/configuracoes?calendar_error=<motivo_curto>` (qualquer falha) —
+ *    ou `/configuracoes?calendar_error=<motivo_curto>` (qualquer falha):
  *    nunca vaza detalhe de erro sensível na URL, mesmo padrão de
  *    `billing_error` em `billing.ts`.
  *
  * Nunca loga `code`, `state`, `refresh_token`, `access_token` ou `id_token`
- * bruto em nenhum caminho (sucesso ou erro) — só metadados não sensíveis
+ * bruto em nenhum caminho (sucesso ou erro), só metadados não sensíveis
  * (`tenant_id`, código de erro tipado do provider).
  */
 export const dynamic = "force-dynamic";

@@ -29,7 +29,7 @@ import { logError as trackError, logEvent } from "@/lib/telemetry";
  * Endpoint OpenAI-compatible que o Tavus chama como LLM da persona de vídeo
  * (`layers.llm.base_url`, M4-04). Wiring fino sobre `handleBrainChatRequest`
  * (puro e testado): resolve o segredo via service role (sem sessão de
- * usuário — chamada servidor-a-servidor), reserva atomicamente o pior caso
+ * usuário, chamada servidor-a-servidor), reserva atomicamente o pior caso
  * de custo antes de cada provider, aplica rate limit e formata a resposta em
  * SSE `chat.completion.chunk`.
  */
@@ -37,7 +37,7 @@ export const dynamic = "force-dynamic";
 
 /**
  * Rate limit em memória por agente: uma call de vídeo real gera no máximo
- * um turno a cada poucos segundos — 40/min é folga generosa e ainda corta
+ * um turno a cada poucos segundos: 40/min é folga generosa e ainda corta
  * um loop de script. Processo único no Railway; se um dia houver réplicas,
  * isto vira melhor-esforço por instância (a reserva transacional no banco
  * continua sendo a proteção dura de gasto).
@@ -86,7 +86,7 @@ async function resolveConfig(secretHash: string): Promise<ResolvedBrainAgent | n
     return null;
   }
 
-  // Idioma da persona (agent_video_config.language) — sem ele o cérebro
+  // Idioma da persona (agent_video_config.language): sem ele o cérebro
   // sempre falava pt-BR mesmo em persona EN (achado da auditoria 2026-08-02).
   let language: BrainLanguage | undefined;
   const { data: videoConfig } = await supabase
@@ -118,15 +118,15 @@ async function resolveConfig(secretHash: string): Promise<ResolvedBrainAgent | n
 /**
  * RAG pro caminho de vídeo (fecha o gap declarado desde D-V2-083/M4-04):
  * embeda a pergunta e busca via `portal_search_knowledge_service` (0032,
- * variante service-role de `portal_search_knowledge`, 0010 — mesmo corpo de
+ * variante service-role de `portal_search_knowledge`, 0010: mesmo corpo de
  * busca, só resolve o tenant por `p_tenant_id` explícito em vez de
  * `auth.uid()`, que não existe nesta chamada servidor-a-servidor). Mesmo
  * piso de similaridade do caminho de chat (agent-preview.ts, 0.25 em cosine
- * do text-embedding-3-small) — sem ele, ~1k tokens de chunks irrelevantes
+ * do text-embedding-3-small): sem ele, ~1k tokens de chunks irrelevantes
  * entrariam como "mais relevantes" pra qualquer pergunta.
  *
  * Falha (embedding indisponível, RPC fora do ar) SEMPRE degrada pra `[]`,
- * nunca lança — RAG indisponível não pode derrubar a call de vídeo, e sem
+ * nunca lança. RAG indisponível não pode derrubar a call de vídeo, e sem
  * fontes o agente não inventa (Art. 14).
  *
  * A chamada de embedding também usa reserva prévia, fence antes do envio e
@@ -389,7 +389,7 @@ export async function POST(
       }
     }
     if (result.degraded) {
-      // Degradação NUNCA pode parecer saúde na operação (Art. 16) — era um
+      // Degradação NUNCA pode parecer saúde na operação (Art. 16): era um
       // catch vazio; agora todo fallback vira telemetria com o motivo real.
       if (result.degradedReason === "generation_failed" || result.degradedReason === "malformed_request") {
         trackError(`brain_degraded_${result.degradedReason}`, result.cause ?? new Error(result.degradedReason), { agent_id: agentId });
@@ -400,7 +400,7 @@ export async function POST(
     if (result.guardrailFlags.length > 0) {
       // Detecção não-bloqueante (achado P1, auditoria 2026-08-12): os
       // guardrails anti-promessa só existem como texto de prompt, sem
-      // checagem de código — isto não impede a fala, só dá visibilidade
+      // checagem de código: isto não impede a fala, só dá visibilidade
       // real de quando o padrão de risco aparece na resposta gerada.
       // Nunca loga o conteúdo da fala em si (redação de PII/conversa).
       logEvent("brain_guardrail_risk_detected", { agent_id: agentId, flags: result.guardrailFlags.join(",") });
