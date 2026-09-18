@@ -3,8 +3,10 @@
 **Estado: NO AR desde 2026-07-16.**
 Projeto Railway `axtro-digital-human-os` (workspace fpxcorpdigital, id
 `5c4d7de2-77fe-4727-957f-8e4c4868fa96`), serviço `portal`, URL pública
-**https://portal-production-b43e.up.railway.app**, login real testado em
-produção (usuário de teste criado, logou, tenant provisionado, removido).
+**https://closer.axtroai.com** (domínio próprio conectado desde 2026-08-01,
+D-V2-097; a raw URL `portal-production-b43e.up.railway.app` continua
+servindo em paralelo como fallback), login real testado em produção
+(usuário de teste criado, logou, tenant provisionado, removido).
 
 ## Configuração que ficou valendo (aprendida em 3 builds quebrados)
 

@@ -64,7 +64,7 @@ com log estruturado.
 ## Smoke test pós-deploy
 
 ```bash
-curl -s https://portal-production-b43e.up.railway.app/api/health
+curl -s https://closer.axtroai.com/api/health
 # esperado: {"ok":true,...,"checks":{"supabase_url":true,"language_provider":true,...}}
 ```
 

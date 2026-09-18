@@ -5,7 +5,7 @@ Este arquivo é o resumo operacional.
 
 ## Produção
 
-- **Plataforma:** Railway, projeto `axtro-digital-human-os` → https://portal-production-b43e.up.railway.app
+- **Plataforma:** Railway, projeto `axtro-digital-human-os` → https://closer.axtroai.com (domínio próprio conectado desde 2026-08-01, D-V2-097; a raw URL `portal-production-b43e.up.railway.app` continua servindo em paralelo como fallback, mas não é mais a URL canônica)
 - **Trigger:** auto-deploy de todo push na `main` (merge de PR = deploy).
 - **Build:** Railpack com provider node forçado (`railpack.json`); `pnpm --filter @axtro/portal run build`.
 - **Health:** `GET /api/health`: flags booleanas de configuração, sem segredos.
