@@ -37,10 +37,10 @@ test("allowed quando plano ativo e ainda dentro do incluído mensal", async () =
   assert.equal(await videoCap.checkVideoCap(supabase), "allowed");
 });
 
-test("allowed_overage quando plano ativo já passou do incluído mensal — nunca bloqueia", async () => {
+test("allowed_overage quando plano ativo já passou do incluído mensal. Nunca bloqueia", async () => {
   const supabase = fakeSupabase({
     plan_id: "piloto", status: "active", stripe_customer_id: "cus_1",
-    conversations_today: 2, conversations_this_period: 7, // piloto inclui 7 — a 8ª é overage
+    conversations_today: 2, conversations_this_period: 7, // piloto inclui 7, a 8ª é overage
   });
   assert.equal(await videoCap.checkVideoCap(supabase), "allowed_overage");
 });
@@ -53,10 +53,10 @@ test("status past_due ainda conta como plano ativo (graça antes de cancelar)", 
   assert.equal(await videoCap.checkVideoCap(supabase), "allowed_overage");
 });
 
-test("status canceled/unpaid/incomplete NÃO conta como plano ativo — cai pro comportamento sem assinatura", async () => {
+test("status canceled/unpaid/incomplete NÃO conta como plano ativo. Cai pro comportamento sem assinatura", async () => {
   // Teto de trial explicitamente desligado aqui: o que este teste isola é a
   // ROTA (status não-ativo cai pro branch "sem assinatura", não no branch de
-  // plano ativo/overage) — o valor do teto de trial em si é coberto à parte
+  // plano ativo/overage). O valor do teto de trial em si é coberto à parte
   // (ver testes acima, D-V2-112).
   process.env.BILLING_TRIAL_LIMIT_ENABLED = "false";
   try {
@@ -72,7 +72,7 @@ test("status canceled/unpaid/incomplete NÃO conta como plano ativo — cai pro 
   }
 });
 
-test("sem assinatura (plan_id null): teto de trial (5/mês) ATIVO por padrão (D-V2-112) — sem env var, já aplica", async () => {
+test("sem assinatura (plan_id null): teto de trial (5/mês) ATIVO por padrão (D-V2-112), sem env var, já aplica", async () => {
   delete process.env.BILLING_TRIAL_LIMIT_ENABLED;
   try {
     const underLimit = fakeSupabase({ plan_id: null, status: null, conversations_today: 1, conversations_this_period: 4 });
@@ -150,7 +150,7 @@ test("reportConversationOverageIfNeeded reporta 1 unidade à Stripe com idempote
   }
 });
 
-test("reportConversationOverageIfNeeded nunca lança em erro TRANSITÓRIO (5xx) — é best-effort, mas tenta 2 vezes antes de desistir (achado onda 7, D-V2-116)", async () => {
+test("reportConversationOverageIfNeeded nunca lança em erro TRANSITÓRIO (5xx): é best-effort, mas tenta 2 vezes antes de desistir (achado onda 7, D-V2-116)", async () => {
   const original = process.env.STRIPE_SECRET_KEY;
   process.env.STRIPE_SECRET_KEY = "sk_test_0000000000000000000000000000";
   const originalFetch = globalThis.fetch;
@@ -163,14 +163,14 @@ test("reportConversationOverageIfNeeded nunca lança em erro TRANSITÓRIO (5xx) 
     const supabase = fakeSupabase({ plan_id: "crescimento", status: "active", stripe_customer_id: "cus_abc123" });
     await assert.doesNotReject(() => videoCap.reportConversationOverageIfNeeded(supabase, "allowed_overage", "cost-event-xyz"));
     assert.equal(calls.length, 2, "deveria ter tentado a chamada paga 2 vezes antes de desistir");
-    assert.equal(calls[0].init.headers["Idempotency-Key"], calls[1].init.headers["Idempotency-Key"], "a retentativa reusa a MESMA idempotencyKey — nunca cobra duas vezes a mesma conversa");
+    assert.equal(calls[0].init.headers["Idempotency-Key"], calls[1].init.headers["Idempotency-Key"], "a retentativa reusa a MESMA idempotencyKey, nunca cobra duas vezes a mesma conversa");
   } finally {
     globalThis.fetch = originalFetch;
     if (original !== undefined) process.env.STRIPE_SECRET_KEY = original; else delete process.env.STRIPE_SECRET_KEY;
   }
 });
 
-test("reportConversationOverageIfNeeded NÃO retenta em erro PERMANENTE (4xx que não seja timeout/unavailable) — achado da própria auto-revisão: retry incondicional dobrava a latência bloqueante mesmo quando a 2ª tentativa não tinha chance nenhuma de suceder", async () => {
+test("reportConversationOverageIfNeeded NÃO retenta em erro PERMANENTE (4xx que não seja timeout/unavailable): achado da própria auto-revisão, retry incondicional dobrava a latência bloqueante mesmo quando a 2ª tentativa não tinha chance nenhuma de suceder", async () => {
   const original = process.env.STRIPE_SECRET_KEY;
   process.env.STRIPE_SECRET_KEY = "sk_test_0000000000000000000000000000";
   const originalFetch = globalThis.fetch;
@@ -182,14 +182,14 @@ test("reportConversationOverageIfNeeded NÃO retenta em erro PERMANENTE (4xx que
   try {
     const supabase = fakeSupabase({ plan_id: "crescimento", status: "active", stripe_customer_id: "cus_abc123" });
     await assert.doesNotReject(() => videoCap.reportConversationOverageIfNeeded(supabase, "allowed_overage", "cost-event-permanent"));
-    assert.equal(calls.length, 1, "erro permanente (404 -> provider_rejected) não deveria disparar retentativa — falha rápido");
+    assert.equal(calls.length, 1, "erro permanente (404 -> provider_rejected) não deveria disparar retentativa, falha rápido");
   } finally {
     globalThis.fetch = originalFetch;
     if (original !== undefined) process.env.STRIPE_SECRET_KEY = original; else delete process.env.STRIPE_SECRET_KEY;
   }
 });
 
-test("reportConversationOverageIfNeeded: uma falha transitória seguida de sucesso na retentativa AINDA reporta a unidade — o achado original era perdê-la em silêncio", async () => {
+test("reportConversationOverageIfNeeded: uma falha transitória seguida de sucesso na retentativa AINDA reporta a unidade. O achado original era perdê-la em silêncio", async () => {
   const original = process.env.STRIPE_SECRET_KEY;
   process.env.STRIPE_SECRET_KEY = "sk_test_0000000000000000000000000000";
   const originalFetch = globalThis.fetch;

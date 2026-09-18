@@ -3,7 +3,7 @@ import { test } from "node:test";
 
 // Achado P2 da auditoria 2026-08-11: único caminho de provisionamento
 // self-serve, chamado a cada load do dashboard quando o tenant ainda não
-// existe — sem nenhum teste até aqui.
+// existe, sem nenhum teste até aqui.
 const provisioning = await import("../../apps/portal/src/lib/actions/provisioning.ts");
 
 const UUID_V7_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;

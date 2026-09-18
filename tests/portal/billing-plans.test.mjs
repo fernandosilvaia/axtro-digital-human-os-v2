@@ -26,7 +26,7 @@ test("BILLING_TERMINAL_STATUSES e ACTIVE_STATUSES não se sobrepõem (achado D-V
   }
 });
 
-test("unpaid/paused/incomplete não estão em ACTIVE_STATUSES nem em BILLING_TERMINAL_STATUSES — precisam do branch needsAttention na UI", () => {
+test("unpaid/paused/incomplete não estão em ACTIVE_STATUSES nem em BILLING_TERMINAL_STATUSES: precisam do branch needsAttention na UI", () => {
   for (const status of ["unpaid", "paused", "incomplete"]) {
     assert.equal(plans.ACTIVE_STATUSES.has(status), false);
     assert.equal(plans.BILLING_TERMINAL_STATUSES.has(status), false);

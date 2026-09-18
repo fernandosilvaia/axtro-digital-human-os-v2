@@ -53,7 +53,7 @@ test("happy path: entrada imediata cria a sala de vídeo, o bot já com câmera 
   assert.deepEqual(calls.recordSession[0], { agentId: "agent-1", botId: "550e8400-e29b-41d4-a716-446655440000", meetingUrl: "https://zoom.us/j/123", conversationId: "abc123" });
 });
 
-test("entrada agendada NÃO cria sala Tavus agora (expiraria antes do horário) — só o bot sentinela", async () => {
+test("entrada agendada NÃO cria sala Tavus agora (expiraria antes do horário), só o bot sentinela", async () => {
   const { deps, calls } = fakeDeps();
   const result = await joinMeeting.handleJoinMeeting({ ...BASE_REQUEST, joinAtIso: "2026-08-01T18:00:00.000Z" }, deps);
   assert.equal(result.scheduled, true);

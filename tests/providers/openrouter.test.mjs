@@ -285,7 +285,7 @@ test("achado onda 7 (D-V2-116): HTTP 429 é retentado UMA vez (respeitando retry
   assert.equal(calls.length, 2, "deveria ter tentado de novo depois do 429");
 });
 
-test("achado onda 7 (D-V2-116): 429 na SEGUNDA tentativa também vira provider_rejected — só uma retentativa, não um loop", async () => {
+test("achado onda 7 (D-V2-116): 429 na SEGUNDA tentativa também vira provider_rejected, só uma retentativa, não um loop", async () => {
   const { calls, implementation } = fakeFetch(async () => new Response("rate limited", { status: 429, headers: { "retry-after": "0" } }));
   const port = provider.createOpenRouterTextGenerationPort({ apiKey: API_KEY, fetchImplementation: implementation });
 

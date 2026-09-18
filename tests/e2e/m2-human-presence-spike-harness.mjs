@@ -227,7 +227,7 @@ export async function runM2HumanPresenceSpike() {
   recordSpan("cancellation_acknowledged", interruptedGenerationId, 140);
   const interruptedState = turnCoordinator.state();
   const interruptedGenerationStillActive = turnCoordinator.isGenerationActive(interruptedGenerationId);
-  // The old generation's avatar frame arrives late — it must be discarded, not delivered.
+  // The old generation's avatar frame arrives late. It must be discarded, not delivered.
   const lateAvatarOutcome = await avatarSession.renderSegment(
     { avatarReference: ref("ref_avatar00000000000001"), audioReference: ref("ref_audio000000000000003"), generationId: interruptedGenerationId },
     (id) => id === turnCoordinator.currentGenerationId(),

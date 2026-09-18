@@ -11,7 +11,7 @@ test("formatDateTime formata no fuso pedido", () => {
   assert.notEqual(inSaoPaulo, inTokyo, "fusos diferentes deveriam produzir horários diferentes");
 });
 
-test("achado da auto-revisão D-V2-115: formatDateTime nunca lança pra timeZone IANA inválido — cai pro fallback em vez de derrubar a página", () => {
+test("achado da auto-revisão D-V2-115: formatDateTime nunca lança pra timeZone IANA inválido, cai pro fallback em vez de derrubar a página", () => {
   assert.doesNotThrow(() => formatDate.formatDateTime(SAMPLE_ISO, "Nao/Existe"));
   assert.doesNotThrow(() => formatDate.formatDateTime(SAMPLE_ISO, ""));
   assert.doesNotThrow(() => formatDate.formatDateTime(SAMPLE_ISO, "lixo-completo"));
@@ -25,7 +25,7 @@ test("formatLongDate formata no fuso pedido", () => {
   assert.match(result, /2026/);
 });
 
-test("achado da auto-revisão D-V2-115: formatLongDate nunca lança pra timeZone IANA inválido — cai pro fallback em vez de derrubar a página", () => {
+test("achado da auto-revisão D-V2-115: formatLongDate nunca lança pra timeZone IANA inválido, cai pro fallback em vez de derrubar a página", () => {
   assert.doesNotThrow(() => formatDate.formatLongDate(SAMPLE_ISO, "Nao/Existe"));
   const result = formatDate.formatLongDate(SAMPLE_ISO, "Nao/Existe");
   assert.match(result, /2026/);

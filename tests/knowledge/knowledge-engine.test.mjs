@@ -144,7 +144,7 @@ test("prompt injection corpus: adversarial instructions inside content are retri
     assert.equal(chunk.trusted, false, "injected content is never promoted to trusted");
     assert.ok(injectionCorpus.some((line) => chunk.text.includes(line) || line.includes(chunk.text)));
   }
-  // The corpus changes nothing about tenant isolation — it is still just data.
+  // The corpus changes nothing about tenant isolation. It is still just data.
   assert.equal(port.query(baseQuery({ tenantId: TENANT_BETA, queryText: "instructions system prompt" })).chunks.length, 0);
 });
 

@@ -4,7 +4,7 @@ import { test } from "node:test";
 const webhook = await import("../../apps/portal/src/lib/billing/webhook.ts");
 
 // Vetor gerado com o mesmo algoritmo documentado (HMAC-SHA256 sobre
-// "{timestamp}.{raw-body}", docs.stripe.com/webhooks/signatures) — não é
+// "{timestamp}.{raw-body}", docs.stripe.com/webhooks/signatures), não é
 // segredo real de produção.
 const TEST_SECRET = "whsec_test_stripe_secret_material_32b";
 const TEST_TIMESTAMP = "1700000000";
@@ -135,7 +135,7 @@ test("customer.subscription.deleted (status=canceled) é tratado igual aos outro
 
 // D-V2-105: route.ts usa isHandledStripeSubscriptionEventType pra distinguir
 // "tipo fora de escopo" (silêncio esperado) de "tipo tratado mas payload
-// malformado" (deveria emitir telemetria — achado da auditoria 2026-08-06).
+// malformado" (deveria emitir telemetria, achado da auditoria 2026-08-06).
 test("isHandledStripeSubscriptionEventType reconhece só os 3 eventos de ciclo de vida de assinatura", () => {
   assert.equal(webhook.isHandledStripeSubscriptionEventType("customer.subscription.created"), true);
   assert.equal(webhook.isHandledStripeSubscriptionEventType("customer.subscription.updated"), true);
@@ -151,7 +151,7 @@ test("evento do tipo certo mas sem tenant_id/plan_id válidos: tipo é reconheci
   const orphan = JSON.parse(TEST_BODY);
   delete orphan.data.object.metadata.tenant_id;
   assert.equal(webhook.parseStripeSubscriptionEvent(orphan), null, "parse deve falhar sem tenant_id");
-  assert.equal(webhook.isHandledStripeSubscriptionEventType(orphan.type), true, "mas o TIPO segue sendo um dos 3 tratados — route.ts deve logar isso, não silenciar");
+  assert.equal(webhook.isHandledStripeSubscriptionEventType(orphan.type), true, "mas o TIPO segue sendo um dos 3 tratados: route.ts deve logar isso, não silenciar");
 });
 
 function checkoutEvent(type = "checkout.session.completed", overrides = {}) {

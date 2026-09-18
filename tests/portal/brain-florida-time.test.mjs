@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 
-// Módulo puro, sem imports — mesmo padrão de metodo-silva.ts (node nativo executa direto do fonte).
+// Módulo puro, sem imports: mesmo padrão de metodo-silva.ts (node nativo executa direto do fonte).
 const florida = await import("../../apps/portal/src/lib/time/florida.ts");
 
 test("converte horário de verão (EDT, UTC-4) corretamente", () => {
@@ -37,7 +37,7 @@ test("a transição de horário de verão de 2026 (8 de março) muda o offset no
 
 test("madrugada logo APÓS o spring-forward não erra 1 hora (bug da iteração única, auditoria 2026-08-02)", () => {
   // 08/03/2026 03:30 já é EDT (o pulo 02:00→03:00 aconteceu). O chute lido
-  // como UTC (03:30Z) ainda avalia EST e devolvia 08:30Z — 1h atrasado.
+  // como UTC (03:30Z) ainda avalia EST e devolvia 08:30Z, 1h atrasado.
   assert.equal(florida.floridaWallClockToUtcIso("2026-03-08T03:30:00"), "2026-03-08T07:30:00.000Z");
   // Horas seguintes do mesmo dia também já são EDT.
   assert.equal(florida.floridaWallClockToUtcIso("2026-03-08T05:00:00"), "2026-03-08T09:00:00.000Z");

@@ -18,7 +18,7 @@ test("mapeia cada evento de status do bot pro enum fechado da sessão", () => {
   assert.equal(webhook.statusForRecallEvent("bot.fatal"), "failed");
 });
 
-test("eventos fora do enum (breakout room, participant_events) não têm status mapeado — escopo declarado, não erro", () => {
+test("eventos fora do enum (breakout room, participant_events) não têm status mapeado: escopo declarado, não erro", () => {
   for (const event of ["bot.breakout_room_entered", "participant_events.join", "bot.recording_permission_denied"]) {
     assert.equal(webhook.statusForRecallEvent(event), null);
   }
@@ -47,7 +47,7 @@ test("devolve null pra evento desconhecido, payload malformado, ou bot.id ausent
 
 // Vetor de teste gerado com o mesmo algoritmo documentado (HMAC-SHA256,
 // string assinada "{id}.{timestamp}.{raw-body}", chave base64 após o
-// prefixo whsec_) — não é o segredo real de produção.
+// prefixo whsec_), não é o segredo real de produção.
 const TEST_SECRET = "whsec_dGVzdC1rZXktbWF0ZXJpYWwtMzItYnl0ZXMtb2shIQ==";
 const TEST_ID = "msg_test123";
 const TEST_TIMESTAMP = "1700000000";
@@ -114,8 +114,8 @@ test("parser whsec compartilhado rejeita base64 permissivo, não canônico e cha
   }
 });
 
-// D-V2-106: transcript.done tem shape diferente dos eventos bot.* de status
-// — data.transcript.id é o que importa aqui (busca de conteúdo em 2 hops).
+// D-V2-106: transcript.done tem shape diferente dos eventos bot.* de status.
+// data.transcript.id é o que importa aqui (busca de conteúdo em 2 hops).
 test("parseRecallTranscriptDonePayload extrai botId e transcriptId de transcript.done", () => {
   const payload = {
     event: "transcript.done",

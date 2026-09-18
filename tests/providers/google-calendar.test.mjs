@@ -45,7 +45,7 @@ function insertRequest(overrides = {}) {
   return {
     calendarId: CALENDAR_ID,
     eventId: EVENT_ID,
-    summary: "Reunião de descoberta — Raissa",
+    summary: "Reunião de descoberta, Raissa",
     startIso: "2026-09-01T14:00:00-03:00",
     endIso: "2026-09-01T14:30:00-03:00",
     timeZone: "America/Sao_Paulo",
@@ -213,7 +213,7 @@ test("exchangeGoogleAuthorizationCode: 2xx sem refresh_token vira missing_refres
   );
 });
 
-test("exchangeGoogleAuthorizationCode: idToken ausente no envelope vira null (não é erro — openid é opcional na URL de autorização)", async () => {
+test("exchangeGoogleAuthorizationCode: idToken ausente no envelope vira null (não é erro, openid é opcional na URL de autorização)", async () => {
   const { implementation } = fakeFetch(async () => authorizationCodeTokenOkResponse({ id_token: undefined }));
   const result = await provider.exchangeGoogleAuthorizationCode({
     clientId: CLIENT_ID, clientSecret: CLIENT_SECRET, code: AUTH_CODE, redirectUri: REDIRECT_URI, fetchImplementation: implementation,
@@ -307,7 +307,7 @@ test("fake: simulateMissingRefreshToken força missing_refresh_token sem rede", 
   );
 });
 
-test("fake: idToken devolvido é um JWT decodificável (header.payload.signature) com a claim email — o mesmo caminho que a rota de callback do portal decodifica", async () => {
+test("fake: idToken devolvido é um JWT decodificável (header.payload.signature) com a claim email, o mesmo caminho que a rota de callback do portal decodifica", async () => {
   const exchange = provider.createFakeGoogleAuthorizationCodeExchange();
   const result = await exchange({ clientId: CLIENT_ID, clientSecret: CLIENT_SECRET, code: AUTH_CODE, redirectUri: REDIRECT_URI });
   const [, payloadSegment] = result.idToken.split(".");
@@ -317,7 +317,7 @@ test("fake: idToken devolvido é um JWT decodificável (header.payload.signature
 });
 
 // ---------------------------------------------------------------------------
-// createGoogleCalendarPort — queryFreeBusy
+// createGoogleCalendarPort: queryFreeBusy
 // ---------------------------------------------------------------------------
 
 test("queryFreeBusy refresca o access token e envia items/timeMin/timeMax reais ao endpoint oficial", async () => {
@@ -378,7 +378,7 @@ test("queryFreeBusy: erro por-calendário no corpo do Google (ex.: notFound) vir
 });
 
 // ---------------------------------------------------------------------------
-// createGoogleCalendarPort — insertEvent (o coração da hipótese confirmada)
+// createGoogleCalendarPort: insertEvent (o coração da hipótese confirmada)
 // ---------------------------------------------------------------------------
 
 test("insertEvent envia o id gerado pelo chamador e devolve o evento confirmado", async () => {
@@ -411,7 +411,7 @@ test("insertEvent envia o id gerado pelo chamador e devolve o evento confirmado"
   assert.deepEqual(body.attendees, [{ email: "prospect@example.com" }]);
 });
 
-test("insertEvent: retry com o MESMO id vira event_id_conflict (409) — nunca duplicado (comportamento confirmado na doc oficial)", async () => {
+test("insertEvent: retry com o MESMO id vira event_id_conflict (409), nunca duplicado (comportamento confirmado na doc oficial)", async () => {
   const { implementation } = router({
     token: async () => tokenOkResponse(),
     calendar: async () => new Response(
@@ -463,7 +463,7 @@ test("insertEvent: payload do Google com id diferente do pedido vira malformed_p
 });
 
 // ---------------------------------------------------------------------------
-// createGoogleCalendarPort — getEvent / deleteEvent (reconciliação e rollback)
+// createGoogleCalendarPort: getEvent / deleteEvent (reconciliação e rollback)
 // ---------------------------------------------------------------------------
 
 test("getEvent busca por id e devolve o evento; 404 vira event_not_found (reconciliação de linha unknown)", async () => {
@@ -572,7 +572,7 @@ test("timeout na chamada de calendário aborta antes dos headers", async () => {
 
 test("isValidGoogleCalendarEventId aceita só o alfabeto base32hex documentado (a-v0-9), 5..1024 chars", () => {
   assert.equal(provider.isValidGoogleCalendarEventId(EVENT_ID), true);
-  assert.equal(provider.isValidGoogleCalendarEventId("0123456789abcdef"), true); // hex minúsculo puro — subconjunto válido
+  assert.equal(provider.isValidGoogleCalendarEventId("0123456789abcdef"), true); // hex minúsculo puro: subconjunto válido
   for (const bad of ["abcd", "UPPER123", "has-hyphen", "has_underscore", "com espaço", "w".repeat(6), "x".repeat(1025), 42, null, undefined]) {
     assert.equal(provider.isValidGoogleCalendarEventId(bad), false, JSON.stringify(bad));
   }
@@ -604,11 +604,11 @@ test("fake: insertEvent é determinístico e reaplica a mesma validação do mod
   await assert.rejects(() => port.insertEvent(insertRequest({ eventId: "abcd" })), (e) => e.code === "invalid_request");
 });
 
-test("fake: retry do mesmo eventId no mesmo calendarId vira event_id_conflict, nunca duplica — espelha o comportamento confirmado real", async () => {
+test("fake: retry do mesmo eventId no mesmo calendarId vira event_id_conflict, nunca duplica. Espelha o comportamento confirmado real", async () => {
   const port = provider.createFakeGoogleCalendarPort();
   await port.insertEvent(insertRequest());
   await assert.rejects(() => port.insertEvent(insertRequest()), (e) => e.code === "event_id_conflict" && e.httpStatus === 409);
-  // Em outro calendário, o mesmo id é livre — o conflito é por (calendarId, eventId), igual ao Google real.
+  // Em outro calendário, o mesmo id é livre. O conflito é por (calendarId, eventId), igual ao Google real.
   const other = await port.insertEvent(insertRequest({ calendarId: "outro-calendario@group.calendar.google.com" }));
   assert.equal(other.id, EVENT_ID);
 });

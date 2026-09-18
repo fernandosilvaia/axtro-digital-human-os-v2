@@ -46,7 +46,7 @@ test("createCheckoutSession envia payload form-encoded fechado e devolve session
   assert.equal(calls[0].init.headers.Authorization, `Bearer ${API_KEY}`);
   assert.equal(calls[0].init.headers["Content-Type"], "application/x-www-form-urlencoded");
   assert.ok(calls[0].init.headers["Stripe-Version"]);
-  assert.equal(calls[0].init.headers["Idempotency-Key"], "checkout:tenant-abc:crescimento:12345", "duplo clique/duas abas não podem criar duas assinaturas — achado da auditoria 2026-08-06");
+  assert.equal(calls[0].init.headers["Idempotency-Key"], "checkout:tenant-abc:crescimento:12345", "duplo clique/duas abas não podem criar duas assinaturas (achado da auditoria 2026-08-06)");
 
   const body = parseFormBody(calls[0].init.body);
   assert.equal(body.mode, "subscription");
@@ -110,7 +110,7 @@ test("createCheckoutSession valida price ids, urls e customer id antes da rede",
   assert.equal(calls.length, 0);
 });
 
-test("createCheckoutSession sem idempotencyKey é rejeitado antes da rede — duplo clique/duas abas não podem gerar duas assinaturas", async () => {
+test("createCheckoutSession sem idempotencyKey é rejeitado antes da rede: duplo clique/duas abas não podem gerar duas assinaturas", async () => {
   const { calls, implementation } = fakeFetch(async () => new Response("{}", { status: 200 }));
   const port = provider.createStripeBillingPort({ apiKey: API_KEY, fetchImplementation: implementation });
   await assert.rejects(
@@ -383,7 +383,7 @@ test("timeout aborta e nunca vaza a chave no erro", async () => {
 });
 
 // Achado P1 da auditoria 2026-08-11: clearTimeout rodava assim que os
-// headers chegavam, ANTES da leitura do corpo — um corpo travado depois de
+// headers chegavam, ANTES da leitura do corpo: um corpo travado depois de
 // um 200 (checkout/portal/overage) nunca era interrompido pelo timeout.
 test("corpo travado depois dos headers (200) ainda respeita o timeout", async () => {
   const stallingFetch = async (_url, init) => ({

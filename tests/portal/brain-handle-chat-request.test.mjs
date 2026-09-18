@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 
 // chat-completion-core.ts (via handle-chat-request.ts) só importa
-// metodo-silva.ts (também sem imports) — cadeia inteira é puro TS, o type
+// metodo-silva.ts (também sem imports): cadeia inteira é puro TS, o type
 // stripping nativo do Node executa direto do fonte.
 const handler = await import("../../apps/portal/src/lib/brain/handle-chat-request.ts");
 const secret = await import("../../apps/portal/src/lib/brain/secret.ts");
@@ -198,7 +198,7 @@ test("persona EN degrada em inglês (fallback e teto localizados) e passa o idio
   assert.match(joined, /LIVE VIDEO sales call/);
 });
 
-test("toda degradação carrega degradedReason (a rota telemetra — catch vazio era achado real)", async () => {
+test("toda degradação carrega degradedReason (a rota telemetra, catch vazio era achado real)", async () => {
   const malformed = fakeDeps();
   const r1 = await handler.handleBrainChatRequest(
     { authorizationHeader: `Bearer ${RAW_SECRET}`, agentIdFromPath: "agent-1", rawMessages: [] },

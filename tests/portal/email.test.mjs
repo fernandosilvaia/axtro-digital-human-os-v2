@@ -4,7 +4,7 @@ import { test } from "node:test";
 const email = await import("../../apps/portal/src/lib/email.ts");
 
 // Sem RESEND_API_KEY no ambiente de teste, todo envio cai no caminho mockado
-// (sendHtmlEmail) — o que já dá cobertura real de contrato (parâmetros
+// (sendHtmlEmail), o que já dá cobertura real de contrato (parâmetros
 // aceitos, sem lançar) sem precisar mockar HTTP.
 
 test("sendCostCapAlertEmail: sem destinatários, não tenta enviar (mocked_no_key)", async () => {
@@ -61,7 +61,7 @@ test("achado onda 8 (D-V2-117): 429/5xx da Resend é retentado UMA vez (respeita
   }
 });
 
-test("achado onda 8 (D-V2-117): erro PERMANENTE (401) da Resend NÃO é retentado — falha rápido", async () => {
+test("achado onda 8 (D-V2-117): erro PERMANENTE (401) da Resend NÃO é retentado, falha rápido", async () => {
   const original = process.env.RESEND_API_KEY;
   process.env.RESEND_API_KEY = "re_test_0000000000000000000000000";
   const originalFetch = globalThis.fetch;

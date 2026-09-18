@@ -568,7 +568,7 @@ test("storage references are sealed to a tenant scope and cross-tenant access is
 test("provider contracts have no provider SDK dependency", () => {
   const manifest = JSON.parse(readFileSync(join(root, "packages/provider-contracts/package.json"), "utf8"));
   // @axtro/domain adicionado em D-V2-109 (dedup do UUID_V7_PATTERN, antes
-  // duplicado como literal local) — puramente interno, nunca um SDK de
+  // duplicado como literal local), puramente interno, nunca um SDK de
   // provider; a checagem abaixo continua garantindo isso.
   assert.deepEqual(Object.keys(manifest.dependencies).sort(), ["@axtro/contracts-ts", "@axtro/domain"]);
   const source = readFileSync(join(root, "packages/provider-contracts/src/index.ts"), "utf8").toLowerCase();

@@ -48,7 +48,7 @@ test("devolve null pra input vazio, não-string ou absurdamente grande (bound de
   assert.equal(idToken.decodeGoogleIdTokenEmail("a.".repeat(5000) + "b"), null);
 });
 
-test("nunca lança para input adversarial — sempre devolve null ou o e-mail", () => {
+test("nunca lança para input adversarial: sempre devolve null ou o e-mail", () => {
   const adversarial = [
     "....",
     ".".repeat(10),

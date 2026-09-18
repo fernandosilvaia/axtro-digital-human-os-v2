@@ -94,7 +94,7 @@ test("retry: a transient generator failure propagates, and a retry with the same
   const retried = await workflow.run(input);
   assert.equal(retried.status, "send_denied_sandbox");
   assert.equal(workflow.attemptsFor(TENANT_ALPHA, "followup-retry"), 2);
-  assert.equal(callCount, 2, "the generator ran exactly twice — once failed, once succeeded");
+  assert.equal(callCount, 2, "the generator ran exactly twice, once failed, once succeeded");
   assert.equal(sent.length, 0);
 });
 

@@ -58,7 +58,7 @@ test("chunkContent: parágrafo maior que o teto é fatiado em pedaços de TARGET
   assert.ok(chunks[chunks.length - 1].length > 0 && chunks[chunks.length - 1].length <= 1200);
 });
 
-test("chunkContent: parágrafo longo seguido de parágrafo curto — o curto começa um chunk novo, não gruda na última fatia", () => {
+test("chunkContent: parágrafo longo seguido de parágrafo curto. O curto começa um chunk novo, não gruda na última fatia", () => {
   const long = "a".repeat(1300);
   const short = "conclusão curta";
   const chunks = knowledge.chunkContent(`${long}\n\n${short}`);
@@ -97,7 +97,7 @@ test("contentSha256: entradas diferentes produzem hashes diferentes", () => {
 });
 
 // ---------------------------------------------------------------------------
-// embedChunks / embedQuery — modo fake (determinístico, sem rede)
+// embedChunks / embedQuery: modo fake (determinístico, sem rede)
 // ---------------------------------------------------------------------------
 
 function withFakeProviders(fn) {
@@ -150,7 +150,7 @@ test("embedQuery (fake): devolve vetor de 1536 dims e 0 tokens", withFakeProvide
   assert.equal(result.embedding.length, 1536);
 }));
 
-test("embedQuery (fake): trunca em 4000 chars antes de embedar — duas queries que só divergem depois de 4000 chars produzem o mesmo vetor", withFakeProviders(async () => {
+test("embedQuery (fake): trunca em 4000 chars antes de embedar. Duas queries que só divergem depois de 4000 chars produzem o mesmo vetor", withFakeProviders(async () => {
   const base = "x".repeat(4000);
   const a = await knowledge.embedQuery("any-key", `${base}cauda-a`);
   const b = await knowledge.embedQuery("any-key", `${base}cauda-b`);
@@ -158,7 +158,7 @@ test("embedQuery (fake): trunca em 4000 chars antes de embedar — duas queries 
 }));
 
 // ---------------------------------------------------------------------------
-// embedChunks / embedQuery — provider real (OpenRouter via fetch injetado
+// embedChunks / embedQuery: provider real (OpenRouter via fetch injetado
 // globalmente, mesmo padrão de tests/portal/video-cap.test.mjs)
 // ---------------------------------------------------------------------------
 

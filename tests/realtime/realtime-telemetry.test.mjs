@@ -30,7 +30,7 @@ test("realtime telemetry: a component within its documented budget evaluates as 
 
 test("realtime telemetry: p95 above its budget is flagged even when p50 is healthy", () => {
   const recorder = createRealtimeLatencyRecorder();
-  // 100 samples: the bottom 94% is fast, the top 6% is a slow-tail outlier —
+  // 100 samples: the bottom 94% is fast, the top 6% is a slow-tail outlier.
   // p50 stays healthy but the 95th-percentile sample lands inside that tail.
   for (let i = 0; i < 94; i += 1) recorder.recordSpan(span("tts_first_audio", i, 0, 100));
   for (let i = 94; i < 100; i += 1) recorder.recordSpan(span("tts_first_audio", i, 0, 2_000));
@@ -79,7 +79,7 @@ test("realtime telemetry: an incomplete generation reports null total and insuff
   assert.equal(recorder.evaluateTotalEotToAudioBudget(7), "insufficient_samples");
 });
 
-test("realtime telemetry: span completeness — the mandatory M2-12 span set can be checked per generation", () => {
+test("realtime telemetry: span completeness, the mandatory M2-12 span set can be checked per generation", () => {
   const recorder = createRealtimeLatencyRecorder();
   const generationId = 3;
   recorder.recordSpan(span("audio_ingress", generationId, 0, 5));

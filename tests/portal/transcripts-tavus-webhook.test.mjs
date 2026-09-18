@@ -84,7 +84,7 @@ test("rejeita payload malformado (sem conversation_id, sem properties.transcript
   assert.equal(webhook.parseTavusTranscriptEvent({ ...VALID_EVENT, message_type: "system" }), null);
   assert.equal(webhook.parseTavusTranscriptEvent({ ...VALID_EVENT, message_type: undefined }), null);
   // 65 chars is the unified max shared with provider-tavus's ID_PATTERN
-  // (achado onda 6: era 64 aqui, 65 lá — drift silencioso corrigido).
+  // (achado onda 6: era 64 aqui, 65 lá, drift silencioso corrigido).
   for (const conversation_id of ["ab", " conv_abc123", "conv.abc", "conv/abc", "a".repeat(100)]) {
     assert.equal(webhook.parseTavusTranscriptEvent({ ...VALID_EVENT, conversation_id }), null);
   }
@@ -99,7 +99,7 @@ test("achado da auto-revisão D-V2-115: item com role inválido é PULADO, não 
   assert.notEqual(parsed, null, "um item com role inválido no meio não deveria descartar o evento inteiro");
   assert.deepEqual(parsed.turns, [{ role: "assistant", content: "oi" }]);
 
-  // Se TODOS os itens forem malformados, ainda cai em null (turns vazio) —
+  // Se TODOS os itens forem malformados, ainda cai em null (turns vazio):
   // a proteção contra payload 100% lixo continua de pé.
   const allBadRole = { ...VALID_EVENT, properties: { transcript: [{ role: "system", content: "x" }] } };
   assert.equal(webhook.parseTavusTranscriptEvent(allBadRole), null);

@@ -87,7 +87,7 @@ test("evaluator version and per-dimension evidence are always recorded on the re
   }
 });
 
-test("naturalness is never claimed as machine-scored — it is always flagged for human review", () => {
+test("naturalness is never claimed as machine-scored: it is always flagged for human review", () => {
   const evaluator = evaluation.createEvaluator("1.0.0");
   const result = evaluator.evaluate(scenarioById("pricing-discovery-en"));
   const naturalness = result.dimensionScores.find((entry) => entry.dimension === "naturalness");

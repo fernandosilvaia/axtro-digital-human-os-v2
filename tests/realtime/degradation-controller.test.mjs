@@ -54,7 +54,7 @@ test("degradation controller: recovery from S2S->modular fallback never delivers
   // The fallback controller rebuilds context on the modular pipeline as a new generation (8).
   controller.markPresented(8);
 
-  // Generation 7's S2S output arrives late (the provider eventually flushed it) — it must be suppressed.
+  // Generation 7's S2S output arrives late (the provider eventually flushed it), it must be suppressed.
   assert.equal(controller.shouldSuppressDuplicatePresentation(7), true);
   // Generation 8, already presented, must never be re-delivered either.
   assert.equal(controller.shouldSuppressDuplicatePresentation(8), true);

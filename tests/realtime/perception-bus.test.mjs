@@ -103,7 +103,7 @@ test("perception bus: a detector cannot emit a signal type it was not registered
   assert.equal(result.reason, "signal_type_not_owned_by_detector");
 });
 
-test("perception bus: an unsupported inference kind cannot be constructed — there is no lie-detection, diagnosis or emotion-as-fact type", () => {
+test("perception bus: an unsupported inference kind cannot be constructed: there is no lie-detection, diagnosis or emotion-as-fact type", () => {
   const bus = createPerceptionBus(manualClock());
   registerTechnicalDetector(bus);
   for (const forbiddenType of ["lie_detected", "medical_diagnosis", "race_inferred", "solvency_risk_score", "voiceprint_identity", "emotion_state"]) {

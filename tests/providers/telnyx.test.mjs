@@ -37,7 +37,7 @@ function callEnvelope(record) {
 }
 
 // ---------------------------------------------------------------------------
-// Voice — modo real
+// Voice: modo real
 // ---------------------------------------------------------------------------
 
 test("dialCall envia payload fechado ao endpoint fixo com Bearer, desenvelopa {data} e devolve os 3 ids", async () => {
@@ -147,7 +147,7 @@ test("getCallStatus rejeita payload cujo call_control_id não bate com o pedido"
 });
 
 // ---------------------------------------------------------------------------
-// Messaging — modo real
+// Messaging: modo real
 // ---------------------------------------------------------------------------
 
 function outboundMessagePayload(overrides = {}) {
@@ -239,7 +239,7 @@ test("corpo travado depois dos headers ainda respeita o timeout", async () => {
 });
 
 // ---------------------------------------------------------------------------
-// Modo fake determinístico — sem nenhuma chamada de rede (nenhum teste
+// Modo fake determinístico, sem nenhuma chamada de rede (nenhum teste
 // abaixo injeta fetchImplementation)
 // ---------------------------------------------------------------------------
 

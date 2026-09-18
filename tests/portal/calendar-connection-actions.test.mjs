@@ -7,7 +7,7 @@ import ts from "typescript";
 
 /**
  * Server Actions de conexão/desconexão do Google Calendar (ADR-039, onda
- * 1b-ii) — mesmo mecanismo de `billing-action-runtime.test.mjs`:
+ * 1b-ii), mesmo mecanismo de `billing-action-runtime.test.mjs`:
  * `ts.transpileModule` + `vm.Script` com um `require` fake, porque estas
  * actions têm `"use server"` no topo (não dá pra `import()` direto como os
  * módulos de `lib/google-calendar/*` sem esse diretivo).
@@ -210,7 +210,7 @@ test("startGoogleCalendarConnection em modo real sem credenciais configuradas fa
   }, false);
 });
 
-test("startGoogleCalendarConnection em modo fake nunca manda o navegador pro Google real — redireciona pra própria rota de callback com o state gerado", async () => {
+test("startGoogleCalendarConnection em modo fake nunca manda o navegador pro Google real: redireciona pra própria rota de callback com o state gerado", async () => {
   await withFakeProviders(async () => {
     const { actions, calls } = loadCalendarActions({ generatedState: "generated-state-xyz" });
     await assert.rejects(
@@ -231,7 +231,7 @@ test("startGoogleCalendarConnection em modo real configurado monta a URL de auto
       const { actions, calls } = loadCalendarActions({ generatedState: "generated-state-xyz" });
       await assert.rejects(() => actions.startGoogleCalendarConnection(), assertRedirect("https://accounts.google.com/o/oauth2/v2/auth?mock=1"));
       // Objetos passados pelo código compilado dentro do vm.runInNewContext
-      // vêm de outro realm V8 (outro Object.prototype) — deepEqual falharia
+      // vêm de outro realm V8 (outro Object.prototype), deepEqual falharia
       // por identidade de protótipo mesmo com o shape idêntico; comparação
       // por propriedade é o padrão já usado em billing-action-runtime.test.mjs.
       assert.equal(calls.authUrl.length, 1);

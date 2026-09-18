@@ -107,7 +107,7 @@ test("specialist fabric: a bulkhead per type rejects excess concurrent requests 
   assert.equal(secondResult.status, "completed", "a queued request still completes once a slot frees up");
 });
 
-test("specialist fabric: One Mouth Rule is mechanically enforced — no publish or speak surface exists", () => {
+test("specialist fabric: One Mouth Rule is mechanically enforced, no publish or speak surface exists", () => {
   const fabric = createSpecialistFabric();
   const methods = Object.keys(fabric);
   assert.deepEqual(methods.sort(), ["metrics", "registerHandler", "request"]);

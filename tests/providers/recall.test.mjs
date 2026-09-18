@@ -182,7 +182,7 @@ test("timeout vira provider_timeout sem vazar a chave", async () => {
 });
 
 // Achado P1 da auditoria 2026-08-11: clearTimeout rodava assim que os
-// headers chegavam, ANTES da leitura do corpo — um corpo travado depois de
+// headers chegavam, ANTES da leitura do corpo: um corpo travado depois de
 // um 201/200 nunca era interrompido pelo timeout. Estes dois testes provam
 // que o timer agora protege a fase de leitura do corpo também.
 function stallingBodyResponse(status) {

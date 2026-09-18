@@ -8,7 +8,7 @@ const tenantA = "019f0000-0000-7000-8000-000000000001";
 const tenantB = "019f0000-0000-7000-8000-000000000002";
 const agentA = "019f0000-0000-7000-8000-000000000101";
 const agentB = "019f0000-0000-7000-8000-000000000102";
-// The browser generates commandId via crypto.randomUUID() — UUIDv4, not v7.
+// The browser generates commandId via crypto.randomUUID(): UUIDv4, not v7.
 const commandA = "6b8f6c3a-4e2b-4a1a-9c3d-0f1e2d3c4b5a";
 const commandB = "1a2b3c4d-5e6f-4a1b-8c2d-3e4f5a6b7c8d";
 

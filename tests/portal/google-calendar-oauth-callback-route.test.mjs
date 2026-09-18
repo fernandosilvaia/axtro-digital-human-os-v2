@@ -3,7 +3,7 @@ import { registerHooks } from "node:module";
 import { test } from "node:test";
 
 /**
- * Rota de callback OAuth do Google Calendar (ADR-039, onda 1b-ii) — mesmo
+ * Rota de callback OAuth do Google Calendar (ADR-039, onda 1b-ii), mesmo
  * estilo de teste de `recall-webhook-route.test.mjs`/`http-boundary-routes.test.mjs`:
  * `registerHooks` intercepta cada import da rota por um módulo fake em
  * memória (nunca toca rede/banco real), e um objeto de estado global

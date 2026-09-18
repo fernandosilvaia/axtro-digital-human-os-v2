@@ -18,9 +18,9 @@ function fakeSupabase({ configData = null, configError = null, digestData = null
 
 // D-V2-105: o MESMO bug ("erro de leitura virou 'sem persona' em silêncio")
 // foi corrigido 4 vezes em 4 call sites diferentes antes deste helper
-// existir (auditoria 2026-08-02 e 2026-08-06) — estes testes travam o
+// existir (auditoria 2026-08-02 e 2026-08-06). Estes testes travam o
 // contrato do único ponto de leitura pra não regredir uma quinta vez.
-test("resolveAgentVideoConfig: falha de leitura NUNCA vira 'não configurado' — devolve ok:false", async () => {
+test("resolveAgentVideoConfig: falha de leitura NUNCA vira 'não configurado', devolve ok:false", async () => {
   const supabase = fakeSupabase({ configError: { message: "db down" } });
   const result = await videoConfig.resolveAgentVideoConfig(supabase, "agent-1", "video");
   assert.equal(result.ok, false);
@@ -45,7 +45,7 @@ test("resolveAgentVideoConfig: chama a RPC com o agentId certo", async () => {
   assert.deepEqual(supabase.calls, [{ name: "portal_agent_video_config", args: { p_agent_id: "agent-xyz" } }]);
 });
 
-test("fetchKnowledgeDigest: falha de RPC degrada pra null — NUNCA bloqueia o vídeo (diferente da config)", async () => {
+test("fetchKnowledgeDigest: falha de RPC degrada pra null, NUNCA bloqueia o vídeo (diferente da config)", async () => {
   const supabase = fakeSupabase({ digestError: { message: "db down" } });
   const digest = await videoConfig.fetchKnowledgeDigest(supabase, "agent-1", "video", 3500);
   assert.equal(digest, null);

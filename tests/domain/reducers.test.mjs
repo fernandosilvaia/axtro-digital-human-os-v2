@@ -187,7 +187,7 @@ test("sales can be removed per tenant, and cannot be removed or updated twice", 
   const doubleUninstall = salesUninstalledEvent(8, "018bcfe5-689d-7abc-bf01-020304050607");
   assert.throws(() => replay([...prelude, install, uninstall, doubleUninstall]), domain.InteractionTransitionError);
 
-  // Reinstalling after removal is allowed — a tenant can re-enable the pack later.
+  // Reinstalling after removal is allowed: a tenant can re-enable the pack later.
   const reinstall = salesEvent("sales.installed", 8, "018bcfe5-689e-7abc-bf01-020304050607", "qualification");
   const afterReinstall = replay([...prelude, install, uninstall, reinstall]);
   assert.equal(afterReinstall.extensions.sales?.funnel_stage, "qualification");

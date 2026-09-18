@@ -94,13 +94,13 @@ test("cost and quality are measured and summarized independently per channel", (
   assert.equal(report.channelSummaries.some((summary) => summary.channel === "video"), false, "channels with zero calls are omitted, not padded with zeros");
 });
 
-test("a duplicate callId is rejected — every reviewed call must be distinct", () => {
+test("a duplicate callId is rejected: every reviewed call must be distinct", () => {
   const calls = twentyCleanCalls();
   calls[1] = { ...calls[0] };
   assert.throws(() => evaluation.generatePilotGateReport(calls), evaluation.PilotGateError);
 });
 
-test("this report never contains a beta-approval decision — only ready_for_human_review or a block", () => {
+test("this report never contains a beta-approval decision: only ready_for_human_review or a block", () => {
   const report = evaluation.generatePilotGateReport(twentyCleanCalls());
   assert.ok(["ready_for_human_review", "blocked_open_critical_violation", "blocked_insufficient_sample"].includes(report.decision));
   assert.notEqual(report.decision, "approved");

@@ -178,7 +178,7 @@ test("endConversation trata 404 como compensação idempotente, sem relaxar crea
 
 // Achado P3 da auto-revisão 2026-08-11: este adapter (e provider-recall,
 // provider-stripe antes do fix) já teve o padrão certo de timeout desde a
-// auditoria 2026-08-02, mas nunca tinha NENHUM teste de timeout — nada
+// auditoria 2026-08-02, mas nunca tinha NENHUM teste de timeout: nada
 // pegaria se um refactor futuro reintroduzisse o bug (clearTimeout logo
 // após o fetch(), antes de ler o corpo) que já foi achado e corrigido nos
 // outros dois adapters.
