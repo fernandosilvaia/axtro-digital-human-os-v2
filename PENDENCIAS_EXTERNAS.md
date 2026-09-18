@@ -7,16 +7,16 @@ Estas pendências não bloqueiam M0-M2 quando adapters fake são usados. Bloquei
 - Provider de avatar para bake-off, sem escolha definitiva antes dos testes.
 - OpenAI API para benchmark de Realtime.
 - STT e TTS alternativos para benchmark.
-- Recall.ai para Meet, Zoom e Teams — necessário para validar o "cérebro" (M4) rodando dentro de uma call de Zoom/Meet de verdade, não só na sala hospedada do Tavus (spike D-V2-076 confirmou a viabilidade técnica via Output Media API, mas não foi testado ao vivo por falta de conta).
+- Recall.ai para Meet, Zoom e Teams: necessário para validar o "cérebro" (M4) rodando dentro de uma call de Zoom/Meet de verdade, não só na sala hospedada do Tavus (spike D-V2-076 confirmou a viabilidade técnica via Output Media API, mas não foi testado ao vivo por falta de conta).
 - Telnyx e configuração SIP de staging.
 - Supabase de dev e staging.
 - Secret manager escolhido.
-- `SUPABASE_SERVICE_ROLE_KEY` do projeto `digital-human-os` (M4-04) — nunca configurada neste projeto até hoje; pegar em Project Settings > API do Supabase. Sem ela, o endpoint `/api/brain/[agentId]/chat/completions` não consegue resolver tenant/agente (chamada servidor-a-servidor do Tavus, sem sessão de usuário) e responde 503.
+- `SUPABASE_SERVICE_ROLE_KEY` do projeto `digital-human-os` (M4-04): nunca configurada neste projeto até hoje; pegar em Project Settings > API do Supabase. Sem ela, o endpoint `/api/brain/[agentId]/chat/completions` não consegue resolver tenant/agente (chamada servidor-a-servidor do Tavus, sem sessão de usuário) e responde 503.
 
 ## Gates humanos pendentes do cérebro customizado (M4)
-- ✅ ~~Aplicar 0018/0019 no Supabase real~~ — **RESOLVIDO 2026-07-27**: autorizado explicitamente pelo Fernando e aplicado via MCP `apply_migration`; tabela + 5 funções + RLS forçada confirmadas, advisor de segurança revisado (sem problema novo).
-- Apontar `layers.llm.base_url` de uma persona Tavus REAL para o endpoint — nenhuma persona em produção (Aurora, Amanda, Rafaela) usa o cérebro customizado ainda; troca de LLM de uma persona ao vivo é ação que afeta clientes/prospects reais e fica reservada para decisão explícita do Fernando.
-- ✅ ~~RAG real no caminho Tavus~~ — **RESOLVIDO 2026-08-11** (D-V2-108): RPC `_service` equivalente implementada, o cérebro de vídeo custom agora cita fontes de conhecimento da conta.
+- ✅ ~~Aplicar 0018/0019 no Supabase real~~ **RESOLVIDO 2026-07-27**: autorizado explicitamente pelo Fernando e aplicado via MCP `apply_migration`; tabela + 5 funções + RLS forçada confirmadas, advisor de segurança revisado (sem problema novo).
+- Apontar `layers.llm.base_url` de uma persona Tavus REAL para o endpoint: nenhuma persona em produção (Aurora, Amanda, Rafaela) usa o cérebro customizado ainda; troca de LLM de uma persona ao vivo é ação que afeta clientes/prospects reais e fica reservada para decisão explícita do Fernando.
+- ✅ ~~RAG real no caminho Tavus~~ **RESOLVIDO 2026-08-11** (D-V2-108): RPC `_service` equivalente implementada, o cérebro de vídeo custom agora cita fontes de conhecimento da conta.
 
 ## Decisões comerciais
 - Limites de custo por minuto e por tenant.
@@ -25,7 +25,7 @@ Estas pendências não bloqueiam M0-M2 quando adapters fake são usados. Bloquei
 - Região de processamento e data residency por mercado.
 
 ## Conteúdo e propriedade intelectual
-- ✅ ~~Os oito manuais do Método Silva não vieram no ZIP~~ — **RESOLVIDO 2026-07-19**: a Coleção Método Silva v3.0 completa (38 arquivos .md) foi baixada do Drive do Fernando (dono da IP, fernando@axtroai.com) para `knowledge-vault/metodo-silva/` (gitignored, repo é público) com manifesto `SHA256SUMS` de presença/versão/hash. 10 manuais de venda ingeridos no RAG do tenant demo (D-V2-073).
+- ✅ ~~Os oito manuais do Método Silva não vieram no ZIP~~ **RESOLVIDO 2026-07-19**: a Coleção Método Silva v3.0 completa (38 arquivos .md) foi baixada do Drive do Fernando (dono da IP, fernando@axtroai.com) para `knowledge-vault/metodo-silva/` (gitignored, repo é público) com manifesto `SHA256SUMS` de presença/versão/hash. 10 manuais de venda ingeridos no RAG do tenant demo (D-V2-073).
 - Autorização documentada para qualquer voz, imagem ou réplica customizada.
 
 ## Jurídico e compliance

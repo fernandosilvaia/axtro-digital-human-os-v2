@@ -16,7 +16,7 @@ export default defineConfig({
     // Chrome do sistema em dev local (Mac): sem download de browser e sem
     // atrito de Gatekeeper (o chromium baixado morre com SIGABRT nesta
     // máquina). No CI (Linux) usa o chromium baixado pelo Playwright, que
-    // não tem esse problema — instalado via `playwright install --with-deps`.
+    // não tem esse problema: instalado via `playwright install --with-deps`.
     channel: process.env.CI ? undefined : "chrome",
     screenshot: "off",
     trace: "off",

@@ -52,6 +52,6 @@ tmp/
 apps/portal/test-results/
 apps/portal/playwright-report/
 
-# Manual canary evidence (scripts/canaries/) — real provider timestamps,
+# Manual canary evidence (scripts/canaries/): real provider timestamps,
 # never a fixture, never committed. See scripts/canaries/README.md.
 .canary-evidence/

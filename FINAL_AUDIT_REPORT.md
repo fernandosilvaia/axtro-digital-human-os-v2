@@ -45,7 +45,7 @@ seis dimensões e gate crítico independente da média, expansão do console
 operacional para revisão de oportunidade, e a ferramenta de gate de piloto
 interno. Toda a implementação de M3-01 a M3-09 é fake-first ou dry-run,
 exatamente como o próprio critério de aceite de cada tarefa exige; M3-10 entrega
-a ferramenta pronta mas não fabrica um piloto real — isso fica formalmente
+a ferramenta pronta mas não fabrica um piloto real. Isso fica formalmente
 pendente de gate humano.
 
 ## Implementação auditada
@@ -139,7 +139,7 @@ código do repositório.
   aceita URL arbitrária ou script fornecido pelo modelo, a Specialist Fabric
   não tem nenhum método de publicação (One Mouth por omissão de API), e o
   Perception Bus não consegue construir um sinal de mentira, diagnóstico,
-  atributo protegido, risco/solvência, biometria ou emoção-como-fato — esses
+  atributo protegido, risco/solvência, biometria ou emoção-como-fato. Esses
   tipos simplesmente não existem no vocabulário fechado.
 - M3 estende esses contratos com o mesmo rigor: o CRM-lite e o Proposal
   adapter não têm nenhum método de escrita/envio no seu próprio tipo (mesma
@@ -153,7 +153,7 @@ código do repositório.
 
 Revisões read-only independentes confirmaram ausência de P0, Critical e High.
 A matriz cobre tenant estrangeiro em API, console, catálogo, relay, timeline,
-workflow, banco, cache, objetos e — a partir de M3 — retrieval de
+workflow, banco, cache, objetos e (a partir de M3) retrieval de
 conhecimento (cross-tenant retrieval prova zero chunks) e revisão de
 oportunidade no console (render cross-tenant rejeitado antes de qualquer
 HTML). O finding Medium de finalidade insuficiente foi corrigido em todos os
@@ -174,11 +174,11 @@ como piloto real.
   fixtures instrumentadas, não custo de produção;
 - **nenhum provider real foi executado em M0, M1, M2 ou M3.** `artifacts/m2/DECISION.md`
   marca `blocked` os 10 candidates de `CURRENT_PROVIDER_MATRIX.md` (mais Hedra,
-  excluído) por ausência de bake-off credenciado — não por falha de qualidade;
+  excluído) por ausência de bake-off credenciado, não por falha de qualidade;
 - pacotes M2 usam validação "spike-tier" (D-V2-043) mais leve que o padrão
   M0/M1 nos limites internos entre pacotes M2; e vocabulários de telemetria e
   degradação próprios em vez de estender os enums fechados de M0
-  (D-V2-046, D-V2-047) — ambos candidatos a revisão se alguma capability M2
+  (D-V2-046, D-V2-047), ambos candidatos a revisão se alguma capability M2
   for promovida;
 - a revisão humana de naturalidade PT-BR e a medição de qualidade de vídeo real
   não foram feitas (`artifacts/m2/evidence.json.naturalness_review` e
@@ -189,7 +189,7 @@ como piloto real.
   decisão humana separada por definição (`artifacts/m3/README.md`, D-V2-054);
 - o Knowledge Engine (M3-02) e a ferramenta de avaliação (M3-08) espelham
   tabelas (`knowledge_governance`, `evaluation_runs`) que já existiam desde M0
-  mas nunca haviam sido consultadas por código de aplicação — o adapter real
+  mas nunca haviam sido consultadas por código de aplicação, o adapter real
   PostgreSQL+pgvector continua não escolhido (ADR-031);
 - segurança de produção, pen test, identidade real e políticas jurídicas seguem
   pendentes.

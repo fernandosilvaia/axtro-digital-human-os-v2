@@ -17,11 +17,11 @@ chamada a provider real (`AGENTS.md`: "Não bloqueie por ausência de
 credencial em M0-M2. Use fakes e registre o item externo"). Por isso este
 documento separa duas decisões distintas:
 
-1. **Decisões de arquitetura** — o formato dos ports, do fencing por
-   `generationId`, da matriz de degradação e dos directors — comprovável com
+1. **Decisões de arquitetura** (o formato dos ports, do fencing por
+   `generationId`, da matriz de degradação e dos directors), comprovável com
    evidência fake real do cenário M2-12.
-2. **Decisões de provider** — qual SDK/candidate específico processa áudio,
-   vídeo ou fala real — que exigem bake-off credenciado e gate humano
+2. **Decisões de provider** (qual SDK/candidate específico processa áudio,
+   vídeo ou fala real), que exigem bake-off credenciado e gate humano
    (`HANDOFF_TO_CODEX.md`: "usar credenciais reais" é decisão humana).
 
 ## 1. Decisões de arquitetura
@@ -30,9 +30,9 @@ documento separa duas decisões distintas:
 |---|---|---|
 | `RoomTransport` sobre `ChannelPort` (M2-01, ADR-003) | **continue** | sessão inteira (join/publish/disconnect) rodou sem tocar SDK concreto; troca de provider real fica isolada em uma futura implementação de `ChannelPort` |
 | Turn Coordinator, fencing por `generationId` (M2-02) | **continue** | `turn_coordinator.barge_in_confirmed=true`; nenhuma geração cancelada foi entregue |
-| Dual-mode modular/S2S com fallback (M2-03/M2-04, ADR-002) | **continue** | roteador testado nos três casos (desligado, saudável, fallback); cenário M2-12 usou somente o caminho modular, então o caminho S2S real permanece **não exercitado além do roteador** — reavaliar com tráfego S2S real em M3 |
+| Dual-mode modular/S2S com fallback (M2-03/M2-04, ADR-002) | **continue** | roteador testado nos três casos (desligado, saudável, fallback); cenário M2-12 usou somente o caminho modular, então o caminho S2S real permanece **não exercitado além do roteador**; reavaliar com tráfego S2S real em M3 |
 | Behavior Director determinístico por seed (M2-05) | **continue** | estados canônicos, scheduler de naturalidade e acessibilidade testados; **revisão de naturalidade humana real não foi feita** (ver Perguntas do spike, README M2-12) |
-| Avatar Session com resultado tipado (M2-06) | **continue** | `avatar.late_segment_discarded=true`, `avatar.disabled_after_failure=true`, `avatar.post_failure_render_outcome="disabled"` — falha de avatar nunca bloqueou o áudio |
+| Avatar Session com resultado tipado (M2-06) | **continue** | `avatar.late_segment_discarded=true`, `avatar.disabled_after_failure=true`, `avatar.post_failure_render_outcome="disabled"`: falha de avatar nunca bloqueou o áudio |
 | Scene Director com allowlist fechada (M2-07) | **continue** | `scene.outcome="accepted"` via manifesto allowlisted; nenhum caminho de URL arbitrária existe no código |
 | Specialist Fabric com bulkhead e deadline racing (M2-08) | **continue** | `specialists.delayed_specialist_status="timeout"` no próprio deadline; `catalog_query_status="completed"` sem bloqueio |
 | Perception bus com vocabulário fechado (M2-09) | **continue** | sinal `packet_loss` aceito, hipótese derivada com evidência não expirada; nenhum tipo proibido é construível pelo sistema de tipos |
@@ -63,7 +63,7 @@ recebem o mesmo veredito nesta rodada, pelo mesmo motivo:
 | Telephony | Telnyx | **blocked** | idem | idem, medir rotas, AMD e transferências reais |
 | Avatar | Hedra | **blocked** (excluído) | deprecated na documentação do LiveKit | não reentra na shortlist sem nova evidência oficial e ADR |
 
-Nenhum bloqueio é de qualidade ou legal conhecido — é estritamente ausência de
+Nenhum bloqueio é de qualidade ou legal conhecido: é estritamente ausência de
 execução com credencial real, que é o comportamento correto e esperado de
 M0-M2 (`AGENTS.md`). Não há blocker de qualidade ou jurídico não resolvido
 para registrar além disso.
@@ -75,7 +75,7 @@ nenhuma linha muda de "precisa benchmark" para "aprovado" nesta sessão.
 
 O único dado de custo desta sessão é fake (`evidence.json.cost`): 84 µUSD
 estimados vs 87 µUSD "reportados pelo provider" fake, variação 3.6%. Este
-número **não** é uma estimativa de produção — prova apenas que o mecanismo
+número **não** é uma estimativa de produção: prova apenas que o mecanismo
 de reconciliação (`reconcileSessionCost`) funciona. Nenhuma extrapolação de
 custo real por minuto conectado é possível sem o bake-off da Seção 2.
 
@@ -83,13 +83,13 @@ Reestimativa qualitativa de M3, dado o que M2 provou:
 
 - M3 (Role Pack de vendas, RAG autorizado, etc.) pode assumir que os
   **contratos e o fencing por geração de M2 estão prontos** para receber um
-  provider real sem redesenho — a superfície (`RoomTransport`, `TurnCoordinator`,
+  provider real sem redesenho: a superfície (`RoomTransport`, `TurnCoordinator`,
   `AvatarSession`, `SceneDirector`) não precisa mudar para acomodar LiveKit,
   OpenAI Realtime ou qualquer candidate da matriz, só uma implementação
   concreta dos ports já existentes.
 - M3 **deve orçar tempo explícito para o bake-off de provider** (gate humano,
   créditos/cobrança real, `PROVIDER_BENCHMARK_PROTOCOL.md`) como pré-requisito
-  antes de qualquer demo com cliente real — isso não estava no escopo de
+  antes de qualquer demo com cliente real. Isso não estava no escopo de
   nenhuma tarefa M0-M2 e não foi feito aqui.
 - M3 deve reavaliar D-V2-043 (validação spike-tier) e D-V2-046/D-V2-047
   (vocabulários próprios) antes de aceitar dado real de cliente nesses

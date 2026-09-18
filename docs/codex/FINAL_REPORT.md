@@ -1,4 +1,4 @@
-# Relatório final — Auditoria 360
+# Relatório final: Auditoria 360
 
 **Data:** 2026-08-18  
 **Escopo:** M5-03 e as correções de integridade, observabilidade e discovery encontradas na auditoria.  

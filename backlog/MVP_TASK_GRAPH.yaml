@@ -622,7 +622,7 @@ tasks:
     objective: Share one prompt-composition and generation core (Método Silva + RAG + optional perception block) between the portal chat sandbox and the future Tavus-facing endpoint, with no behavior change to the existing sandbox.
     primary_files: [apps/portal/src/lib/brain/chat-completion-core.ts, apps/portal/src/lib/actions/agent-preview.ts]
     acceptance:
-      - core has no Supabase, HTTP or provider import — only injected ports
+      - core has no Supabase, HTTP or provider import, only injected ports
       - knowledge and perception blocks are always separate, labeled system messages, never merged into identity
       - total composed messages never exceed the OpenRouter adapter's per-request cap regardless of history length
     tests: [chat surface composition, video surface composition, knowledge block, perception block labeling and truncation, message budget under long history, validation rejects malformed input, provider error propagation]

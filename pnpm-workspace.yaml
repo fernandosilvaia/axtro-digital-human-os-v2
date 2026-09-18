@@ -14,7 +14,7 @@ allowBuilds:
   sharp: true
 
 autoInstallPeers: false
-# minimumReleaseAge nunca tinha sido definido no arquivo commitado — a lista
+# minimumReleaseAge nunca tinha sido definido no arquivo commitado: a lista
 # de exclusão abaixo já existia (gerada quando o autor tinha essa política
 # ativa via config local não commitada), mas sem o minimumReleaseAge em si a
 # exclusão era um no-op em qualquer clone novo/CI/build da Railway: delay
@@ -35,7 +35,7 @@ minimumReleaseAgeExclude:
 # possível em geradores customizados com size=0 (CWE-835). Patch em
 # >=3.3.17. Force o resolvido em todo o workspace, não só a raiz.
 overrides:
-  # Faixa fechada em <4: nanoid 4+ é ESM-only e mudou padrões de export —
+  # Faixa fechada em <4: nanoid 4+ é ESM-only e mudou padrões de export,
   # um override solto (">=3.3.17") pulou direto pra 6.0.1 e é risco real de
   # quebrar o build do Next/postcss por uma dependência transitiva que
   # ninguém nesse projeto pediu para atualizar. >=3.3.17 <4 pega só o patch

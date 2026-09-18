@@ -1,4 +1,4 @@
-# Auditoria 360 — 2026-08-18
+# Auditoria 360: 2026-08-18
 
 ## Método e limite
 

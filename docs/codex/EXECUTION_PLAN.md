@@ -26,7 +26,7 @@
 3. Aplicar 0043 e 0044 em ordem durante maintenance; não editar migration aplicada nem abrir rota legada.
 4. Consultar capability v44; rodar bootstrap/readiness e testes de canário.
 5. Habilitar apenas o canário aprovado, observar receipts e kill switches.
-6. Em incidente, desligar bridge/kill switch e usar forward fix ou reconciliação de dois operadores — nunca apagar receipt ou aceitar efeito ambíguo.
+6. Em incidente, desligar bridge/kill switch e usar forward fix ou reconciliação de dois operadores. Nunca apagar receipt ou aceitar efeito ambíguo.
 
 ## Métricas a registrar antes de promoção
 

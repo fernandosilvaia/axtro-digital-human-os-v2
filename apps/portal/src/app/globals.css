@@ -647,7 +647,7 @@ table.data tbody tr:hover {
  * Variantes de coluna usadas por formulários de uma linha só (convite de
  * equipe, criar agente, criar fonte de conhecimento). Precisam ser classes
  * (não style inline) porque um style inline vence a media query de colapso
- * mobile do .form-row abaixo independente de especificidade — travava esses
+ * mobile do .form-row abaixo independente de especificidade, travava esses
  * 3 formulários acima da largura mínima de conteúdo em telas de celular
  * (achado ao vivo W7 2026-08-14).
  */
@@ -707,12 +707,12 @@ table.data tbody tr:hover {
     z-index: 40;
     transform: translateX(-100%);
     /* visibility some do fluxo de acessibilidade/tabulação assim que o
-       menu termina de sair da tela — transform sozinho só o move
+       menu termina de sair da tela: transform sozinho só o move
        visualmente, os 5 links continuavam focáveis por teclado/leitor de
        tela fora da tela (achado da auditoria 2026-08-06). A transição de
        visibility é "discreta" por spec: abrindo, vira visível IMEDIATAMENTE
-       (0%) — o slide-in continua visível do início ao fim; fechando, só
-       vira hidden no FIM (100%) — depois de já estar fora da tela. */
+       (0%), o slide-in continua visível do início ao fim; fechando, só
+       vira hidden no FIM (100%), depois de já estar fora da tela. */
     visibility: hidden;
     transition: transform 0.24s var(--ease), visibility 0.24s var(--ease);
     width: var(--sidebar-width);
@@ -1331,7 +1331,7 @@ table.data tbody tr:hover { background: rgba(139,123,255,0.06); }
 
 @media (max-width: 720px) {
   .landing-nav-inner { padding-inline: 18px; }
-  /* Auditoria 2026-08-02: esconder o btn-ghost aqui sumia com o "Entrar" —
+  /* Auditoria 2026-08-02: esconder o btn-ghost aqui sumia com o "Entrar":
      usuário existente no celular ficava sem caminho de login. Mantido
      visível, só mais compacto. */
   .landing-nav-actions .btn-ghost { padding: 8px 12px; font-size: 0.82rem; }

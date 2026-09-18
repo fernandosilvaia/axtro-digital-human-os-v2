@@ -1,10 +1,10 @@
-# HANDOFF — estado operável e como assumir
+# HANDOFF: estado operável e como assumir
 
 ## O que está NO AR agora
 
 - **Portal:** https://portal-production-b43e.up.railway.app (deploy automático da `main`).
 - **Agentes de vídeo (Tavus, ao vivo):** Aurora `pa2dcc2d9c3e` (institucional, pt),
-  Amanda `pe468ba01ef5` (Ecoloop, en), Rafaela `p8966676f4d2` (solar, pt) — todas com
+  Amanda `pe468ba01ef5` (Ecoloop, en), Rafaela `p8966676f4d2` (solar, pt): todas com
   Cérebro Método Silva, percepção emocional (ADR-035) e tools de apresentação.
 - **Conhecimento demo:** 4 fontes da conta + 10 manuais Método Silva (438 chunks RAG).
 - **Ledger:** tokens, embeddings e conversas de vídeo registrados por tenant.
@@ -12,10 +12,10 @@
 ## Como operar (conta demo)
 
 1. Login com o usuário demo (credenciais em `apps/portal/.env.local` / Doppler).
-2. `/agentes` — criar rascunho, **Ativar/Pausar**, Testar.
+2. `/agentes`: criar rascunho, **Ativar/Pausar**, Testar.
 3. Na sala de teste: chat (com RAG), "Conversa em vídeo" e "Apresentação ao vivo".
-4. `/conhecimento` — criar fonte com conteúdo (ingere na hora), revogar/reativar.
-5. `/configuracoes` — perfil do tenant e equipe (convite manda e-mail se `RESEND_API_KEY` setada).
+4. `/conhecimento`: criar fonte com conteúdo (ingere na hora), revogar/reativar.
+5. `/configuracoes`: perfil do tenant e equipe (convite manda e-mail se `RESEND_API_KEY` setada).
 
 ## Como desenvolver
 
