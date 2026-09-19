@@ -957,6 +957,8 @@ function assertBusinessActionCheckoutStripeConnectPhase(databaseUrl) {
   const commit = (reservationId, sessionSuffix) => queryJson(databaseUrl, asRoleSql("service_role", null, `SELECT public.portal_commit_business_checkout_reservation_service(
     '${fixture.tenantAlpha}','${reservationId}','cs_test_harness${sessionSuffix}','https://checkout.stripe.com/harness/${sessionSuffix}'
   );`));
+  const release = (reservationId, evidence) => queryJson(databaseUrl, asRoleSql("service_role", null,
+    `SELECT public.portal_release_business_checkout_reservation_service('${fixture.tenantAlpha}','${reservationId}','${evidence}');`));
 
   const setCheckoutEnabled = (enabled, autoConfirm = false) => assertSucceeded(runSql(databaseUrl, asRoleSql("service_role", null,
     `SELECT public.portal_set_business_action_agent_settings_service('${fixture.tenantAlpha}','${fixture.actorAlpha}','${agentId}',${autoConfirm},${enabled});`)),
@@ -1117,6 +1119,50 @@ function assertBusinessActionCheckoutStripeConnectPhase(databaseUrl) {
     'pi_harnessmismatch001','ch_harnessmismatch001',9900
   );`));
   assert.equal(mismatchThenCorrect.outcome, "payment_completed", "the same reservation applies normally once the event carries the account it was actually dispatched to");
+
+  // 5c) portal_release_business_checkout_reservation_service: dois momentos
+  // possiveis, cada um com seu proprio state exigido. product_deactivated/
+  // stripe_disconnected sao pre-dispatch (state=reserved). price_preflight_failed
+  // e a unica evidencia pos-dispatch aceita (state=provider_in_flight),
+  // porque o preflight de preco vivo roda depois da fence, antes de
+  // qualquer chamada de rede a Stripe -- um desfecho declarado, nunca
+  // "unknown".
+  const preDispatchGrant = admitAction();
+  const preDispatchReserve = reserve({ grantId: preDispatchGrant.grantId, contactEmail: "predispatch@example.test" });
+  approve({ reservationId: preDispatchReserve.reservationId });
+  const preDispatchRelease = release(preDispatchReserve.reservationId, "product_deactivated");
+  assert.equal(preDispatchRelease.outcome, "released");
+  assert.equal(queryScalar(databaseUrl, `SELECT state FROM public.portal_business_action_checkout_reservations WHERE tenant_id='${fixture.tenantAlpha}' AND id='${preDispatchReserve.reservationId}';`), "released");
+  assert.equal(queryScalar(databaseUrl, `SELECT release_evidence FROM public.portal_business_action_checkout_reservations WHERE tenant_id='${fixture.tenantAlpha}' AND id='${preDispatchReserve.reservationId}';`), "product_deactivated");
+  // Releasing again is idempotent, not an error.
+  assert.equal(release(preDispatchReserve.reservationId, "stripe_disconnected").outcome, "released");
+
+  // price_preflight_failed on a merely-reserved row (fence never acquired) is refused: not_releasable, never silently downgraded to the pre-dispatch path.
+  const wrongStateGrant = admitAction();
+  const wrongStateReserve = reserve({ grantId: wrongStateGrant.grantId, contactEmail: "wrongstate@example.test" });
+  approve({ reservationId: wrongStateReserve.reservationId });
+  const wrongStateRelease = release(wrongStateReserve.reservationId, "price_preflight_failed");
+  assert.equal(wrongStateRelease.outcome, "not_releasable");
+  assert.equal(wrongStateRelease.state, "reserved");
+
+  // Symmetrically: a pre-dispatch evidence reason against a provider_in_flight row is also refused.
+  const postDispatchGrant = admitAction();
+  const postDispatchReserve = reserve({ grantId: postDispatchGrant.grantId, contactEmail: "postdispatch@example.test" });
+  approve({ reservationId: postDispatchReserve.reservationId });
+  dispatch(postDispatchReserve.reservationId);
+  assert.equal(release(postDispatchReserve.reservationId, "product_deactivated").outcome, "not_releasable");
+  const postDispatchRelease = release(postDispatchReserve.reservationId, "price_preflight_failed");
+  assert.equal(postDispatchRelease.outcome, "released");
+  assert.equal(queryScalar(databaseUrl, `SELECT state FROM public.portal_business_action_checkout_reservations WHERE tenant_id='${fixture.tenantAlpha}' AND id='${postDispatchReserve.reservationId}';`), "released");
+  assert.equal(queryScalar(databaseUrl, `SELECT release_evidence FROM public.portal_business_action_checkout_reservations WHERE tenant_id='${fixture.tenantAlpha}' AND id='${postDispatchReserve.reservationId}';`), "price_preflight_failed");
+  // A released reservation never re-enters the flow: dispatch refuses to re-acquire the fence.
+  assert.equal(dispatch(postDispatchReserve.reservationId).acquired, false);
+
+  // 5d) An undeclared evidence string is rejected before touching any row.
+  const invalidEvidence = runSql(databaseUrl, asRoleSql("service_role", null,
+    `SELECT public.portal_release_business_checkout_reservation_service('${fixture.tenantAlpha}','${wrongStateReserve.reservationId}','not_a_real_reason');`));
+  assert.equal(invalidEvidence.status, 1, "an undeclared evidence string must raise, not silently succeed");
+  assert.match(invalidEvidence.stderr, /checkout release requires declared post-approval evidence/);
 
   // 6) Caminho de rejeicao: tenant_admin rejeita, nunca toca a Stripe.
   const rejectGrant = admitAction();

@@ -1,7 +1,10 @@
 import type {
   CheckoutSession,
+  ConnectedAccountPriceReceipt,
   CreateCheckoutSessionRequest,
+  CreateConnectedAccountCheckoutSessionRequest,
   StripeBillingCatalogReceipt,
+  VerifyConnectedAccountPriceRequest,
   VerifyStripeBillingCatalogRequest,
 } from "@axtro/provider-stripe";
 
@@ -100,6 +103,38 @@ export function createDeterministicFakeCheckoutPort(notConfiguredUrl: string): C
     async createCheckoutSession(request: CreateCheckoutSessionRequest): Promise<CheckoutSession> {
       return Object.freeze({
         sessionId: `cs_test_fake_${request.planId}_${request.checkoutIntentId.replaceAll("-", "")}`,
+        checkoutUrl: notConfiguredUrl,
+        expiresAtIso: request.expiresAtIso,
+      });
+    },
+  });
+}
+
+export interface ConnectedAccountCheckoutPort {
+  verifyConnectedAccountPrice(request: VerifyConnectedAccountPriceRequest): Promise<ConnectedAccountPriceReceipt>;
+  createConnectedAccountCheckoutSession(request: CreateConnectedAccountCheckoutSessionRequest): Promise<CheckoutSession>;
+}
+
+/**
+ * Mesmo espírito de `createDeterministicFakeCheckoutPort`, para o checkout
+ * na conta CONECTADA do tenant (ADR-040): nunca toca a rede real, sempre o
+ * mesmo resultado pro mesmo input, mas devolve `verified: true` sem checar
+ * nada (não existe conta Stripe real em modo fake pra confirmar preço
+ * contra) -- a mesma disciplina que `verifyBillingCatalog` fake já aplica.
+ */
+export function createDeterministicFakeConnectedAccountCheckoutPort(notConfiguredUrl: string): ConnectedAccountCheckoutPort {
+  return Object.freeze({
+    async verifyConnectedAccountPrice(request: VerifyConnectedAccountPriceRequest): Promise<ConnectedAccountPriceReceipt> {
+      return Object.freeze({
+        verified: true,
+        priceId: request.priceId,
+        unitAmountCents: request.expectedUnitAmountCents,
+        currency: request.expectedCurrency,
+      });
+    },
+    async createConnectedAccountCheckoutSession(request: CreateConnectedAccountCheckoutSessionRequest): Promise<CheckoutSession> {
+      return Object.freeze({
+        sessionId: `cs_test_fake_${request.reservationId.replaceAll("-", "")}`,
         checkoutUrl: notConfiguredUrl,
         expiresAtIso: request.expiresAtIso,
       });

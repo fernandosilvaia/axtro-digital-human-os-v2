@@ -188,7 +188,7 @@ create table public.portal_business_action_checkout_reservations (
   constraint portal_business_action_checkout_reservations_charge_chk check (stripe_charge_id is null or stripe_charge_id ~ '^ch_[A-Za-z0-9]{1,255}$'),
   constraint portal_business_action_checkout_reservations_total_chk check (amount_total_cents is null or amount_total_cents>=0),
   constraint portal_business_action_checkout_reservations_failure_chk check (failure_code is null or char_length(failure_code)<=80),
-  constraint portal_business_action_checkout_reservations_evidence_chk check (release_evidence is null or release_evidence in ('product_deactivated','stripe_disconnected')),
+  constraint portal_business_action_checkout_reservations_evidence_chk check (release_evidence is null or release_evidence in ('product_deactivated','stripe_disconnected','price_preflight_failed')),
   constraint portal_business_action_checkout_reservations_release_chk check ((state='released')=(released_at is not null and release_evidence is not null)),
   constraint portal_business_action_checkout_reservations_approve_chk check ((approved_by is null)=(approved_at is null)),
   constraint portal_business_action_checkout_reservations_reject_chk check ((rejected_by is null)=(rejected_at is null)),
@@ -197,7 +197,14 @@ create table public.portal_business_action_checkout_reservations (
   constraint portal_business_action_checkout_reservations_dispatch_chk check (
     (state in ('pending_approval','reserved','rejected','approval_expired') and provider_dispatched_at is null)
     or (state in ('provider_in_flight','committed','unknown','expired','payment_completed','payment_failed') and provider_dispatched_at is not null)
+    -- 'released' e alcancavel dos dois lados da fence de dispatch: pre-dispatch
+    -- (provider_dispatched_at ainda nulo, evidencia product_deactivated/
+    -- stripe_disconnected) ou pos-dispatch (a fence ja foi adquirida, mas o
+    -- preflight de preco vivo rejeitou antes de qualquer chamada a Stripe --
+    -- so release_evidence='price_preflight_failed' pode carregar
+    -- provider_dispatched_at preenchido).
     or (state='released' and provider_dispatched_at is null)
+    or (state='released' and provider_dispatched_at is not null and release_evidence='price_preflight_failed')
   ),
   constraint portal_business_action_checkout_reservations_commit_chk check (
     (state in ('committed','expired','payment_completed','payment_failed') and committed_at is not null)
@@ -785,25 +792,39 @@ begin
   return jsonb_build_object('outcome','succeeded','reservationId',v_row.id,'state','committed','checkoutUrl',p_checkout_url);
 end $$;
 
--- Libera so falha comprovada pre-dispatch DEPOIS da aprovacao (produto
--- desativado, conta Stripe desconectada entre a aprovacao e o dispatch),
--- nunca depois do dispatch: requer state='reserved' explicitamente. Nunca
--- chama a Stripe.
+-- Libera falha comprovada e DECLARADA (nunca ambigua) depois da aprovacao.
+-- Dois momentos possiveis, cada um com seu proprio state exigido:
+-- 'product_deactivated'/'stripe_disconnected' sao pre-dispatch (produto
+-- desativado ou conta Stripe desconectada entre a aprovacao e o dispatch),
+-- exigem state='reserved' (a fence do dispatch ainda nao foi adquirida).
+-- 'price_preflight_failed' e a UNICA evidencia pos-dispatch aceita aqui:
+-- o preflight de preco vivo (o mesmo da secao "O que e cobrado" do
+-- ADR-040) roda IMEDIATAMENTE DEPOIS de portal_dispatch_business_checkout_reservation_service
+-- adquirir a fence 'provider_in_flight' (a leitura do snapshot e a fence
+-- sao atomicas nessa RPC, entao nao ha como rodar o preflight antes sem
+-- reabrir a corrida que essa atomicidade fecha) e ANTES de qualquer
+-- chamada de rede a Stripe -- um preco que nao bate e um desfecho
+-- conhecido, nunca "unknown": nenhuma chamada foi feita a Stripe, entao
+-- portal_mark_business_checkout_reservation_unknown_service (que implica
+-- reconciliacao de dois operadores porque a Stripe pode ou nao ter
+-- recebido o pedido) seria semanticamente errado aqui. Nunca chama a
+-- Stripe.
 create or replace function public.portal_release_business_checkout_reservation_service(
   p_tenant_id app.uuid_v7,p_reservation_id app.uuid_v7,p_evidence text
 ) returns jsonb language plpgsql security definer set search_path='public' as $$
-declare v_row public.portal_business_action_checkout_reservations%rowtype;
+declare v_row public.portal_business_action_checkout_reservations%rowtype; v_required_state text;
 begin
-  if p_evidence not in ('product_deactivated','stripe_disconnected') then raise exception 'checkout release requires post-approval pre-dispatch evidence' using errcode='22023'; end if;
+  if p_evidence not in ('product_deactivated','stripe_disconnected','price_preflight_failed') then raise exception 'checkout release requires declared post-approval evidence' using errcode='22023'; end if;
+  v_required_state:=case when p_evidence='price_preflight_failed' then 'provider_in_flight' else 'reserved' end;
   select * into v_row from public.portal_business_action_checkout_reservations where tenant_id=p_tenant_id and id=p_reservation_id for update;
   if not found then raise exception 'checkout reservation not found for tenant' using errcode='P0002'; end if;
 
   if v_row.state='released' then return jsonb_build_object('outcome','released','reservationId',v_row.id,'state',v_row.state); end if;
-  if v_row.state<>'reserved' then return jsonb_build_object('outcome','not_releasable','state',v_row.state); end if;
+  if v_row.state<>v_required_state then return jsonb_build_object('outcome','not_releasable','state',v_row.state); end if;
 
   update public.portal_business_action_checkout_reservations
     set state='released',release_evidence=p_evidence,released_at=now(),updated_at=now()
-    where tenant_id=p_tenant_id and id=p_reservation_id and state='reserved';
+    where tenant_id=p_tenant_id and id=p_reservation_id and state=v_required_state;
 
   return jsonb_build_object('outcome','released','reservationId',v_row.id,'state','released');
 end $$;
