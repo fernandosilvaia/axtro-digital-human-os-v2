@@ -70,7 +70,7 @@ function defaultGrant(input) {
 }
 
 function loadBusinessActionToolCall(options = {}) {
-  const calls = { fetchOverview: 0, fetchAgents: 0, liveContext: [], admit: [], registerLead: [], proposeMeetingSlots: [], resolveSlot: [], reserveSlot: [] };
+  const calls = { fetchOverview: 0, fetchAgents: 0, liveContext: [], admit: [], registerLead: [], proposeMeetingSlots: [], resolveSlot: [], reserveSlot: [], requestCheckout: [] };
   const overview = options.overview ?? { provisioned: true, tenant: { id: TENANT_ID } };
   const agents = options.agents ?? [{ id: AGENT_ID }];
   const liveContextResult = options.liveContextResult ?? {
@@ -132,6 +132,13 @@ function loadBusinessActionToolCall(options = {}) {
         return options.reserveSlotResult ?? {
           outcome: "reserved", code: "reserved", reservationId: RESERVATION_ID, googleEventId: "google-event-1", googleCalendarId: null,
           startAt: DEFAULT_PROPOSED_SLOTS[0].startAt, endAt: DEFAULT_PROPOSED_SLOTS[0].endAt, timezone: DEFAULT_PROPOSED_SLOTS[0].timezone,
+        };
+      },
+      async requestBusinessCheckout(input) {
+        calls.requestCheckout.push(input);
+        if (typeof options.requestCheckout === "function") return options.requestCheckout(input);
+        return options.requestCheckoutResult ?? {
+          outcome: "pending_approval", code: "pending_approval", reservationId: RESERVATION_ID, receiptId: RECEIPT_ID, approvalExpiresAt: "2026-09-04T13:00:00.000Z",
         };
       },
     }],
@@ -377,6 +384,115 @@ test("confirm_meeting_slot rejects a slotNumber above the table's own 0..49 boun
   );
   assert.equal(result.status, "error");
   assert.equal(calls.admit.length, 0);
+});
+
+// ---------------------------------------------------------------------------
+// request_checkout (ADR-040)
+// ---------------------------------------------------------------------------
+
+function withCheckoutEnabled(run, enabled) {
+  const before = process.env.PORTAL_BUSINESS_ACTION_CHECKOUT_ENABLED;
+  process.env.PORTAL_BUSINESS_ACTION_CHECKOUT_ENABLED = enabled ? "true" : "false";
+  return Promise.resolve()
+    .then(run)
+    .finally(() => {
+      if (before === undefined) delete process.env.PORTAL_BUSINESS_ACTION_CHECKOUT_ENABLED;
+      else process.env.PORTAL_BUSINESS_ACTION_CHECKOUT_ENABLED = before;
+    });
+}
+
+test("request_checkout succeeds end to end and returns the dedicated pending-approval text, never a completed-purchase text", async () => {
+  await withCheckoutEnabled(async () => {
+    const { actions, calls } = loadBusinessActionToolCall();
+    const result = await actions.executeBusinessActionToolCall(
+      AGENT_ID, "019b0000-0000-7000-8000-0000000000c1", "presentation", "request_checkout", "tavus-call-1",
+      JSON.stringify({ productId: "onboarding_kit" }),
+    );
+    assertResult(result, { status: "success", output: "Cobrança recebida para aprovação interna. Diga que o link de pagamento chega por e-mail assim que o time confirmar." });
+    assert.equal(calls.admit.length, 1);
+    assert.equal(calls.admit[0].actionKind, "request_checkout");
+    assert.equal(calls.requestCheckout.length, 1);
+    assert.equal(calls.requestCheckout[0].productId, "onboarding_kit");
+  }, true);
+});
+
+test("request_checkout forwards an explicit quantity and contactEmail to the bridge", async () => {
+  await withCheckoutEnabled(async () => {
+    const { actions, calls } = loadBusinessActionToolCall();
+    const result = await actions.executeBusinessActionToolCall(
+      AGENT_ID, "019b0000-0000-7000-8000-0000000000c1", "presentation", "request_checkout", "tavus-call-1",
+      JSON.stringify({ productId: "onboarding_kit", quantity: 2, contactEmail: "ana@example.test" }),
+    );
+    assert.equal(result.status, "success");
+    assert.equal(calls.requestCheckout[0].quantity, 2);
+    assert.equal(calls.requestCheckout[0].contactEmail, "ana@example.test");
+  }, true);
+});
+
+test("request_checkout is refused before any admission when PORTAL_BUSINESS_ACTION_CHECKOUT_ENABLED is off, a kill switch independent of the generic bridge flag", async () => {
+  await withCheckoutEnabled(async () => {
+    const { actions, calls } = loadBusinessActionToolCall();
+    const result = await actions.executeBusinessActionToolCall(
+      AGENT_ID, "019b0000-0000-7000-8000-0000000000c1", "presentation", "request_checkout", "tavus-call-1",
+      JSON.stringify({ productId: "onboarding_kit" }),
+    );
+    assertResult(result, { status: "error", output: "Ação indisponível agora. Ofereça transferir para o time humano, com a doutrina de handoff já definida." });
+    assert.equal(calls.admit.length, 0);
+    assert.equal(calls.requestCheckout.length, 0);
+  }, false);
+});
+
+test("request_checkout admission rejection never reaches requestBusinessCheckout and maps to the Handoff text", async () => {
+  await withCheckoutEnabled(async () => {
+    const { actions, calls } = loadBusinessActionToolCall({ admissionResult: { outcome: "rejected", code: "denied_purpose_consent" } });
+    const result = await actions.executeBusinessActionToolCall(
+      AGENT_ID, "019b0000-0000-7000-8000-0000000000c1", "presentation", "request_checkout", "tavus-call-1",
+      JSON.stringify({ productId: "onboarding_kit" }),
+    );
+    assertResult(result, { status: "error", output: "Ação indisponível agora. Ofereça transferir para o time humano, com a doutrina de handoff já definida." });
+    assert.equal(calls.requestCheckout.length, 0);
+  }, true);
+});
+
+test("request_checkout maps every declared rejection reason (stripe_not_connected, checkout_disabled_for_agent, product_not_found, quantity_out_of_range) to Handoff", async () => {
+  await withCheckoutEnabled(async () => {
+    for (const code of ["stripe_not_connected", "checkout_disabled_for_agent", "product_not_found", "quantity_out_of_range"]) {
+      const { actions } = loadBusinessActionToolCall({ requestCheckoutResult: { outcome: "rejected", code } });
+      const result = await actions.executeBusinessActionToolCall(
+        AGENT_ID, "019b0000-0000-7000-8000-0000000000c1", "presentation", "request_checkout", "tavus-call-1",
+        JSON.stringify({ productId: "onboarding_kit" }),
+      );
+      assertResult(result, { status: "error", output: "Ação indisponível agora. Ofereça transferir para o time humano, com a doutrina de handoff já definida." });
+    }
+  }, true);
+});
+
+test("request_checkout rejects a malformed productId before admission, never a free-text product/price", async () => {
+  await withCheckoutEnabled(async () => {
+    const { actions, calls } = loadBusinessActionToolCall();
+    for (const productId of ["Onboarding_Kit", "1kit", "", "a fancy laptop for $999"]) {
+      const result = await actions.executeBusinessActionToolCall(
+        AGENT_ID, "019b0000-0000-7000-8000-0000000000c1", "presentation", "request_checkout", "tavus-call-1",
+        JSON.stringify({ productId }),
+      );
+      assert.equal(result.status, "error");
+    }
+    assert.equal(calls.admit.length, 0);
+  }, true);
+});
+
+test("request_checkout rejects a quantity outside 1..100 before admission", async () => {
+  await withCheckoutEnabled(async () => {
+    const { actions, calls } = loadBusinessActionToolCall();
+    for (const quantity of [0, -1, 1.5, 101]) {
+      const result = await actions.executeBusinessActionToolCall(
+        AGENT_ID, "019b0000-0000-7000-8000-0000000000c1", "presentation", "request_checkout", "tavus-call-1",
+        JSON.stringify({ productId: "onboarding_kit", quantity }),
+      );
+      assert.equal(result.status, "error");
+    }
+    assert.equal(calls.admit.length, 0);
+  }, true);
 });
 
 // ---------------------------------------------------------------------------

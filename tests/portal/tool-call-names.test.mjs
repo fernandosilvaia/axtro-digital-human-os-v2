@@ -9,9 +9,9 @@ import {
   isSceneToolName,
 } from "../../apps/portal/src/lib/runtime/tool-call-names.ts";
 
-test("tool call names: the scene and business action allowlists are the exact ADR-041 lists, disjoint", () => {
+test("tool call names: the scene and business action allowlists are the exact ADR-041/ADR-040 lists, disjoint", () => {
   assert.deepEqual(SCENE_TOOL_NAMES, ["next_slide", "previous_slide", "go_to_slide"]);
-  assert.deepEqual(BUSINESS_ACTION_TOOL_NAMES, ["register_lead", "propose_meeting_slots", "confirm_meeting_slot"]);
+  assert.deepEqual(BUSINESS_ACTION_TOOL_NAMES, ["register_lead", "propose_meeting_slots", "confirm_meeting_slot", "request_checkout"]);
   for (const name of SCENE_TOOL_NAMES) assert.equal(BUSINESS_ACTION_TOOL_NAMES.includes(name), false);
 });
 
@@ -21,7 +21,7 @@ test("tool call names: classifyToolCallName routes scene, business_action and un
     assert.equal(isSceneToolName(name), true);
     assert.equal(isBusinessActionToolName(name), false);
   }
-  for (const name of ["register_lead", "propose_meeting_slots", "confirm_meeting_slot"]) {
+  for (const name of ["register_lead", "propose_meeting_slots", "confirm_meeting_slot", "request_checkout"]) {
     assert.equal(classifyToolCallName(name), "business_action");
     assert.equal(isBusinessActionToolName(name), true);
     assert.equal(isSceneToolName(name), false);

@@ -21,6 +21,7 @@ export const PORTAL_BUSINESS_ACTION_BRIDGE_RPC = Object.freeze({
   resolveSlot: "portal_business_action_resolve_meeting_slot_service",
   resolveSessionSlot: "portal_business_action_resolve_session_meeting_slot_service",
   reserve: "portal_reserve_business_meeting_slot_service",
+  reserveCheckout: "portal_reserve_business_checkout_service",
 });
 
 const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
@@ -32,10 +33,14 @@ const MAX_EMAIL_CHARS = 320;
 const PHONE_PATTERN = /^[0-9+()\-. ]{6,32}$/;
 /** Same bound app.is_bounded_timezone (0052) enforces server-side: a plausible IANA-ish zone name, or the literal 'UTC'. */
 const TIMEZONE_PATTERN = /^(UTC|[A-Za-z]+(\/[A-Za-z0-9_+-]+)+)$/;
-const ACTION_KINDS = new Set(["register_lead", "propose_meeting_slots", "confirm_meeting_slot"]);
+const ACTION_KINDS = new Set(["register_lead", "propose_meeting_slots", "confirm_meeting_slot", "request_checkout"]);
 const MEETING_DURATIONS_MINUTES = new Set([15, 30, 45, 60]);
+/** Same shape the catalog RPC/Server Action already enforce (stripe-checkout-catalog.ts). */
+const CHECKOUT_PRODUCT_ID_PATTERN = /^[a-z][a-z0-9_]{1,79}$/;
+const MIN_STRIPE_IDEMPOTENCY_KEY_CHARS = 16;
+const MAX_STRIPE_IDEMPOTENCY_KEY_CHARS = 255;
 
-export type PortalBusinessActionKind = "register_lead" | "propose_meeting_slots" | "confirm_meeting_slot";
+export type PortalBusinessActionKind = "register_lead" | "propose_meeting_slots" | "confirm_meeting_slot" | "request_checkout";
 
 export type PortalBusinessActionOutcomeCode =
   | "issued"
@@ -43,6 +48,7 @@ export type PortalBusinessActionOutcomeCode =
   | "registered"
   | "proposed"
   | "reserved"
+  | "pending_approval"
   | "bridge_disabled"
   | "kill_switch_active"
   | "agent_inactive"
@@ -59,11 +65,15 @@ export type PortalBusinessActionOutcomeCode =
   | "proposal_expired"
   | "slot_not_offered"
   | "slot_conflict"
+  | "stripe_not_connected"
+  | "checkout_disabled_for_agent"
+  | "product_not_found"
+  | "quantity_out_of_range"
   | "service_unavailable";
 
 export type PortalBusinessActionRejectionCode = Exclude<
   PortalBusinessActionOutcomeCode,
-  "issued" | "replayed" | "registered" | "proposed" | "reserved"
+  "issued" | "replayed" | "registered" | "proposed" | "reserved" | "pending_approval"
 >;
 type PortalBusinessActionBridgeEnv = Readonly<{ readonly PORTAL_BUSINESS_ACTION_BRIDGE_ENABLED?: string }>;
 
@@ -218,6 +228,48 @@ export type ReserveBusinessMeetingSlotResult =
         | "service_unavailable";
     }>;
 
+export interface RequestBusinessCheckoutInput {
+  readonly grant: BusinessActionGrant;
+  /** Precisa existir e estar `active` no catálogo do tenant (ADR-040): nunca preço/produto por texto livre. */
+  readonly productId: string;
+  readonly quantity?: number;
+  readonly contactEmail?: string | null;
+  readonly reservationId?: string;
+  readonly receiptId?: string;
+  /**
+   * Chave de idempotência que a Stripe vai receber DEPOIS, no dispatch real
+   * (fora deste wrapper). Gerada uma única vez aqui e persistida; nunca
+   * regerada a cada retry (ADR-040). Um chamador de teste pode informar a
+   * própria, mas o padrão de produção é derivar da reservationId.
+   */
+  readonly stripeIdempotencyKey?: string;
+}
+
+/**
+ * `pending_approval` é a ÚNICA saída de sucesso possível (ADR-040, "Fluxo de
+ * confirmação"): a reserva nunca nasce `reserved` nem toca a Stripe aqui, um
+ * `tenant_admin` precisa aprovar antes de qualquer chamada de rede. Isso é
+ * modelado com o próprio nome do outcome, não colapsado em "reserved" como
+ * `confirm_meeting_slot` faz para "reserved" hoje inatingível -- aqui
+ * `pending_approval` é o caminho normal, sempre alcançado.
+ */
+export type RequestBusinessCheckoutResult =
+  | Readonly<{ readonly outcome: "pending_approval"; readonly code: "pending_approval"; readonly reservationId: string; readonly receiptId: string; readonly approvalExpiresAt: string }>
+  | Readonly<{
+      readonly outcome: "rejected";
+      readonly code:
+        | "bridge_disabled"
+        | "grant_invalid"
+        | "kill_switch_active"
+        | "grant_expired"
+        | "grant_scope_mismatch"
+        | "stripe_not_connected"
+        | "checkout_disabled_for_agent"
+        | "product_not_found"
+        | "quantity_out_of_range"
+        | "service_unavailable";
+    }>;
+
 export interface PortalBusinessActionRpcResult {
   readonly data: unknown;
   readonly error: { readonly message?: string } | null;
@@ -240,6 +292,7 @@ export interface PortalBusinessActionBridge {
   resolveBusinessActionMeetingSlot(input: ResolveBusinessActionMeetingSlotInput): Promise<ResolveBusinessActionMeetingSlotResult>;
   resolveSessionBusinessActionMeetingSlot(input: ResolveSessionBusinessActionMeetingSlotInput): Promise<ResolveSessionBusinessActionMeetingSlotResult>;
   reserveBusinessMeetingSlot(input: ReserveBusinessMeetingSlotInput): Promise<ReserveBusinessMeetingSlotResult>;
+  requestBusinessCheckout(input: RequestBusinessCheckoutInput): Promise<RequestBusinessCheckoutResult>;
 }
 
 export class PortalBusinessActionBridgeInputError extends Error {
@@ -646,7 +699,75 @@ export function createPortalBusinessActionBridge(dependencies: PortalBusinessAct
     }
   };
 
-  return Object.freeze({ admitBusinessAction, registerBusinessLead, proposeBusinessMeetingSlots, resolveBusinessActionMeetingSlot, resolveSessionBusinessActionMeetingSlot, reserveBusinessMeetingSlot });
+  const requestBusinessCheckout = async (input: RequestBusinessCheckoutInput): Promise<RequestBusinessCheckoutResult> => {
+    if (!processEnabled(env)) return rejection("bridge_disabled");
+    const grant = checkedGrant(input.grant);
+    if (grant.actionKind !== "request_checkout") throw new PortalBusinessActionBridgeInputError("grant.actionKind must be request_checkout");
+    if (!CHECKOUT_PRODUCT_ID_PATTERN.test(input.productId)) throw new PortalBusinessActionBridgeInputError("productId is invalid");
+    const quantity = input.quantity === undefined ? 1 : input.quantity;
+    if (!Number.isInteger(quantity) || quantity < 1 || quantity > 100) throw new PortalBusinessActionBridgeInputError("quantity is invalid");
+    const contactEmail = input.contactEmail === undefined || input.contactEmail === null ? null : input.contactEmail.trim();
+    if (contactEmail !== null && (contactEmail.length === 0 || contactEmail.length > MAX_EMAIL_CHARS || !EMAIL_PATTERN.test(contactEmail))) throw new PortalBusinessActionBridgeInputError("contactEmail is invalid");
+    const reservationId = input.reservationId === undefined ? assertUuidV7(idGenerator(), "reservationId") : assertUuidV7(input.reservationId, "reservationId");
+    const stripeIdempotencyKey = input.stripeIdempotencyKey ?? `checkout:${reservationId}`;
+    if (stripeIdempotencyKey.length < MIN_STRIPE_IDEMPOTENCY_KEY_CHARS || stripeIdempotencyKey.length > MAX_STRIPE_IDEMPOTENCY_KEY_CHARS) {
+      throw new PortalBusinessActionBridgeInputError("stripeIdempotencyKey is invalid");
+    }
+
+    try {
+      const receipt = await rpc(client, PORTAL_BUSINESS_ACTION_BRIDGE_RPC.reserveCheckout, {
+        p_reservation_id: reservationId,
+        p_receipt_id: input.receiptId === undefined ? assertUuidV7(idGenerator(), "receiptId") : assertUuidV7(input.receiptId, "receiptId"),
+        p_grant_id: grant.grantId,
+        p_tenant_id: grant.tenantId,
+        p_agent_id: grant.agentId,
+        p_session_id: grant.sessionId,
+        p_presenter_id: grant.presenterId,
+        p_product_id: input.productId,
+        p_stripe_idempotency_key: stripeIdempotencyKey,
+        p_quantity: quantity,
+        p_contact_email: contactEmail,
+      });
+      // Mesma disciplina de reserveBusinessMeetingSlot: nunca assume sucesso
+      // a partir do nome do outcome sozinho, sempre confere os campos que
+      // ele promete. pending_approval é o único sucesso possível aqui
+      // (ADR-040): a RPC nunca devolve "reserved" nem toca a Stripe.
+      if (receipt.outcome === "pending_approval") {
+        const receiptReservationId = readString(receipt, "reservationId");
+        const receiptId = readString(receipt, "receiptId");
+        const approvalExpiresAt = readString(receipt, "approvalExpiresAt");
+        if (!receiptReservationId || !receiptId || !approvalExpiresAt) return rejection("service_unavailable");
+        return Object.freeze({
+          outcome: "pending_approval",
+          code: "pending_approval",
+          reservationId: assertUuidV7(receiptReservationId, "reservationId"),
+          receiptId: assertUuidV7(receiptId, "receiptId"),
+          approvalExpiresAt,
+        });
+      }
+      if (receipt.outcome === "rejected") {
+        const reason = readString(receipt, "reason");
+        if (
+          reason === "kill_switch_active" ||
+          reason === "grant_expired" ||
+          reason === "grant_scope_mismatch" ||
+          reason === "stripe_not_connected" ||
+          reason === "checkout_disabled_for_agent" ||
+          reason === "product_not_found" ||
+          reason === "quantity_out_of_range"
+        ) {
+          return rejection(reason);
+        }
+        return rejection("grant_invalid");
+      }
+      return rejection("service_unavailable");
+    } catch (error) {
+      if (error instanceof PortalBusinessActionBridgeInputError) throw error;
+      return rejection("service_unavailable");
+    }
+  };
+
+  return Object.freeze({ admitBusinessAction, registerBusinessLead, proposeBusinessMeetingSlots, resolveBusinessActionMeetingSlot, resolveSessionBusinessActionMeetingSlot, reserveBusinessMeetingSlot, requestBusinessCheckout });
 }
 
 /** Production convenience wrappers. Prefer an injected bridge in tests. */
@@ -672,4 +793,8 @@ export async function resolveSessionBusinessActionMeetingSlot(input: ResolveSess
 
 export async function reserveBusinessMeetingSlot(input: ReserveBusinessMeetingSlotInput, dependencies?: PortalBusinessActionBridgeDependencies): Promise<ReserveBusinessMeetingSlotResult> {
   return createPortalBusinessActionBridge(dependencies).reserveBusinessMeetingSlot(input);
+}
+
+export async function requestBusinessCheckout(input: RequestBusinessCheckoutInput, dependencies?: PortalBusinessActionBridgeDependencies): Promise<RequestBusinessCheckoutResult> {
+  return createPortalBusinessActionBridge(dependencies).requestBusinessCheckout(input);
 }

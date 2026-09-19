@@ -52,6 +52,7 @@ import { deterministicBusinessActionCommandId } from "@/lib/runtime/business-act
 import {
   admitBusinessAction,
   registerBusinessLead,
+  requestBusinessCheckout,
   resolveSessionBusinessActionMeetingSlot,
   reserveBusinessMeetingSlot,
   type PortalBusinessActionKind,
@@ -83,6 +84,7 @@ export interface BusinessActionToolCallDependencies {
   readonly proposeGoogleCalendarMeetingSlots?: typeof proposeGoogleCalendarMeetingSlots;
   readonly resolveSessionBusinessActionMeetingSlot?: typeof resolveSessionBusinessActionMeetingSlot;
   readonly reserveBusinessMeetingSlot?: typeof reserveBusinessMeetingSlot;
+  readonly requestBusinessCheckout?: typeof requestBusinessCheckout;
   readonly timeoutMs?: number;
 }
 
@@ -92,10 +94,20 @@ const EMAIL_PATTERN = /^[^@\s]+@[^@\s]+\.[^@\s]+$/;
 const MAX_EMAIL_CHARS = 320;
 const MEETING_DURATIONS_MINUTES = new Set([15, 30, 45, 60]);
 const RETRYABLE_REJECTION_CODES: ReadonlySet<PortalBusinessActionRejectionCode> = new Set(["slot_not_offered", "proposal_expired", "slot_conflict"]);
+/** Same shape the catalog RPC/Server Action already enforce (stripe-checkout-catalog.ts). */
+const CHECKOUT_PRODUCT_ID_PATTERN = /^[a-z][a-z0-9_]{1,79}$/;
+const MAX_CHECKOUT_QUANTITY = 100;
+/** Kill switch dedicado de pagamento (ADR-040, "Duas camadas de flag"), distinto de PORTAL_BUSINESS_ACTION_BRIDGE_ENABLED: desligar só este nunca afeta register_lead/propose_meeting_slots/confirm_meeting_slot. Começa ausente (portanto desligado) em todo ambiente até o gate de segurança/compliance pré-lançamento. */
+const PORTAL_BUSINESS_ACTION_CHECKOUT_ENABLED_ENV = "PORTAL_BUSINESS_ACTION_CHECKOUT_ENABLED";
+
+function checkoutEnabled(env: NodeJS.ProcessEnv = process.env): boolean {
+  return env[PORTAL_BUSINESS_ACTION_CHECKOUT_ENABLED_ENV] === "true";
+}
 
 /** Textos da tabela "Texto de resposta ao modelo por categoria de outcome" (ADR-041), copiados literalmente. */
 const OUTCOME_TEXT = Object.freeze({
   registerLeadSuccess: "Lead registrado.",
+  checkoutPendingApproval: "Cobrança recebida para aprovação interna. Diga que o link de pagamento chega por e-mail assim que o time confirmar.",
   retryable: "Esse horário não está mais disponível. Ofereça consultar novos horários com propose_meeting_slots.",
   handoff: "Ação indisponível agora. Ofereça transferir para o time humano, com a doutrina de handoff já definida.",
   sessionNotFound: "Sessão desta chamada não está pronta para esta ação. Não repita a tentativa; ofereça o handoff.",
@@ -237,6 +249,33 @@ function validateConfirmMeetingSlotArgs(value: Record<string, unknown>): Confirm
   return Object.freeze({ slotIndex, contactEmail });
 }
 
+interface RequestCheckoutArgs {
+  readonly productId: string;
+  readonly quantity?: number;
+  readonly contactEmail?: string;
+}
+
+/**
+ * Contrato fechado do request_checkout (ADR-040): `productId` precisa
+ * existir e estar `active` no catálogo do tenant (a RPC de reserva confere
+ * de novo, esta validação é só a forma, nunca a existência), nunca preço ou
+ * nome de produto por texto livre. `quantity` opcional (padrão 1, a RPC
+ * confere contra `max_quantity` da linha de catálogo).
+ */
+function validateRequestCheckoutArgs(value: Record<string, unknown>): RequestCheckoutArgs | null {
+  const productId = value.productId;
+  if (typeof productId !== "string" || !CHECKOUT_PRODUCT_ID_PATTERN.test(productId)) return null;
+  const quantity = value.quantity;
+  if (quantity !== undefined && (typeof quantity !== "number" || !Number.isInteger(quantity) || quantity < 1 || quantity > MAX_CHECKOUT_QUANTITY)) return null;
+  const contactEmail = value.contactEmail;
+  if (contactEmail !== undefined && (typeof contactEmail !== "string" || contactEmail.length > MAX_EMAIL_CHARS || !EMAIL_PATTERN.test(contactEmail))) return null;
+  return Object.freeze({
+    productId,
+    ...(typeof quantity === "number" ? { quantity } : {}),
+    ...(typeof contactEmail === "string" ? { contactEmail } : {}),
+  });
+}
+
 /**
  * Achado real de revisão de segurança adversarial (ADR-041 onda B): `Promise.race`
  * entre o trabalho real e o timeout de 8s NUNCA cancela a promise perdedora --
@@ -283,7 +322,7 @@ async function admitAndDispatchBusinessAction(
   generation: number,
   actionKind: PortalBusinessActionKind,
   toolCallId: string,
-  validatedArgs: RegisterLeadArgs | ProposeMeetingSlotsArgs | ConfirmMeetingSlotArgs,
+  validatedArgs: RegisterLeadArgs | ProposeMeetingSlotsArgs | ConfirmMeetingSlotArgs | RequestCheckoutArgs,
   dependencies: Required<Omit<BusinessActionToolCallDependencies, "timeoutMs">>,
 ): Promise<BusinessActionToolCallResult> {
   // Passo 5: commandId de admissão determinístico a partir do tool_call_id do Tavus -- replay do mesmo tool_call_id sempre deriva o mesmo commandId.
@@ -340,32 +379,48 @@ async function admitAndDispatchBusinessAction(
     return declaredOutcome("handoff");
   }
 
-  // actionKind === "confirm_meeting_slot"
-  const args = validatedArgs as ConfirmMeetingSlotArgs;
-  const resolved = await dependencies.resolveSessionBusinessActionMeetingSlot({
-    tenantId,
-    sessionId,
-    slotIndex: args.slotIndex,
-  });
-  if (resolved.outcome === "service_unavailable") return declaredOutcome("handoff");
-  if (resolved.outcome === "not_found") {
-    // portal_business_action_resolve_session_meeting_slot_service (0061) colapsa de propósito toda causa de
-    // "não encontrado" (sessão sem proposta viva, proposta expirada, ou posição fora do que foi ofertado) no
-    // mesmo outcome anti-oráculo -- tratado aqui como slot_not_offered, o bucket retomável da ADR-041
-    // que já cobre exatamente essa situação: "ofereça consultar novos horários com propose_meeting_slots".
-    return declaredOutcome(categorizeRejection("slot_not_offered"));
+  if (actionKind === "confirm_meeting_slot") {
+    const args = validatedArgs as ConfirmMeetingSlotArgs;
+    const resolved = await dependencies.resolveSessionBusinessActionMeetingSlot({
+      tenantId,
+      sessionId,
+      slotIndex: args.slotIndex,
+    });
+    if (resolved.outcome === "service_unavailable") return declaredOutcome("handoff");
+    if (resolved.outcome === "not_found") {
+      // portal_business_action_resolve_session_meeting_slot_service (0061) colapsa de propósito toda causa de
+      // "não encontrado" (sessão sem proposta viva, proposta expirada, ou posição fora do que foi ofertado) no
+      // mesmo outcome anti-oráculo -- tratado aqui como slot_not_offered, o bucket retomável da ADR-041
+      // que já cobre exatamente essa situação: "ofereça consultar novos horários com propose_meeting_slots".
+      return declaredOutcome(categorizeRejection("slot_not_offered"));
+    }
+    const reservation = await dependencies.reserveBusinessMeetingSlot({
+      grant,
+      proposalId: resolved.proposalId,
+      slotId: resolved.slotId,
+      contactEmail: args.contactEmail,
+    });
+    if (reservation.outcome === "rejected") return declaredOutcome(categorizeRejection(reservation.code));
+    // "reserved"/"replayed": ADR-041 declara o texto de sucesso genuíno fora de escopo desta onda -- nenhum
+    // tenant tem auto_confirm_scheduling=true hoje, então uma reserva real nunca significa reunião
+    // confirmada no Google (só auto_confirm_disabled, um código de Handoff, é alcançável em produção agora).
+    return declaredOutcome("handoff");
   }
-  const reservation = await dependencies.reserveBusinessMeetingSlot({
+
+  // actionKind === "request_checkout"
+  const args = validatedArgs as RequestCheckoutArgs;
+  const checkout = await dependencies.requestBusinessCheckout({
     grant,
-    proposalId: resolved.proposalId,
-    slotId: resolved.slotId,
-    contactEmail: args.contactEmail,
+    productId: args.productId,
+    ...(args.quantity !== undefined ? { quantity: args.quantity } : {}),
+    ...(args.contactEmail !== undefined ? { contactEmail: args.contactEmail } : {}),
   });
-  if (reservation.outcome === "rejected") return declaredOutcome(categorizeRejection(reservation.code));
-  // "reserved"/"replayed": ADR-041 declara o texto de sucesso genuíno fora de escopo desta onda -- nenhum
-  // tenant tem auto_confirm_scheduling=true hoje, então uma reserva real nunca significa reunião
-  // confirmada no Google (só auto_confirm_disabled, um código de Handoff, é alcançável em produção agora).
-  return declaredOutcome("handoff");
+  if (checkout.outcome === "rejected") return declaredOutcome(categorizeRejection(checkout.code));
+  // "pending_approval" é o único sucesso possível (ADR-040): a reserva nunca
+  // nasce aprovada, nunca toca a Stripe aqui -- um tenant_admin aprova antes
+  // de qualquer link existir. O texto avisa o modelo disso explicitamente,
+  // nunca implica que o pagamento já pode ser feito.
+  return successResult(OUTCOME_TEXT.checkoutPendingApproval);
 }
 
 async function runBusinessActionToolCall(
@@ -397,10 +452,17 @@ async function runBusinessActionToolCall(
   if (parsedArguments === null) return declaredOutcome("handoff");
 
   const actionKind: PortalBusinessActionKind = toolName;
-  let validatedArgs: RegisterLeadArgs | ProposeMeetingSlotsArgs | ConfirmMeetingSlotArgs | null;
+  // Kill switch dedicado de pagamento (ADR-040): desligado por padrão em todo
+  // ambiente até o gate de segurança/compliance pré-lançamento, checado ANTES
+  // de admitir qualquer grant -- nunca gasta uma admissão para uma feature
+  // que a própria plataforma ainda não decidiu ligar.
+  if (actionKind === "request_checkout" && !checkoutEnabled()) return declaredOutcome("handoff");
+
+  let validatedArgs: RegisterLeadArgs | ProposeMeetingSlotsArgs | ConfirmMeetingSlotArgs | RequestCheckoutArgs | null;
   if (actionKind === "register_lead") validatedArgs = validateRegisterLeadArgs(parsedArguments);
   else if (actionKind === "propose_meeting_slots") validatedArgs = validateProposeMeetingSlotsArgs(parsedArguments);
-  else validatedArgs = validateConfirmMeetingSlotArgs(parsedArguments);
+  else if (actionKind === "confirm_meeting_slot") validatedArgs = validateConfirmMeetingSlotArgs(parsedArguments);
+  else validatedArgs = validateRequestCheckoutArgs(parsedArguments);
   if (validatedArgs === null) return declaredOutcome("handoff");
 
   // Lock em voo (ver comentário acima de admitAndDispatchBusinessAction):
@@ -451,6 +513,7 @@ export async function executeBusinessActionToolCall(
     proposeGoogleCalendarMeetingSlots: dependencies.proposeGoogleCalendarMeetingSlots ?? proposeGoogleCalendarMeetingSlots,
     resolveSessionBusinessActionMeetingSlot: dependencies.resolveSessionBusinessActionMeetingSlot ?? resolveSessionBusinessActionMeetingSlot,
     reserveBusinessMeetingSlot: dependencies.reserveBusinessMeetingSlot ?? reserveBusinessMeetingSlot,
+    requestBusinessCheckout: dependencies.requestBusinessCheckout ?? requestBusinessCheckout,
   };
   try {
     return await Promise.race([

@@ -734,17 +734,30 @@ begin
   return v_count;
 end $$;
 
+-- Devolve o snapshot COMPLETO congelado em pending_approval (product_id,
+-- quantity, unit_amount_cents, currency, stripe_price_id,
+-- application_fee_amount_cents, contact_email), nao so stripeAccountId/
+-- stripeIdempotencyKey: achado desta rodada -- sem o snapshot inteiro, a
+-- aplicacao nao tem como montar createConnectedAccountCheckoutSession
+-- depois de adquirir a fence, e uma segunda leitura separada da reserva
+-- reabriria exatamente a corrida que o "for update" desta funcao fecha.
 create or replace function public.portal_dispatch_business_checkout_reservation_service(p_tenant_id app.uuid_v7,p_reservation_id app.uuid_v7)
 returns jsonb language plpgsql security definer set search_path='public' as $$
-declare v_row public.portal_business_action_checkout_reservations%rowtype;
+declare v_row public.portal_business_action_checkout_reservations%rowtype; v_acquired boolean;
 begin
   select * into v_row from public.portal_business_action_checkout_reservations where tenant_id=p_tenant_id and id=p_reservation_id for update;
   if not found then raise exception 'checkout reservation not found for tenant' using errcode='P0002'; end if;
-  if v_row.state='reserved' then
+  v_acquired:=v_row.state='reserved';
+  if v_acquired then
     update public.portal_business_action_checkout_reservations set state='provider_in_flight',provider_dispatched_at=now(),updated_at=now() where tenant_id=p_tenant_id and id=p_reservation_id;
-    return jsonb_build_object('acquired',true,'state','provider_in_flight','stripeAccountId',v_row.stripe_account_id,'stripeIdempotencyKey',v_row.stripe_idempotency_key);
   end if;
-  return jsonb_build_object('acquired',false,'state',v_row.state,'stripeAccountId',v_row.stripe_account_id,'stripeIdempotencyKey',v_row.stripe_idempotency_key);
+  return jsonb_build_object(
+    'acquired',v_acquired,'state',case when v_acquired then 'provider_in_flight' else v_row.state end,
+    'reservationId',v_row.id,'productId',v_row.product_id,'displayName',v_row.display_name,'quantity',v_row.quantity,
+    'unitAmountCents',v_row.unit_amount_cents,'currency',v_row.currency,'stripePriceId',v_row.stripe_price_id,
+    'stripeAccountId',v_row.stripe_account_id,'applicationFeeAmountCents',v_row.application_fee_amount_cents,
+    'contactEmail',v_row.contact_email,'stripeIdempotencyKey',v_row.stripe_idempotency_key
+  );
 end $$;
 
 -- provider_in_flight -> committed. Nao grava receipt novo (o unico receipt

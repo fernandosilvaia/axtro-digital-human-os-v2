@@ -1060,6 +1060,21 @@ function assertBusinessActionCheckoutStripeConnectPhase(databaseUrl) {
   assert.equal(happyApprove.outcome, "approved");
   const happyDispatch = dispatch(happyReserve.reservationId);
   assert.equal(happyDispatch.acquired, true);
+  // O snapshot completo precisa vir junto da fence: sem ele a aplicacao nao
+  // tem como montar createConnectedAccountCheckoutSession sem uma segunda
+  // leitura que reabriria a corrida que o "for update" fecha.
+  assert.equal(happyDispatch.reservationId, happyReserve.reservationId);
+  assert.equal(happyDispatch.productId, "harness_kit");
+  assert.equal(happyDispatch.displayName, "Harness onboarding kit");
+  assert.equal(happyDispatch.quantity, 1);
+  assert.equal(happyDispatch.unitAmountCents, 9900);
+  assert.equal(happyDispatch.currency, "usd");
+  assert.equal(happyDispatch.stripePriceId, "price_harnesskit001");
+  assert.equal(happyDispatch.stripeAccountId, "acct_harnessstripe001");
+  assert.equal(happyDispatch.contactEmail, "prospect@example.test");
+  const redispatch = dispatch(happyReserve.reservationId);
+  assert.equal(redispatch.acquired, false, "a fence ja foi adquirida uma vez; um segundo dispatch nunca reabre provider_in_flight");
+  assert.equal(redispatch.state, "provider_in_flight");
   const happyCommit = commit(happyReserve.reservationId, "happy001");
   assert.equal(happyCommit.outcome, "succeeded");
   assert.equal(queryScalar(databaseUrl, `SELECT outcome FROM public.portal_business_action_receipts WHERE tenant_id='${fixture.tenantAlpha}' AND grant_id='${happyGrant.grantId}';`), "pending_approval",

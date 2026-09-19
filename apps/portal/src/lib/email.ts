@@ -3,6 +3,7 @@
 // mesmo provedor do SMTP de auth (D-V2-063, domínio axtroai.com verificado).
 // Sem RESEND_API_KEY (ou em PORTAL_FAKE_PROVIDERS=1) o envio vira mock
 // logado: o fluxo do produto nunca quebra por falta de chave.
+import { formatUsdCents } from "./billing/plans.ts";
 import { logError as trackError, logEvent } from "./telemetry.ts";
 
 const RESEND_ENDPOINT = "https://api.resend.com/emails";
@@ -414,5 +415,44 @@ export async function sendProposalEmail(options: {
     html: renderEmailHtml(content),
     text: renderEmailText(content),
     logEvent: "proposal_email",
+  });
+}
+
+/**
+ * E-mail do link de cobrança do `request_checkout` (ADR-040): igual a
+ * `sendProposalEmail` no destino (sai pra um prospect externo, fora do
+ * tenant) e na doutrina "IA rascunha, humano manda", mas o clique humano
+ * aqui já aconteceu -- é a aprovação do `tenant_admin` na tela de
+ * checkout pendente, não um segundo clique de "enviar e-mail" separado.
+ * A Server Action de aprovação dispara este envio automaticamente, no
+ * mesmo fluxo que já criou a Checkout Session e gravou `committed`.
+ */
+export async function sendCheckoutLinkEmail(options: {
+  readonly to: string;
+  readonly productDisplayName: string;
+  readonly unitAmountCents: number;
+  readonly quantity: number;
+  readonly checkoutUrl: string;
+}): Promise<EmailSendResult> {
+  const totalCents = options.unitAmountCents * options.quantity;
+  const priceLine = options.quantity > 1
+    ? `${formatUsdCents(totalCents)} (${options.quantity} × ${formatUsdCents(options.unitAmountCents)})`
+    : formatUsdCents(options.unitAmountCents);
+  const content: EmailContent = {
+    preheader: `${options.productDisplayName}, ${priceLine}.`,
+    heading: `Confirmação de pagamento: ${options.productDisplayName}`,
+    paragraphs: [
+      `Como combinado, aqui está o link para confirmar *${options.productDisplayName}* (*${priceLine}*).`,
+    ],
+    cta: { label: "Confirmar pagamento", url: options.checkoutUrl },
+    footnote: "Alguma dúvida antes de confirmar? Responda este e-mail.",
+  };
+
+  return sendHtmlEmail({
+    to: [options.to],
+    subject: `Link de pagamento: ${options.productDisplayName}`,
+    html: renderEmailHtml(content),
+    text: renderEmailText(content),
+    logEvent: "checkout_link_email",
   });
 }

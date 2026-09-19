@@ -20,7 +20,7 @@ function admissionInput(overrides = {}) {
   };
 }
 
-function fakeBridge({ admission = null, registration = null, proposal = null, resolveSlot = null, reservation = null, idGenerator = null, env = null } = {}) {
+function fakeBridge({ admission = null, registration = null, proposal = null, resolveSlot = null, reservation = null, checkoutReservation = null, idGenerator = null, env = null } = {}) {
   const calls = [];
   let index = 5;
   const rpc = {
@@ -53,6 +53,13 @@ function fakeBridge({ admission = null, registration = null, proposal = null, re
         },
         error: null,
       };
+      if (name === "portal_reserve_business_checkout_service") return {
+        data: checkoutReservation ?? {
+          outcome: "pending_approval", reservationId: parameters.p_reservation_id, receiptId: parameters.p_receipt_id,
+          approvalExpiresAt: "2026-09-04T13:00:00.000Z",
+        },
+        error: null,
+      };
       throw new Error(`unexpected RPC ${name}`);
     },
   };
@@ -75,6 +82,14 @@ function confirmSlotGrant(overrides = {}) {
   return {
     tenantId: IDS[0], agentId: IDS[1], sessionId: IDS[2], presenterId: IDS[3],
     actionKind: "confirm_meeting_slot", grantId: IDS[5], generationId: 0, commandFingerprint: "f".repeat(64),
+    ...overrides,
+  };
+}
+
+function checkoutGrant(overrides = {}) {
+  return {
+    tenantId: IDS[0], agentId: IDS[1], sessionId: IDS[2], presenterId: IDS[3],
+    actionKind: "request_checkout", grantId: IDS[5], generationId: 0, commandFingerprint: "0".repeat(64),
     ...overrides,
   };
 }
@@ -442,4 +457,98 @@ test("reserveBusinessMeetingSlot rejects an invalid contactEmail, before any RPC
     /contactEmail is invalid/,
   );
   assert.equal(calls.length, 0);
+});
+
+// ---------------------------------------------------------------------------
+// requestBusinessCheckout (ADR-040)
+// ---------------------------------------------------------------------------
+
+test("requestBusinessCheckout reserves pending_approval and derives a stable idempotency key from the reservationId, never touching the Stripe", async () => {
+  const { bridge, calls } = fakeBridge();
+  const result = await bridge.requestBusinessCheckout({ grant: checkoutGrant(), productId: "onboarding_kit" });
+  assert.equal(result.outcome, "pending_approval");
+  if (result.outcome !== "pending_approval") return assert.fail("expected pending_approval");
+  assert.equal(typeof result.reservationId, "string");
+  assert.equal(typeof result.approvalExpiresAt, "string");
+  const call = calls.find((entry) => entry.name === "portal_reserve_business_checkout_service");
+  assert.equal(call.parameters.p_product_id, "onboarding_kit");
+  assert.equal(call.parameters.p_quantity, 1);
+  assert.equal(call.parameters.p_contact_email, null);
+  assert.equal(call.parameters.p_stripe_idempotency_key, `checkout:${call.parameters.p_reservation_id}`);
+  assert.ok(call.parameters.p_stripe_idempotency_key.length >= 16);
+});
+
+test("requestBusinessCheckout forwards an explicit quantity and contactEmail", async () => {
+  const { bridge, calls } = fakeBridge();
+  const result = await bridge.requestBusinessCheckout({
+    grant: checkoutGrant(), productId: "onboarding_kit", quantity: 3, contactEmail: "ana@example.test",
+  });
+  assert.equal(result.outcome, "pending_approval");
+  const call = calls.find((entry) => entry.name === "portal_reserve_business_checkout_service");
+  assert.equal(call.parameters.p_quantity, 3);
+  assert.equal(call.parameters.p_contact_email, "ana@example.test");
+});
+
+test("requestBusinessCheckout maps every declared RPC rejection reason verbatim", async () => {
+  for (const reason of ["kill_switch_active", "grant_expired", "grant_scope_mismatch", "stripe_not_connected", "checkout_disabled_for_agent", "product_not_found", "quantity_out_of_range"]) {
+    const { bridge } = fakeBridge({ checkoutReservation: { outcome: "rejected", reason } });
+    const result = await bridge.requestBusinessCheckout({ grant: checkoutGrant(), productId: "onboarding_kit" });
+    assert.deepEqual(result, { outcome: "rejected", code: reason });
+  }
+});
+
+test("requestBusinessCheckout defaults an undeclared rejection reason to grant_invalid, and a wholly unexpected RPC outcome to service_unavailable", async () => {
+  const { bridge: undeclaredReasonBridge } = fakeBridge({ checkoutReservation: { outcome: "rejected", reason: "something_new" } });
+  const undeclaredResult = await undeclaredReasonBridge.requestBusinessCheckout({ grant: checkoutGrant(), productId: "onboarding_kit" });
+  assert.deepEqual(undeclaredResult, { outcome: "rejected", code: "grant_invalid" });
+
+  const { bridge: unexpectedOutcomeBridge } = fakeBridge({ checkoutReservation: { outcome: "reserved" } });
+  const unexpectedResult = await unexpectedOutcomeBridge.requestBusinessCheckout({ grant: checkoutGrant(), productId: "onboarding_kit" });
+  assert.deepEqual(unexpectedResult, { outcome: "rejected", code: "service_unavailable" });
+});
+
+test("requestBusinessCheckout fails closed before any RPC when the flag is off", async () => {
+  const disabledBridge = createPortalBusinessActionBridge({ env: {}, rpc: { rpc: () => { throw new Error("must not be called"); } } });
+  const result = await disabledBridge.requestBusinessCheckout({ grant: checkoutGrant(), productId: "onboarding_kit" });
+  assert.deepEqual(result, { outcome: "rejected", code: "bridge_disabled" });
+});
+
+test("requestBusinessCheckout rejects a grant whose actionKind is not request_checkout, before any RPC", async () => {
+  const { bridge, calls } = fakeBridge();
+  await assert.rejects(
+    bridge.requestBusinessCheckout({ grant: checkoutGrant({ actionKind: "confirm_meeting_slot" }), productId: "onboarding_kit" }),
+    /grant\.actionKind must be request_checkout/,
+  );
+  assert.equal(calls.length, 0);
+});
+
+test("requestBusinessCheckout rejects a malformed productId, before any RPC", async () => {
+  const { bridge, calls } = fakeBridge();
+  for (const productId of ["Onboarding_Kit", "1kit", "", "a".repeat(81)]) {
+    await assert.rejects(bridge.requestBusinessCheckout({ grant: checkoutGrant(), productId }), /productId is invalid/);
+  }
+  assert.equal(calls.length, 0);
+});
+
+test("requestBusinessCheckout rejects a quantity outside 1..100, before any RPC", async () => {
+  const { bridge, calls } = fakeBridge();
+  for (const quantity of [0, -1, 1.5, 101]) {
+    await assert.rejects(bridge.requestBusinessCheckout({ grant: checkoutGrant(), productId: "onboarding_kit", quantity }), /quantity is invalid/);
+  }
+  assert.equal(calls.length, 0);
+});
+
+test("requestBusinessCheckout rejects an invalid contactEmail, before any RPC", async () => {
+  const { bridge, calls } = fakeBridge();
+  await assert.rejects(
+    bridge.requestBusinessCheckout({ grant: checkoutGrant(), productId: "onboarding_kit", contactEmail: "not-an-email" }),
+    /contactEmail is invalid/,
+  );
+  assert.equal(calls.length, 0);
+});
+
+test("requestBusinessCheckout rejects a malformed receipt (missing fields the pending_approval outcome promises)", async () => {
+  const { bridge } = fakeBridge({ checkoutReservation: { outcome: "pending_approval" } });
+  const result = await bridge.requestBusinessCheckout({ grant: checkoutGrant(), productId: "onboarding_kit" });
+  assert.deepEqual(result, { outcome: "rejected", code: "service_unavailable" });
 });

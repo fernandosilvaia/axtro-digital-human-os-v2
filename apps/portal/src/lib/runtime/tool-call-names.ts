@@ -15,7 +15,7 @@
 export const SCENE_TOOL_NAMES = ["next_slide", "previous_slide", "go_to_slide"] as const;
 export type SceneToolName = (typeof SCENE_TOOL_NAMES)[number];
 
-export const BUSINESS_ACTION_TOOL_NAMES = ["register_lead", "propose_meeting_slots", "confirm_meeting_slot"] as const;
+export const BUSINESS_ACTION_TOOL_NAMES = ["register_lead", "propose_meeting_slots", "confirm_meeting_slot", "request_checkout"] as const;
 export type BusinessActionToolName = (typeof BUSINESS_ACTION_TOOL_NAMES)[number];
 
 export type ToolCallCategory = "scene" | "business_action" | "unknown";
