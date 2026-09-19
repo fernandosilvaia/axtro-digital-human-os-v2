@@ -37,14 +37,17 @@
  * persistência pela RPC 0052), e confirm_meeting_slot resolve a POSICAO
  * 1-based que o modelo leu em voz alta para o slot_id real via
  * resolveSessionBusinessActionMeetingSlot (migration 0061, que acha sozinha a
- * proposta viva da sessao) antes de chamar reserveBusinessMeetingSlot. O texto de
- * sucesso de confirm_meeting_slot permanece fora de escopo (ver ADR-041:
- * auto_confirm_scheduling é false em todo tenant hoje, então "reserved"/
- * "replayed" nunca correspondem a uma reunião de fato confirmada no Google
- * -- só auto_confirm_disabled, um código de Handoff, é alcançável agora).
+ * proposta viva da sessao) antes de chamar reserveBusinessMeetingSlot. Se a
+ * reserva nascer "reserved"/"replayed" (auto_confirm_scheduling=true pro
+ * agente), dispatchMeetingReservation faz o resto: adquire a fence, insere o
+ * evento real no Google Calendar e comita -- a orquestração que ADR-039/041
+ * já descreviam como trabalho separado, fechada nesta revisão. Sem ela,
+ * "reserved" nunca virava reunião de fato confirmada no Google (só
+ * auto_confirm_disabled, um código de Handoff, era alcançável antes).
  */
 
 import { formatDateTime } from "@/lib/format-date";
+import { dispatchMeetingReservation } from "@/lib/google-calendar/dispatch-meeting-reservation";
 import { proposeGoogleCalendarMeetingSlots } from "@/lib/google-calendar/propose-meeting-slots";
 import { paidEffectIntentKey } from "@/lib/paid-effects";
 import { fetchAgents, fetchTenantOverview } from "@/lib/portal-data";
@@ -84,6 +87,7 @@ export interface BusinessActionToolCallDependencies {
   readonly proposeGoogleCalendarMeetingSlots?: typeof proposeGoogleCalendarMeetingSlots;
   readonly resolveSessionBusinessActionMeetingSlot?: typeof resolveSessionBusinessActionMeetingSlot;
   readonly reserveBusinessMeetingSlot?: typeof reserveBusinessMeetingSlot;
+  readonly dispatchMeetingReservation?: typeof dispatchMeetingReservation;
   readonly requestBusinessCheckout?: typeof requestBusinessCheckout;
   readonly timeoutMs?: number;
 }
@@ -107,6 +111,7 @@ function checkoutEnabled(env: NodeJS.ProcessEnv = process.env): boolean {
 /** Textos da tabela "Texto de resposta ao modelo por categoria de outcome" (ADR-041), copiados literalmente. */
 const OUTCOME_TEXT = Object.freeze({
   registerLeadSuccess: "Lead registrado.",
+  meetingConfirmedSuccess: "Reunião confirmada.",
   checkoutPendingApproval: "Cobrança recebida para aprovação interna. Diga que o link de pagamento chega por e-mail assim que o time confirmar.",
   retryable: "Esse horário não está mais disponível. Ofereça consultar novos horários com propose_meeting_slots.",
   handoff: "Ação indisponível agora. Ofereça transferir para o time humano, com a doutrina de handoff já definida.",
@@ -401,9 +406,16 @@ async function admitAndDispatchBusinessAction(
       contactEmail: args.contactEmail,
     });
     if (reservation.outcome === "rejected") return declaredOutcome(categorizeRejection(reservation.code));
-    // "reserved"/"replayed": ADR-041 declara o texto de sucesso genuíno fora de escopo desta onda -- nenhum
-    // tenant tem auto_confirm_scheduling=true hoje, então uma reserva real nunca significa reunião
-    // confirmada no Google (só auto_confirm_disabled, um código de Handoff, é alcançável em produção agora).
+    // "reserved"/"replayed": a reserva existe no banco, mas só é uma reunião
+    // de fato confirmada no Google depois do dispatch. Nunca declara sucesso
+    // sozinho a partir do outcome da reserva.
+    const dispatched = await dependencies.dispatchMeetingReservation({ tenantId, reservationId: reservation.reservationId });
+    if (dispatched.outcome === "committed" || dispatched.outcome === "already_committed") return successResult(OUTCOME_TEXT.meetingConfirmedSuccess);
+    // in_progress/not_dispatchable/not_connected/ambiguous/service_unavailable:
+    // nenhum é retomável com uma nova confirm_meeting_slot (a reserva já
+    // existe, tentar de novo só colidiria com o próprio grant) -- mesmo
+    // bucket Handoff que o resto do funil já usa pra "algo está errado, mas
+    // não é algo que o modelo resolva tentando de novo".
     return declaredOutcome("handoff");
   }
 
@@ -513,6 +525,7 @@ export async function executeBusinessActionToolCall(
     proposeGoogleCalendarMeetingSlots: dependencies.proposeGoogleCalendarMeetingSlots ?? proposeGoogleCalendarMeetingSlots,
     resolveSessionBusinessActionMeetingSlot: dependencies.resolveSessionBusinessActionMeetingSlot ?? resolveSessionBusinessActionMeetingSlot,
     reserveBusinessMeetingSlot: dependencies.reserveBusinessMeetingSlot ?? reserveBusinessMeetingSlot,
+    dispatchMeetingReservation: dependencies.dispatchMeetingReservation ?? dispatchMeetingReservation,
     requestBusinessCheckout: dependencies.requestBusinessCheckout ?? requestBusinessCheckout,
   };
   try {

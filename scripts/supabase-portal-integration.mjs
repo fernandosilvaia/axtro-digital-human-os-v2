@@ -5511,6 +5511,15 @@ function assertBusinessActionCalendarScheduling(databaseUrl) {
   const firstDispatch = dispatch(fixture.tenantAlpha, reservation1.reservationId);
   assert.equal(firstDispatch.acquired, true);
   assert.equal(firstDispatch.state, "provider_in_flight");
+  // O snapshot completo precisa vir junto da fence: sem ele a aplicacao nao
+  // tem como montar InsertCalendarEventRequest sem uma segunda leitura que
+  // reabriria a corrida que o "for update" fecha (mesmo achado do domínio
+  // de checkout, 0069).
+  assert.equal(firstDispatch.reservationId, reservation1.reservationId);
+  assert.equal(firstDispatch.startAt, reservation1.startAt);
+  assert.equal(firstDispatch.endAt, reservation1.endAt);
+  assert.equal(firstDispatch.timezone, reservation1.timezone);
+  assert.equal(firstDispatch.contactEmail, "prospect@example.test");
   const secondDispatch = dispatch(fixture.tenantAlpha, reservation1.reservationId);
   assert.equal(secondDispatch.acquired, false, "dispatching an already in-flight reservation never re-fires nor fails");
   assert.equal(secondDispatch.state, "provider_in_flight");
@@ -5529,6 +5538,7 @@ function assertBusinessActionCalendarScheduling(databaseUrl) {
   const slot4Id = nextId();
   const slot5Id = nextId();
   const slot6Id = nextId();
+  const slot7Id = nextId();
   const secondProposal = propose({
     grantId: proposeGrant2, sessionId: calSession, presenterId: calPresenter,
     slots: [
@@ -5536,6 +5546,7 @@ function assertBusinessActionCalendarScheduling(databaseUrl) {
       { id: slot4Id, startAt: "2026-09-02T15:00:00Z", endAt: "2026-09-02T15:30:00Z" },
       { id: slot5Id, startAt: "2026-09-02T16:00:00Z", endAt: "2026-09-02T16:30:00Z" },
       { id: slot6Id, startAt: "2026-09-02T17:00:00Z", endAt: "2026-09-02T17:30:00Z" },
+      { id: slot7Id, startAt: "2026-09-02T18:00:00Z", endAt: "2026-09-02T18:30:00Z" },
     ],
   });
   assert.equal(secondProposal.outcome, "succeeded");
@@ -5564,6 +5575,27 @@ function assertBusinessActionCalendarScheduling(databaseUrl) {
   assert.equal(notReleasable.outcome, "not_releasable", "the release RPC explicitly refuses to release a reservation past 'reserved', never after a dispatch");
   assert.equal(queryScalar(databaseUrl, `SELECT state FROM public.portal_business_action_calendar_reservations WHERE id='${notReleasableReservation.reservationId}';`), "provider_in_flight");
   assert.equal(queryScalar(databaseUrl, `SELECT count(*) FROM public.portal_business_action_receipts WHERE tenant_id='${fixture.tenantAlpha}' AND grant_id='${notReleasableGrant}';`), "0", "a refused release never writes a receipt -- the attempt is still open, headed for mark-unknown/reconcile instead");
+
+  // -- release pos-dispatch: so aceita calendar_disconnected_at_dispatch em
+  // provider_in_flight, o desfecho declarado (nada foi enviado a Google) que
+  // portal_google_calendar_connection_context_service/
+  // portal_google_calendar_decrypted_refresh_token_service produzem sem
+  // exceção quando a conexão caiu entre o reserve e o dispatch. Mesmo
+  // achado/mesmo fix já aplicados ao domínio de checkout em 0069.
+  const disconnectedAtDispatchGrant = nextId();
+  assert.equal(admitAction({ grantId: disconnectedAtDispatchGrant, actionKind: "confirm_meeting_slot", sessionId: calSession, presenterId: calPresenter }).outcome, "issued");
+  const disconnectedAtDispatchReservation = reserve({ grantId: disconnectedAtDispatchGrant, sessionId: calSession, presenterId: calPresenter, proposalId: secondProposal.proposalId, slotId: slot7Id });
+  assert.equal(disconnectedAtDispatchReservation.outcome, "reserved");
+  // proposal_expired/slot_conflict continuam recusados em reserved -- só calendar_disconnected_at_dispatch é pré-dispatch aceitável.
+  assert.equal(release({ reservationId: disconnectedAtDispatchReservation.reservationId, evidence: "calendar_disconnected_at_dispatch" }).outcome, "not_releasable", "calendar_disconnected_at_dispatch exige provider_in_flight, nunca reserved");
+  assert.equal(dispatch(fixture.tenantAlpha, disconnectedAtDispatchReservation.reservationId).acquired, true);
+  assert.equal(release({ reservationId: disconnectedAtDispatchReservation.reservationId, evidence: "proposal_expired" }).outcome, "not_releasable", "proposal_expired/slot_conflict continuam exigindo reserved, nunca provider_in_flight");
+  const disconnectedAtDispatchRelease = release({ reservationId: disconnectedAtDispatchReservation.reservationId, evidence: "calendar_disconnected_at_dispatch" });
+  assert.equal(disconnectedAtDispatchRelease.outcome, "released");
+  assert.equal(queryScalar(databaseUrl, `SELECT state FROM public.portal_business_action_calendar_reservations WHERE id='${disconnectedAtDispatchReservation.reservationId}';`), "released");
+  assert.equal(queryScalar(databaseUrl, `SELECT release_evidence FROM public.portal_business_action_calendar_reservations WHERE id='${disconnectedAtDispatchReservation.reservationId}';`), "calendar_disconnected_at_dispatch");
+  // A fence de dispatch nunca reabre depois de released.
+  assert.equal(dispatch(fixture.tenantAlpha, disconnectedAtDispatchReservation.reservationId).acquired, false);
 
   // -- unknown + dual-operator reconciliation --
   assert.equal(markUnknown(fixture.tenantAlpha, notReleasableReservation.reservationId), "t");

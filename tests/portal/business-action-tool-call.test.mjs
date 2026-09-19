@@ -70,7 +70,7 @@ function defaultGrant(input) {
 }
 
 function loadBusinessActionToolCall(options = {}) {
-  const calls = { fetchOverview: 0, fetchAgents: 0, liveContext: [], admit: [], registerLead: [], proposeMeetingSlots: [], resolveSlot: [], reserveSlot: [], requestCheckout: [] };
+  const calls = { fetchOverview: 0, fetchAgents: 0, liveContext: [], admit: [], registerLead: [], proposeMeetingSlots: [], resolveSlot: [], reserveSlot: [], dispatchMeetingReservation: [], requestCheckout: [] };
   const overview = options.overview ?? { provisioned: true, tenant: { id: TENANT_ID } };
   const agents = options.agents ?? [{ id: AGENT_ID }];
   const liveContextResult = options.liveContextResult ?? {
@@ -147,6 +147,16 @@ function loadBusinessActionToolCall(options = {}) {
         calls.proposeMeetingSlots.push(input);
         if (typeof options.proposeMeetingSlots === "function") return options.proposeMeetingSlots(input);
         return options.proposeMeetingSlotsResult ?? { outcome: "succeeded", proposalId: PROPOSAL_ID, receiptId: RECEIPT_ID, slots: DEFAULT_PROPOSED_SLOTS };
+      },
+    }],
+    ["@/lib/google-calendar/dispatch-meeting-reservation", {
+      async dispatchMeetingReservation(input) {
+        calls.dispatchMeetingReservation.push(input);
+        if (typeof options.dispatchMeetingReservation === "function") return options.dispatchMeetingReservation(input);
+        return options.dispatchMeetingReservationResult ?? {
+          outcome: "committed", reservationId: RESERVATION_ID, googleEventId: "google-event-1",
+          startAt: DEFAULT_PROPOSED_SLOTS[0].startAt, endAt: DEFAULT_PROPOSED_SLOTS[0].endAt, timezone: DEFAULT_PROPOSED_SLOTS[0].timezone,
+        };
       },
     }],
     ["@/lib/format-date", { formatDateTime }],
@@ -271,13 +281,13 @@ for (const outcome of ["not_connected", "no_availability", "reauth_required", "s
 // confirm_meeting_slot
 // ---------------------------------------------------------------------------
 
-test("confirm_meeting_slot resolves the model's 1-based slotNumber via the live session (0061) to a real slotId before reserving, and its genuine reservation is still Handoff this wave (ADR-041: auto_confirm_scheduling is false for every tenant today)", async () => {
+test("confirm_meeting_slot resolves the model's 1-based slotNumber via the live session (0061) to a real slotId before reserving, then dispatches to Google Calendar and returns the literal confirmed-meeting success text", async () => {
   const { actions, calls } = loadBusinessActionToolCall();
   const result = await actions.executeBusinessActionToolCall(
     AGENT_ID, "019b0000-0000-7000-8000-0000000000c1", "presentation", "confirm_meeting_slot", "tavus-call-1",
     JSON.stringify({ slotNumber: 1, contactEmail: "ana@example.test" }),
   );
-  assertResult(result, { status: "error", output: "Ação indisponível agora. Ofereça transferir para o time humano, com a doutrina de handoff já definida." });
+  assertResult(result, { status: "success", output: "Reunião confirmada." });
   assert.equal(calls.resolveSlot.length, 1);
   assert.equal(calls.resolveSlot[0].sessionId, SESSION_ID, "o servidor resolve pela sessao viva, nunca por um proposalId vindo do modelo");
   assert.equal(calls.resolveSlot[0].proposalId, undefined, "o modelo nunca envia proposalId: o contrato da tool nao tem esse campo");
@@ -286,18 +296,37 @@ test("confirm_meeting_slot resolves the model's 1-based slotNumber via the live 
   assert.equal(calls.reserveSlot[0].slotId, SLOT_ID, "the resolved slotId, never the model's raw position, must reach reserveBusinessMeetingSlot");
   assert.equal(calls.reserveSlot[0].proposalId, PROPOSAL_ID, "o proposalId vem do servidor (0061), nunca do modelo");
   assert.equal(calls.reserveSlot[0].contactEmail, "ana@example.test");
+  assert.equal(calls.dispatchMeetingReservation.length, 1, "uma reserva reserved/replayed sempre é despachada pro Google -- nunca declara sucesso sozinha");
+  assert.equal(calls.dispatchMeetingReservation[0].tenantId, TENANT_ID);
+  assert.equal(calls.dispatchMeetingReservation[0].reservationId, RESERVATION_ID, "o reservationId que chega ao dispatch é o que reserveBusinessMeetingSlot devolveu, nunca um id fabricado");
 });
 
-test("confirm_meeting_slot treats a replayed reservation the same as a fresh one -- still Handoff, never a fabricated success text", async () => {
-  const { actions } = loadBusinessActionToolCall({
+test("confirm_meeting_slot treats a replayed reservation the same as a fresh one: dispatchMeetingReservation's own already_committed idempotency also returns the success text, never a fabricated one", async () => {
+  const { actions, calls } = loadBusinessActionToolCall({
     reserveSlotResult: { outcome: "replayed", code: "replayed", reservationId: RESERVATION_ID, state: "reserved", googleEventId: null },
+    dispatchMeetingReservationResult: { outcome: "already_committed" },
   });
   const result = await actions.executeBusinessActionToolCall(
     AGENT_ID, "019b0000-0000-7000-8000-0000000000c1", "presentation", "confirm_meeting_slot", "tavus-call-1",
     JSON.stringify({ slotNumber: 1, contactEmail: "ana@example.test" }),
   );
-  assertResult(result, { status: "error", output: "Ação indisponível agora. Ofereça transferir para o time humano, com a doutrina de handoff já definida." });
+  assertResult(result, { status: "success", output: "Reunião confirmada." });
+  assert.equal(calls.dispatchMeetingReservation.length, 1);
 });
+
+for (const outcome of ["in_progress", "not_dispatchable", "not_connected", "ambiguous", "service_unavailable"]) {
+  test(`confirm_meeting_slot maps a dispatchMeetingReservation "${outcome}" outcome to Handoff -- the reservation already exists in the database, retrying confirm_meeting_slot would only collide with the same grant`, async () => {
+    const { actions, calls } = loadBusinessActionToolCall({
+      dispatchMeetingReservationResult: { outcome, ...(outcome === "ambiguous" ? { providerErrorCode: "unknown" } : {}) },
+    });
+    const result = await actions.executeBusinessActionToolCall(
+      AGENT_ID, "019b0000-0000-7000-8000-0000000000c1", "presentation", "confirm_meeting_slot", "tavus-call-1",
+      JSON.stringify({ slotNumber: 1, contactEmail: "ana@example.test" }),
+    );
+    assertResult(result, { status: "error", output: "Ação indisponível agora. Ofereça transferir para o time humano, com a doutrina de handoff já definida." });
+    assert.equal(calls.dispatchMeetingReservation.length, 1);
+  });
+}
 
 // Regressão do defeito que tornava esta tool impossível de chamar. O contrato
 // anterior exigia proposalId, mas propose_meeting_slots nunca entregava esse id
@@ -316,12 +345,12 @@ test("confirm_meeting_slot é chamável só com o que o modelo realmente tem: a 
   // O que prova a correção é ter CHEGADO na resolução. No contrato antigo,
   // validateConfirmMeetingSlotArgs devolvia null por falta de proposalId, então
   // resolveSlot nunca era chamado e a tool morria como violação de schema antes
-  // da admissão. O texto final continua sendo Handoff nesta onda por outro
-  // motivo, já declarado pela ADR-041 (nenhum tenant tem auto_confirm_scheduling).
+  // da admissão. Hoje a reserva genuína segue até o dispatch real pro Google
+  // Calendar (fechado nesta mesma revisão) e devolve sucesso de verdade.
   assert.equal(calls.resolveSlot.length, 1, "a resolução acontece no servidor, a partir da sessão viva");
   assert.equal(calls.resolveSlot[0].slotIndex, 1, "slotNumber 2 vira o slot_index 1 do banco");
   assert.equal(calls.reserveSlot.length, 1, "e segue até a reserva, que era inalcançável antes");
-  assert.equal(result.status, "error", "reserva genuína segue Handoff nesta onda, como a ADR-041 declara");
+  assertResult(result, { status: "success", output: "Reunião confirmada." });
 });
 
 test("confirm_meeting_slot ignora um proposalId que o modelo mande por engano: quem escolhe a proposta é o servidor", async () => {
@@ -335,7 +364,7 @@ test("confirm_meeting_slot ignora um proposalId que o modelo mande por engano: q
     "um proposalId alucinado nunca pode atravessar a fronteira: a resolução é sempre por (tenant, sessão)");
   assert.equal(calls.reserveSlot[0].proposalId, PROPOSAL_ID,
     "o proposalId que chega em reserve é o que o servidor resolveu, nunca o que o modelo mandou");
-  assert.equal(result.status, "error", "reserva genuína segue Handoff nesta onda, como a ADR-041 declara");
+  assertResult(result, { status: "success", output: "Reunião confirmada." });
 });
 
 test("confirm_meeting_slot maps an unresolved position (0061's anti-oracle not_found) to the retryable text, and never calls reserveBusinessMeetingSlot", async () => {
@@ -358,22 +387,24 @@ test("confirm_meeting_slot maps a resolve-layer service_unavailable to Handoff, 
   assert.equal(calls.reserveSlot.length, 0);
 });
 
-test("confirm_meeting_slot maps reserveBusinessMeetingSlot's slot_conflict rejection to the retryable text", async () => {
-  const { actions } = loadBusinessActionToolCall({ reserveSlotResult: { outcome: "rejected", code: "slot_conflict" } });
+test("confirm_meeting_slot maps reserveBusinessMeetingSlot's slot_conflict rejection to the retryable text, never dispatching to Google", async () => {
+  const { actions, calls } = loadBusinessActionToolCall({ reserveSlotResult: { outcome: "rejected", code: "slot_conflict" } });
   const result = await actions.executeBusinessActionToolCall(
     AGENT_ID, "019b0000-0000-7000-8000-0000000000c1", "presentation", "confirm_meeting_slot", "tavus-call-1",
     JSON.stringify({ slotNumber: 1, contactEmail: "ana@example.test" }),
   );
   assertResult(result, { status: "error", output: "Esse horário não está mais disponível. Ofereça consultar novos horários com propose_meeting_slots." });
+  assert.equal(calls.dispatchMeetingReservation.length, 0, "uma reserva rejeitada nunca chega a ser despachada pro Google");
 });
 
-test("confirm_meeting_slot maps reserveBusinessMeetingSlot's calendar_not_connected rejection to Handoff", async () => {
-  const { actions } = loadBusinessActionToolCall({ reserveSlotResult: { outcome: "rejected", code: "calendar_not_connected" } });
+test("confirm_meeting_slot maps reserveBusinessMeetingSlot's calendar_not_connected rejection to Handoff, never dispatching to Google", async () => {
+  const { actions, calls } = loadBusinessActionToolCall({ reserveSlotResult: { outcome: "rejected", code: "calendar_not_connected" } });
   const result = await actions.executeBusinessActionToolCall(
     AGENT_ID, "019b0000-0000-7000-8000-0000000000c1", "presentation", "confirm_meeting_slot", "tavus-call-1",
     JSON.stringify({ slotNumber: 1, contactEmail: "ana@example.test" }),
   );
   assertResult(result, { status: "error", output: "Ação indisponível agora. Ofereça transferir para o time humano, com a doutrina de handoff já definida." });
+  assert.equal(calls.dispatchMeetingReservation.length, 0, "uma reserva rejeitada nunca chega a ser despachada pro Google");
 });
 
 test("confirm_meeting_slot rejects a slotNumber above the table's own 0..49 bound before admission", async () => {

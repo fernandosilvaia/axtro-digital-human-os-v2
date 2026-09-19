@@ -212,7 +212,7 @@ create table public.portal_business_action_calendar_reservations (
     (state='released' and released_at is not null and release_evidence is not null)
     or (state<>'released' and released_at is null and release_evidence is null)
   ),
-  constraint portal_business_action_calendar_reservations_evidence_chk check (release_evidence is null or release_evidence in ('proposal_expired','slot_conflict','operator_reconciliation_absent','operator_compensation_confirmed')),
+  constraint portal_business_action_calendar_reservations_evidence_chk check (release_evidence is null or release_evidence in ('proposal_expired','slot_conflict','operator_reconciliation_absent','operator_compensation_confirmed','calendar_disconnected_at_dispatch')),
   constraint portal_business_action_calendar_reservations_recon_attempt_chk check (reconciliation_attempts between 0 and 1000),
   constraint portal_business_action_calendar_reservations_recon_lease_chk check ((reconciliation_lease_token is null)=(reconciliation_lease_until is null)),
   constraint portal_business_action_calendar_reservations_recon_settle_chk check (
@@ -513,18 +513,29 @@ end $$;
 -- (out-of-migration) Google call. Idempotent the same way
 -- portal_mark_provider_effect_in_flight_service (0040) is: a second call
 -- against an already-in-flight row returns acquired:false instead of
--- re-dispatching or raising.
+-- re-dispatching or raising. Devolve o snapshot COMPLETO (startAt/endAt/
+-- timezone/contactName/contactEmail), nao so googleEventId/googleCalendarId
+-- como na primeira versao: sem esses campos a aplicacao nao tinha como
+-- montar InsertCalendarEventRequest depois de adquirir a fence, e uma
+-- segunda leitura separada da reserva reabriria a corrida que este mesmo
+-- "for update" fecha (mesmo achado e mesmo fix ja aplicados ao domínio de
+-- checkout em 0069, portal_dispatch_business_checkout_reservation_service).
 create or replace function public.portal_dispatch_business_meeting_reservation_service(p_tenant_id app.uuid_v7,p_reservation_id app.uuid_v7)
 returns jsonb language plpgsql security definer set search_path='public' as $$
-declare v_row public.portal_business_action_calendar_reservations%rowtype;
+declare v_row public.portal_business_action_calendar_reservations%rowtype; v_acquired boolean;
 begin
   select * into v_row from public.portal_business_action_calendar_reservations where tenant_id=p_tenant_id and id=p_reservation_id for update;
   if not found then raise exception 'calendar reservation not found for tenant' using errcode='P0002'; end if;
-  if v_row.state='reserved' then
+  v_acquired:=v_row.state='reserved';
+  if v_acquired then
     update public.portal_business_action_calendar_reservations set state='provider_in_flight',provider_dispatched_at=now(),updated_at=now() where tenant_id=p_tenant_id and id=p_reservation_id;
-    return jsonb_build_object('acquired',true,'state','provider_in_flight','googleEventId',v_row.google_event_id,'googleCalendarId',v_row.google_calendar_id);
   end if;
-  return jsonb_build_object('acquired',false,'state',v_row.state,'googleEventId',v_row.google_event_id,'googleCalendarId',v_row.google_calendar_id);
+  return jsonb_build_object(
+    'acquired',v_acquired,'state',case when v_acquired then 'provider_in_flight' else v_row.state end,
+    'reservationId',v_row.id,'googleEventId',v_row.google_event_id,'googleCalendarId',v_row.google_calendar_id,
+    'startAt',v_row.start_at,'endAt',v_row.end_at,'timezone',v_row.timezone,
+    'contactName',v_row.contact_name,'contactEmail',v_row.contact_email
+  );
 end $$;
 
 -- provider_in_flight -> committed, records the succeeded receipt. Requires
@@ -555,16 +566,29 @@ begin
   return jsonb_build_object('outcome','succeeded','reservationId',v_row.id,'state','committed','googleEventId',v_row.google_event_id);
 end $$;
 
--- Releases only a comprehensively pre-dispatch failure (proposal_expired,
--- slot_conflict) -- never after the Google call, which this RPC explicitly
--- refuses to do by requiring state='reserved'. Post-dispatch ambiguity goes
--- through mark-unknown + reconcile instead, never through this function.
+-- Releases uma falha DECLARADA (nunca ambigua). Dois momentos possiveis,
+-- cada um com seu proprio state exigido -- mesmo padrao ja aplicado ao
+-- dominio de checkout (0069, portal_release_business_checkout_reservation_service):
+-- 'proposal_expired'/'slot_conflict' sao pre-dispatch (state='reserved').
+-- 'calendar_disconnected_at_dispatch' e a unica evidencia pos-dispatch aceita
+-- aqui (state='provider_in_flight'): a leitura do contexto de conexao/
+-- credencial decifrada roda IMEDIATAMENTE DEPOIS da fence ser adquirida e
+-- ANTES de qualquer chamada a Google -- as duas RPC de leitura
+-- (portal_google_calendar_connection_context_service/
+-- portal_google_calendar_decrypted_refresh_token_service) nunca lancam,
+-- sempre devolvem not_connected declarado, entao "a conexao caiu entre o
+-- reserve e o dispatch" e um desfecho conhecido, nunca "unknown" (que
+-- implicaria reconciliacao de dois operadores para um caso em que a Google
+-- nunca chegou a ser contatada). Qualquer falha DEPOIS desse ponto (a
+-- propria chamada a insertEvent/getEvent) vai por mark-unknown + reconcile,
+-- nunca por esta funcao.
 create or replace function public.portal_release_business_meeting_reservation_service(
   p_tenant_id app.uuid_v7,p_reservation_id app.uuid_v7,p_receipt_id app.uuid_v7,p_evidence text
 ) returns jsonb language plpgsql security definer set search_path='public' as $$
-declare v_row public.portal_business_action_calendar_reservations%rowtype; v_receipt public.portal_business_action_receipts%rowtype;
+declare v_row public.portal_business_action_calendar_reservations%rowtype; v_receipt public.portal_business_action_receipts%rowtype; v_required_state text;
 begin
-  if p_evidence not in ('proposal_expired','slot_conflict') then raise exception 'request-path release requires pre-dispatch evidence' using errcode='22023'; end if;
+  if p_evidence not in ('proposal_expired','slot_conflict','calendar_disconnected_at_dispatch') then raise exception 'request-path release requires declared evidence' using errcode='22023'; end if;
+  v_required_state:=case when p_evidence='calendar_disconnected_at_dispatch' then 'provider_in_flight' else 'reserved' end;
   select * into v_row from public.portal_business_action_calendar_reservations where tenant_id=p_tenant_id and id=p_reservation_id for update;
   if not found then raise exception 'calendar reservation not found for tenant' using errcode='P0002'; end if;
 
@@ -579,11 +603,11 @@ begin
     return jsonb_build_object('outcome',case when v_row.state='committed' then 'succeeded' when v_row.state='released' then 'released' else v_row.state end,'reservationId',v_row.id,'state',v_row.state);
   end if;
 
-  if v_row.state<>'reserved' then return jsonb_build_object('outcome','not_releasable','state',v_row.state); end if;
+  if v_row.state<>v_required_state then return jsonb_build_object('outcome','not_releasable','state',v_row.state); end if;
 
   update public.portal_business_action_calendar_reservations
     set state='released',release_evidence=p_evidence,released_at=now(),updated_at=now()
-    where tenant_id=p_tenant_id and id=p_reservation_id and state='reserved';
+    where tenant_id=p_tenant_id and id=p_reservation_id and state=v_required_state;
 
   insert into public.portal_business_action_receipts(id,tenant_id,grant_id,session_id,agent_id,presenter_id,action_kind,policy_decision,outcome,reservation_id)
     values(p_receipt_id,v_row.tenant_id,v_row.grant_id,v_row.session_id,v_row.agent_id,v_row.presenter_id,'confirm_meeting_slot','deny','rejected',v_row.id)
