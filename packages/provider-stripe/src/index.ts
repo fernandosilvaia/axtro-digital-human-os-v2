@@ -156,6 +156,30 @@ export interface StripeBillingCatalogReceipt {
   readonly priceCount: number;
 }
 
+/**
+ * Preflight de preço vivo pro catálogo de checkout do closer (ADR-040): o
+ * mesmo raciocínio de `verifyBillingCatalog`, mas contra um preço ÚNICO,
+ * de UMA VEZ SÓ (`type: "one_time"`, nunca `recurring`), numa conta
+ * CONECTADA do tenant, não na conta da própria Axtro. Chamado duas vezes no
+ * fluxo real: no cadastro/atualização do catálogo pelo `tenant_admin`, e de
+ * novo imediatamente antes do dispatch de cada reserva (o preço pode ter
+ * mudado no dashboard Stripe do tenant entre as duas, às vezes horas
+ * depois, por causa da aprovação humana obrigatória).
+ */
+export interface VerifyConnectedAccountPriceRequest {
+  readonly stripeAccountId: string;
+  readonly priceId: string;
+  readonly expectedUnitAmountCents: number;
+  readonly expectedCurrency: string;
+}
+
+export interface ConnectedAccountPriceReceipt {
+  readonly verified: true;
+  readonly priceId: string;
+  readonly unitAmountCents: number;
+  readonly currency: string;
+}
+
 export interface StripeBillingPort {
   readonly providerId: string;
   createCheckoutSession(request: CreateCheckoutSessionRequest): Promise<CheckoutSession>;
@@ -164,6 +188,7 @@ export interface StripeBillingPort {
   createPortalSession(request: CreatePortalSessionRequest): Promise<PortalSession>;
   reportOverageUsage(request: ReportOverageUsageRequest): Promise<void>;
   verifyBillingCatalog(request: VerifyStripeBillingCatalogRequest): Promise<StripeBillingCatalogReceipt>;
+  verifyConnectedAccountPrice(request: VerifyConnectedAccountPriceRequest): Promise<ConnectedAccountPriceReceipt>;
 }
 
 export interface StripeAdapterOptions {
@@ -186,6 +211,7 @@ const PROSPECT_EMAIL_PATTERN = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 const MAX_EMAIL_CHARS = 255;
 const MAX_COMPANY_NAME_CHARS = 160;
 const STRIPE_ACCOUNT_ID_PATTERN = /^acct_[A-Za-z0-9]{1,255}$/;
+const CURRENCY_CODE_PATTERN = /^[a-z]{3}$/;
 // Same shape as CHECKOUT_INTENT_ID_PATTERN (a UUIDv7): reused below for
 // reservationId, a different domain but the same id format this codebase
 // generates application-side (D-V2-010).
@@ -729,6 +755,39 @@ export function createStripeBillingPort(options: StripeAdapterOptions): StripeBi
         eventName: request.eventName,
         livemode: request.livemode,
         priceCount: request.prices.length,
+      });
+    },
+
+    async verifyConnectedAccountPrice(request: VerifyConnectedAccountPriceRequest): Promise<ConnectedAccountPriceReceipt> {
+      if (!STRIPE_ACCOUNT_ID_PATTERN.test(request.stripeAccountId)) {
+        throw new StripeBillingError("invalid_request", "stripeAccountId must be a plain Stripe connected account id");
+      }
+      if (!PRICE_ID_PATTERN.test(request.priceId)) {
+        throw new StripeBillingError("invalid_request", "priceId must be a plain Stripe price id");
+      }
+      if (!Number.isInteger(request.expectedUnitAmountCents) || request.expectedUnitAmountCents < 1 || request.expectedUnitAmountCents > 99_999_999) {
+        throw new StripeBillingError("invalid_request", "expectedUnitAmountCents must be a positive integer");
+      }
+      if (!CURRENCY_CODE_PATTERN.test(request.expectedCurrency)) {
+        throw new StripeBillingError("invalid_request", "expectedCurrency must be a lowercase 3-letter ISO currency code");
+      }
+      const payload = await call("GET", `/prices/${request.priceId}`, {}, undefined, request.stripeAccountId);
+      const price = (payload ?? {}) as Record<string, unknown>;
+      if (
+        price.id !== request.priceId
+        || price.object !== "price"
+        || price.active !== true
+        || price.type !== "one_time"
+        || price.currency !== request.expectedCurrency
+        || price.unit_amount !== request.expectedUnitAmountCents
+      ) {
+        throw new StripeBillingError("invalid_request", `Stripe price ${request.priceId} on the connected account does not match the cached checkout catalog`);
+      }
+      return Object.freeze({
+        verified: true,
+        priceId: request.priceId,
+        unitAmountCents: request.expectedUnitAmountCents,
+        currency: request.expectedCurrency,
       });
     },
   });

@@ -593,6 +593,65 @@ test("deauthorizeStripeConnectAccount propaga qualquer outro erro em vez de engo
   );
 });
 
+// -----------------------------------------------------------------------
+// verifyConnectedAccountPrice (ADR-040): preflight de preco vivo contra
+// uma conta conectada, chamado no cadastro do catalogo e de novo antes de
+// cada dispatch.
+// -----------------------------------------------------------------------
+
+test("verifyConnectedAccountPrice envia GET /prices/:id com o header Stripe-Account e confirma preco/moeda/tipo", async () => {
+  const { calls, implementation } = fakeFetch(async () =>
+    new Response(JSON.stringify({ id: BASE_PRICE_ID, object: "price", active: true, type: "one_time", currency: "usd", unit_amount: 9900 }), { status: 200 }));
+  const port = provider.createStripeBillingPort({ apiKey: API_KEY, fetchImplementation: implementation });
+
+  const result = await port.verifyConnectedAccountPrice({
+    stripeAccountId: CONNECT_ACCOUNT_ID, priceId: BASE_PRICE_ID, expectedUnitAmountCents: 9900, expectedCurrency: "usd",
+  });
+
+  assert.deepEqual(result, { verified: true, priceId: BASE_PRICE_ID, unitAmountCents: 9900, currency: "usd" });
+  assert.equal(calls.length, 1);
+  assert.equal(calls[0].url, `https://api.stripe.com/v1/prices/${BASE_PRICE_ID}`);
+  assert.equal(calls[0].init.headers["Stripe-Account"], CONNECT_ACCOUNT_ID);
+  assert.equal(calls[0].init.method, "GET");
+});
+
+test("verifyConnectedAccountPrice valida stripeAccountId/priceId/valor/moeda antes da rede", async () => {
+  const { calls, implementation } = fakeFetch(async () => { throw new Error("network must not be reached"); });
+  const base = { stripeAccountId: CONNECT_ACCOUNT_ID, priceId: BASE_PRICE_ID, expectedUnitAmountCents: 9900, expectedCurrency: "usd" };
+  for (const override of [
+    { stripeAccountId: "not-an-account" },
+    { priceId: "not-a-price" },
+    { expectedUnitAmountCents: 0 },
+    { expectedUnitAmountCents: 1.5 },
+    { expectedCurrency: "USD" },
+    { expectedCurrency: "us" },
+  ]) {
+    await assert.rejects(
+      () => provider.createStripeBillingPort({ apiKey: API_KEY, fetchImplementation: implementation }).verifyConnectedAccountPrice({ ...base, ...override }),
+      (e) => e.code === "invalid_request",
+    );
+  }
+  assert.equal(calls.length, 0);
+});
+
+test("verifyConnectedAccountPrice rejeita preco desativado, recorrente, ou com valor/moeda divergentes do catalogo cacheado", async () => {
+  const cases = [
+    { id: BASE_PRICE_ID, object: "price", active: false, type: "one_time", currency: "usd", unit_amount: 9900 },
+    { id: BASE_PRICE_ID, object: "price", active: true, type: "recurring", currency: "usd", unit_amount: 9900 },
+    { id: BASE_PRICE_ID, object: "price", active: true, type: "one_time", currency: "brl", unit_amount: 9900 },
+    { id: BASE_PRICE_ID, object: "price", active: true, type: "one_time", currency: "usd", unit_amount: 5000 },
+    { id: "price_wrong_id", object: "price", active: true, type: "one_time", currency: "usd", unit_amount: 9900 },
+  ];
+  for (const body of cases) {
+    const { implementation } = fakeFetch(async () => new Response(JSON.stringify(body), { status: 200 }));
+    const port = provider.createStripeBillingPort({ apiKey: API_KEY, fetchImplementation: implementation });
+    await assert.rejects(
+      () => port.verifyConnectedAccountPrice({ stripeAccountId: CONNECT_ACCOUNT_ID, priceId: BASE_PRICE_ID, expectedUnitAmountCents: 9900, expectedCurrency: "usd" }),
+      (e) => e.code === "invalid_request",
+    );
+  }
+});
+
 test("createFakeStripeConnectAuthorizationCodeExchange e createFakeDeauthorizeStripeConnectAccount sao deterministicos e nunca tocam rede", async () => {
   const exchange = provider.createFakeStripeConnectAuthorizationCodeExchange({ livemode: true });
   const result = await exchange({ platformSecretKey: API_KEY, code: CONNECT_CODE });
