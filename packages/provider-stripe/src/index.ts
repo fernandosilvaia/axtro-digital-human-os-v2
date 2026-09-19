@@ -87,6 +87,31 @@ export interface CreateProspectCheckoutSessionRequest {
   readonly idempotencyKey: string;
 }
 
+/**
+ * Sessão de Checkout em cobrança direta (Direct charges) numa conta Stripe
+ * Connect Standard do TENANT, não da Axtro (ADR-040): o closer fecha e
+ * cobra pelo próprio cliente final do tenant. `stripeAccountId` vira o
+ * cabeçalho `Stripe-Account` junto da chave de plataforma já existente,
+ * `mode: "payment"` (cobrança única, V1 nunca recorrente pro cliente
+ * final), um único line item, `applicationFeeAmountCents` opcional (a
+ * comissão da Axtro, se houver, decisão comercial fora deste pacote).
+ */
+export interface CreateConnectedAccountCheckoutSessionRequest {
+  readonly reservationId: string;
+  readonly tenantId: string;
+  readonly stripeAccountId: string;
+  readonly priceId: string;
+  readonly quantity: number;
+  readonly applicationFeeAmountCents?: number;
+  readonly contactEmail?: string;
+  readonly successUrl: string;
+  readonly cancelUrl: string;
+  /** Immutable, second-precision expiry persisted before provider dispatch, mesmo padrão de CreateCheckoutSessionRequest. O ADR-040 recomenda um prazo curto (poucas horas): decisão do chamador, não deste pacote. */
+  readonly expiresAtIso: string;
+  /** Chave de idempotência da Stripe: a mesma gravada na reserva (ADR-040), nunca gerada de novo a cada retry. */
+  readonly idempotencyKey: string;
+}
+
 export interface CreatePortalSessionRequest {
   readonly stripeCustomerId: string;
   readonly returnUrl: string;
@@ -135,6 +160,7 @@ export interface StripeBillingPort {
   readonly providerId: string;
   createCheckoutSession(request: CreateCheckoutSessionRequest): Promise<CheckoutSession>;
   createProspectCheckoutSession(request: CreateProspectCheckoutSessionRequest): Promise<CheckoutSession>;
+  createConnectedAccountCheckoutSession(request: CreateConnectedAccountCheckoutSessionRequest): Promise<CheckoutSession>;
   createPortalSession(request: CreatePortalSessionRequest): Promise<PortalSession>;
   reportOverageUsage(request: ReportOverageUsageRequest): Promise<void>;
   verifyBillingCatalog(request: VerifyStripeBillingCatalogRequest): Promise<StripeBillingCatalogReceipt>;
@@ -159,6 +185,10 @@ const CHECKOUT_INTENT_ID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab]
 const PROSPECT_EMAIL_PATTERN = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 const MAX_EMAIL_CHARS = 255;
 const MAX_COMPANY_NAME_CHARS = 160;
+const STRIPE_ACCOUNT_ID_PATTERN = /^acct_[A-Za-z0-9]{1,255}$/;
+// Same shape as CHECKOUT_INTENT_ID_PATTERN (a UUIDv7): reused below for
+// reservationId, a different domain but the same id format this codebase
+// generates application-side (D-V2-010).
 
 function isHttpsUrl(value: unknown, maxChars: number): value is string {
   if (typeof value !== "string" || value.length === 0 || value.length > maxChars) return false;
@@ -273,6 +303,7 @@ export function createStripeBillingPort(options: StripeAdapterOptions): StripeBi
     path: string,
     body: Record<string, unknown> = {},
     idempotencyKey?: string,
+    connectedAccountId?: string,
   ): Promise<unknown> {
     const controller = new AbortController();
     const timer = setTimeout(() => controller.abort(), timeoutMs);
@@ -286,6 +317,11 @@ export function createStripeBillingPort(options: StripeAdapterOptions): StripeBi
           ...(method === "POST" ? { "Content-Type": "application/x-www-form-urlencoded" } : {}),
           "Stripe-Version": STRIPE_API_VERSION,
           ...(idempotencyKey ? { "Idempotency-Key": idempotencyKey } : {}),
+          // Cobrança direta (ADR-040): a Checkout Session nasce NA conta
+          // conectada do tenant, não na plataforma, quando este header vem
+          // junto da chave de plataforma já existente
+          // (docs.stripe.com/connect/direct-charges).
+          ...(connectedAccountId ? { "Stripe-Account": connectedAccountId } : {}),
         },
         ...(method === "POST" ? { body: toFormBody(body) } : {}),
       });
@@ -474,6 +510,82 @@ export function createStripeBillingPort(options: StripeAdapterOptions): StripeBi
         || responseExpirySeconds !== expiresAtSeconds
       ) {
         throw new StripeBillingError("malformed_provider_response", "Stripe checkout session payload has an invalid id/url/expiry");
+      }
+      return Object.freeze({ sessionId, checkoutUrl, expiresAtIso: request.expiresAtIso });
+    },
+
+    async createConnectedAccountCheckoutSession(request: CreateConnectedAccountCheckoutSessionRequest): Promise<CheckoutSession> {
+      if (!CHECKOUT_INTENT_ID_PATTERN.test(request.reservationId)) {
+        throw new StripeBillingError("invalid_request", "reservationId must be a UUIDv7");
+      }
+      if (typeof request.tenantId !== "string" || request.tenantId.length === 0 || request.tenantId.length > MAX_ID_CHARS) {
+        throw new StripeBillingError("invalid_request", "tenantId must be 1.." + MAX_ID_CHARS + " chars");
+      }
+      if (!STRIPE_ACCOUNT_ID_PATTERN.test(request.stripeAccountId)) {
+        throw new StripeBillingError("invalid_request", "stripeAccountId must be a plain Stripe connected account id");
+      }
+      if (!PRICE_ID_PATTERN.test(request.priceId)) {
+        throw new StripeBillingError("invalid_request", "priceId must be a plain Stripe price id");
+      }
+      if (!Number.isInteger(request.quantity) || request.quantity < 1 || request.quantity > 100) {
+        throw new StripeBillingError("invalid_request", "quantity must be an integer between 1 and 100");
+      }
+      if (
+        request.applicationFeeAmountCents !== undefined
+        && (!Number.isInteger(request.applicationFeeAmountCents) || request.applicationFeeAmountCents < 0)
+      ) {
+        throw new StripeBillingError("invalid_request", "applicationFeeAmountCents must be a non-negative integer");
+      }
+      if (
+        request.contactEmail !== undefined
+        && (request.contactEmail.length === 0 || request.contactEmail.length > MAX_EMAIL_CHARS || !PROSPECT_EMAIL_PATTERN.test(request.contactEmail))
+      ) {
+        throw new StripeBillingError("invalid_request", "contactEmail must be a plain email address");
+      }
+      if (!isHttpsUrl(request.successUrl, MAX_URL_CHARS) || !isHttpsUrl(request.cancelUrl, MAX_URL_CHARS)) {
+        throw new StripeBillingError("invalid_request", "successUrl/cancelUrl must be https URLs");
+      }
+      const expiresAtSeconds = checkoutExpirySeconds(request.expiresAtIso);
+      if (expiresAtSeconds === null) {
+        throw new StripeBillingError("invalid_request", "expiresAtIso must be a second-precision ISO 8601 instant");
+      }
+      if (typeof request.idempotencyKey !== "string" || request.idempotencyKey.length === 0 || request.idempotencyKey.length > MAX_ID_CHARS) {
+        throw new StripeBillingError("invalid_request", "idempotencyKey is required");
+      }
+
+      const payload = await call(
+        "POST",
+        "/checkout/sessions",
+        {
+          mode: "payment",
+          ...(request.contactEmail ? { customer_email: request.contactEmail } : {}),
+          success_url: request.successUrl,
+          cancel_url: request.cancelUrl,
+          expires_at: expiresAtSeconds,
+          metadata: {
+            reservation_id: request.reservationId,
+            tenant_id: request.tenantId,
+          },
+          line_items: [{ price: request.priceId, quantity: request.quantity }],
+          ...(request.applicationFeeAmountCents !== undefined
+            ? { payment_intent_data: { application_fee_amount: request.applicationFeeAmountCents } }
+            : {}),
+        },
+        request.idempotencyKey,
+        request.stripeAccountId,
+      );
+      const record = (payload ?? {}) as Record<string, unknown>;
+      const sessionId = record.id;
+      const checkoutUrl = record.url;
+      const responseExpirySeconds = record.expires_at;
+      if (
+        typeof sessionId !== "string"
+        || !CHECKOUT_SESSION_ID_PATTERN.test(sessionId)
+        || !isStripeCheckoutUrl(checkoutUrl, sessionId)
+        || !Number.isInteger(responseExpirySeconds)
+        || responseExpirySeconds !== expiresAtSeconds
+      ) {
+        throw new StripeBillingError("malformed_provider_response", "Stripe connected account checkout session payload has an invalid id/url/expiry");
       }
       return Object.freeze({ sessionId, checkoutUrl, expiresAtIso: request.expiresAtIso });
     },

@@ -151,6 +151,107 @@ test("createCheckoutSession rejeita id, host/path e expires_at divergentes no re
   }
 });
 
+const STRIPE_ACCOUNT_ID = "acct_1ConnectedTest00";
+const RESERVATION_ID = "0198a8b2-3c4d-7e5f-8a90-1234567890cd";
+const CHECKOUT_PRICE_ID = "price_1CheckoutTest000";
+
+test("createConnectedAccountCheckoutSession envia Stripe-Account, mode payment e application_fee_amount opcional", async () => {
+  const { calls, implementation } = fakeFetch(async () =>
+    new Response(JSON.stringify({ id: "cs_test_connect1", url: "https://checkout.stripe.com/c/pay/cs_test_connect1", expires_at: EXPIRES_AT_SECONDS }), { status: 200 }));
+  const port = provider.createStripeBillingPort({ apiKey: API_KEY, fetchImplementation: implementation });
+
+  const result = await port.createConnectedAccountCheckoutSession({
+    reservationId: RESERVATION_ID,
+    tenantId: "tenant-abc",
+    stripeAccountId: STRIPE_ACCOUNT_ID,
+    priceId: CHECKOUT_PRICE_ID,
+    quantity: 2,
+    applicationFeeAmountCents: 500,
+    contactEmail: "prospect@example.test",
+    successUrl: "https://closer.axtroai.com/checkout/ok",
+    cancelUrl: "https://closer.axtroai.com/checkout/cancel",
+    expiresAtIso: EXPIRES_AT_ISO,
+    idempotencyKey: `checkout-connect:${RESERVATION_ID}`,
+  });
+
+  assert.deepEqual(result, { sessionId: "cs_test_connect1", checkoutUrl: "https://checkout.stripe.com/c/pay/cs_test_connect1", expiresAtIso: EXPIRES_AT_ISO });
+  assert.equal(calls.length, 1);
+  assert.equal(calls[0].init.headers["Stripe-Account"], STRIPE_ACCOUNT_ID, "cobrança direta: a Checkout Session nasce na conta conectada do tenant, não na plataforma");
+  assert.equal(calls[0].init.headers["Idempotency-Key"], `checkout-connect:${RESERVATION_ID}`);
+
+  const body = parseFormBody(calls[0].init.body);
+  assert.equal(body.mode, "payment", "V1 é sempre cobrança única, nunca assinatura recorrente pro cliente final");
+  assert.equal(body.customer_email, "prospect@example.test");
+  assert.equal(body["metadata[reservation_id]"], RESERVATION_ID);
+  assert.equal(body["metadata[tenant_id]"], "tenant-abc");
+  assert.equal(body["line_items[0][price]"], CHECKOUT_PRICE_ID);
+  assert.equal(body["line_items[0][quantity]"], "2");
+  assert.equal(body["payment_intent_data[application_fee_amount]"], "500");
+  assert.equal(body["subscription_data[metadata][tenant_id]"], undefined, "modo payment nunca carrega subscription_data");
+});
+
+test("createConnectedAccountCheckoutSession omite application_fee_amount e customer_email quando não informados", async () => {
+  const { calls, implementation } = fakeFetch(async () =>
+    new Response(JSON.stringify({ id: "cs_test_connect2", url: "https://checkout.stripe.com/c/pay/cs_test_connect2", expires_at: EXPIRES_AT_SECONDS }), { status: 200 }));
+  const port = provider.createStripeBillingPort({ apiKey: API_KEY, fetchImplementation: implementation });
+  await port.createConnectedAccountCheckoutSession({
+    reservationId: RESERVATION_ID, tenantId: "tenant-abc", stripeAccountId: STRIPE_ACCOUNT_ID, priceId: CHECKOUT_PRICE_ID, quantity: 1,
+    successUrl: "https://closer.axtroai.com/checkout/ok", cancelUrl: "https://closer.axtroai.com/checkout/cancel",
+    expiresAtIso: EXPIRES_AT_ISO, idempotencyKey: `checkout-connect:${RESERVATION_ID}`,
+  });
+  const body = parseFormBody(calls[0].init.body);
+  assert.equal(body.customer_email, undefined);
+  assert.equal(body["payment_intent_data[application_fee_amount]"], undefined, "sem taxa de plataforma nesta reserva, nenhum campo enviado (nunca 0 implícito)");
+});
+
+test("createConnectedAccountCheckoutSession valida conta Stripe, price, quantidade e taxa antes da rede", async () => {
+  const { calls, implementation } = fakeFetch(async () => new Response("{}", { status: 200 }));
+  const port = provider.createStripeBillingPort({ apiKey: API_KEY, fetchImplementation: implementation });
+  const base = {
+    reservationId: RESERVATION_ID, tenantId: "tenant-abc", stripeAccountId: STRIPE_ACCOUNT_ID, priceId: CHECKOUT_PRICE_ID, quantity: 1,
+    successUrl: "https://a.com/ok", cancelUrl: "https://a.com/cancel", expiresAtIso: EXPIRES_AT_ISO, idempotencyKey: `checkout-connect:${RESERVATION_ID}`,
+  };
+  for (const bad of [
+    { ...base, reservationId: "not-a-uuidv7" },
+    { ...base, tenantId: "" },
+    { ...base, stripeAccountId: "cus_wrong_prefix" },
+    { ...base, priceId: "not-a-price-id" },
+    { ...base, quantity: 0 },
+    { ...base, quantity: 1.5 },
+    { ...base, quantity: 101 },
+    { ...base, applicationFeeAmountCents: -1 },
+    { ...base, applicationFeeAmountCents: 1.5 },
+    { ...base, contactEmail: "not-an-email" },
+    { ...base, successUrl: "http://not-https.com" },
+    { ...base, expiresAtIso: "2026-08-13T12:30:00.123Z" },
+    { ...base, idempotencyKey: "" },
+  ]) {
+    await assert.rejects(() => port.createConnectedAccountCheckoutSession(bad), (e) => e.code === "invalid_request", JSON.stringify(bad));
+  }
+  assert.equal(calls.length, 0);
+});
+
+test("createConnectedAccountCheckoutSession rejeita id, host/path e expires_at divergentes no receipt Stripe", async (t) => {
+  for (const payload of [
+    { id: "session_wrong", url: "https://checkout.stripe.com/c/pay/session_wrong", expires_at: EXPIRES_AT_SECONDS },
+    { id: "cs_test_connect1", url: "https://evil.example/c/pay/cs_test_connect1", expires_at: EXPIRES_AT_SECONDS },
+    { id: "cs_test_connect1", url: "https://checkout.stripe.com/c/pay/cs_test_connect1", expires_at: EXPIRES_AT_SECONDS + 1 },
+  ]) {
+    await t.test(JSON.stringify(payload), async () => {
+      const { implementation } = fakeFetch(async () => new Response(JSON.stringify(payload), { status: 200 }));
+      const port = provider.createStripeBillingPort({ apiKey: API_KEY, fetchImplementation: implementation });
+      await assert.rejects(
+        () => port.createConnectedAccountCheckoutSession({
+          reservationId: RESERVATION_ID, tenantId: "tenant-abc", stripeAccountId: STRIPE_ACCOUNT_ID, priceId: CHECKOUT_PRICE_ID, quantity: 1,
+          successUrl: "https://closer.axtroai.com/ok", cancelUrl: "https://closer.axtroai.com/cancel",
+          expiresAtIso: EXPIRES_AT_ISO, idempotencyKey: `checkout-connect:${RESERVATION_ID}`,
+        }),
+        (error) => error.code === "malformed_provider_response",
+      );
+    });
+  }
+});
+
 test("createPortalSession valida customerId/returnUrl e devolve a portalUrl", async () => {
   const { calls, implementation } = fakeFetch(async () => new Response(JSON.stringify({ url: "https://billing.stripe.com/p/session/abc" }), { status: 200 }));
   const port = provider.createStripeBillingPort({ apiKey: API_KEY, fetchImplementation: implementation });
