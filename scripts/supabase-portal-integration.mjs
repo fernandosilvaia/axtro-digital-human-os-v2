@@ -255,9 +255,13 @@ try {
   assert.deepEqual(videoConfigSelfServiceApplied, ["0068"]);
   assertAgentVideoConfigSelfServicePhase(databaseUrl);
 
+  const checkoutStripeConnectApplied = applySupabaseMigrations(databaseUrl, 69, 69);
+  assert.deepEqual(checkoutStripeConnectApplied, ["0069"]);
+  assertBusinessActionCheckoutStripeConnectPhase(databaseUrl);
+
   assertMigrationReceiptLineage(databaseUrl);
 
-  console.log("SUPABASE PORTAL INTEGRATION PASSED: migrations 0001-0068 in contiguous order, immutable checksums, grants, RLS, transcripts, reservations, data governance and readiness capability");
+  console.log("SUPABASE PORTAL INTEGRATION PASSED: migrations 0001-0069 in contiguous order, immutable checksums, grants, RLS, transcripts, reservations, data governance and readiness capability");
 } catch (error) {
   primaryError = error;
   throw error;
@@ -295,11 +299,11 @@ function supabaseMigrationInventory() {
   const migrations = readdirSync(supabaseMigrationDirectory)
     .filter((name) => /^\d{4}_.+\.sql$/.test(name))
     .sort();
-  assert.equal(migrations.length, 68, "the harness must cover every Supabase-only migration through 0068");
+  assert.equal(migrations.length, 69, "the harness must cover every Supabase-only migration through 0069");
   assert.deepEqual(
     migrations.map((migration) => Number(migration.slice(0, 4))),
-    Array.from({ length: 68 }, (_, index) => index + 1),
-    "Supabase-only migration versions must be contiguous and unique from 0001 through 0068",
+    Array.from({ length: 69 }, (_, index) => index + 1),
+    "Supabase-only migration versions must be contiguous and unique from 0001 through 0069",
   );
   assert.equal(migrations[48], "0049_portal_text_preview_admission.sql");
   assert.equal(migrations[49], "0050_meeting_terminal_notification_claim.sql");
@@ -314,6 +318,7 @@ function supabaseMigrationInventory() {
   assert.equal(migrations[65], "0066_agent_video_config_spoken_languages.sql");
   assert.equal(migrations[66], "0067_ai_usage_unknown_timeout_sweep.sql");
   assert.equal(migrations[67], "0068_agent_video_config_self_service_catches_up.sql");
+  assert.equal(migrations[68], "0069_business_action_checkout_stripe_connect.sql");
   assert.equal(migrationChecksum(migrations[48]), "79b24e7fdc768a30b02d3596b71799fae484043e37561ddfcd435f46076b3100");
   assert.equal(migrationChecksum(migrations[49]), "262e033328175f704f8cfef1cafdcb0a2ef9b9aac7e4cc86f2b33890044c7224");
   return migrations;
@@ -886,6 +891,212 @@ function assertAgentVideoConfigSelfServicePhase(databaseUrl) {
   assertSucceeded(runSql(databaseUrl,
     `DELETE FROM public.agents WHERE tenant_id='${fixture.tenantAlpha}' AND id='${agentId}';`),
     "self-service video config cleanup");
+}
+
+// ADR-040: cobranca do cliente final via Stripe Connect Standard. Prova a
+// aprovacao humana obrigatoria de ponta a ponta (pending_approval nunca
+// chama a Stripe), as recusas declaradas de reserva (checkout desligado por
+// agente, conta Stripe nao conectada) e o ciclo completo aprovar->dispatch->
+// commit->webhook. Cria seu proprio agente/sessao fixture (mesmo padrao de
+// assertAgentVideoConfigSelfServicePhase acima) pra nao depender do estado
+// que outras fases ja deixaram em tenantAlpha/agentAlpha.
+function assertBusinessActionCheckoutStripeConnectPhase(databaseUrl) {
+  const capabilities = queryJson(databaseUrl, asRoleSql("service_role", null, "SELECT public.portal_schema_capabilities_service();"));
+  assert.equal(capabilities.version, 69, "0069 enables the ADR-040 checkout via Stripe Connect contract");
+  for (const capability of ["businessActionCheckoutConnections", "businessActionCheckoutProducts", "businessActionCheckoutReservations", "businessActionCheckoutStripeEventReceipts"]) {
+    assert.equal(capabilities[capability], true, capability);
+  }
+
+  let seq = 0xb0000;
+  const nextId = () => `019f0000-0000-7000-8000-${(seq++).toString(16).padStart(12, "0")}`;
+  let fpSeq = 0;
+  const nextFingerprint = () => (fpSeq++).toString(16).padStart(64, "0");
+  let evtSeq = 0;
+  const nextEventId = () => `evt_checkoutharness${(evtSeq++).toString(16)}`;
+
+  const agentId = nextId();
+  assertSucceeded(runSql(databaseUrl, `
+    INSERT INTO public.agents(tenant_id,id,name,role_type,status,disclosure_profile_id)
+    VALUES ('${fixture.tenantAlpha}','${agentId}','Checkout harness fixture','sales','active','default');
+  `), "checkout fixture agent");
+
+  const session = nextId();
+  const presenter = nextId();
+  assertSucceeded(runSql(databaseUrl, businessActionSessionFixtureSql(fixture.tenantAlpha, agentId, session, presenter, "delivered", "granted")), "checkout session fixture");
+
+  const admitAction = (overrides = {}) => {
+    const p = { grantId: nextId(), tenantId: fixture.tenantAlpha, agentId, sessionId: session, presenterId: presenter, actionKind: "request_checkout", fingerprint: nextFingerprint(), generation: 0, ...overrides };
+    return queryJson(databaseUrl, asRoleSql("service_role", null, `SELECT public.portal_admit_business_action_service(
+      '${p.grantId}','${p.tenantId}','${p.agentId}','${p.sessionId}','${p.presenterId}','${p.actionKind}','${p.fingerprint}',${p.generation}
+    );`));
+  };
+  const reserve = (overrides = {}) => {
+    const p = {
+      reservationId: nextId(), receiptId: nextId(), grantId: null, tenantId: fixture.tenantAlpha, agentId, sessionId: session, presenterId: presenter,
+      productId: "harness_kit", idempotencyKey: `harness-idem-${nextId()}`, quantity: 1, contactEmail: null, ...overrides,
+    };
+    return queryJson(databaseUrl, asRoleSql("service_role", null, `SELECT public.portal_reserve_business_checkout_service(
+      '${p.reservationId}','${p.receiptId}','${p.grantId}','${p.tenantId}','${p.agentId}','${p.sessionId}','${p.presenterId}',
+      '${sqlLiteral(p.productId)}','${sqlLiteral(p.idempotencyKey)}',${p.quantity},${p.contactEmail === null ? "null" : `'${sqlLiteral(p.contactEmail)}'`}
+    );`));
+  };
+  const approve = (overrides = {}) => {
+    const p = { tenantId: fixture.tenantAlpha, reservationId: null, actorId: fixture.actorAlpha, contactEmail: null, ...overrides };
+    return queryJson(databaseUrl, asRoleSql("service_role", null, `SELECT public.portal_approve_business_checkout_service(
+      '${p.tenantId}','${p.reservationId}','${p.actorId}',${p.contactEmail === null ? "null" : `'${sqlLiteral(p.contactEmail)}'`}
+    );`));
+  };
+  const reject = (overrides = {}) => {
+    const p = { tenantId: fixture.tenantAlpha, reservationId: null, actorId: fixture.actorAlpha, reason: null, ...overrides };
+    return queryJson(databaseUrl, asRoleSql("service_role", null, `SELECT public.portal_reject_business_checkout_service(
+      '${p.tenantId}','${p.reservationId}','${p.actorId}',${p.reason === null ? "null" : `'${sqlLiteral(p.reason)}'`}
+    );`));
+  };
+  const dispatch = (reservationId) => queryJson(databaseUrl, asRoleSql("service_role", null,
+    `SELECT public.portal_dispatch_business_checkout_reservation_service('${fixture.tenantAlpha}','${reservationId}');`));
+  const commit = (reservationId, sessionSuffix) => queryJson(databaseUrl, asRoleSql("service_role", null, `SELECT public.portal_commit_business_checkout_reservation_service(
+    '${fixture.tenantAlpha}','${reservationId}','cs_test_harness${sessionSuffix}','https://checkout.stripe.com/harness/${sessionSuffix}'
+  );`));
+
+  const setCheckoutEnabled = (enabled, autoConfirm = false) => assertSucceeded(runSql(databaseUrl, asRoleSql("service_role", null,
+    `SELECT public.portal_set_business_action_agent_settings_service('${fixture.tenantAlpha}','${fixture.actorAlpha}','${agentId}',${autoConfirm},${enabled});`)),
+    `set checkout_enabled=${enabled}`);
+
+  // 1) Nao conectado ainda: reserva recusa declarado, nunca chama a Stripe.
+  assert.equal(queryJson(databaseUrl, asRoleSql("service_role", null, `SELECT public.portal_stripe_connect_status_service('${fixture.tenantAlpha}');`)).outcome, "not_connected");
+  setCheckoutEnabled(true);
+  const grantBeforeConnect = admitAction();
+  assert.equal(grantBeforeConnect.outcome, "issued");
+  const reserveBeforeConnect = reserve({ grantId: grantBeforeConnect.grantId });
+  assert.equal(reserveBeforeConnect.outcome, "rejected");
+  assert.equal(reserveBeforeConnect.reason, "stripe_not_connected");
+
+  // 2) Conecta, mas checkout_enabled=false pro agente: outra recusa declarada.
+  const connectId = nextId();
+  assert.equal(queryJson(databaseUrl, asRoleSql("service_role", null,
+    `SELECT public.portal_complete_stripe_connect_service('${connectId}','${fixture.tenantAlpha}','${fixture.actorAlpha}','acct_harnessstripe001');`)).outcome, "connected");
+  setCheckoutEnabled(false);
+  const grantDisabled = admitAction();
+  const reserveDisabled = reserve({ grantId: grantDisabled.grantId });
+  assert.equal(reserveDisabled.outcome, "rejected");
+  assert.equal(reserveDisabled.reason, "checkout_disabled_for_agent");
+  setCheckoutEnabled(true);
+
+  // 3) account.updated ainda nao chegou: charges_enabled=false, mas o
+  // status de conexao em si ja e 'connected' -- so reserva recusa por
+  // catalogo vazio agora (product_not_found), nao por stripe_not_connected.
+  const grantNoProduct = admitAction();
+  const reserveNoProduct = reserve({ grantId: grantNoProduct.grantId, productId: "does_not_exist" });
+  assert.equal(reserveNoProduct.outcome, "rejected");
+  assert.equal(reserveNoProduct.reason, "product_not_found");
+
+  // 4) sincroniza account.updated e cadastra o catalogo.
+  const syncFp = nextFingerprint();
+  const syncEventId = nextEventId();
+  const syncResult = queryJson(databaseUrl, asRoleSql("service_role", null, `SELECT public.portal_sync_stripe_connect_capabilities_service(
+    '${syncEventId}','${fixture.tenantAlpha}','acct_harnessstripe001','${syncFp}',true,true,true
+  );`));
+  assert.equal(syncResult.outcome, "synced");
+  assert.equal(queryJson(databaseUrl, asRoleSql("service_role", null, `SELECT public.portal_stripe_connect_status_service('${fixture.tenantAlpha}');`)).chargesEnabled, true);
+  // Replay do mesmo event_id nunca aplica duas vezes.
+  const syncReplay = queryJson(databaseUrl, asRoleSql("service_role", null, `SELECT public.portal_sync_stripe_connect_capabilities_service(
+    '${syncEventId}','${fixture.tenantAlpha}','acct_harnessstripe001','${syncFp}',true,true,true
+  );`));
+  assert.equal(syncReplay.outcome, "duplicate_event");
+
+  const productId = nextId();
+  assert.equal(queryJson(databaseUrl, asRoleSql("service_role", null, `SELECT public.portal_upsert_business_checkout_product_service(
+    '${productId}','${fixture.tenantAlpha}','${fixture.actorAlpha}','harness_kit','Harness onboarding kit','price_harnesskit001',9900,3
+  );`)).outcome, "saved");
+
+  // 5) Caminho feliz: reserve -> pending_approval (nunca toca a Stripe) ->
+  // approve -> reserved -> dispatch -> provider_in_flight -> commit ->
+  // committed -> webhook checkout.session.completed -> payment_completed.
+  const happyGrant = admitAction();
+  const happyReserve = reserve({ grantId: happyGrant.grantId, contactEmail: "prospect@example.test" });
+  assert.equal(happyReserve.outcome, "pending_approval");
+  assert.equal(queryScalar(databaseUrl, `SELECT state FROM public.portal_business_action_checkout_reservations WHERE tenant_id='${fixture.tenantAlpha}' AND id='${happyReserve.reservationId}';`), "pending_approval");
+  assert.equal(queryScalar(databaseUrl, `SELECT stripe_checkout_session_id FROM public.portal_business_action_checkout_reservations WHERE tenant_id='${fixture.tenantAlpha}' AND id='${happyReserve.reservationId}';`), "",
+    "pending_approval never touches the Stripe checkout session column");
+  const happyReceiptOutcome = queryScalar(databaseUrl, `SELECT outcome FROM public.portal_business_action_receipts WHERE tenant_id='${fixture.tenantAlpha}' AND grant_id='${happyGrant.grantId}';`);
+  assert.equal(happyReceiptOutcome, "pending_approval", "the grant's one receipt is written as pending_approval at reserve time, per Art. 7");
+
+  const happyApprove = approve({ reservationId: happyReserve.reservationId });
+  assert.equal(happyApprove.outcome, "approved");
+  const happyDispatch = dispatch(happyReserve.reservationId);
+  assert.equal(happyDispatch.acquired, true);
+  const happyCommit = commit(happyReserve.reservationId, "happy001");
+  assert.equal(happyCommit.outcome, "succeeded");
+  assert.equal(queryScalar(databaseUrl, `SELECT outcome FROM public.portal_business_action_receipts WHERE tenant_id='${fixture.tenantAlpha}' AND grant_id='${happyGrant.grantId}';`), "pending_approval",
+    "committing never rewrites the grant's one receipt -- request_checkout's receipt never reaches succeeded");
+
+  const webhookFp = nextFingerprint();
+  const webhookEventId = nextEventId();
+  const webhookResult = queryJson(databaseUrl, asRoleSql("service_role", null, `SELECT public.portal_apply_business_checkout_connect_event_service(
+    '${webhookEventId}','checkout.session.completed','${fixture.tenantAlpha}','${happyReserve.reservationId}','acct_harnessstripe001','${webhookFp}',
+    'pi_harness001','ch_harness001',9900
+  );`));
+  assert.equal(webhookResult.outcome, "payment_completed");
+  assert.equal(queryScalar(databaseUrl, `SELECT state FROM public.portal_business_action_checkout_reservations WHERE tenant_id='${fixture.tenantAlpha}' AND id='${happyReserve.reservationId}';`), "payment_completed");
+  // Replay do mesmo evento nunca reaplica.
+  const replayResult = queryJson(databaseUrl, asRoleSql("service_role", null, `SELECT public.portal_apply_business_checkout_connect_event_service(
+    '${webhookEventId}','checkout.session.completed','${fixture.tenantAlpha}','${happyReserve.reservationId}','acct_harnessstripe001','${webhookFp}',
+    'pi_harness001','ch_harness001',9900
+  );`));
+  assert.equal(replayResult.outcome, "duplicate_event");
+
+  // 6) Caminho de rejeicao: tenant_admin rejeita, nunca toca a Stripe.
+  const rejectGrant = admitAction();
+  const rejectReserve = reserve({ grantId: rejectGrant.grantId, contactEmail: "prospect-reject@example.test" });
+  assert.equal(rejectReserve.outcome, "pending_approval");
+  const rejected = reject({ reservationId: rejectReserve.reservationId, reason: "prospect decided not to buy" });
+  assert.equal(rejected.outcome, "rejected");
+  assert.equal(queryScalar(databaseUrl, `SELECT state FROM public.portal_business_action_checkout_reservations WHERE tenant_id='${fixture.tenantAlpha}' AND id='${rejectReserve.reservationId}';`), "rejected");
+  assert.equal(queryScalar(databaseUrl, `SELECT stripe_checkout_session_id FROM public.portal_business_action_checkout_reservations WHERE tenant_id='${fixture.tenantAlpha}' AND id='${rejectReserve.reservationId}';`), "");
+  // Rejeitar de novo e idempotente, nao um erro.
+  assert.equal(reject({ reservationId: rejectReserve.reservationId }).outcome, "already_rejected");
+  // Aprovar uma reserva ja rejeitada e recusado, nunca some silenciosamente pro estado reserved.
+  assert.equal(approve({ reservationId: rejectReserve.reservationId }).outcome, "already_rejected");
+
+  // 7) contact_email ausente na call inteira: aprovacao exige o parametro.
+  const noEmailGrant = admitAction();
+  const noEmailReserve = reserve({ grantId: noEmailGrant.grantId });
+  assert.equal(noEmailReserve.outcome, "pending_approval");
+  assert.equal(queryScalar(databaseUrl, `SELECT contact_email FROM public.portal_business_action_checkout_reservations WHERE tenant_id='${fixture.tenantAlpha}' AND id='${noEmailReserve.reservationId}';`), "");
+  assert.equal(approve({ reservationId: noEmailReserve.reservationId }).outcome, "contact_email_required");
+  assert.equal(approve({ reservationId: noEmailReserve.reservationId, contactEmail: "late-capture@example.test" }).outcome, "approved");
+
+  // 8) Expiracao: uma reserva pending_approval com approval_expires_at no
+  // passado (forcado direto na tabela, o worker real nunca antecipa) vira
+  // approval_expired pela varredura, nunca toca a Stripe.
+  const expireGrant = admitAction();
+  const expireReserve = reserve({ grantId: expireGrant.grantId, contactEmail: "expire@example.test" });
+  assertSucceeded(runSql(databaseUrl,
+    `UPDATE public.portal_business_action_checkout_reservations SET approval_expires_at=now()-interval '1 minute' WHERE tenant_id='${fixture.tenantAlpha}' AND id='${expireReserve.reservationId}';`),
+    "force pending_approval into the past for the expiry sweep");
+  const expiredCount = queryScalar(databaseUrl, asRoleSql("service_role", null, "SELECT public.portal_expire_pending_business_checkout_reservations_service(500);"));
+  assert.ok(Number(expiredCount) >= 1, "the expiry sweep must expire at least the one reservation this test forced into the past");
+  assert.equal(queryScalar(databaseUrl, `SELECT state FROM public.portal_business_action_checkout_reservations WHERE tenant_id='${fixture.tenantAlpha}' AND id='${expireReserve.reservationId}';`), "approval_expired");
+  assert.equal(approve({ reservationId: expireReserve.reservationId }).outcome, "approval_expired");
+
+  // 9) Idempotencia: repetir a mesma reserva (mesmo grantId) nunca cria uma
+  // segunda linha. O outcome devolvido e sempre o do receipt (pending_approval,
+  // travado pra sempre nesta acao, ADR-040 "Aprovacao humana do tenant"),
+  // mesmo que a propria reserva ja tenha avancado ate payment_completed: o
+  // receipt nunca e reescrito, so a reserva carrega o desfecho real.
+  const replayReserve = reserve({ grantId: happyGrant.grantId, contactEmail: "prospect@example.test" });
+  assert.equal(replayReserve.outcome, "pending_approval", "replaying reserve on an already-resolved grant returns the receipt's own frozen outcome, never a state read off the reservation");
+  assert.equal(queryScalar(databaseUrl, `SELECT count(*) FROM public.portal_business_action_checkout_reservations WHERE tenant_id='${fixture.tenantAlpha}' AND grant_id='${happyGrant.grantId}';`), "1");
+  assert.equal(queryScalar(databaseUrl, `SELECT state FROM public.portal_business_action_checkout_reservations WHERE tenant_id='${fixture.tenantAlpha}' AND grant_id='${happyGrant.grantId}';`), "payment_completed",
+    "the reservation itself still correctly shows the real, current state");
+
+  // No cleanup DELETE here on purpose: every checkout table uses "on delete
+  // restrict" against agents (same as the grants/receipts/leads/calendar
+  // tables this fixture also wrote through), so deleting the fixture agent
+  // would fail against its own reservations/products/settings rows. The
+  // ephemeral harness database is discarded at the end of the whole run
+  // anyway; assertBusinessActionCalendarScheduling's shared tenantAlpha/
+  // agentAlpha fixture is never deleted for the same reason.
 }
 
 function assertMigrationReceiptLineage(databaseUrl) {
