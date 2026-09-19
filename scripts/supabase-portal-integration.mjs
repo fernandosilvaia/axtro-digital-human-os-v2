@@ -975,6 +975,41 @@ function assertBusinessActionCheckoutStripeConnectPhase(databaseUrl) {
   const connectId = nextId();
   assert.equal(queryJson(databaseUrl, asRoleSql("service_role", null,
     `SELECT public.portal_complete_stripe_connect_service('${connectId}','${fixture.tenantAlpha}','${fixture.actorAlpha}','acct_harnessstripe001');`)).outcome, "connected");
+
+  // 2a) portal_resolve_stripe_connect_tenant_service: o account.updated da
+  // Stripe nao carrega tenant_id nenhum, entao o webhook precisa resolver o
+  // tenant so a partir do stripe_account_id. Achado/consertado nesta rodada:
+  // a migration original nao tinha esse RPC nem a constraint unique que o
+  // sustenta.
+  assert.deepEqual(
+    queryJson(databaseUrl, asRoleSql("service_role", null, "SELECT public.portal_resolve_stripe_connect_tenant_service('acct_harnessstripe001');")),
+    { outcome: "found", tenantId: fixture.tenantAlpha },
+  );
+  assert.equal(
+    queryJson(databaseUrl, asRoleSql("service_role", null, "SELECT public.portal_resolve_stripe_connect_tenant_service('acct_doesnotexist001');")).outcome,
+    "not_found",
+  );
+
+  // 2b) A mesma conta Stripe nao pode ficar conectada a dois tenants: sem
+  // isto, a resolucao de tenant por account.updated ficaria ambigua e um
+  // tenant poderia acabar recebendo eventos assinados de conta alheia. A
+  // constraint unique(stripe_account_id) faz o RPC falhar fechado com um
+  // outcome legivel, nunca uma excecao crua de violacao de constraint.
+  const crossTenantUserId = "10000000-0000-4000-8000-00000000b001";
+  const crossTenantId = "019f0000-0000-7000-8000-00000000b002";
+  const crossTenantActorId = "019f0000-0000-7000-8000-00000000b003";
+  assertSucceeded(runSql(databaseUrl, `
+    INSERT INTO auth.users(id,email) VALUES ('${crossTenantUserId}','checkout-cross-tenant-harness@example.test');
+    INSERT INTO public.tenants(id,slug,legal_name,status,home_region,default_language,default_timezone)
+      VALUES ('${crossTenantId}','checkout-cross-tenant-harness','Checkout Cross Tenant Harness','active','local','pt','America/Sao_Paulo');
+    INSERT INTO public.user_tenant_memberships(user_id,tenant_id,actor_id,role) VALUES ('${crossTenantUserId}','${crossTenantId}','${crossTenantActorId}','tenant_admin');
+  `), "isolated cross-tenant stripe connect harness fixture");
+  assert.equal(queryJson(databaseUrl, asRoleSql("service_role", null,
+    `SELECT public.portal_complete_stripe_connect_service('${nextId()}','${crossTenantId}','${crossTenantActorId}','acct_harnessstripe001');`)).outcome,
+    "account_already_connected_elsewhere");
+  // A conexao original do tenantAlpha continua intacta, sem efeito colateral do conflito.
+  assert.equal(queryJson(databaseUrl, asRoleSql("service_role", null, `SELECT public.portal_stripe_connect_status_service('${fixture.tenantAlpha}');`)).stripeAccountId, "acct_harnessstripe001");
+
   setCheckoutEnabled(false);
   const grantDisabled = admitAction();
   const reserveDisabled = reserve({ grantId: grantDisabled.grantId });
@@ -1044,6 +1079,29 @@ function assertBusinessActionCheckoutStripeConnectPhase(databaseUrl) {
     'pi_harness001','ch_harness001',9900
   );`));
   assert.equal(replayResult.outcome, "duplicate_event");
+
+  // 5b) O account que a Stripe manda no evento precisa bater com o
+  // stripe_account_id snapshotado na propria reserva, ou o evento e
+  // rejeitado (ADR-040). Reserva propria dedicada, comitada mas ainda sem
+  // webhook aplicado, pra provar que um account errado nao muda o estado
+  // e que o mesmo evento com o account certo em seguida aplica normalmente.
+  const mismatchGrant = admitAction();
+  const mismatchReserve = reserve({ grantId: mismatchGrant.grantId, contactEmail: "mismatch@example.test" });
+  approve({ reservationId: mismatchReserve.reservationId });
+  dispatch(mismatchReserve.reservationId);
+  commit(mismatchReserve.reservationId, "mismatch001");
+  const mismatchResult = queryJson(databaseUrl, asRoleSql("service_role", null, `SELECT public.portal_apply_business_checkout_connect_event_service(
+    '${nextEventId()}','checkout.session.completed','${fixture.tenantAlpha}','${mismatchReserve.reservationId}','acct_someoneelsesaccount','${nextFingerprint()}',
+    'pi_harnessmismatch001','ch_harnessmismatch001',9900
+  );`));
+  assert.equal(mismatchResult.outcome, "ignored_account_mismatch");
+  assert.equal(queryScalar(databaseUrl, `SELECT state FROM public.portal_business_action_checkout_reservations WHERE tenant_id='${fixture.tenantAlpha}' AND id='${mismatchReserve.reservationId}';`), "committed",
+    "a mismatched connected account id must never move the reservation off committed");
+  const mismatchThenCorrect = queryJson(databaseUrl, asRoleSql("service_role", null, `SELECT public.portal_apply_business_checkout_connect_event_service(
+    '${nextEventId()}','checkout.session.completed','${fixture.tenantAlpha}','${mismatchReserve.reservationId}','acct_harnessstripe001','${nextFingerprint()}',
+    'pi_harnessmismatch001','ch_harnessmismatch001',9900
+  );`));
+  assert.equal(mismatchThenCorrect.outcome, "payment_completed", "the same reservation applies normally once the event carries the account it was actually dispatched to");
 
   // 6) Caminho de rejeicao: tenant_admin rejeita, nunca toca a Stripe.
   const rejectGrant = admitAction();

@@ -71,6 +71,12 @@ const mockSources = new Map([
     export function isHandledStripeSubscriptionEventType() { return globalThis.__httpBoundaryState.handledSubscriptionEventType; }
     export function isHandledStripeCheckoutEventType() { return globalThis.__httpBoundaryState.handledCheckoutEventType; }
   `],
+  ["@/lib/billing/connect-webhook", `
+    export function verifyStripeWebhookSignature() { globalThis.__httpBoundaryState.stripeConnectSignatureChecks += 1; return true; }
+    export function parseStripeConnectCheckoutEvent() { return globalThis.__httpBoundaryState.connectCheckoutEvent ?? null; }
+    export function parseStripeConnectAccountEvent() { return globalThis.__httpBoundaryState.connectAccountEvent ?? null; }
+    export function isHandledStripeConnectEventType() { return globalThis.__httpBoundaryState.handledConnectEventType; }
+  `],
   ["@/lib/email-webhook", `
     export function verifyResendWebhookSignature() { globalThis.__httpBoundaryState.resendSignatureChecks += 1; return true; }
     export function parseResendWebhookEvent() { return null; }
@@ -100,6 +106,7 @@ function freshState() {
     serviceRoleFactories: 0,
     rateLimitKeys: [],
     stripeSignatureChecks: 0,
+    stripeConnectSignatureChecks: 0,
     resendSignatureChecks: 0,
     rpcCalls: [],
     rpcResponses: {},
@@ -107,6 +114,9 @@ function freshState() {
     subscriptionEvent: null,
     handledSubscriptionEventType: false,
     handledCheckoutEventType: false,
+    connectCheckoutEvent: null,
+    connectAccountEvent: null,
+    handledConnectEventType: false,
   };
   globalThis.__httpBoundaryState = state;
   return state;
@@ -129,12 +139,14 @@ const RAISSA_SECRET = "raissa-tools-route-test-secret-32";
 process.env.RAISSA_TOOLS_SECRET = RAISSA_SECRET;
 process.env.TAVUS_API_KEY = "tavus-route-test-key";
 process.env.STRIPE_WEBHOOK_SECRET = "whsec_stripe_route_test";
+process.env.STRIPE_CONNECT_WEBHOOK_SECRET = "whsec_stripe_connect_route_test";
 process.env.RESEND_WEBHOOK_SECRET = "whsec_resend_route_test";
 process.env.STRIPE_PRICE_SOLO_BASE = "price_solo_base";
 process.env.STRIPE_PRICE_SOLO_OVERAGE = "price_solo_overage";
 
 const { POST: postLeadVideoSession } = await import("../../apps/portal/src/app/api/leads/video-session/route.ts");
 const { POST: postStripeWebhook } = await import("../../apps/portal/src/app/api/stripe/webhook/route.ts");
+const { POST: postStripeConnectWebhook } = await import("../../apps/portal/src/app/api/stripe/connect-webhook/route.ts");
 const { POST: postResendWebhook } = await import("../../apps/portal/src/app/api/resend/webhook/route.ts");
 
 test("lead route rejects invalid bearer before body, limiter, database or Tavus", { concurrency: false }, async () => {
@@ -429,6 +441,175 @@ test("Stripe subscription webhook rejects a licensed/metered pair from different
   const response = await postStripeWebhook(requestWithBody(new Response("{}").body, { "stripe-signature": "mock" }));
   assert.equal(response.status, 500);
   assert.deepEqual(await response.json(), { error: "catalog_mismatch" });
+  assert.equal(state.serviceRoleFactories, 0);
+  assert.deepEqual(state.rpcCalls, []);
+});
+
+test("Stripe connect webhook returns 503 when its own secret is not configured, independent of the tenant webhook secret", { concurrency: false }, async () => {
+  const state = freshState();
+  const saved = process.env.STRIPE_CONNECT_WEBHOOK_SECRET;
+  delete process.env.STRIPE_CONNECT_WEBHOOK_SECRET;
+  try {
+    const response = await postStripeConnectWebhook(requestWithBody(new Response("{}").body, { "stripe-signature": "mock" }));
+    assert.equal(response.status, 503);
+    assert.deepEqual(await response.json(), { error: "not_configured" });
+    assert.equal(state.stripeConnectSignatureChecks, 0);
+    assert.equal(state.serviceRoleFactories, 0);
+  } finally {
+    process.env.STRIPE_CONNECT_WEBHOOK_SECRET = saved;
+  }
+});
+
+test("Stripe connect webhook returns 413 for declared and chunked overflow before signature or database", { concurrency: false }, async (t) => {
+  await t.test("declared", async () => {
+    const state = freshState();
+    let bodyTouched = false;
+    const request = {
+      headers: new Headers({ "content-length": String(1024 * 1024 + 1) }),
+      get body() { bodyTouched = true; throw new Error("oversized body must not be acquired"); },
+    };
+    const response = await postStripeConnectWebhook(request);
+    assert.equal(response.status, 413);
+    assert.equal(bodyTouched, false);
+    assert.equal(state.stripeConnectSignatureChecks, 0);
+    assert.equal(state.serviceRoleFactories, 0);
+  });
+
+  await t.test("chunked", async () => {
+    const state = freshState();
+    const response = await postStripeConnectWebhook(requestWithBody(chunkedBody(700 * 1024, 400 * 1024)));
+    assert.equal(response.status, 413);
+    assert.equal(state.stripeConnectSignatureChecks, 0);
+    assert.equal(state.serviceRoleFactories, 0);
+  });
+});
+
+test("Stripe connect checkout webhook forwards exact signed fields to the reservation event RPC", { concurrency: false }, async () => {
+  const state = freshState();
+  state.connectCheckoutEvent = {
+    eventId: "evt_connect_checkout123",
+    eventType: "checkout.session.completed",
+    eventCreatedIso: "2026-09-18T12:00:00.000Z",
+    tenantId: "0198a8b2-3c4d-7e5f-8a90-1234567890aa",
+    reservationId: "0198a8b2-3c4d-7e5f-8a90-1234567890ab",
+    connectedAccountId: "acct_1NRouteTest123",
+    stripeSessionId: "cs_test_connectcheckout123",
+    paymentIntentId: "pi_1NRouteTest123",
+    amountTotalCents: 9900,
+  };
+  state.rpcResponses.portal_apply_business_checkout_connect_event_service = {
+    data: { outcome: "payment_completed", reservationId: "0198a8b2-3c4d-7e5f-8a90-1234567890ab", state: "payment_completed" }, error: null,
+  };
+  const response = await postStripeConnectWebhook(requestWithBody(new Response("{}").body, { "stripe-signature": "mock" }));
+  assert.equal(response.status, 200);
+  assert.deepEqual(await response.json(), { ok: true, handled: true, outcome: "payment_completed" });
+  assert.deepEqual(state.rpcCalls, [{
+    name: "portal_apply_business_checkout_connect_event_service",
+    args: {
+      p_event_id: "evt_connect_checkout123",
+      p_event_type: "checkout.session.completed",
+      p_tenant_id: "0198a8b2-3c4d-7e5f-8a90-1234567890aa",
+      p_reservation_id: "0198a8b2-3c4d-7e5f-8a90-1234567890ab",
+      p_connected_account_id: "acct_1NRouteTest123",
+      p_payload_fingerprint: state.rpcCalls[0].args.p_payload_fingerprint,
+      p_stripe_payment_intent_id: "pi_1NRouteTest123",
+      p_stripe_charge_id: null,
+      p_amount_total_cents: 9900,
+    },
+  }]);
+  assert.match(state.rpcCalls[0].args.p_payload_fingerprint, /^[0-9a-f]{64}$/, "fingerprint must be the raw body's sha256 hex digest, matching what the RPC's own regex expects");
+});
+
+test("Stripe connect checkout webhook rejects a signed event whose account does not match the reservation, without silently succeeding", { concurrency: false }, async () => {
+  const state = freshState();
+  state.connectCheckoutEvent = {
+    eventId: "evt_connect_mismatch", eventType: "checkout.session.completed", eventCreatedIso: "2026-09-18T12:00:00.000Z",
+    tenantId: "0198a8b2-3c4d-7e5f-8a90-1234567890aa", reservationId: "0198a8b2-3c4d-7e5f-8a90-1234567890ab",
+    connectedAccountId: "acct_1NRogueAccount", stripeSessionId: "cs_test_connectmismatch123",
+    paymentIntentId: null, amountTotalCents: null,
+  };
+  state.rpcResponses.portal_apply_business_checkout_connect_event_service = {
+    data: { outcome: "ignored_account_mismatch" }, error: null,
+  };
+  const response = await postStripeConnectWebhook(requestWithBody(new Response("{}").body, { "stripe-signature": "mock" }));
+  assert.equal(response.status, 409);
+  assert.deepEqual(await response.json(), { error: "account_mismatch" });
+  assert.equal(state.rpcCalls.length, 1);
+});
+
+test("Stripe connect checkout webhook returns retryable 500 for a receipt outside the closed outcome vocabulary", { concurrency: false }, async () => {
+  const state = freshState();
+  state.connectCheckoutEvent = {
+    eventId: "evt_connect_bad_receipt", eventType: "checkout.session.expired", eventCreatedIso: "2026-09-18T12:00:00.000Z",
+    tenantId: "0198a8b2-3c4d-7e5f-8a90-1234567890aa", reservationId: "0198a8b2-3c4d-7e5f-8a90-1234567890ab",
+    connectedAccountId: "acct_1NRouteTest123", stripeSessionId: "cs_test_connectbad123",
+    paymentIntentId: null, amountTotalCents: null,
+  };
+  state.rpcResponses.portal_apply_business_checkout_connect_event_service = { data: { outcome: "not_a_real_outcome" }, error: null };
+  const response = await postStripeConnectWebhook(requestWithBody(new Response("{}").body, { "stripe-signature": "mock" }));
+  assert.equal(response.status, 500);
+  assert.deepEqual(await response.json(), { error: "internal_error" });
+});
+
+test("Stripe connect account.updated resolves tenant before syncing, and skips the sync entirely for an unknown account", { concurrency: false }, async () => {
+  const state = freshState();
+  state.connectAccountEvent = {
+    eventId: "evt_connect_account_unknown", eventType: "account.updated", eventCreatedIso: "2026-09-18T12:00:00.000Z",
+    connectedAccountId: "acct_1NUnknownAccount", chargesEnabled: true, payoutsEnabled: true, detailsSubmitted: true,
+  };
+  state.rpcResponses.portal_resolve_stripe_connect_tenant_service = { data: { outcome: "not_found" }, error: null };
+  const response = await postStripeConnectWebhook(requestWithBody(new Response("{}").body, { "stripe-signature": "mock" }));
+  assert.equal(response.status, 200);
+  assert.deepEqual(await response.json(), { ok: true, handled: false });
+  assert.deepEqual(state.rpcCalls, [{
+    name: "portal_resolve_stripe_connect_tenant_service",
+    args: { p_stripe_account_id: "acct_1NUnknownAccount" },
+  }]);
+});
+
+test("Stripe connect account.updated syncs capabilities for the resolved tenant with exact signed fields", { concurrency: false }, async () => {
+  const state = freshState();
+  state.connectAccountEvent = {
+    eventId: "evt_connect_account_known", eventType: "account.updated", eventCreatedIso: "2026-09-18T12:00:00.000Z",
+    connectedAccountId: "acct_1NRouteTest123", chargesEnabled: false, payoutsEnabled: false, detailsSubmitted: true,
+  };
+  state.rpcResponses.portal_resolve_stripe_connect_tenant_service = {
+    data: { outcome: "found", tenantId: "0198a8b2-3c4d-7e5f-8a90-1234567890aa" }, error: null,
+  };
+  state.rpcResponses.portal_sync_stripe_connect_capabilities_service = { data: { outcome: "synced", status: "restricted" }, error: null };
+  const response = await postStripeConnectWebhook(requestWithBody(new Response("{}").body, { "stripe-signature": "mock" }));
+  assert.equal(response.status, 200);
+  assert.deepEqual(await response.json(), { ok: true, handled: true, outcome: "synced" });
+  assert.equal(state.rpcCalls.length, 2);
+  assert.deepEqual(state.rpcCalls[1], {
+    name: "portal_sync_stripe_connect_capabilities_service",
+    args: {
+      p_event_id: "evt_connect_account_known",
+      p_tenant_id: "0198a8b2-3c4d-7e5f-8a90-1234567890aa",
+      p_stripe_account_id: "acct_1NRouteTest123",
+      p_payload_fingerprint: state.rpcCalls[1].args.p_payload_fingerprint,
+      p_charges_enabled: false,
+      p_payouts_enabled: false,
+      p_details_submitted: true,
+    },
+  });
+});
+
+test("signed malformed in-scope Stripe connect events remain retryable and never touch the database", { concurrency: false }, async () => {
+  const state = freshState();
+  state.handledConnectEventType = true;
+  const response = await postStripeConnectWebhook(requestWithBody(new Response("{}").body, { "stripe-signature": "mock" }));
+  assert.equal(response.status, 503);
+  assert.deepEqual(await response.json(), { error: "malformed_in_scope_event" });
+  assert.equal(state.serviceRoleFactories, 0);
+  assert.deepEqual(state.rpcCalls, []);
+});
+
+test("Stripe connect webhook silently ignores out-of-scope event types (Art. 14)", { concurrency: false }, async () => {
+  const state = freshState();
+  const response = await postStripeConnectWebhook(requestWithBody(new Response("{}").body, { "stripe-signature": "mock" }));
+  assert.equal(response.status, 200);
+  assert.deepEqual(await response.json(), { ok: true, handled: false });
   assert.equal(state.serviceRoleFactories, 0);
   assert.deepEqual(state.rpcCalls, []);
 });

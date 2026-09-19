@@ -45,7 +45,12 @@ begin;
 -- abaixo). platform_fee_bps fica nulo por padrao: o percentual em si e
 -- decisao comercial pendente do Fernando (ADR-040, gate de pre-lancamento),
 -- este esquema so garante que a estrutura ja suporta o valor quando for
--- decidido, sem exigir migration nova.
+-- decidido, sem exigir migration nova. stripe_account_id e unique (nao so
+-- tenant_id): sem isso, dois tenants poderiam acabar com a mesma conta
+-- conectada e portal_resolve_stripe_connect_tenant_service (usado pelo
+-- webhook para resolver tenant a partir do account.updated, que nao carrega
+-- tenant_id nenhum na propria Stripe) teria mais de um tenant candidato para
+-- o mesmo evento assinado.
 create table public.portal_business_action_checkout_connections (
   id app.uuid_v7 primary key,
   tenant_id app.uuid_v7 not null references public.tenants(id) on delete restrict,
@@ -63,6 +68,7 @@ create table public.portal_business_action_checkout_connections (
   foreign key (tenant_id,connected_by_actor_id) references public.user_tenant_memberships(tenant_id,actor_id) on delete restrict,
   foreign key (tenant_id,disconnected_by_actor_id) references public.user_tenant_memberships(tenant_id,actor_id) on delete restrict,
   constraint portal_business_action_checkout_connections_tenant_key unique (tenant_id),
+  constraint portal_business_action_checkout_connections_account_key unique (stripe_account_id),
   constraint portal_business_action_checkout_connections_status_chk check (status in ('connected','restricted','disconnected')),
   constraint portal_business_action_checkout_connections_account_chk check (stripe_account_id ~ '^acct_[A-Za-z0-9]{1,255}$'),
   constraint portal_business_action_checkout_connections_fee_chk check (platform_fee_bps is null or platform_fee_bps between 0 and 10000),
@@ -265,7 +271,7 @@ create table public.portal_business_action_checkout_stripe_event_receipts (
   constraint portal_business_action_checkout_stripe_event_type_chk check (event_type in ('checkout.session.completed','checkout.session.expired','checkout.session.async_payment_failed','account.updated')),
   constraint portal_business_action_checkout_stripe_account_chk check (connected_account_id ~ '^acct_[A-Za-z0-9]{1,255}$'),
   constraint portal_business_action_checkout_stripe_fp_chk check (payload_fingerprint ~ '^[0-9a-f]{64}$'),
-  constraint portal_business_action_checkout_stripe_state_chk check (receipt_state is null or receipt_state in ('payment_completed','payment_failed','expired','capabilities_synced','ignored_stale')),
+  constraint portal_business_action_checkout_stripe_state_chk check (receipt_state is null or receipt_state in ('payment_completed','payment_failed','expired','capabilities_synced','ignored_stale','ignored_account_mismatch')),
   constraint portal_business_action_checkout_stripe_shape_chk check (
     (event_type='account.updated' and reservation_id is null)
     or (event_type<>'account.updated' and reservation_id is not null)
@@ -381,11 +387,19 @@ begin
   end if;
   if p_stripe_account_id !~ '^acct_[A-Za-z0-9]{1,255}$' then raise exception 'invalid stripe connected account id' using errcode='22023'; end if;
 
-  insert into public.portal_business_action_checkout_connections(id,tenant_id,stripe_account_id,status,connected_by_actor_id,connected_at,updated_at)
-    values(p_id,p_tenant_id,p_stripe_account_id,'connected',p_actor_id,now(),now())
-  on conflict (tenant_id) do update set
-    stripe_account_id=excluded.stripe_account_id,status='connected',charges_enabled=false,payouts_enabled=false,details_submitted=false,
-    connected_by_actor_id=excluded.connected_by_actor_id,connected_at=now(),disconnected_by_actor_id=null,disconnected_at=null,updated_at=now();
+  begin
+    insert into public.portal_business_action_checkout_connections(id,tenant_id,stripe_account_id,status,connected_by_actor_id,connected_at,updated_at)
+      values(p_id,p_tenant_id,p_stripe_account_id,'connected',p_actor_id,now(),now())
+    on conflict (tenant_id) do update set
+      stripe_account_id=excluded.stripe_account_id,status='connected',charges_enabled=false,payouts_enabled=false,details_submitted=false,
+      connected_by_actor_id=excluded.connected_by_actor_id,connected_at=now(),disconnected_by_actor_id=null,disconnected_at=null,updated_at=now();
+  exception when unique_violation then
+    -- stripe_account_id ja pertence a outro tenant (a mesma conta Stripe
+    -- nao pode ficar conectada a dois tenants ao mesmo tempo: quebraria a
+    -- resolucao de tenant por account.updated). Falha fechado com um
+    -- outcome legivel em vez de deixar a excecao crua subir ate a aplicacao.
+    return jsonb_build_object('outcome','account_already_connected_elsewhere');
+  end;
 
   return jsonb_build_object('outcome','connected','tenantId',p_tenant_id,'stripeAccountId',p_stripe_account_id,'status','connected');
 end $$;
@@ -457,6 +471,22 @@ returns jsonb language sql stable security definer set search_path='public' as $
     (select jsonb_build_object('outcome','found','stripeAccountId',stripe_account_id,'status',status,'chargesEnabled',charges_enabled,'payoutsEnabled',payouts_enabled,'detailsSubmitted',details_submitted,'platformFeeBps',platform_fee_bps)
      from public.portal_business_action_checkout_connections where tenant_id=p_tenant_id),
     jsonb_build_object('outcome','not_connected')
+  )
+$$;
+
+-- O evento assinado account.updated da Stripe carrega o Account inteiro,
+-- nunca metadata nossa: nao ha tenant_id nenhum no payload (diferente do
+-- evento de checkout, que carrega metadata.tenant_id gravado por nos mesmos
+-- na criacao da Checkout Session). O webhook precisa resolver o tenant a
+-- partir so do stripe_account_id que a propria Stripe manda em event.account,
+-- e so pode fazer isso com seguranca porque stripe_account_id e unique nesta
+-- tabela (constraint acima). service_role-only, nunca exposto a authenticated.
+create or replace function public.portal_resolve_stripe_connect_tenant_service(p_stripe_account_id text)
+returns jsonb language sql stable security definer set search_path='public' as $$
+  select coalesce(
+    (select jsonb_build_object('outcome','found','tenantId',tenant_id)
+     from public.portal_business_action_checkout_connections where stripe_account_id=p_stripe_account_id),
+    jsonb_build_object('outcome','not_found')
   )
 $$;
 
@@ -873,6 +903,19 @@ begin
     return jsonb_build_object('outcome','ignored_unknown_reservation');
   end if;
 
+  -- ADR-040: o account que a Stripe inclui no evento precisa bater com o
+  -- stripe_account_id snapshotado na propria reserva no momento em que ela
+  -- foi despachada, ou o evento e rejeitado. Sem este cruzamento, uma conta
+  -- conectada Standard (que tem acesso ao proprio dashboard Stripe) poderia
+  -- fabricar uma Checkout Session com metadata.tenant_id/reservation_id de
+  -- OUTRO tenant e aplicar o desfecho a uma reserva que nao e dela: a
+  -- assinatura HMAC do webhook sozinha nao impede isso, porque o mesmo
+  -- segredo de endpoint assina eventos de qualquer conta conectada.
+  if v_row.stripe_account_id<>p_connected_account_id then
+    update public.portal_business_action_checkout_stripe_event_receipts set receipt_state='ignored_account_mismatch' where event_id=p_event_id;
+    return jsonb_build_object('outcome','ignored_account_mismatch');
+  end if;
+
   if v_row.state not in ('committed','payment_completed','payment_failed','expired') then
     update public.portal_business_action_checkout_stripe_event_receipts set receipt_state='ignored_stale' where event_id=p_event_id;
     return jsonb_build_object('outcome','ignored_state','state',v_row.state);
@@ -910,6 +953,7 @@ revoke all on function public.portal_complete_stripe_connect_service(app.uuid_v7
 revoke all on function public.portal_disconnect_stripe_service(app.uuid_v7,app.uuid_v7) from public,anon,authenticated;
 revoke all on function public.portal_sync_stripe_connect_capabilities_service(text,app.uuid_v7,text,text,boolean,boolean,boolean) from public,anon,authenticated;
 revoke all on function public.portal_stripe_connect_status_service(app.uuid_v7) from public,anon,authenticated;
+revoke all on function public.portal_resolve_stripe_connect_tenant_service(text) from public,anon,authenticated;
 revoke all on function public.portal_upsert_business_checkout_product_service(app.uuid_v7,app.uuid_v7,app.uuid_v7,text,text,text,bigint,integer) from public,anon,authenticated;
 revoke all on function public.portal_deactivate_business_checkout_product_service(app.uuid_v7,app.uuid_v7,text) from public,anon,authenticated;
 revoke all on function public.portal_reserve_business_checkout_service(app.uuid_v7,app.uuid_v7,app.uuid_v7,app.uuid_v7,app.uuid_v7,app.uuid_v7,app.uuid_v7,text,text,integer,text) from public,anon,authenticated;
@@ -930,6 +974,7 @@ grant execute on function public.portal_complete_stripe_connect_service(app.uuid
 grant execute on function public.portal_disconnect_stripe_service(app.uuid_v7,app.uuid_v7) to service_role;
 grant execute on function public.portal_sync_stripe_connect_capabilities_service(text,app.uuid_v7,text,text,boolean,boolean,boolean) to service_role;
 grant execute on function public.portal_stripe_connect_status_service(app.uuid_v7) to service_role;
+grant execute on function public.portal_resolve_stripe_connect_tenant_service(text) to service_role;
 grant execute on function public.portal_upsert_business_checkout_product_service(app.uuid_v7,app.uuid_v7,app.uuid_v7,text,text,text,bigint,integer) to service_role;
 grant execute on function public.portal_deactivate_business_checkout_product_service(app.uuid_v7,app.uuid_v7,text) to service_role;
 grant execute on function public.portal_reserve_business_checkout_service(app.uuid_v7,app.uuid_v7,app.uuid_v7,app.uuid_v7,app.uuid_v7,app.uuid_v7,app.uuid_v7,text,text,integer,text) to service_role;
@@ -951,7 +996,7 @@ create or replace function public.portal_schema_capabilities_service()
 returns jsonb language sql stable security definer set search_path='' as $$
   select (app.portal_schema_capabilities_v59()-'version')||jsonb_build_object(
     'version',69,
-    'businessActionCheckoutConnections',to_regclass('public.portal_business_action_checkout_connections') is not null and to_regprocedure('public.portal_complete_stripe_connect_service(app.uuid_v7,app.uuid_v7,app.uuid_v7,text)') is not null and to_regprocedure('public.portal_disconnect_stripe_service(app.uuid_v7,app.uuid_v7)') is not null and to_regprocedure('public.portal_sync_stripe_connect_capabilities_service(text,app.uuid_v7,text,text,boolean,boolean,boolean)') is not null,
+    'businessActionCheckoutConnections',to_regclass('public.portal_business_action_checkout_connections') is not null and to_regprocedure('public.portal_complete_stripe_connect_service(app.uuid_v7,app.uuid_v7,app.uuid_v7,text)') is not null and to_regprocedure('public.portal_disconnect_stripe_service(app.uuid_v7,app.uuid_v7)') is not null and to_regprocedure('public.portal_sync_stripe_connect_capabilities_service(text,app.uuid_v7,text,text,boolean,boolean,boolean)') is not null and to_regprocedure('public.portal_resolve_stripe_connect_tenant_service(text)') is not null,
     'businessActionCheckoutProducts',to_regclass('public.portal_business_action_checkout_products') is not null and to_regprocedure('public.portal_upsert_business_checkout_product_service(app.uuid_v7,app.uuid_v7,app.uuid_v7,text,text,text,bigint,integer)') is not null,
     'businessActionCheckoutReservations',to_regclass('public.portal_business_action_checkout_reservations') is not null and to_regprocedure('public.portal_reserve_business_checkout_service(app.uuid_v7,app.uuid_v7,app.uuid_v7,app.uuid_v7,app.uuid_v7,app.uuid_v7,app.uuid_v7,text,text,integer,text)') is not null and to_regprocedure('public.portal_approve_business_checkout_service(app.uuid_v7,app.uuid_v7,app.uuid_v7,text)') is not null and to_regprocedure('public.portal_reject_business_checkout_service(app.uuid_v7,app.uuid_v7,app.uuid_v7,text)') is not null,
     'businessActionCheckoutStripeEventReceipts',to_regclass('public.portal_business_action_checkout_stripe_event_receipts') is not null and to_regprocedure('public.portal_apply_business_checkout_connect_event_service(text,text,app.uuid_v7,app.uuid_v7,text,text,text,text,bigint)') is not null
