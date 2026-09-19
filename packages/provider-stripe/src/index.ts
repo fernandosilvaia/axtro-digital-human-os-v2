@@ -733,3 +733,251 @@ export function createStripeBillingPort(options: StripeAdapterOptions): StripeBi
     },
   });
 }
+
+// ---------------------------------------------------------------------------
+// OAuth de Stripe Connect: code de autorização -> stripe_user_id (ADR-040)
+// ---------------------------------------------------------------------------
+//
+// Fonte consultada (2026-09-18, doc real, não memória de treino):
+// docs.stripe.com/connect/oauth-standard-accounts e
+// docs.stripe.com/connect/oauth-reference.
+//
+// NOTA IMPORTANTE encontrada na própria doc, que não estava no ADR-040
+// original: "OAuth isn't recommended for new Connect platforms. We
+// recommend using Connect Onboarding for Standard accounts instead."
+// A Stripe está deprecando este fluxo em favor de Account Links/onboarding
+// embutido. O ADR-040 já decidiu (revisado e aceito) usar OAuth Standard, e
+// trocar o mecanismo de conexão é uma decisão de arquitetura maior que este
+// pacote não toma sozinho -- implementado como o ADR pede, mas Fernando
+// precisa saber disso antes do gate de segurança/compliance pré-lançamento.
+//
+// POST https://connect.stripe.com/oauth/token: autenticado por HTTP Basic
+// Auth com a chave secreta da PLATAFORMA como usuário e senha vazia (não um
+// client_secret separado -- o exemplo curl da própria doc usa `-u sk_...:`,
+// não um client_id/client_secret de OAuth tradicional). Corpo
+// `code`+`grant_type=authorization_code`. A doc também documenta
+// explicitamente: "Per OAuth v2, this endpoint isn't idempotent. Consuming
+// an authorization code more than once revokes the account connection" --
+// por isso esta função nunca deve ser chamada mais de uma vez para o mesmo
+// `code` (responsabilidade do chamador, a rota de callback OAuth do
+// portal).
+//
+// A resposta inclui `access_token`/`stripe_publishable_key`/`refresh_token`,
+// mas a própria doc marca os três como "Obsoleto" (usar o header
+// `Stripe-Account` com a chave da própria plataforma no lugar). Esta função
+// não lê nenhum dos três -- o tipo de retorno nem tem esses campos --
+// reforçando estruturalmente a decisão do ADR-040 de nunca persistir
+// credencial por tenant: só `stripeAccountId` (o `stripe_user_id`, não
+// secreto) sai desta função.
+const CONNECT_TOKEN_ENDPOINT = "https://connect.stripe.com/oauth/token";
+const CONNECT_DEAUTHORIZE_ENDPOINT = "https://connect.stripe.com/oauth/deauthorize";
+const CONNECT_AUTHORIZATION_CODE_PATTERN = /^[A-Za-z0-9_]{1,255}$/;
+const CONNECT_CLIENT_ID_PATTERN = /^ca_[A-Za-z0-9]{1,255}$/;
+
+function basicAuthHeader(secretKey: string): string {
+  return `Basic ${Buffer.from(`${secretKey}:`, "utf8").toString("base64")}`;
+}
+
+export interface StripeConnectAuthorizationCodeExchangeOptions {
+  /** Chave secreta da própria plataforma Axtro (STRIPE_SECRET_KEY), nunca uma credencial por tenant. */
+  readonly platformSecretKey: string;
+  /** O `code` de uso único devolvido pela Stripe no redirect de volta pro `redirect_uri`. Nunca logado por este pacote nem por quem o chama. */
+  readonly code: string;
+  readonly timeoutMs?: number;
+  readonly fetchImplementation?: typeof fetch;
+}
+
+export interface StripeConnectAuthorizationCodeExchangeResult {
+  readonly stripeAccountId: string;
+  readonly livemode: boolean;
+}
+
+function validateConnectAuthorizationCodeExchangeOptions(
+  options: StripeConnectAuthorizationCodeExchangeOptions,
+): { platformSecretKey: string; code: string } {
+  const platformSecretKey = typeof options.platformSecretKey === "string" ? options.platformSecretKey.trim() : "";
+  const code = typeof options.code === "string" ? options.code.trim() : "";
+  if (platformSecretKey.length < 8) {
+    throw new StripeBillingError("missing_api_key", "Stripe API key is not configured");
+  }
+  if (!CONNECT_AUTHORIZATION_CODE_PATTERN.test(code)) {
+    throw new StripeBillingError("invalid_request", "code must be the plain authorization code Stripe returned");
+  }
+  return { platformSecretKey, code };
+}
+
+/**
+ * Troca o `code` de autorização inicial (fluxo de callback OAuth do portal,
+ * fora deste pacote) pelo `stripe_user_id` (id da conta conectada). Espelha
+ * `exchangeGoogleAuthorizationCode` de `@axtro/provider-google-calendar`
+ * deliberadamente: mesmo `fetchImplementation` injetável, mesmo timeout com
+ * corpo pendurado, mesmo formato de erro tipado.
+ */
+export async function exchangeStripeConnectAuthorizationCode(
+  options: StripeConnectAuthorizationCodeExchangeOptions,
+): Promise<StripeConnectAuthorizationCodeExchangeResult> {
+  const { platformSecretKey, code } = validateConnectAuthorizationCodeExchangeOptions(options);
+  const timeoutMs = options.timeoutMs ?? DEFAULT_TIMEOUT_MS;
+  const fetchImplementation = options.fetchImplementation ?? fetch;
+
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), timeoutMs);
+  let response: Response;
+  try {
+    response = await fetchImplementation(CONNECT_TOKEN_ENDPOINT, {
+      method: "POST",
+      signal: controller.signal,
+      headers: {
+        Authorization: basicAuthHeader(platformSecretKey),
+        "Content-Type": "application/x-www-form-urlencoded",
+      },
+      body: new URLSearchParams({ code, grant_type: "authorization_code" }).toString(),
+    });
+  } catch (error) {
+    clearTimeout(timer);
+    if (error instanceof Error && error.name === "AbortError") {
+      throw new StripeBillingError("provider_timeout", `Stripe Connect OAuth token endpoint timed out after ${timeoutMs}ms`);
+    }
+    throw new StripeBillingError("provider_unavailable", "Stripe Connect OAuth token endpoint request failed before a response");
+  }
+  try {
+    let text: string;
+    try {
+      text = await readBoundedResponseText(response);
+    } catch (error) {
+      if (error instanceof StripeBillingError) throw error;
+      if (error instanceof Error && error.name === "AbortError") {
+        throw new StripeBillingError("provider_timeout", `Stripe Connect OAuth token endpoint timed out after ${timeoutMs}ms`);
+      }
+      throw new StripeBillingError("malformed_provider_response", "Stripe Connect OAuth token endpoint returned unreadable output");
+    }
+    let record: Record<string, unknown> = {};
+    if (text.length > 0) {
+      try {
+        record = (JSON.parse(text) ?? {}) as Record<string, unknown>;
+      } catch {
+        if (response.ok) throw new StripeBillingError("malformed_provider_response", "Stripe Connect OAuth token endpoint returned non-JSON output");
+      }
+    }
+    if (!response.ok) {
+      const errorCode: StripeErrorCode = response.status >= 500 ? "provider_unavailable" : "provider_rejected";
+      const reason = typeof record.error === "string" ? record.error : `HTTP ${response.status}`;
+      throw new StripeBillingError(errorCode, `Stripe Connect OAuth token endpoint rejected the authorization code exchange (${reason})`, response.status);
+    }
+    const stripeAccountId = record.stripe_user_id;
+    const livemode = record.livemode;
+    if (
+      typeof stripeAccountId !== "string" || !STRIPE_ACCOUNT_ID_PATTERN.test(stripeAccountId)
+      || typeof livemode !== "boolean"
+    ) {
+      throw new StripeBillingError("malformed_provider_response", "Stripe Connect OAuth token payload is incomplete");
+    }
+    return Object.freeze({ stripeAccountId, livemode });
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+export interface DeauthorizeStripeConnectAccountOptions {
+  readonly platformSecretKey: string;
+  readonly connectClientId: string;
+  readonly stripeAccountId: string;
+  readonly timeoutMs?: number;
+  readonly fetchImplementation?: typeof fetch;
+}
+
+/**
+ * Revoga o acesso da plataforma Axtro a uma conta conectada
+ * (`POST /oauth/deauthorize`), chamado pelo disconnect (ADR-040). Nunca
+ * lança se a Stripe já não reconhece a conta (idempotente do ponto de vista
+ * do chamador): `invalid_client`/`invalid_grant` da Stripe para uma conta já
+ * desconectada é tratado como sucesso, mesmo espírito de "desconectar de
+ * novo é idempotente" já aplicado ao resto do produto.
+ */
+export async function deauthorizeStripeConnectAccount(
+  options: DeauthorizeStripeConnectAccountOptions,
+): Promise<void> {
+  const platformSecretKey = typeof options.platformSecretKey === "string" ? options.platformSecretKey.trim() : "";
+  const connectClientId = typeof options.connectClientId === "string" ? options.connectClientId.trim() : "";
+  const stripeAccountId = typeof options.stripeAccountId === "string" ? options.stripeAccountId.trim() : "";
+  if (platformSecretKey.length < 8) throw new StripeBillingError("missing_api_key", "Stripe API key is not configured");
+  if (!CONNECT_CLIENT_ID_PATTERN.test(connectClientId)) throw new StripeBillingError("invalid_request", "connectClientId must be a plain Stripe Connect client id");
+  if (!STRIPE_ACCOUNT_ID_PATTERN.test(stripeAccountId)) throw new StripeBillingError("invalid_request", "stripeAccountId must be a plain Stripe connected account id");
+
+  const timeoutMs = options.timeoutMs ?? DEFAULT_TIMEOUT_MS;
+  const fetchImplementation = options.fetchImplementation ?? fetch;
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), timeoutMs);
+  let response: Response;
+  try {
+    response = await fetchImplementation(CONNECT_DEAUTHORIZE_ENDPOINT, {
+      method: "POST",
+      signal: controller.signal,
+      headers: {
+        Authorization: basicAuthHeader(platformSecretKey),
+        "Content-Type": "application/x-www-form-urlencoded",
+      },
+      body: new URLSearchParams({ client_id: connectClientId, stripe_user_id: stripeAccountId }).toString(),
+    });
+  } catch (error) {
+    clearTimeout(timer);
+    if (error instanceof Error && error.name === "AbortError") {
+      throw new StripeBillingError("provider_timeout", `Stripe Connect OAuth deauthorize endpoint timed out after ${timeoutMs}ms`);
+    }
+    throw new StripeBillingError("provider_unavailable", "Stripe Connect OAuth deauthorize endpoint request failed before a response");
+  }
+  try {
+    let text: string;
+    try {
+      text = await readBoundedResponseText(response);
+    } catch {
+      text = "";
+    }
+    if (!response.ok) {
+      let record: Record<string, unknown> = {};
+      try {
+        record = text.length > 0 ? ((JSON.parse(text) ?? {}) as Record<string, unknown>) : {};
+      } catch {
+        record = {};
+      }
+      if (record.error === "invalid_client" || record.error === "invalid_grant") return;
+      const errorCode: StripeErrorCode = response.status >= 500 ? "provider_unavailable" : "provider_rejected";
+      const reason = typeof record.error === "string" ? record.error : `HTTP ${response.status}`;
+      throw new StripeBillingError(errorCode, `Stripe Connect OAuth deauthorize endpoint rejected the request (${reason})`, response.status);
+    }
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Modo fake determinístico -- OAuth de Stripe Connect (sem rede)
+// ---------------------------------------------------------------------------
+
+export function stripeConnectFakeProvidersEnabled(): boolean {
+  return process.env.PORTAL_FAKE_PROVIDERS === "1";
+}
+
+const FAKE_STRIPE_CONNECT_ACCOUNT_ID = "acct_FakeStripeConnectDemo1";
+
+export interface FakeStripeConnectAuthorizationCodeExchangeOptions {
+  readonly livemode?: boolean;
+}
+
+/**
+ * Contrato determinístico igual ao dos outros fakes do repo: mesmo input ->
+ * mesmo resultado, sem rede, reaplicando a mesma validação do modo real.
+ */
+export function createFakeStripeConnectAuthorizationCodeExchange(
+  fakeOptions: FakeStripeConnectAuthorizationCodeExchangeOptions = {},
+): (options: StripeConnectAuthorizationCodeExchangeOptions) => Promise<StripeConnectAuthorizationCodeExchangeResult> {
+  const livemode = fakeOptions.livemode === true;
+  return async (options: StripeConnectAuthorizationCodeExchangeOptions): Promise<StripeConnectAuthorizationCodeExchangeResult> => {
+    validateConnectAuthorizationCodeExchangeOptions(options);
+    return Object.freeze({ stripeAccountId: FAKE_STRIPE_CONNECT_ACCOUNT_ID, livemode });
+  };
+}
+
+export function createFakeDeauthorizeStripeConnectAccount(): (options: DeauthorizeStripeConnectAccountOptions) => Promise<void> {
+  return async (): Promise<void> => {};
+}

@@ -500,3 +500,106 @@ test("corpo travado depois dos headers (200) ainda respeita o timeout", async ()
     (e) => e.code === "provider_timeout",
   );
 });
+
+// -----------------------------------------------------------------------
+// OAuth de Stripe Connect (ADR-040): exchangeStripeConnectAuthorizationCode
+// e deauthorizeStripeConnectAccount
+// -----------------------------------------------------------------------
+
+const CONNECT_CODE = "ac_TestAuthorizationCode123";
+const CONNECT_ACCOUNT_ID = "acct_1NConnectTest123";
+const CONNECT_CLIENT_ID = "ca_TestConnectClientId123";
+
+test("exchangeStripeConnectAuthorizationCode usa Basic Auth com a chave da plataforma e devolve so stripeAccountId/livemode", async () => {
+  const { calls, implementation } = fakeFetch(async () =>
+    new Response(JSON.stringify({
+      token_type: "bearer", scope: "read_write", livemode: false, stripe_user_id: CONNECT_ACCOUNT_ID,
+      access_token: "should-never-be-read", refresh_token: "should-never-be-read", stripe_publishable_key: "should-never-be-read",
+    }), { status: 200 }));
+
+  const result = await provider.exchangeStripeConnectAuthorizationCode({
+    platformSecretKey: API_KEY, code: CONNECT_CODE, fetchImplementation: implementation,
+  });
+
+  assert.deepEqual(result, { stripeAccountId: CONNECT_ACCOUNT_ID, livemode: false });
+  assert.deepEqual(Object.keys(result).sort(), ["livemode", "stripeAccountId"], "o tipo de retorno nao pode carregar access_token/refresh_token/stripe_publishable_key -- o ADR-040 exige nunca persistir credencial por tenant");
+  assert.equal(calls.length, 1);
+  assert.equal(calls[0].url, "https://connect.stripe.com/oauth/token");
+  assert.equal(calls[0].init.headers.Authorization, `Basic ${Buffer.from(`${API_KEY}:`, "utf8").toString("base64")}`);
+  assert.deepEqual(parseFormBody(calls[0].init.body), { code: CONNECT_CODE, grant_type: "authorization_code" });
+});
+
+test("exchangeStripeConnectAuthorizationCode rejeita code vazio/malformado antes da rede", async () => {
+  const { calls, implementation } = fakeFetch(async () => { throw new Error("network must not be reached"); });
+  for (const code of ["", "has spaces", "has/slash", "x".repeat(256)]) {
+    await assert.rejects(
+      () => provider.exchangeStripeConnectAuthorizationCode({ platformSecretKey: API_KEY, code, fetchImplementation: implementation }),
+      (e) => e.code === "invalid_request",
+    );
+  }
+  assert.equal(calls.length, 0);
+});
+
+test("exchangeStripeConnectAuthorizationCode propaga invalid_grant como provider_rejected sem vazar a chave", async () => {
+  const { implementation } = fakeFetch(async () =>
+    new Response(JSON.stringify({ error: "invalid_grant", error_description: "Authorization code does not exist" }), { status: 400 }));
+  await assert.rejects(
+    () => provider.exchangeStripeConnectAuthorizationCode({ platformSecretKey: API_KEY, code: CONNECT_CODE, fetchImplementation: implementation }),
+    (e) => {
+      assert.equal(e.code, "provider_rejected");
+      assert.equal(e.message.includes(API_KEY), false);
+      return true;
+    },
+  );
+});
+
+test("exchangeStripeConnectAuthorizationCode falha fechado num payload de sucesso incompleto ou malformado", async () => {
+  for (const body of [{}, { livemode: false }, { stripe_user_id: "not-an-account-id", livemode: false }, { stripe_user_id: CONNECT_ACCOUNT_ID, livemode: "false" }]) {
+    const { implementation } = fakeFetch(async () => new Response(JSON.stringify(body), { status: 200 }));
+    await assert.rejects(
+      () => provider.exchangeStripeConnectAuthorizationCode({ platformSecretKey: API_KEY, code: CONNECT_CODE, fetchImplementation: implementation }),
+      (e) => e.code === "malformed_provider_response",
+    );
+  }
+});
+
+test("deauthorizeStripeConnectAccount envia client_id/stripe_user_id via Basic Auth", async () => {
+  const { calls, implementation } = fakeFetch(async () => new Response(JSON.stringify({ stripe_user_id: CONNECT_ACCOUNT_ID }), { status: 200 }));
+  await provider.deauthorizeStripeConnectAccount({
+    platformSecretKey: API_KEY, connectClientId: CONNECT_CLIENT_ID, stripeAccountId: CONNECT_ACCOUNT_ID, fetchImplementation: implementation,
+  });
+  assert.equal(calls.length, 1);
+  assert.equal(calls[0].url, "https://connect.stripe.com/oauth/deauthorize");
+  assert.equal(calls[0].init.headers.Authorization, `Basic ${Buffer.from(`${API_KEY}:`, "utf8").toString("base64")}`);
+  assert.deepEqual(parseFormBody(calls[0].init.body), { client_id: CONNECT_CLIENT_ID, stripe_user_id: CONNECT_ACCOUNT_ID });
+});
+
+test("deauthorizeStripeConnectAccount trata invalid_client/invalid_grant como sucesso idempotente (conta ja desconectada)", async () => {
+  for (const errorCode of ["invalid_client", "invalid_grant"]) {
+    const { implementation } = fakeFetch(async () => new Response(JSON.stringify({ error: errorCode }), { status: 400 }));
+    await provider.deauthorizeStripeConnectAccount({
+      platformSecretKey: API_KEY, connectClientId: CONNECT_CLIENT_ID, stripeAccountId: CONNECT_ACCOUNT_ID, fetchImplementation: implementation,
+    });
+  }
+});
+
+test("deauthorizeStripeConnectAccount propaga qualquer outro erro em vez de engolir silenciosamente", async () => {
+  const { implementation } = fakeFetch(async () => new Response(JSON.stringify({ error: "invalid_request" }), { status: 400 }));
+  await assert.rejects(
+    () => provider.deauthorizeStripeConnectAccount({
+      platformSecretKey: API_KEY, connectClientId: CONNECT_CLIENT_ID, stripeAccountId: CONNECT_ACCOUNT_ID, fetchImplementation: implementation,
+    }),
+    (e) => e.code === "provider_rejected",
+  );
+});
+
+test("createFakeStripeConnectAuthorizationCodeExchange e createFakeDeauthorizeStripeConnectAccount sao deterministicos e nunca tocam rede", async () => {
+  const exchange = provider.createFakeStripeConnectAuthorizationCodeExchange({ livemode: true });
+  const result = await exchange({ platformSecretKey: API_KEY, code: CONNECT_CODE });
+  assert.equal(result.livemode, true);
+  assert.match(result.stripeAccountId, /^acct_[A-Za-z0-9]+$/);
+  await assert.rejects(() => exchange({ platformSecretKey: API_KEY, code: "" }), (e) => e.code === "invalid_request");
+
+  const deauthorize = provider.createFakeDeauthorizeStripeConnectAccount();
+  await deauthorize({ platformSecretKey: API_KEY, connectClientId: CONNECT_CLIENT_ID, stripeAccountId: CONNECT_ACCOUNT_ID });
+});
