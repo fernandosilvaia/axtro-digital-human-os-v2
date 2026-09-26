@@ -1398,6 +1398,72 @@ begin
 end;
 $$;
 
+/**
+ * Preflight read-only pra `portal_request_data_governance_authenticated`
+ * (achado da onda de aplicação, D-V2-182): os três fingerprints canônicos que
+ * a RPC de request exige (`policyFingerprint`/`inventoryFingerprint`/
+ * `commandFingerprint`) são hash determinístico sem segredo
+ * (`app.data_governance_expected_policy_fingerprint`/`_command_fingerprint`/
+ * `app.data_governance_catalog_fingerprint`), mas vivem no schema `app`, nunca
+ * exposto ao PostgREST -- sem esta RPC, a aplicação não tem como montar um
+ * `portal_request_data_governance_authenticated` válido. `p_request_id` só
+ * entra no cálculo do hash aqui (nunca persistido: esta função é `stable`,
+ * sem nenhuma escrita) -- é o mesmo id que o chamador gera e reusa na chamada
+ * real de request a seguir. Mesma checagem de
+ * combinação escopo/ação/motivo do request (defesa em profundidade, nunca a
+ * fonte única de verdade: a própria RPC de request revalida tudo de novo).
+ * `attestationReady=false` é o desfecho esperado em todo ambiente hoje: as 7
+ * autoridades verificadoras externas (armazenamento de objeto, cache, índice
+ * de embedding, cópia em provider terceiro, identidade no Auth, segredo no
+ * Vault, backup) nunca foram provisionadas fora do harness de teste local
+ * (`scripts/supabase-portal-integration.mjs`), que semeia chaves descartáveis
+ * só pra exercitar o SQL. Sem uma autoridade real por trás, um pedido nunca
+ * chega a existir -- `portal_request_data_governance_authenticated` falha
+ * fechado nesse ponto pra qualquer escopo, inclusive `tenant`.
+ */
+create or replace function public.portal_prepare_data_governance_request_authenticated(
+  p_request_id app.uuid_v7,
+  p_scope text,
+  p_subject_id app.uuid_v7,
+  p_requested_action text,
+  p_purpose_code text
+) returns jsonb language plpgsql stable security definer set search_path='' as $$
+declare v_member public.user_tenant_memberships; v_policy_fingerprint text; v_inventory_fingerprint text;
+begin
+  v_member:=app.data_governance_authenticated_admin();
+  if p_scope not in ('tenant','data_subject')
+     or p_requested_action not in ('redact','irreversible_delete')
+     or p_purpose_code not in ('contract_termination','data_subject_request','retention_expiry','operator_correction')
+     or (p_scope='tenant' and p_subject_id is not null)
+     or (p_scope='data_subject' and p_subject_id is null)
+     or (p_scope='tenant' and p_requested_action='redact')
+     or (p_scope='tenant' and p_purpose_code='data_subject_request')
+     or (p_scope='data_subject' and p_purpose_code not in ('data_subject_request','operator_correction')) then
+    raise exception 'invalid data governance request scope' using errcode='22023';
+  end if;
+  v_policy_fingerprint:=app.data_governance_expected_policy_fingerprint(
+    v_member.tenant_id,p_scope,p_subject_id,p_requested_action,p_purpose_code
+  );
+  v_inventory_fingerprint:=app.data_governance_catalog_fingerprint();
+  return jsonb_build_object(
+    'tenantId',v_member.tenant_id,
+    'policyVersion','1.0.0','inventoryVersion','1.0.0',
+    'policyFingerprint',v_policy_fingerprint,
+    'inventoryFingerprint',v_inventory_fingerprint,
+    -- p_request_id só entra no hash (nunca persistido por esta função,
+    -- read-only): é o mesmo id que o chamador vai usar na chamada real de
+    -- `portal_request_data_governance_authenticated` a seguir, gerado por
+    -- ele mesmo (idGenerator), nunca por esta RPC.
+    'commandFingerprint',app.data_governance_expected_command_fingerprint(
+      p_request_id,v_member.tenant_id,p_scope,p_subject_id,p_requested_action,
+      p_purpose_code,v_policy_fingerprint,v_inventory_fingerprint
+    ),
+    'catalogComplete',app.data_governance_catalog_complete(),
+    'attestationReady',app.data_governance_attestation_authorities_ready(p_scope='data_subject')
+  );
+end;
+$$;
+
 create or replace function public.portal_request_data_governance_authenticated(
   p_request_id app.uuid_v7,
   p_policy_decision_id app.uuid_v7,
@@ -3698,19 +3764,63 @@ begin
 end;
 $$;
 
+/**
+ * A UI de tela precisa que um SEGUNDO `tenant_admin` (que não foi quem abriu
+ * o pedido) consiga achar e aprovar o mesmo pedido sem já saber o
+ * `requestId` de antemão -- sem esta RPC, o fluxo de dois aprovadores só
+ * funcionaria se o segundo admin recebesse o id por fora (e-mail, Slack),
+ * quebrando exatamente o caso de uso que a quorum de dois existe pra
+ * proteger. Usa o mesmo índice único parcial que a migration já declara
+ * (`data_governance_one_active_request_per_tenant_idx`): no máximo um
+ * pedido não-terminal por tenant, então a busca é sempre determinística.
+ */
+create or replace function public.portal_data_governance_active_request_authenticated()
+returns jsonb language plpgsql stable security definer set search_path='' as $$
+declare v_member public.user_tenant_memberships; v_request_id app.uuid_v7;
+begin
+  v_member:=app.data_governance_authenticated_admin();
+  select id into v_request_id from public.data_governance_requests
+  where tenant_id=v_member.tenant_id and state in (
+    'requested','approval_pending','authorized','inventorying','ready','blocked_by_legal_hold',
+    'executing_redaction','executing_irreversible_deletion','retry_wait','effect_unknown',
+    'verifying','operator_required'
+  );
+  return jsonb_build_object('requestId',v_request_id);
+end;
+$$;
+
 create or replace function public.portal_data_governance_status_authenticated(
   p_request_id app.uuid_v7
 ) returns jsonb language plpgsql stable security definer set search_path='' as $$
-declare v_member public.user_tenant_memberships; v_request public.data_governance_requests;
+declare
+  v_member public.user_tenant_memberships;
+  v_request public.data_governance_requests;
+  v_required_approvals integer;
+  v_approved_count integer;
+  v_denied_count integer;
 begin
   v_member:=app.data_governance_authenticated_admin();
   select * into v_request from public.data_governance_requests
   where tenant_id=v_member.tenant_id and id=p_request_id;
   if not found then raise exception 'request not found for tenant' using errcode='42501'; end if;
+  v_required_approvals:=case when v_request.scope='tenant' then 2 else 1 end;
+  select count(*) into v_approved_count from public.data_governance_approvals
+  where tenant_id=v_member.tenant_id and request_id=v_request.id and decision='approve';
+  select count(*) into v_denied_count from public.data_governance_approvals
+  where tenant_id=v_member.tenant_id and request_id=v_request.id and decision='deny';
   return jsonb_build_object(
-    'requestId',v_request.id,'scope',v_request.scope,'state',v_request.state,
+    'tenantId',v_member.tenant_id,'requestId',v_request.id,'scope',v_request.scope,'state',v_request.state,
+    'subjectId',v_request.subject_id,'purposeCode',v_request.purpose_code,
     'requestedAction',v_request.requested_action,'policyVersion',v_request.policy_version,
     'inventoryVersion',v_request.inventory_version,'writeEpoch',v_request.write_epoch,
+    -- Nenhum dos três é segredo (hash determinístico sem chave, ver
+    -- `app.data_governance_expected_command_fingerprint`): devolvê-los aqui
+    -- é o que permite `portal_approve_data_governance_authenticated` ser
+    -- chamada sem uma segunda leitura privilegiada separada.
+    'policyFingerprint',v_request.policy_fingerprint,'inventoryFingerprint',v_request.inventory_fingerprint,
+    'commandFingerprint',v_request.command_fingerprint,
+    'authorizationExpiresAt',v_request.authorization_expires_at,
+    'requiredApprovals',v_required_approvals,'approvedCount',v_approved_count,'deniedCount',v_denied_count,
     'authorizedAt',v_request.authorized_at,'completedAt',v_request.completed_at
   );
 end;
@@ -3912,6 +4022,9 @@ begin
 end
 $lock_down_governance_tables$;
 
+revoke all on function public.portal_prepare_data_governance_request_authenticated(
+  app.uuid_v7,text,app.uuid_v7,text,text
+) from public,anon,authenticated,service_role;
 revoke all on function public.portal_request_data_governance_authenticated(
   app.uuid_v7,app.uuid_v7,text,app.uuid_v7,text,text,text,text,text,text,text
 ) from public,anon,authenticated,service_role;
@@ -3927,11 +4040,16 @@ revoke all on function public.portal_release_data_legal_hold_authenticated(
   app.uuid_v7,app.uuid_v7,app.uuid_v7,app.uuid_v7,text
 )
   from public,anon,authenticated,service_role;
+revoke all on function public.portal_data_governance_active_request_authenticated()
+  from public,anon,authenticated,service_role;
 revoke all on function public.portal_data_governance_status_authenticated(app.uuid_v7)
   from public,anon,authenticated,service_role;
 revoke all on function public.portal_cancel_data_governance_request_authenticated(app.uuid_v7,app.uuid_v7)
   from public,anon,authenticated,service_role;
 
+grant execute on function public.portal_prepare_data_governance_request_authenticated(
+  app.uuid_v7,text,app.uuid_v7,text,text
+) to authenticated;
 grant execute on function public.portal_request_data_governance_authenticated(
   app.uuid_v7,app.uuid_v7,text,app.uuid_v7,text,text,text,text,text,text,text
 ) to authenticated;
@@ -3943,6 +4061,8 @@ grant execute on function public.portal_create_data_legal_hold_authenticated(
 grant execute on function public.portal_release_data_legal_hold_authenticated(
   app.uuid_v7,app.uuid_v7,app.uuid_v7,app.uuid_v7,text
 )
+  to authenticated;
+grant execute on function public.portal_data_governance_active_request_authenticated()
   to authenticated;
 grant execute on function public.portal_data_governance_status_authenticated(app.uuid_v7)
   to authenticated;

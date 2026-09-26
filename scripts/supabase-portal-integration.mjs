@@ -1420,6 +1420,7 @@ function assertDataGovernanceDispositionPhase(databaseUrl, v58Capabilities) {
 
   assertDataSubjectGovernanceRedaction(databaseUrl);
   assertTenantGovernanceDeletion(databaseUrl);
+  assertDataGovernanceActiveRequestCancelLifecycle(databaseUrl);
 }
 
 function governanceAuthoritySecret(kind, resourceCode) {
@@ -2346,7 +2347,10 @@ function assertTenantGovernanceDeletion(databaseUrl) {
   `);
   const initialEpoch = Number(queryScalar(databaseUrl,
     `SELECT data_write_epoch FROM public.tenants WHERE id='${tenantId}';`));
-  const fingerprints = queryJson(databaseUrl, `
+  assert.equal(queryJson(databaseUrl, asRoleSql("authenticated", adminOne, `
+    SELECT public.portal_data_governance_active_request_authenticated();
+  `)).requestId, null, "a tenant with no request yet must not surface a stale or fabricated active request");
+  const rawFingerprints = queryJson(databaseUrl, `
     WITH canonical AS (
       SELECT
         app.data_governance_catalog_fingerprint() AS inventory_fingerprint,
@@ -2363,25 +2367,64 @@ function assertTenantGovernanceDeletion(databaseUrl) {
       )
     ) FROM canonical;
   `);
+  // A aplicação nunca calcula fingerprint por SQL cru: só tem acesso a
+  // `public.portal_prepare_data_governance_request_authenticated` (RPC nova,
+  // D-V2-182). Prova que ela é a fonte real que a app usaria, não um SQL de
+  // teste equivalente por coincidência.
+  const prepared = queryJson(databaseUrl, asRoleSql("authenticated", adminOne, `
+    SELECT public.portal_prepare_data_governance_request_authenticated(
+      '${ids.request}','tenant',null,'irreversible_delete','contract_termination'
+    );
+  `));
+  assert.equal(prepared.tenantId, tenantId);
+  assert.equal(prepared.policyFingerprint, rawFingerprints.policyFingerprint,
+    "the preflight RPC's policy fingerprint must match the raw canonical formula the request RPC itself re-validates");
+  assert.equal(prepared.inventoryFingerprint, rawFingerprints.inventoryFingerprint);
+  assert.equal(prepared.commandFingerprint, rawFingerprints.commandFingerprint);
+  assert.equal(prepared.catalogComplete, true);
+  assert.equal(prepared.attestationReady, true, "the fake authorities provisioned above must satisfy the tenant-scope (non-subject) readiness check");
+  const fingerprints = prepared;
   assert.equal(queryJson(databaseUrl, asRoleSql("authenticated", adminOne, `
     SELECT public.portal_request_data_governance_authenticated(
       '${ids.request}','${ids.policyDecision}','tenant',null,'irreversible_delete',
-      'contract_termination','1.0.0','${fingerprints.policyFingerprint}',
-      '1.0.0','${fingerprints.inventoryFingerprint}','${fingerprints.commandFingerprint}'
+      'contract_termination','${prepared.policyVersion}','${prepared.policyFingerprint}',
+      '${prepared.inventoryVersion}','${prepared.inventoryFingerprint}','${fingerprints.commandFingerprint}'
     );
   `)).state, "requested");
+  for (const userId of [adminOne, adminTwo]) {
+    assert.equal(queryJson(databaseUrl, asRoleSql("authenticated", userId, `
+      SELECT public.portal_data_governance_active_request_authenticated();
+    `)).requestId, ids.request, "either tenant_admin must be able to discover the active request, not only the one who opened it");
+  }
   assert.equal(queryJson(databaseUrl, asRoleSql("service_role", null, `
     SELECT public.portal_decide_data_governance_policy_service(
       '${tenantId}','${ids.request}','${ids.policyDecision}','allow','policy_allowed',
       '${fingerprints.policyFingerprint}',clock_timestamp()+interval '1 hour'
     );
   `)).state, "approval_pending");
+  const statusAfterPolicy = queryJson(databaseUrl, asRoleSql("authenticated", adminOne, `
+    SELECT public.portal_data_governance_status_authenticated('${ids.request}');
+  `));
+  assert.equal(statusAfterPolicy.state, "approval_pending");
+  assert.equal(statusAfterPolicy.tenantId, tenantId, "status must expose tenantId so a caller can drive the paired service-role authorize call without a second privileged lookup");
+  assert.equal(statusAfterPolicy.commandFingerprint, fingerprints.commandFingerprint);
+  assert.equal(statusAfterPolicy.policyFingerprint, fingerprints.policyFingerprint);
+  assert.equal(statusAfterPolicy.purposeCode, "contract_termination");
+  assert.equal(statusAfterPolicy.subjectId, null);
+  assert.equal(statusAfterPolicy.requiredApprovals, 2, "tenant-scope disposition always requires two distinct current tenant_admin approvals");
+  assert.equal(statusAfterPolicy.approvedCount, 0);
+  assert.equal(statusAfterPolicy.deniedCount, 0);
+  let approvedSoFar = 0;
   for (const [userId, approvalId] of [[adminOne, ids.approvalOne], [adminTwo, ids.approvalTwo]]) {
     assert.equal(queryJson(databaseUrl, asRoleSql("authenticated", userId, `
       SELECT public.portal_approve_data_governance_authenticated(
         '${ids.request}','${approvalId}','approve','${fingerprints.commandFingerprint}'
       );
     `)).state, "approval_pending");
+    approvedSoFar += 1;
+    assert.equal(queryJson(databaseUrl, asRoleSql("authenticated", adminOne, `
+      SELECT public.portal_data_governance_status_authenticated('${ids.request}');
+    `)).approvedCount, approvedSoFar, "the status RPC's approval progress must advance with each recorded approval, readable by either admin");
   }
   assert.equal(queryJson(databaseUrl, asRoleSql("service_role", null, `
     SELECT public.portal_authorize_data_governance_request_service('${tenantId}','${ids.request}');
@@ -2659,6 +2702,69 @@ function assertTenantGovernanceDeletion(databaseUrl) {
   assertFailed(runSql(databaseUrl, `
     DELETE FROM public.data_governance_final_receipts WHERE id='${ids.finalReceipt}';
   `), "tenant completion evidence is immutable", /append-only/);
+}
+
+/**
+ * `assertTenantGovernanceDeletion` acima nunca cancela -- ela dirige o
+ * pedido até `completed`, que tombstona o tenant e remove todo
+ * `user_tenant_memberships` (o próprio admin perde a autoridade
+ * `tenant_admin` que a checagem "ativo->nulo" precisaria pra ler de novo).
+ * `portal_cancel_data_governance_request_authenticated` nunca é exercitada
+ * em lugar nenhum do harness antes desta função; sem isto, um bug real na
+ * RPC de cancelamento (ou no filtro de estado de
+ * `portal_data_governance_active_request_authenticated`, achado da mesma
+ * onda de aplicação, D-V2-182) passaria despercebido.
+ */
+function assertDataGovernanceActiveRequestCancelLifecycle(databaseUrl) {
+  const tenantId = governanceUuid(950);
+  const admin = "20000000-0000-4000-8000-000000000003";
+  const actorId = governanceUuid(951);
+  const ids = Object.freeze({
+    request: governanceUuid(952),
+    policyDecision: governanceUuid(953),
+    receipt: governanceUuid(954),
+  });
+  assertSucceeded(runSql(databaseUrl, `
+    INSERT INTO auth.users(id,email) VALUES ('${admin}','m6-04-cancel-admin@example.test');
+    INSERT INTO public.tenants(
+      id,slug,legal_name,status,home_region,default_language,default_timezone
+    ) VALUES(
+      '${tenantId}','m6-04-cancel-tenant','M6-04 Cancel Tenant','active','local','en','UTC'
+    );
+    INSERT INTO public.user_tenant_memberships(user_id,tenant_id,actor_id,role) VALUES
+      ('${admin}','${tenantId}','${actorId}','tenant_admin');
+  `), "seed a single-admin tenant for the cancel lifecycle");
+  assert.equal(queryJson(databaseUrl, asRoleSql("authenticated", admin, `
+    SELECT public.portal_data_governance_active_request_authenticated();
+  `)).requestId, null);
+  const prepared = queryJson(databaseUrl, asRoleSql("authenticated", admin, `
+    SELECT public.portal_prepare_data_governance_request_authenticated(
+      '${ids.request}','tenant',null,'irreversible_delete','contract_termination'
+    );
+  `));
+  assert.equal(queryJson(databaseUrl, asRoleSql("authenticated", admin, `
+    SELECT public.portal_request_data_governance_authenticated(
+      '${ids.request}','${ids.policyDecision}','tenant',null,'irreversible_delete',
+      'contract_termination','${prepared.policyVersion}','${prepared.policyFingerprint}',
+      '${prepared.inventoryVersion}','${prepared.inventoryFingerprint}','${prepared.commandFingerprint}'
+    );
+  `)).state, "requested");
+  assert.equal(queryJson(databaseUrl, asRoleSql("authenticated", admin, `
+    SELECT public.portal_data_governance_active_request_authenticated();
+  `)).requestId, ids.request, "a request in the earliest 'requested' state, before any policy decision, is still active");
+  assert.equal(queryJson(databaseUrl, asRoleSql("authenticated", admin, `
+    SELECT public.portal_cancel_data_governance_request_authenticated('${ids.request}','${ids.receipt}');
+  `)).state, "cancelled");
+  assert.equal(queryJson(databaseUrl, asRoleSql("authenticated", admin, `
+    SELECT public.portal_data_governance_active_request_authenticated();
+  `)).requestId, null, "a cancelled request must never be surfaced as the tenant's active request again");
+  assert.equal(queryJson(databaseUrl, asRoleSql("authenticated", admin, `
+    SELECT public.portal_data_governance_status_authenticated('${ids.request}');
+  `)).state, "cancelled", "status remains readable by request id after cancellation, just no longer 'active'");
+  assert.deepEqual(queryJson(databaseUrl, asRoleSql("authenticated", admin, `
+    SELECT public.portal_cancel_data_governance_request_authenticated('${ids.request}','${governanceUuid(955)}');
+  `)), { tenantId, requestId: ids.request, state: "cancelled", receiptId: ids.receipt, replayed: true },
+  "replaying cancel after it already succeeded returns the original receipt, never a second one");
 }
 
 function assertProductionIntegrityMigrationRollback(databaseUrl) {

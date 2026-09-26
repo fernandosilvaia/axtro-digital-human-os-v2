@@ -1,9 +1,11 @@
 import type { Metadata } from "next";
 
+import { getActiveTenantDataGovernanceDisposition, type ActiveDataGovernanceDispositionResult } from "@/lib/actions/data-governance-disposition";
 import { fetchGoogleCalendarConnection, type GoogleCalendarConnectionContext } from "@/lib/google-calendar/connection";
 import { fetchBillingStatus, fetchTeam, fetchTenantOverview } from "@/lib/portal-data";
 import { BillingSection } from "./billing-section";
 import { CalendarSection } from "./calendar-section";
+import { DataGovernanceSection } from "./data-governance-section";
 import { TeamSection } from "./team-section";
 import { TenantProfileForm } from "./tenant-profile-form";
 
@@ -12,13 +14,18 @@ export const metadata: Metadata = { title: "Configurações, Axtro Digital Human
 export default async function SettingsPage({
   searchParams,
 }: {
-  searchParams: Promise<{ billing_success?: string; billing_error?: string; calendar_status?: string; calendar_error?: string }>;
+  searchParams: Promise<{
+    billing_success?: string; billing_error?: string; calendar_status?: string; calendar_error?: string;
+    governance_status?: string; governance_error?: string;
+  }>;
 }) {
   const {
     billing_success: billingSuccess,
     billing_error: billingError,
     calendar_status: calendarStatus,
     calendar_error: calendarError,
+    governance_status: governanceStatus,
+    governance_error: governanceError,
   } = await searchParams;
 
   let overview;
@@ -53,6 +60,17 @@ export default async function SettingsPage({
     } catch {
       calendarConnection = null;
     }
+  }
+
+  // Mesma degradação isolada das duas leituras acima: a RPC exige
+  // `tenant_admin` (outcome `unauthorized` pra qualquer outro papel, nunca
+  // uma exceção), então uma falha de transporte aqui também nunca derruba
+  // o resto da página, só o card de governança de dados mostra o aviso.
+  let dataGovernance: ActiveDataGovernanceDispositionResult = { outcome: "service_unavailable" };
+  try {
+    dataGovernance = await getActiveTenantDataGovernanceDisposition();
+  } catch {
+    dataGovernance = { outcome: "service_unavailable" };
   }
 
   const tenant = overview.tenant;
@@ -114,6 +132,13 @@ export default async function SettingsPage({
             isAdmin={isAdmin}
             calendarStatus={calendarStatus ?? null}
             calendarError={calendarError ?? null}
+          />
+
+          <DataGovernanceSection
+            active={dataGovernance}
+            isAdmin={isAdmin}
+            governanceStatus={governanceStatus ?? null}
+            governanceError={governanceError ?? null}
           />
         </div>
       ) : (
