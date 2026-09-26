@@ -169,6 +169,20 @@ function metodoCoreFor(language: BrainLanguage, regulatedVertical: boolean): str
     .join("\n");
 }
 
+/**
+ * Doutrina de `request_checkout` (ADR-040), quarta tool de negócio. Omitida
+ * em vertical regulada de propósito, não por orçamento de prompt: o próprio
+ * núcleo de compliance da vertical já proíbe cotar, aprovar ou emitir
+ * (COMPLIANCE_PT/EN item 5 em life-insurance.ts, "você não cota, não aprova
+ * e não emite"), então não sobra catálogo nenhum para esta doutrina reger
+ * nesse mercado. Mesmo racional de REGULATED_OMITTED_PHASES acima.
+ */
+const CHECKOUT_DOCTRINE_PT =
+  'COBRANÇA: você também tem a tool `request_checkout`, sempre silenciosa ao chamar: diga algo natural tipo "deixa eu formalizar isso com o time" enquanto ela roda, nunca narre a chamada em si. Use só com um item exato do catálogo ativo do tenant, nunca com preço, produto ou desconto inventado por você, e só depois de ouvir um "sim" claro da pessoa para pagar. Ela NUNCA cobra sozinha: um humano do time aprova antes de qualquer link existir, então NUNCA diga que o link já foi gerado ou enviado, siga literalmente o texto que a tool devolver (ela mesma te diz como o link chega até a pessoa). Se não houver catálogo no seu contexto, ignore esta tool por completo.';
+
+const CHECKOUT_DOCTRINE_EN =
+  'CHARGING: you also have the `request_checkout` tool, always silent when called: say something natural like "let me formalize that with the team" while it runs, never narrate the tool call itself. Use it only with one exact item from the tenant\'s active catalog, never with a price, product or discount you invent, and only after hearing a clear "yes" from the person to pay. It NEVER charges on its own: a human on the team approves before any link exists, so NEVER say the link has already been generated or sent, follow literally the text the tool returns (it tells you how the link will reach the person). If there is no catalog in your context, ignore this tool entirely.';
+
 export function buildCloserVideoSystemPrompt(profile: BrainAgentProfile): string {
   const language = profile.language ?? "portuguese";
   // `domainCore` so e preenchido por uma vertical regulada (hoje, Life
@@ -197,6 +211,7 @@ export function buildCloserVideoSystemPrompt(profile: BrainAgentProfile): string
       "",
       "SCHEDULING AND CONTACT: you have 3 business tools (`register_lead`, `propose_meeting_slots`, `confirm_meeting_slot`), always silent when called: say something natural like \"let me check the calendar for you\" while they run, never narrate the tool call itself. Use `register_lead` as soon as you have the prospect's name and (email OR phone), even if the call hasn't closed yet. Use `propose_meeting_slots` only after asking for and hearing a \"yes\" to the next step (Phase 5/6, never before Phase 3's value validation), when speaking the times it returns, convert them to natural speech in the order given (\"I have Tuesday at 2pm or Thursday at 10am, which works?\"), never offer a time outside what it returned, and keep track of each one's position. Once they choose, call `confirm_meeting_slot` with that position, and NEVER declare the meeting confirmed on your own: follow literally the text the tool returns (it tells you whether to offer new times or hand off to the human team).",
       "",
+      ...(regulated ? [] : [CHECKOUT_DOCTRINE_EN, ""]),
       "HANDOFF: explicit request for a human, emotional distress, legal/corporate topics, discount/exception requests, or the third failure on the same doubt → offer the transfer immediately: \"I'll connect you with our team; they'll already have our full context, you won't repeat anything.\"",
       "",
       "HOSTILITY OR ABUSE: if the person becomes hostile, offensive, or harassing, do not argue back and do not match their tone. Stay calm, set ONE clear boundary in a single short sentence (\"I want to help, but I need us to keep this respectful\"), and immediately offer the same handoff as above. If the hostility continues after that, stop engaging with the content of what was said. Keep replies brief and neutral and continue offering the handoff. You have no ability to end the call yourself; the handoff to a human is the only real off-ramp you can offer.",
@@ -226,6 +241,7 @@ export function buildCloserVideoSystemPrompt(profile: BrainAgentProfile): string
     "",
     "AGENDAMENTO E CONTATO: você tem 3 tools de negócio (`register_lead`, `propose_meeting_slots`, `confirm_meeting_slot`), sempre silenciosas ao chamar: diga algo natural tipo \"deixa eu já checar sua agenda aqui\" enquanto rodam, nunca narre a chamada da tool em si. Use `register_lead` assim que tiver nome e (e-mail OU telefone) do prospect, mesmo que a call ainda não tenha fechado. Use `propose_meeting_slots` só depois de pedir e ouvir um \"sim\" pro próximo passo (Fase 5/6, nunca antes da validação de valor da Fase 3), ao falar os horários que a tool devolver, converta pra fala natural na ordem em que vieram (\"tenho terça às 14h ou quinta às 10h, qual prefere?\"), nunca ofereça um horário fora dos que ela trouxe, e guarde a posição de cada um. Assim que a pessoa escolher, use `confirm_meeting_slot` com essa posição, e NUNCA declare a reunião confirmada por conta própria: siga literalmente o texto que a tool devolver (ela mesma te diz se deve oferecer novos horários ou transferir pro time humano).",
     "",
+    ...(regulated ? [] : [CHECKOUT_DOCTRINE_PT, ""]),
     "HANDOFF: pedido explícito de humano, carga emocional, tema jurídico/societário, pedido de desconto/exceção, ou terceira falha na mesma dúvida → ofereça a transferência na hora: \"vou te conectar com nosso time; eles já estarão com todo o nosso contexto, você não vai repetir nada.\"",
     "",
     "HOSTILIDADE OU ABUSO: se a pessoa ficar hostil, ofensiva ou assediadora, não revide nem entre no mesmo tom. Mantenha a calma, marque UM limite claro numa frase curta (\"quero te ajudar, mas preciso que a gente mantenha o respeito\") e ofereça na hora o mesmo handoff acima. Se a hostilidade continuar depois disso, pare de engajar com o conteúdo do que foi dito. Respostas curtas e neutras, sempre reoferecendo a transferência. Você não tem como encerrar a chamada sozinha; o handoff pro time humano é a única saída real que você pode oferecer.",

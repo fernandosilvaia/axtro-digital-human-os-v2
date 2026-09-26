@@ -55,12 +55,19 @@ function regulatedPrompt(language, mode) {
  * falava de negrito/lista/cabeçalho. Adicionado "itálico" explicitamente
  * nas duas superfícies (chat e vídeo, pt e en).
  *
- * Valores anteriores: pt b8314a82f6d17eae/ed1b1f22b2fb57a5/25e6f7ef2a2ca00e,
- * en d7b73e1d6135d930/feaca0580b1c35da/c7bb9dbac7c79599.
+ * Valores anteriores: pt b8314a82f6d17eae/ed1b1f22b2fb57a5/25e6f7ef2a2ca00e/bb14aa41574a2343,
+ * en d7b73e1d6135d930/feaca0580b1c35da/c7bb9dbac7c79599/08ba6e46ebfcbb5c.
+ *
+ * Quarta atualização 2026-09-18: doutrina de `request_checkout` (ADR-040,
+ * quarta tool de negócio) somada ao caminho genérico, logo depois de
+ * "AGENDAMENTO E CONTATO"/"SCHEDULING AND CONTACT". Omitida em vertical
+ * regulada (metodo-silva.ts decide isso pelo mesmo `regulated` que já
+ * remove FASE 4/5): o núcleo de compliance da vertical já proíbe cotar,
+ * aprovar ou emitir, então não sobra catálogo para a doutrina reger lá.
  */
 const GENERIC_VIDEO_PROMPT_SHA256 = {
-  portuguese: "bb14aa41574a2343",
-  english: "08ba6e46ebfcbb5c",
+  portuguese: "280803a85fd86042",
+  english: "edbde8d20519a09f",
 };
 
 test("a doutrina genérica de vídeo permanece byte a byte idêntica", () => {
