@@ -248,6 +248,13 @@ otp_expiry = 3600
 # subject = "You have been invited"
 # content_path = "./supabase/templates/invite.html"
 
+# O produto e 100% pt-BR (confirmado em auditoria de uso real, 2026-09-27):
+# sem isto, o único e-mail transacional do Supabase Auth (recuperação de
+# senha) ficava em inglês, o único ponto do fluxo autenticado nesse idioma.
+[auth.email.template.recovery]
+subject = "Redefinir sua senha"
+content_path = "./supabase/templates/recovery.html"
+
 # Uncomment to customize notification email template
 # [auth.email.notification.password_changed]
 # enabled = true
