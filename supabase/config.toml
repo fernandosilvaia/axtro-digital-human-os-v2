@@ -156,11 +156,19 @@ max_indexes = 5
 enabled = true
 # The base URL of your website. Used as an allow-list for redirects and for constructing URLs used
 # in emails.
-site_url = "http://127.0.0.1:3000"
+# 3101 (não o default 3000): mesma porta fixa de playwright.local.config.ts
+# e do launch.json "portal-local-supabase" -- link de recuperação de senha
+# levava pra localhost:3000, porta de outro projeto local nesta máquina,
+# quando o dev server real subia em porta diferente (achado 2026-09-27).
+site_url = "http://127.0.0.1:3101"
 # The public URL that Auth serves on. Defaults to the API external URL with `/auth/v1` appended.
 # external_url = ""
-# A list of *exact* URLs that auth providers are permitted to redirect to post authentication.
-additional_redirect_urls = ["https://127.0.0.1:3000"]
+# requestPasswordReset() pede redirectTo=".../auth/callback?next=/nova-senha"
+# (apps/portal/src/lib/actions/auth.ts): sem um padrão que cubra esse path,
+# o GoTrue recusa o redirect_to exato e volta pro site_url puro (raiz "/"),
+# nunca chegando em /auth/callback pra trocar o code por sessão (achado
+# 2026-09-27, mesma classe do bug de porta fixa logo acima).
+additional_redirect_urls = ["https://127.0.0.1:3101", "http://localhost:3101", "http://127.0.0.1:3101/**", "http://localhost:3101/**"]
 # How long tokens are valid for, in seconds. Defaults to 3600 (1 hour), maximum 604,800 (1 week).
 jwt_expiry = 3600
 # JWT issuer URL. If not set, defaults to auth.external_url.
