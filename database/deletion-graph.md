@@ -1,7 +1,7 @@
 # Deletion and Retention Graph
 
 This document is the human-readable view of the machine catalog decided by
-ADR-046. The initial baseline contains 85 tenant-scoped tables, plus the
+ADR-046. The baseline contains 91 tenant-scoped tables, plus the
 `tenants` root and external surfaces. Completion requires a two-way anti-join:
 every public table with `tenant_id` appears in the catalog, and every cataloged
 PostgreSQL table exists with the declared scope. Drift fails closed.
@@ -43,12 +43,12 @@ closed resource metadata, never a customer locator or content.
 `events_outbox`, `cost_events`, `usage_ledger`, `evaluation_runs`,
 `experiment_candidates`, `deployment_promotions`.
 
-## Supabase-only tenant graph: 47 tables
+## Supabase-only tenant graph: 53 tables
 
-### Auth and Portal configuration: 4
+### Auth and Portal configuration: 5
 
 `user_tenant_memberships`, `tenant_invites`, `agent_video_config`,
-`agent_brain_config`.
+`agent_brain_config`, `google_calendar_oauth_states`.
 
 ### Transcript content: 1
 
@@ -83,7 +83,7 @@ closed resource metadata, never a customer locator or content.
 `portal_text_preview_turn_claims`, `portal_text_preview_egress_authorizations`,
 `portal_text_preview_transcript_writes`.
 
-### Business actions: 11
+### Business actions: 16
 
 `portal_business_action_kill_switches`,
 `portal_business_action_kill_switch_events`,
@@ -92,7 +92,12 @@ closed resource metadata, never a customer locator or content.
 `portal_business_action_proposals`, `portal_business_action_proposal_slots`,
 `portal_business_action_calendar_connections`,
 `portal_business_action_calendar_reservations`,
-`portal_business_action_meeting_reconcile_approvals`.
+`portal_business_action_meeting_reconcile_approvals`,
+`portal_business_action_checkout_connections`,
+`portal_business_action_checkout_products`,
+`portal_business_action_checkout_reservations`,
+`portal_business_action_checkout_reconcile_approvals`,
+`portal_business_action_checkout_stripe_event_receipts`.
 
 ### Meeting notifications: 3
 
@@ -102,7 +107,7 @@ closed resource metadata, never a customer locator or content.
 
 ## Governance control graph introduced by v59: 11 tables
 
-The 85-table count above is the complete pre-v59 tenant graph. The disposition
+The 91-table count above is the complete pre-v59 tenant graph. The disposition
 profile adds and self-registers these tenant-scoped control tables under the
 `v59_control` catalog generation:
 
@@ -229,3 +234,17 @@ at inventory and every irreversible fence; a concurrent matching hold wins.
 are not valid production disposition authorities. They must be revoked or
 wrapped by an authorized request, inventory, legal-hold check, exact work item
 and receipt. Age or possession of `service_role` alone is never sufficient.
+
+## Implementation notes (added 2026-09-27)
+
+- `database/supabase-only/0070_data_governance_catalog_onboarding_repair.sql`
+  cataloged 6 tenant-scoped tables created after v59
+  (`google_calendar_oauth_states` from migration 0065, and 5
+  `portal_business_action_checkout_*` tables from migration 0069) that had
+  never been added here or to the machine catalog. Until that migration, the
+  two-way anti-join always failed and the tenant-wide disposition request
+  (Configurações → "Exclusão de dados do tenant") could never leave
+  `not_ready`, in every environment including the hosted project. The
+  baseline above (91 tables, 53 Supabase-only) reflects the repaired count;
+  `deletion_order` for every `pre_v59` row was rederived from the real
+  foreign-key graph at the same time, not just the 6 new rows.
