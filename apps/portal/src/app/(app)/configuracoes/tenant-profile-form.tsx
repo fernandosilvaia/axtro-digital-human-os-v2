@@ -1,6 +1,7 @@
 "use client";
 
-import { useActionState } from "react";
+import { useRouter } from "next/navigation";
+import { useActionState, useEffect } from "react";
 
 import { updateTenantProfile, type TenantProfileActionState } from "@/lib/actions/tenant";
 
@@ -30,6 +31,16 @@ export interface TenantProfileFormProps {
 
 export function TenantProfileForm({ legalName, defaultLanguage, defaultTimezone }: TenantProfileFormProps) {
   const [state, formAction, pending] = useActionState(updateTenantProfile, initialState);
+  const router = useRouter();
+
+  // Next 16 em build de produção descarta a revalidação da server action de
+  // forma intermitente (D-V2-103, mesmo padrão de AgentStatusToggle e
+  // CreateSourceForm): router.refresh() explícito torna a atualização
+  // determinística. Não interfere com o key estável (tenant.id) do form no
+  // page.tsx: router.refresh() re-renderiza sem remontar.
+  useEffect(() => {
+    if (state.saved && !state.error) router.refresh();
+  }, [state.saved, state.error, router]);
 
   return (
     <form action={formAction}>

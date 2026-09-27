@@ -1,6 +1,7 @@
 "use client";
 
-import { useActionState } from "react";
+import { useRouter } from "next/navigation";
+import { useActionState, useEffect } from "react";
 
 import { inviteMember, type TeamActionState } from "@/lib/actions/team";
 
@@ -8,6 +9,15 @@ const initialState: TeamActionState = { error: null, done: false };
 
 export function InviteForm() {
   const [state, formAction, pending] = useActionState(inviteMember, initialState);
+  const router = useRouter();
+
+  // Next 16 em build de produção descarta a revalidação da server action de
+  // forma intermitente (D-V2-103, mesmo padrão de AgentStatusToggle e
+  // InviteRevokeButton): router.refresh() explícito torna a lista de
+  // membros abaixo atualizar de forma determinística.
+  useEffect(() => {
+    if (state.done && !state.error) router.refresh();
+  }, [state.done, state.error, router]);
 
   return (
     <form action={formAction}>
