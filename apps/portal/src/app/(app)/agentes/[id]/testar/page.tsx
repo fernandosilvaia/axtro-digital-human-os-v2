@@ -5,6 +5,7 @@ import { fetchAgentBrainStatus } from "@/lib/actions/agent-brain";
 import { fetchAgentVideoConfigStatus } from "@/lib/actions/agent-video-config";
 import { fetchAgents, fetchTenantOverview } from "@/lib/portal-data";
 import { portalPublicOrigin } from "@/lib/public-origin";
+import { SITE_NAME } from "@/lib/site";
 import { StatusBadge } from "@/components/status-badge";
 
 import { ClosingProposal } from "./closing-proposal";
@@ -16,7 +17,7 @@ import { PreviewChat } from "./preview-chat";
 import { VideoCall } from "./video-call";
 import { VideoConfig } from "./video-config";
 
-export const metadata: Metadata = { title: "Testar agente, Axtro Digital Human OS" };
+export const metadata: Metadata = { title: `Testar agente, ${SITE_NAME}` };
 
 export default async function AgentPreviewPage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;

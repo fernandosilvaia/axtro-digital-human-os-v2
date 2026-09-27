@@ -12,6 +12,8 @@
  */
 import { useEffect } from "react";
 
+import { AuthBrand } from "./auth-brand";
+
 export default function PublicError({ error, reset }: { readonly error: Error & { digest?: string }; readonly reset: () => void }) {
   useEffect(() => {
     console.error("public_error_boundary", { digest: error.digest, message: error.message });
@@ -20,10 +22,7 @@ export default function PublicError({ error, reset }: { readonly error: Error & 
   return (
     <div className="auth-shell">
       <div className="auth-card" style={{ textAlign: "center" }}>
-        <div className="auth-brand" style={{ justifyContent: "center" }}>
-          <span className="brand-mark" aria-hidden="true">A</span>
-          <span className="brand-word">Digital Human OS</span>
-        </div>
+        <AuthBrand centered />
         <h1 style={{ fontSize: "1.3rem" }}>Algo falhou ao carregar esta página</h1>
         <p className="subtitle" style={{ margin: "8px 0 18px" }}>
           Pode ser uma instabilidade passageira de conexão. Nada foi perdido, tente de novo.

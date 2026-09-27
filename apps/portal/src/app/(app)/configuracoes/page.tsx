@@ -3,13 +3,14 @@ import type { Metadata } from "next";
 import { getActiveTenantDataGovernanceDisposition, type ActiveDataGovernanceDispositionResult } from "@/lib/actions/data-governance-disposition";
 import { fetchGoogleCalendarConnection, type GoogleCalendarConnectionContext } from "@/lib/google-calendar/connection";
 import { fetchBillingStatus, fetchTeam, fetchTenantOverview } from "@/lib/portal-data";
+import { SITE_NAME } from "@/lib/site";
 import { BillingSection } from "./billing-section";
 import { CalendarSection } from "./calendar-section";
 import { DataGovernanceSection } from "./data-governance-section";
 import { TeamSection } from "./team-section";
 import { TenantProfileForm } from "./tenant-profile-form";
 
-export const metadata: Metadata = { title: "Configurações, Axtro Digital Human OS" };
+export const metadata: Metadata = { title: `Configurações, ${SITE_NAME}` };
 
 export default async function SettingsPage({
   searchParams,

@@ -8,9 +8,10 @@ import {
   fetchUsageSummary,
   type UsageSummary,
 } from "@/lib/portal-data";
+import { SITE_NAME } from "@/lib/site";
 import { StatusBadge } from "@/components/status-badge";
 
-export const metadata: Metadata = { title: "Visão geral, Axtro Closer AI Human" };
+export const metadata: Metadata = { title: `Visão geral, ${SITE_NAME}` };
 
 const METRICS = [
   { key: "agents", label: "Agentes configurados", hint: "Presenças digitais sob controle da equipe" },

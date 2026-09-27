@@ -3,8 +3,9 @@ import Link from "next/link";
 
 import { formatDateTime } from "@/lib/format-date";
 import { fetchConversationTranscripts, fetchTenantOverview } from "@/lib/portal-data";
+import { SITE_NAME } from "@/lib/site";
 
-export const metadata: Metadata = { title: "Conversas, Axtro Digital Human OS" };
+export const metadata: Metadata = { title: `Conversas, ${SITE_NAME}` };
 
 const SURFACE_LABELS: Record<string, string> = {
   chat: "Chat de teste",

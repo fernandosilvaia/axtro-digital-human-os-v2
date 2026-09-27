@@ -4,6 +4,7 @@ import { usePathname } from "next/navigation";
 import { useCallback, useEffect, useRef, useState } from "react";
 
 import { signOut } from "@/lib/actions/auth";
+import { SITE_NAME } from "@/lib/site";
 
 const NAV_ITEMS = [
   { href: "/dashboard", label: "Visão geral", icon: IconHome },
@@ -115,7 +116,7 @@ export function AppShell({ email, roleLabel, children }: AppShellProps) {
       >
         <div className="sidebar-brand">
           <span className="brand-mark" aria-hidden="true">A</span>
-          <span className="brand-word">Axtro Closer AI Human</span>
+          <span className="brand-word">{SITE_NAME}</span>
         </div>
         <nav ref={navigationRef} id="navegacao-principal" className="nav">
           <span className="nav-section-label">Operação</span>
@@ -166,7 +167,7 @@ export function AppShell({ email, roleLabel, children }: AppShellProps) {
             <IconMenu />
           </button>
           <div style={{ flex: 1 }} />
-          <span className="badge badge-accent">Axtro Closer AI Human</span>
+          <span className="badge badge-accent">{SITE_NAME}</span>
         </header>
         <main id="conteudo" className="page">{children}</main>
       </div>

@@ -1,12 +1,13 @@
 import type { Metadata } from "next";
 
 import { fetchKnowledgeSources, fetchTenantOverview } from "@/lib/portal-data";
+import { SITE_NAME } from "@/lib/site";
 import { StatusBadge } from "@/components/status-badge";
 
 import { CreateSourceForm } from "./create-source-form";
 import { SourceActions } from "./source-actions";
 
-export const metadata: Metadata = { title: "Conhecimento, Axtro Digital Human OS" };
+export const metadata: Metadata = { title: `Conhecimento, ${SITE_NAME}` };
 
 const SOURCE_TYPE_LABELS: Record<string, string> = {
   document: "Documento",

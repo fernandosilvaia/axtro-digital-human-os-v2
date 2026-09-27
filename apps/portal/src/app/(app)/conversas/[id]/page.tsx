@@ -3,10 +3,11 @@ import Link from "next/link";
 
 import { formatDateTime } from "@/lib/format-date";
 import { fetchConversationTranscript, fetchTenantOverview } from "@/lib/portal-data";
+import { SITE_NAME } from "@/lib/site";
 
 import { TranscriptDeleteButton } from "./transcript-delete-button";
 
-export const metadata: Metadata = { title: "Conversa, Axtro Digital Human OS" };
+export const metadata: Metadata = { title: `Conversa, ${SITE_NAME}` };
 
 const SURFACE_LABELS: Record<string, string> = {
   chat: "Chat de teste",

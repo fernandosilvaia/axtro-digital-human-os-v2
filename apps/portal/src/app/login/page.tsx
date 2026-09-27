@@ -1,11 +1,12 @@
 import type { Metadata } from "next";
 
 import { LoginForm } from "./login-form";
-import { createPageMetadata } from "@/lib/site";
+import { AuthBrand } from "../auth-brand";
+import { createPageMetadata, SITE_NAME } from "@/lib/site";
 
 export const metadata: Metadata = createPageMetadata({
-  title: "Entrar | Axtro Digital Human OS",
-  description: "Entre no workspace do Axtro Digital Human OS.",
+  title: `Entrar | ${SITE_NAME}`,
+  description: `Entre no workspace do ${SITE_NAME}.`,
   path: "/login",
   noIndex: true,
 });
@@ -20,10 +21,7 @@ export default async function LoginPage({
   return (
     <div className="auth-shell">
       <div className="auth-card">
-        <div className="auth-brand">
-          <span className="brand-mark" aria-hidden="true">A</span>
-          <span className="brand-word">Digital Human OS</span>
-        </div>
+        <AuthBrand />
         <h1>Entrar</h1>
         <p className="subtitle">Acesse o painel da sua conta.</p>
         {confirm === "1" && (

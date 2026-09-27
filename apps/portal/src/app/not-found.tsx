@@ -1,3 +1,5 @@
+import { AuthBrand } from "./auth-brand";
+
 /**
  * 404 em pt-BR: sem ele, agente inexistente ou link quebrado caía na tela
  * padrão do Next em inglês ("This page could not be found"), destoando de
@@ -7,10 +9,7 @@ export default function NotFound() {
   return (
     <div className="auth-shell">
       <div className="auth-card" style={{ textAlign: "center" }}>
-        <div className="auth-brand" style={{ justifyContent: "center" }}>
-          <span className="brand-mark" aria-hidden="true">A</span>
-          <span className="brand-word">Digital Human OS</span>
-        </div>
+        <AuthBrand centered />
         <h1 style={{ fontSize: "1.3rem" }}>Página não encontrada</h1>
         <p className="subtitle" style={{ margin: "8px 0 18px" }}>
           O endereço pode ter mudado ou o recurso não existe mais nesta conta.

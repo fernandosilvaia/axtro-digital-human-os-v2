@@ -1,13 +1,14 @@
 import type { Metadata } from "next";
 
 import { fetchAgents, fetchTenantOverview } from "@/lib/portal-data";
+import { SITE_NAME } from "@/lib/site";
 import { StatusBadge } from "@/components/status-badge";
 
 import { AgentStatusToggle } from "./agent-status-toggle";
 import { AgentDeleteButton } from "./agent-delete-button";
 import { CreateAgentForm } from "./create-agent-form";
 
-export const metadata: Metadata = { title: "Agentes, Axtro Digital Human OS" };
+export const metadata: Metadata = { title: `Agentes, ${SITE_NAME}` };
 
 const ROLE_TYPE_LABELS: Record<string, string> = {
   sales: "Sales Closer",
