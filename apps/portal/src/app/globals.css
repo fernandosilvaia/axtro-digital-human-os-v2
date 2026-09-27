@@ -12,6 +12,14 @@
   --accent: #6d8bff;
   --accent-strong: #5b78f0;
   --accent-soft: rgba(109, 139, 255, 0.14);
+  /* auditoria de acessibilidade 2026-09-27 (axe-core, achado real em /login, /signup,
+     /recuperar-senha): texto branco sobre --accent solido (#6d8bff) da so ~3.1:1,
+     abaixo do minimo AA 4.5:1 pra texto normal; --accent-strong tambem fica em ~3.9:1,
+     ainda insuficiente. --accent-on-fill e especificamente pro par "texto branco sobre
+     preenchimento solido" (.btn-primary fora de .landing, que tem seu proprio
+     gradiente ja conforme): #4a5cc9 sobre branco mede ~5.7:1. */
+  --accent-on-fill: #4a5cc9;
+  --accent-on-fill-strong: #5568d4; /* hover: texto branco em cima mede ~4.9:1, ainda conforme */
   --success: #4ade80;
   --success-soft: rgba(74, 222, 128, 0.13);
   --warning: #fbbf24;
@@ -81,7 +89,7 @@ h3 {
   position: absolute;
   left: -9999px;
   top: 8px;
-  background: var(--accent);
+  background: var(--accent-on-fill);
   color: #fff;
   padding: 8px 14px;
   border-radius: var(--radius-sm);
@@ -181,7 +189,7 @@ h3 {
 
 .submit-button {
   width: 100%;
-  background: var(--accent);
+  background: var(--accent-on-fill);
   color: #fff;
   border: none;
   border-radius: var(--radius-sm);
@@ -193,7 +201,7 @@ h3 {
   transition: background 0.15s, transform 0.1s;
 }
 .submit-button:hover:not(:disabled) {
-  background: var(--accent-strong);
+  background: var(--accent-on-fill-strong);
 }
 .submit-button:active:not(:disabled) {
   transform: translateY(1px);
@@ -621,11 +629,11 @@ table.data tbody tr:hover {
   transform: translateY(1px);
 }
 .btn-primary {
-  background: var(--accent);
+  background: var(--accent-on-fill);
   color: #fff;
 }
 .btn-primary:hover {
-  background: var(--accent-strong);
+  background: var(--accent-on-fill-strong);
 }
 .btn-ghost {
   background: transparent;

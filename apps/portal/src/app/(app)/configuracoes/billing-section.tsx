@@ -130,7 +130,7 @@ function CurrentPlanCard({ billing, planId, isAdmin }: { billing: BillingStatus;
           <span className="mono">{used} / {included}{overUsed ? ` (+${used - included} overage)` : ""}</span>
         </div>
         <div style={{ height: 6, borderRadius: 100, background: "var(--border)", overflow: "hidden" }}>
-          <div style={{ width: `${pct}%`, height: "100%", background: overUsed ? "var(--accent)" : "var(--accent)", borderRadius: 100 }} />
+          <div style={{ width: `${pct}%`, height: "100%", background: overUsed ? "var(--danger)" : "var(--accent)", borderRadius: 100 }} />
         </div>
         {overUsed && (
           <p style={{ fontSize: "0.78rem", color: "var(--text-muted)", marginTop: 6 }}>

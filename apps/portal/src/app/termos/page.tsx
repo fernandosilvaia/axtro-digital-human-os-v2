@@ -27,7 +27,7 @@ export default function TermsPage() {
         comercial.</p>
         <p><strong>Encerramento.</strong> Você pode encerrar sua conta a qualquer momento
         solicitando pelo e-mail fernando@axtroai.com; dados são tratados conforme o
-        {" "}<a href="/privacidade" style={{ color: "var(--accent)" }}>Aviso de Privacidade</a>.</p>
+        {" "}<a href="/privacidade" style={{ color: "var(--accent)", textDecoration: "underline" }}>Aviso de Privacidade</a>.</p>
       </section>
       <p style={{ marginTop: 32, fontSize: "0.85rem" }}>
         <a href="/" style={{ color: "var(--accent)" }}>← Voltar ao início</a>

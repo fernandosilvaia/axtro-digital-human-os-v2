@@ -1,6 +1,8 @@
+import AxeBuilder from "@axe-core/playwright";
 import { expect, test, type Page } from "@playwright/test";
 
 const CANONICAL_ORIGIN = "https://closer.axtroai.com";
+const ACCESSIBILITY_SCANNED_PATHS = ["/", "/precos", "/login", "/signup", "/recuperar-senha", "/termos", "/privacidade"] as const;
 const PUBLIC_DOCUMENTS = ["/robots.txt", "/sitemap.xml", "/llms.txt", "/llms-full.txt", "/termos", "/privacidade"] as const;
 const CRAWL_EXCLUDED_PATHS = ["/dashboard", "/agentes", "/conversas", "/conhecimento", "/configuracoes", "/auth/", "/api/", "/rosto-agente"] as const;
 const NO_INDEX_AUTH_PATHS = ["/login", "/signup", "/recuperar-senha", "/nova-senha"] as const;
@@ -150,6 +152,50 @@ test("documentos e endpoints de descoberta são públicos, consistentes e sem su
   }
 });
 
+/**
+ * Auditoria de acessibilidade real (achado de sessão, D-V2-184: "audite como
+ * um usuário real" incluía usuários com leitor de tela ou navegação por
+ * teclado, não só quem enxerga um screenshot). axe-core (open source, Deque
+ * Systems, o motor por trás do Lighthouse/DevTools do Chrome) contra as
+ * regras WCAG 2.1 A/AA em cada superfície pública que não exige sessão --
+ * exatamente as páginas que um visitante anônimo, incluindo alguém usando
+ * tecnologia assistiva, encontra antes de decidir confiar na empresa. Zero
+ * violação é o padrão: uma nova falhando aqui é sempre um achado real.
+ *
+ * `waitUntil: "networkidle"` é deliberado, não `"domcontentloaded"`: um
+ * scan disparado ANTES da hidratação do React terminar pegou um falso
+ * positivo real nesta própria sessão -- `.submit-button` (login/signup/
+ * recuperar-senha) foi flagrado com contraste insuficiente porque o axe
+ * mediu a cor renderizada num frame intermediário da hidratação (uma
+ * mistura transitória de opacidade, nunca visível de fato pra um usuário
+ * real), não a cor final e estável do botão habilitado. `networkidle`
+ * garante que o JS carregou e a hidratação já assentou antes do axe medir.
+ *
+ * A rolagem até o fim antes de escanear é o mesmo tipo de correção, achado
+ * na mesma rodada: a landing usa `.reveal` (globals.css, "o baseline sem
+ * JavaScript precisa continuar legível"), opacity:0 de propósito até o
+ * IntersectionObserver confirmar que o card entrou na tela -- sem rolar, o
+ * axe mede cards abaixo da dobra ainda em opacity:0 (nunca visíveis de fato
+ * pra um usuário que não rolou até lá) e aponta "contraste insuficiente"
+ * num texto que literalmente não está sendo mostrado ainda.
+ */
+for (const path of ACCESSIBILITY_SCANNED_PATHS) {
+  test(`${path} não tem violação de acessibilidade WCAG 2.1 A/AA detectável automaticamente`, async ({ page }) => {
+    await page.goto(path, { waitUntil: "networkidle" });
+    await page.evaluate(() => window.scrollTo(0, document.body.scrollHeight));
+    await page.waitForTimeout(900); // maior que a transition-delay/duration de .reveal (800ms)
+    await page.evaluate(() => window.scrollTo(0, 0));
+    const results = await new AxeBuilder({ page }).withTags(["wcag2a", "wcag2aa", "wcag21a", "wcag21aa"]).analyze();
+    const summary = results.violations.map((violation) => ({
+      id: violation.id,
+      impact: violation.impact,
+      help: violation.help,
+      nodes: violation.nodes.map((node) => node.target.join(" ")),
+    }));
+    expect(summary, `${path} tem violações de acessibilidade: ${JSON.stringify(summary, null, 2)}`).toEqual([]);
+  });
+}
+
 test("demo pública isola contextos, não autentica e não alcança efeitos externos", async ({ browser }) => {
   const contextA = await browser.newContext();
   const contextB = await browser.newContext();
@@ -238,3 +284,4 @@ test("bypass da demo é exato e prefixos parecidos continuam protegidos", async 
     expect(response.headers().location).toMatch(/\/login/);
   }
 });
+
