@@ -28,6 +28,9 @@ export interface BrainStatusResult {
 }
 
 function mapRpcError(message: string): string {
+  if (message.includes("authentication required")) {
+    return "Sua sessão expirou. Recarregue a página e entre de novo.";
+  }
   if (message.includes("only a tenant_admin")) {
     return "Somente administradores podem gerenciar o cérebro customizado deste agente.";
   }

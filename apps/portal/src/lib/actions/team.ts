@@ -16,6 +16,7 @@ export interface TeamActionState {
 }
 
 const INVITE_ERROR_MESSAGES: Readonly<Record<string, string>> = {
+  "authentication required": "Sua sessão expirou. Recarregue a página e entre de novo.",
   "there is already a pending invite for this email": "Já existe um convite pendente para esse e-mail.",
   "this email already belongs to an account with a workspace": "Esse e-mail já pertence a uma conta com espaço próprio.",
   "you cannot invite yourself": "Você não pode convidar a si mesmo.",
@@ -60,6 +61,7 @@ export async function inviteMember(_prevState: TeamActionState, formData: FormDa
 }
 
 const REVOKE_INVITE_ERROR_MESSAGES: Readonly<Record<string, string>> = {
+  "authentication required": "Sua sessão expirou. Recarregue a página e entre de novo.",
   "only a tenant_admin can revoke invites": "Somente administradores podem revogar convites.",
   "invite not found or not pending": "Esse convite já foi aceito ou revogado em outro lugar.",
 };
@@ -89,6 +91,7 @@ export async function revokeInvite(inviteId: string): Promise<RevokeInviteState>
 }
 
 const REMOVE_MEMBER_ERROR_MESSAGES: Readonly<Record<string, string>> = {
+  "authentication required": "Sua sessão expirou. Recarregue a página e entre de novo.",
   "only a tenant_admin can remove members": "Somente administradores podem remover membros.",
   "use sign out to remove yourself": "Você não pode remover a si mesmo. Use \"Sair da conta\".",
   "member not found in this account": "Esse membro não está mais nesta conta.",

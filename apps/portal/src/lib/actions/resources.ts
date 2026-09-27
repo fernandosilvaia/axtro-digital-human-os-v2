@@ -334,6 +334,9 @@ export async function deleteDraftAgent(agentId: string): Promise<ResourceActionS
   const supabase = await createClient();
   const { error } = await supabase.rpc("portal_delete_draft_agent", { p_agent_id: agentId });
   if (error) {
+    if (error.message === "authentication required") {
+      return { error: "Sua sessão expirou. Recarregue a página e entre de novo.", done: false };
+    }
     if (error.message === "only draft agents can be deleted") {
       return { error: "Só agentes em rascunho podem ser excluídos. Pause o agente primeiro.", done: false };
     }
@@ -355,6 +358,9 @@ export async function deleteKnowledgeSource(sourceId: string): Promise<ResourceA
   const supabase = await createClient();
   const { error } = await supabase.rpc("portal_delete_knowledge_source", { p_source_id: sourceId });
   if (error) {
+    if (error.message === "authentication required") {
+      return { error: "Sua sessão expirou. Recarregue a página e entre de novo.", done: false };
+    }
     if (error.message === "revoke the source before deleting it") {
       return { error: "Revogue a fonte antes de excluí-la.", done: false };
     }

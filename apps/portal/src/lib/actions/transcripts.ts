@@ -7,6 +7,7 @@ export interface DeleteTranscriptState {
 }
 
 const DELETE_TRANSCRIPT_ERROR_MESSAGES: Readonly<Record<string, string>> = {
+  "authentication required": "Sua sessão expirou. Recarregue a página e entre de novo.",
   "only a tenant_admin can delete conversation transcripts": "Somente administradores podem excluir conversas.",
   "transcript not found for this account": "Conversa não encontrada.",
   "direct deletion disabled; submit a governed data disposition request":
