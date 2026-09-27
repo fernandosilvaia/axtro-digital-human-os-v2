@@ -9,6 +9,7 @@ import {
   type MeetingTerminalNotificationProviderResult,
 } from "../meeting-terminal-notification-provider.ts";
 import { constantTimeEquals } from "../security.ts";
+import { SITE_NAME } from "../site.ts";
 import { createServiceRoleClient } from "../supabase/service.ts";
 import { logEvent } from "../telemetry.ts";
 
@@ -176,7 +177,7 @@ export function renderMeetingTerminalNotificationV1(command: MeetingTerminalNoti
     `<div style="font-family:system-ui,-apple-system,sans-serif;max-width:520px;margin:0 auto;padding:24px">`,
     `<h2 style="font-size:18px;margin:0 0 12px">Reunião externa: ${workspace}</h2>`,
     `<p style="color:#444;line-height:1.5;margin:0 0 12px"><strong>${agent}</strong> ${statusLabel} a reunião externa agendada.</p>`,
-    `<p style="color:#444;line-height:1.5;margin:0">Abra o Axtro Digital Human OS para consultar o registro operacional da sessão.</p>`,
+    `<p style="color:#444;line-height:1.5;margin:0">Abra o ${escapeHtml(SITE_NAME)} para consultar o registro operacional da sessão.</p>`,
     `</div>`,
   ].join("");
   if (codePointLength(subject) > 200 || codePointLength(html) > 20_000) {

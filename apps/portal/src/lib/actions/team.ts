@@ -4,6 +4,7 @@ import { revalidatePath } from "next/cache";
 
 import { sendInviteEmail } from "@/lib/email";
 import { fetchTenantOverview } from "@/lib/portal-data";
+import { SITE_NAME } from "@/lib/site";
 import { createClient } from "@/lib/supabase/server";
 import { logError as trackError } from "@/lib/telemetry";
 
@@ -46,7 +47,7 @@ export async function inviteMember(_prevState: TeamActionState, formData: FormDa
     const overview = await fetchTenantOverview();
     const result = await sendInviteEmail({
       to: email,
-      workspaceName: overview.tenant?.legal_name ?? "Axtro Digital Human OS",
+      workspaceName: overview.tenant?.legal_name ?? SITE_NAME,
       role,
     });
     emailSent = result.sent;

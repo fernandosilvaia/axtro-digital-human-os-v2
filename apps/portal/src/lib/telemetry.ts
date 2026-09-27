@@ -8,6 +8,8 @@
 // Redação: nenhum valor de `context` que pareça e-mail, token ou chave é
 // logado em texto puro.
 
+import { SITE_NAME } from "./site.ts";
+
 const REDACT_KEY_PATTERN = /email|token|password|secret|key|authorization/i;
 const EMAIL_PATTERN = /[^\s@]+@[^\s@]+\.[^\s@]+/g;
 // Formatos de credencial que aparecem em mensagens de erro de provider:
@@ -202,7 +204,7 @@ async function sendOperationalErrorAlert(event: string, count: number): Promise<
       signal: controller.signal,
       headers: { Authorization: `Bearer ${apiKey}`, "Content-Type": "application/json" },
       body: JSON.stringify({
-        from: "Axtro Digital Human OS <no-reply@axtroai.com>",
+        from: `${SITE_NAME} <no-reply@axtroai.com>`,
         to: [operationalAlertRecipient()],
         subject: `Alerta operacional: ${count} falhas de "${event}" em 5min`,
         html: `<p>O evento <strong>${escapeHtmlForAlert(event)}</strong> falhou ${count} vezes nos últimos 5 minutos. Pode indicar um provider fora do ar (Tavus/OpenRouter/Stripe/Recall) ou um bug ativo em produção.</p><p>Verifique os logs estruturados do Railway pra esse evento.</p>`,

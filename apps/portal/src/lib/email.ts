@@ -4,10 +4,11 @@
 // Sem RESEND_API_KEY (ou em PORTAL_FAKE_PROVIDERS=1) o envio vira mock
 // logado: o fluxo do produto nunca quebra por falta de chave.
 import { formatUsdCents } from "./billing/plans.ts";
+import { SITE_NAME } from "./site.ts";
 import { logError as trackError, logEvent } from "./telemetry.ts";
 
 const RESEND_ENDPOINT = "https://api.resend.com/emails";
-const FROM = "Axtro Digital Human OS <no-reply@axtroai.com>";
+const FROM = `${SITE_NAME} <no-reply@axtroai.com>`;
 const TIMEOUT_MS = 10_000;
 
 export interface EmailSendResult {
@@ -83,7 +84,7 @@ interface EmailContent {
 }
 
 const BRAND = Object.freeze({
-  product: "Axtro Digital Human OS",
+  product: SITE_NAME,
   accent: "#5b4dff",
   ink: "#1b1b21",
   body: "#44444f",

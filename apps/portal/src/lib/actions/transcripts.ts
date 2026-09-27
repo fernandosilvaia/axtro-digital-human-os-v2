@@ -9,6 +9,8 @@ export interface DeleteTranscriptState {
 const DELETE_TRANSCRIPT_ERROR_MESSAGES: Readonly<Record<string, string>> = {
   "only a tenant_admin can delete conversation transcripts": "Somente administradores podem excluir conversas.",
   "transcript not found for this account": "Conversa não encontrada.",
+  "direct deletion disabled; submit a governed data disposition request":
+    "Exclusão direta de conversas não está mais disponível. Solicite a exclusão dos dados da conta em Configurações, ou fale com o suporte pelo e-mail informado no Aviso de Privacidade.",
 };
 
 /**

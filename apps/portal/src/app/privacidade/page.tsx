@@ -1,8 +1,8 @@
-import { createPageMetadata } from "@/lib/site";
+import { createPageMetadata, SITE_NAME } from "@/lib/site";
 
 export const metadata = createPageMetadata({
-  title: "Privacidade, Axtro Digital Human OS",
-  description: "Como o Axtro Digital Human OS trata dados pessoais.",
+  title: `Privacidade, ${SITE_NAME}`,
+  description: `Como o ${SITE_NAME} trata dados pessoais.`,
   path: "/privacidade",
 });
 
@@ -21,7 +21,7 @@ export default function PrivacyPage() {
         revisão jurídica formal; a versão revisada substituirá esta.
       </p>
       <section style={{ display: "grid", gap: 16, fontSize: "0.95rem" }}>
-        <p><strong>Quem somos.</strong> O Axtro Digital Human OS é operado pela Axtro AI
+        <p><strong>Quem somos.</strong> O {SITE_NAME} é operado pela Axtro AI
         (contato: fernando@axtroai.com), e permite criar funcionárias digitais de vídeo para
         conversas de vendas.</p>
         <p><strong>O que coletamos.</strong> Dados de conta (e-mail, senha protegida por hash),
@@ -46,8 +46,9 @@ export default function PrivacyPage() {
         pessoais.</p>
         <p><strong>Seus direitos (LGPD).</strong> Você pode solicitar acesso, correção ou exclusão
         dos seus dados (incluindo o histórico de conversas) a qualquer momento pelo e-mail
-        fernando@axtroai.com. Fontes de conhecimento podem ser revogadas e excluídas diretamente no
-        portal, com efeito imediato.</p>
+        fernando@axtroai.com. Fontes de conhecimento podem ser revogadas diretamente no portal, com
+        efeito imediato (os agentes param de citá-las na hora); a exclusão definitiva dos dados segue
+        o pedido formal de disposição de dados da conta, em Configurações.</p>
         <p><strong>Retenção.</strong> Dados da conta permanecem enquanto a conta existir. Quando
         houver consentimento para transcrição persistente, o histórico segue a finalidade consentida
         (sem exclusão automática por tempo ainda); registros de uso são mantidos para auditoria e

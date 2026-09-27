@@ -35,7 +35,7 @@ import { canonicalJson } from "@axtro/domain";
  */
 
 /**
- * Namespace fixo da Axtro Digital Human OS para esta derivação, gerado uma
+ * Namespace fixo da plataforma para esta derivação, gerado uma
  * única vez (crypto.randomUUID() local, fora de qualquer dado real de
  * produção) e congelado como constante -- NUNCA mude este valor: um
  * namespace diferente rederiva um commandId diferente para toda tool call

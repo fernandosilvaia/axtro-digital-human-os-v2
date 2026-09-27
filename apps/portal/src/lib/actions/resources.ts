@@ -340,6 +340,9 @@ export async function deleteDraftAgent(agentId: string): Promise<ResourceActionS
     if (error.message === "agent has session history and cannot be deleted") {
       return { error: "Este agente tem histórico de conversas e não pode ser excluído.", done: false };
     }
+    if (error.message === "direct deletion disabled; submit a governed data disposition request") {
+      return { error: "Exclusão direta de agentes não está mais disponível. Solicite a exclusão dos dados da conta em Configurações, ou fale com o suporte.", done: false };
+    }
     return { error: `Não foi possível excluir: ${error.message}`, done: false };
   }
   revalidatePath("/agentes");
@@ -354,6 +357,9 @@ export async function deleteKnowledgeSource(sourceId: string): Promise<ResourceA
   if (error) {
     if (error.message === "revoke the source before deleting it") {
       return { error: "Revogue a fonte antes de excluí-la.", done: false };
+    }
+    if (error.message === "direct deletion disabled; submit a governed data disposition request") {
+      return { error: "Exclusão direta de fontes não está mais disponível. Revogar continua com efeito imediato; para excluir os dados de fato, solicite a exclusão da conta em Configurações, ou fale com o suporte.", done: false };
     }
     return { error: `Não foi possível excluir: ${error.message}`, done: false };
   }

@@ -1,7 +1,9 @@
 import { createHash } from "node:crypto";
 
+import { SITE_NAME } from "./site.ts";
+
 const RESEND_ENDPOINT = "https://api.resend.com/emails/batch";
-const FROM = "Axtro Digital Human OS <no-reply@axtroai.com>";
+const FROM = `${SITE_NAME} <no-reply@axtroai.com>`;
 const PROVIDER_TIMEOUT_MS = 10_000;
 const MAX_RESPONSE_BYTES = 16 * 1024;
 const PROVIDER_RECEIPT_PATTERN = /^[A-Za-z0-9_-]{1,200}$/;

@@ -154,9 +154,9 @@ export default async function SettingsPage({
 
 function TechRow({ label, value }: { label: string; value: string }) {
   return (
-    <div style={{ display: "flex", justifyContent: "space-between", gap: 16, alignItems: "baseline" }}>
-      <dt style={{ color: "var(--text-muted)", whiteSpace: "nowrap" }}>{label}</dt>
-      <dd className="mono" style={{ margin: 0, textAlign: "right", wordBreak: "break-all" }}>{value}</dd>
+    <div>
+      <dt style={{ color: "var(--text-muted)", fontSize: "0.78rem" }}>{label}</dt>
+      <dd className="mono" style={{ margin: "2px 0 0", overflowWrap: "break-word" }}>{value}</dd>
     </div>
   );
 }

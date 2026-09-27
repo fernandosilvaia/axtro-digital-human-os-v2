@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 
 const email = await import("../../apps/portal/src/lib/email.ts");
+const { SITE_NAME } = await import("../../apps/portal/src/lib/site.ts");
 
 // Sem RESEND_API_KEY no ambiente de teste, todo envio cai no caminho mockado
 // (sendHtmlEmail), o que já dá cobertura real de contrato (parâmetros
@@ -163,7 +164,7 @@ test("o rodapé diz de onde veio e por que a pessoa recebeu, nas duas partes", a
     closerName: "Sofia", planLabel: "Piloto", checkoutUrl: "https://checkout.example/abc",
   }));
   for (const parte of [payload.html, payload.text]) {
-    assert.ok(parte.includes("Axtro Digital Human OS"), "o remetente precisa se identificar");
+    assert.ok(parte.includes(SITE_NAME), "o remetente precisa se identificar");
     assert.ok(parte.includes("porque tem acesso a esta conta"), "precisa dizer por que a pessoa recebeu");
     assert.ok(parte.includes("https://checkout.example/abc"), "o destino da ação precisa estar nas duas partes");
   }

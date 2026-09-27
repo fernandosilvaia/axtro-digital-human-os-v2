@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 
 import { resolveAgentFaceStageCapability } from "@/lib/meetings/stage";
+import { SITE_NAME } from "@/lib/site";
 
 import { FaceStage } from "./face-stage";
 
@@ -17,7 +18,7 @@ import { FaceStage } from "./face-stage";
  * `noindex` explícito: é superfície técnica, não conteúdo público.
  */
 export const metadata: Metadata = {
-  title: "Palco do agente, Axtro Digital Human OS",
+  title: `Palco do agente, ${SITE_NAME}`,
   robots: { index: false, follow: false },
   referrer: "no-referrer",
 };

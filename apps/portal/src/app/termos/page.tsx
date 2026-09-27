@@ -1,8 +1,8 @@
-import { createPageMetadata } from "@/lib/site";
+import { createPageMetadata, SITE_NAME } from "@/lib/site";
 
 export const metadata = createPageMetadata({
-  title: "Termos de Uso, Axtro Digital Human OS",
-  description: "Condições de uso do Axtro Digital Human OS.",
+  title: `Termos de Uso, ${SITE_NAME}`,
+  description: `Condições de uso do ${SITE_NAME}.`,
   path: "/termos",
 });
 
@@ -15,7 +15,7 @@ export default function TermsPage() {
         Versão 1 · 31/07/2026 · Sujeitos a revisão jurídica formal; a versão revisada substituirá esta.
       </p>
       <section style={{ display: "grid", gap: 16, fontSize: "0.95rem" }}>
-        <p><strong>O serviço.</strong> O Axtro Digital Human OS permite criar e operar
+        <p><strong>O serviço.</strong> O {SITE_NAME} permite criar e operar
         funcionárias digitais de vídeo com IA. A conta de avaliação é gratuita e tem limites de
         proteção descritos em Configurações → Plano; uso em produção depende de acordo comercial.</p>
         <p><strong>Uso aceitável.</strong> É vedado usar a plataforma para enganar pessoas sobre a
