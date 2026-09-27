@@ -625,14 +625,18 @@ table.data tbody tr:hover {
   border: 1px solid transparent;
   transition: background 0.14s, border-color 0.14s, transform 0.1s;
 }
-.btn:active {
+.btn:active:not(:disabled) {
   transform: translateY(1px);
+}
+.btn:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
 }
 .btn-primary {
   background: var(--accent-on-fill);
   color: #fff;
 }
-.btn-primary:hover {
+.btn-primary:hover:not(:disabled) {
   background: var(--accent-on-fill-strong);
 }
 .btn-ghost {
@@ -640,7 +644,7 @@ table.data tbody tr:hover {
   border-color: var(--border);
   color: var(--text-muted);
 }
-.btn-ghost:hover {
+.btn-ghost:hover:not(:disabled) {
   background: var(--surface-hover);
   color: var(--text);
 }
@@ -927,16 +931,22 @@ a {
   transition: transform 650ms var(--ease);
 }
 
-.btn:hover::after {
+.btn:hover:not(:disabled)::after {
   transform: translateX(120%);
 }
 
-.btn:hover {
+.btn:hover:not(:disabled) {
   transform: translateY(-2px);
 }
 
-.btn:active {
+.btn:active:not(:disabled) {
   transform: translateY(0);
+}
+
+.btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+  box-shadow: none;
 }
 
 .btn-primary {
@@ -944,7 +954,7 @@ a {
   box-shadow: 0 10px 28px rgba(116, 109, 255, 0.22);
 }
 
-.btn-primary:hover {
+.btn-primary:hover:not(:disabled) {
   background: linear-gradient(135deg, #a395ff, #7c83ff);
   box-shadow: 0 14px 32px rgba(116, 109, 255, 0.32);
 }
@@ -955,7 +965,7 @@ a {
   color: var(--text-muted);
 }
 
-.btn-ghost:hover {
+.btn-ghost:hover:not(:disabled) {
   background: rgba(255, 255, 255, 0.07);
   border-color: rgba(255, 255, 255, 0.28);
   color: var(--text);
@@ -967,7 +977,7 @@ a {
   box-shadow: 0 14px 32px rgba(0, 0, 0, 0.2);
 }
 
-.btn-light:hover {
+.btn-light:hover:not(:disabled) {
   background: #fff;
   box-shadow: 0 18px 40px rgba(0, 0, 0, 0.3);
 }
