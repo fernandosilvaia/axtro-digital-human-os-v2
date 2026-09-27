@@ -49,6 +49,7 @@ function loadStripeConnectActions(options = {}) {
     deauthorize: [],
     revalidatePath: [],
     telemetry: [],
+    fulfill: [],
   };
   const user = Object.hasOwn(options, "user") ? options.user : { id: "user-authenticated", app_metadata: { actor_id: "0198a000-0000-7000-8000-0000000000a1" } };
   const overview = options.overview ?? {
@@ -66,8 +67,15 @@ function loadStripeConnectActions(options = {}) {
   const statusResult = options.statusResult ?? { data: { outcome: "found", stripeAccountId: "acct_1NConnectedTest123" }, error: null };
   const disconnectRpcResult = options.disconnectRpcResult ?? { data: { outcome: "disconnected" }, error: null };
   const deauthorizeThrows = options.deauthorizeThrows;
+  const fulfillResult = options.fulfillResult ?? { outcome: "connected" };
 
   const mocks = new Map([
+    ["@/lib/billing/fulfill-stripe-connect-oauth-callback", {
+      async fulfillStripeConnectOAuthCallback(code, state) {
+        calls.fulfill.push({ code, state });
+        return fulfillResult;
+      },
+    }],
     ["next/navigation", {
       redirect(location) {
         throw new RedirectSignal(location);
@@ -270,19 +278,33 @@ test("startStripeConnectConnection sem STRIPE_CONNECT_OAUTH_STATE_SECRET falha f
   }
 });
 
-test("startStripeConnectConnection em modo fake nunca manda o navegador pra Stripe real: grava o cookie e redireciona pra própria rota de callback", async () => {
+test("startStripeConnectConnection em modo fake nunca manda o navegador pra Stripe real: chama o corpo do callback direto e redireciona pro sucesso", async () => {
   await withStateSecret(() => withFakeProviders(async () => {
     const { actions, calls } = loadStripeConnectActions({ generatedToken: "generated-state-xyz" });
     await assert.rejects(
       () => actions.startStripeConnectConnection(),
-      assertRedirect("/api/stripe/connect-oauth/callback?code=ac_fake_stripe_connect_authorization_code&state=generated-state-xyz"),
+      assertRedirect("/configuracoes?stripe_connect_status=connected"),
     );
     assert.deepEqual(calls.issueState, [{ tenantId: "tenant-resolved", actorId: "0198a000-0000-7000-8000-0000000000a1" }]);
-    assert.equal(calls.setCookie.length, 1);
-    assert.equal(calls.setCookie[0].name, "axtro_stripe_connect_oauth_state");
-    assert.equal(calls.setCookie[0].value, "generated-state-xyz");
-    assert.equal(calls.setCookie[0].attrs.httpOnly, true);
+    // Nunca grava o cookie em modo fake: não há hop HTTP nenhum pra
+    // proteger (ver o comentário da action pro porquê disso evita o mesmo
+    // bug de dupla execução do callback do Google Calendar).
+    assert.equal(calls.setCookie.length, 0);
     assert.equal(calls.authUrl.length, 0, "modo fake não deveria montar a URL real de autorização da Stripe");
+    assert.deepEqual(calls.fulfill, [{ code: "ac_fake_stripe_connect_authorization_code", state: "generated-state-xyz" }]);
+  }, true));
+});
+
+test("startStripeConnectConnection em modo fake propaga o código de erro quando o corpo do callback recusa", async () => {
+  await withStateSecret(() => withFakeProviders(async () => {
+    const { actions } = loadStripeConnectActions({
+      generatedToken: "generated-state-xyz",
+      fulfillResult: { outcome: "error", code: "sessao_divergente" },
+    });
+    await assert.rejects(
+      () => actions.startStripeConnectConnection(),
+      assertRedirect("/configuracoes?stripe_connect_error=sessao_divergente"),
+    );
   }, true));
 });
 

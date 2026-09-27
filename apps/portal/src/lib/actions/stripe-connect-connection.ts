@@ -10,6 +10,7 @@ import {
   StripeBillingError,
 } from "@axtro/provider-stripe";
 
+import { fulfillStripeConnectOAuthCallback } from "@/lib/billing/fulfill-stripe-connect-oauth-callback";
 import {
   issueStripeConnectOAuthStateToken,
   STRIPE_CONNECT_OAUTH_STATE_COOKIE_NAME,
@@ -97,16 +98,26 @@ export async function startStripeConnectConnection(): Promise<void> {
     trackError("stripe_connect_start_state_unavailable", error, { tenant_id: overview.tenant.id });
     redirect("/configuracoes?stripe_connect_error=falha_ao_conectar");
   }
-  await setStripeConnectOAuthStateCookie(token, expiresAtIso);
-
   if (fakeProviders) {
     // Modo demonstração sem credencial real: nunca manda o navegador pro
-    // domínio real da Stripe (mesmo espírito do checkout fake em billing.ts
-    // e do callback fake do Google Calendar). O `code` é sempre ignorado
-    // pelo exchange fake, só o `state` (cookie + query, double-submit)
-    // precisa ser real para exercitar a mesma validação do modo real.
-    redirect(`/api/stripe/connect-oauth/callback?code=${encodeURIComponent(FAKE_STRIPE_CONNECT_AUTHORIZATION_CODE)}&state=${encodeURIComponent(token)}`);
+    // domínio real da Stripe (mesmo espírito do checkout fake em
+    // billing.ts). Chama o corpo do callback DIRETO (mesma função que a
+    // rota HTTP usa), em vez de gravar o cookie e usar redirect() pra
+    // própria rota: um `redirect()` de Server Action pra uma rota interna
+    // faz o Next.js resolvê-la duas vezes pro mesmo clique (achado no
+    // callback do Google Calendar, 2026-09-27, mesma arquitetura aqui;
+    // detalhe completo em fulfill-stripe-connect-oauth-callback.ts). Nunca
+    // precisou de cookie nem do double-submit pra este caminho: não há
+    // navegador de terceiro no meio, é uma chamada direta e confiável
+    // dentro do mesmo processo autorizado.
+    const result = await fulfillStripeConnectOAuthCallback(FAKE_STRIPE_CONNECT_AUTHORIZATION_CODE, token);
+    if (result.outcome === "error") {
+      redirect(`/configuracoes?stripe_connect_error=${result.code}`);
+    }
+    redirect("/configuracoes?stripe_connect_status=connected");
   }
+
+  await setStripeConnectOAuthStateCookie(token, expiresAtIso);
 
   const authorizationUrl = buildStripeConnectAuthorizationUrl({
     connectClientId,
