@@ -3,6 +3,7 @@
 import { redirect } from "next/navigation";
 import { revalidatePath } from "next/cache";
 
+import { fulfillGoogleCalendarOAuthCallback } from "@/lib/google-calendar/fulfill-oauth-callback";
 import { buildGoogleCalendarAuthorizationUrl, googleCalendarOAuthRedirectUri } from "@/lib/google-calendar/oauth-url";
 import { createGoogleCalendarOAuthState } from "@/lib/google-calendar/oauth-state";
 import { fetchTenantOverview } from "@/lib/portal-data";
@@ -24,8 +25,7 @@ import { logError as trackError } from "@/lib/telemetry";
  * simplesmente chama `startGoogleCalendarConnection` de novo).
  */
 const UUID_V7_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/;
-const FAKE_GOOGLE_OAUTH_CLIENT_ID = "fake-google-oauth-client-id.apps.googleusercontent.com";
-/** Não precisa ser um code real: em modo fake, a rota de callback nunca valida o conteúdo do code, só troca por tokens fake determinísticos. */
+/** Não precisa ser um code real: em modo fake, o corpo do callback nunca valida o conteúdo do code, só troca por tokens fake determinísticos. */
 const FAKE_GOOGLE_OAUTH_AUTHORIZATION_CODE = "fake-google-authorization-code";
 
 function fakeProvidersEnabled(): boolean {
@@ -87,10 +87,22 @@ export async function startGoogleCalendarConnection(): Promise<void> {
   if (fakeProviders) {
     // Modo demonstração sem credencial real: nunca manda o navegador pro
     // domínio real do Google (mesmo espírito do checkout fake da Stripe em
-    // billing.ts). Em vez disso, redireciona direto pra nossa própria rota
-    // de callback com um `code` fake, exercitando o mesmo caminho de
-    // validação de `state`/RPC de conexão que o modo real usa.
-    redirect(`/api/google-calendar/oauth/callback?code=${encodeURIComponent(FAKE_GOOGLE_OAUTH_AUTHORIZATION_CODE)}&state=${encodeURIComponent(state)}`);
+    // billing.ts). Chama o corpo do callback DIRETO (mesma função que a
+    // rota HTTP usa), em vez de `redirect()` pra própria rota: um
+    // `redirect()` de Server Action pra uma rota interna faz o Next.js
+    // resolvê-la duas vezes pro mesmo clique (uma internamente, como parte
+    // da resposta da action, outra quando o navegador de fato navega), e
+    // como o `state` é de uso único, a segunda execução sempre falhava com
+    // "state_invalido" -- mesmo a conexão tendo sido concluída de verdade
+    // na primeira (achado testando o botão como um usuário real, 2026-09-27;
+    // detalhe completo em fulfill-oauth-callback.ts). Chamar direto exercita
+    // o mesmo caminho de validação de `state`/RPC de conexão que o modo
+    // real usa, só sem o hop HTTP redundante.
+    const result = await fulfillGoogleCalendarOAuthCallback(FAKE_GOOGLE_OAUTH_AUTHORIZATION_CODE, state);
+    if (result.outcome === "error") {
+      redirect(`/configuracoes?calendar_error=${result.code}`);
+    }
+    redirect("/configuracoes?calendar_status=connected");
   }
 
   const authorizationUrl = buildGoogleCalendarAuthorizationUrl({

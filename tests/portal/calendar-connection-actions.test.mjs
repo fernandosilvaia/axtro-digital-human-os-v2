@@ -40,6 +40,7 @@ function loadCalendarActions(options = {}) {
     disconnectRpc: [],
     revalidatePath: [],
     telemetry: [],
+    fulfill: [],
   };
   const user = Object.hasOwn(options, "user") ? options.user : { id: "user-authenticated", app_metadata: { actor_id: "0198a000-0000-7000-8000-0000000000a1" } };
   const overview = options.overview ?? {
@@ -55,8 +56,15 @@ function loadCalendarActions(options = {}) {
     },
   };
   const disconnectResult = options.disconnectResult ?? { data: { outcome: "revoked" }, error: null };
+  const fulfillResult = options.fulfillResult ?? { outcome: "connected" };
 
   const mocks = new Map([
+    ["@/lib/google-calendar/fulfill-oauth-callback", {
+      async fulfillGoogleCalendarOAuthCallback(code, state) {
+        calls.fulfill.push({ code, state });
+        return fulfillResult;
+      },
+    }],
     ["next/navigation", {
       redirect(location) {
         throw new RedirectSignal(location);
@@ -210,15 +218,32 @@ test("startGoogleCalendarConnection em modo real sem credenciais configuradas fa
   }, false);
 });
 
-test("startGoogleCalendarConnection em modo fake nunca manda o navegador pro Google real: redireciona pra própria rota de callback com o state gerado", async () => {
+test("startGoogleCalendarConnection em modo fake nunca manda o navegador pro Google real: chama o corpo do callback direto e redireciona pro sucesso", async () => {
   await withFakeProviders(async () => {
     const { actions, calls } = loadCalendarActions({ generatedState: "generated-state-xyz" });
     await assert.rejects(
       () => actions.startGoogleCalendarConnection(),
-      assertRedirect("/api/google-calendar/oauth/callback?code=fake-google-authorization-code&state=generated-state-xyz"),
+      assertRedirect("/configuracoes?calendar_status=connected"),
     );
     assert.deepEqual(calls.createState, [{ tenantId: "tenant-resolved", actorId: "0198a000-0000-7000-8000-0000000000a1" }]);
     assert.equal(calls.authUrl.length, 0, "modo fake não deveria montar a URL real de autorização do Google");
+    // Chamada direta (nunca via redirect() pra própria rota HTTP: ver
+    // fulfill-oauth-callback.ts pro porquê isso dava "state_invalido" mesmo
+    // numa conexão bem-sucedida, achado testando o botão como usuário real).
+    assert.deepEqual(calls.fulfill, [{ code: "fake-google-authorization-code", state: "generated-state-xyz" }]);
+  }, true);
+});
+
+test("startGoogleCalendarConnection em modo fake propaga o código de erro quando o corpo do callback recusa", async () => {
+  await withFakeProviders(async () => {
+    const { actions } = loadCalendarActions({
+      generatedState: "generated-state-xyz",
+      fulfillResult: { outcome: "error", code: "sessao_divergente" },
+    });
+    await assert.rejects(
+      () => actions.startGoogleCalendarConnection(),
+      assertRedirect("/configuracoes?calendar_error=sessao_divergente"),
+    );
   }, true);
 });
 
