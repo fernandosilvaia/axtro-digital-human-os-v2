@@ -34,6 +34,7 @@ const ERROR_MESSAGE: Readonly<Record<string, string>> = {
   apenas_admin: "Só um administrador da conta pode ver ou agir sobre pedidos de exclusão de dados.",
   falha_ao_solicitar: "Não foi possível registrar o pedido agora. Tente novamente em instantes.",
   nao_aprovavel: "Este pedido não está mais aguardando aprovação (pode já ter sido decidido por outro administrador).",
+  autoaprovacao_bloqueada: "Quem abriu o pedido de exclusão não pode registrar uma das aprovações dele. Peça a outro administrador da conta pra aprovar ou negar.",
   falha_ao_aprovar: "Não foi possível registrar a decisão agora. Tente novamente em instantes.",
   nao_cancelavel: "Este pedido não pode mais ser cancelado nesta fase.",
   falha_ao_cancelar: "Não foi possível cancelar o pedido agora. Tente novamente em instantes.",

@@ -431,6 +431,30 @@ test("approve: erro 42501 na própria RPC de aprovar vira unauthorized", async (
   assertOutcome(result, { outcome: "unauthorized" });
 });
 
+test("approve: o autor do pedido tentando aprovar o próprio pedido (42501 com a mensagem exata da RPC) vira self_approval_blocked, não unauthorized genérico", async () => {
+  const actions = loadDataGovernanceDispositionActions();
+  const auth = fakeRpcClient({
+    portal_data_governance_status_authenticated: { data: statusRecord(), error: null },
+    portal_approve_data_governance_authenticated: pgError("42501", "the request author cannot approve their own tenant deletion request"),
+  });
+  const result = await actions.approveTenantDataGovernanceDisposition(REQUEST_ID, "approve", {
+    authenticatedClient: auth.client, serviceClient: fakeRpcClient({}).client,
+  });
+  assertOutcome(result, { outcome: "self_approval_blocked" });
+});
+
+test("approve: 42501 com qualquer outro texto (ex.: janela de política/command fingerprint expirada) continua unauthorized genérico, nunca self_approval_blocked", async () => {
+  const actions = loadDataGovernanceDispositionActions();
+  const auth = fakeRpcClient({
+    portal_data_governance_status_authenticated: { data: statusRecord(), error: null },
+    portal_approve_data_governance_authenticated: pgError("42501", "live policy-bound command required"),
+  });
+  const result = await actions.approveTenantDataGovernanceDisposition(REQUEST_ID, "approve", {
+    authenticatedClient: auth.client, serviceClient: fakeRpcClient({}).client,
+  });
+  assertOutcome(result, { outcome: "unauthorized" });
+});
+
 test("approve: erro 55000 na própria RPC de aprovar (corrida: deixou de estar approval_pending) vira not_approvable", async () => {
   const actions = loadDataGovernanceDispositionActions();
   const auth = fakeRpcClient({
@@ -566,6 +590,20 @@ test("approveTenantDataGovernanceDispositionRequest: caminho feliz redireciona c
   );
   const approveCall = auth.calls.find((c) => c.name === "portal_approve_data_governance_authenticated");
   assert.equal(approveCall.args.p_decision, "approve");
+});
+
+test("approveTenantDataGovernanceDispositionRequest: autor do pedido tentando aprovar o próprio pedido redireciona com governance_error=autoaprovacao_bloqueada", async () => {
+  const auth = fakeRpcClient({
+    portal_data_governance_status_authenticated: { data: statusRecord(), error: null },
+    portal_approve_data_governance_authenticated: pgError("42501", "the request author cannot approve their own tenant deletion request"),
+  });
+  const actions = loadDataGovernanceDispositionActions({ moduleAuthenticatedClient: auth.client, moduleServiceClient: fakeRpcClient({}).client });
+  const formData = new FormData();
+  formData.set("requestId", REQUEST_ID);
+  await assert.rejects(
+    () => actions.approveTenantDataGovernanceDispositionRequest(formData),
+    assertRedirect("/configuracoes?governance_error=autoaprovacao_bloqueada"),
+  );
 });
 
 test("denyTenantDataGovernanceDispositionRequest: caminho feliz redireciona com governance_status=registrado, sempre decision=deny e nunca toca serviceClient", async () => {

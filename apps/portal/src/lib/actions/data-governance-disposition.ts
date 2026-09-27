@@ -77,6 +77,7 @@ export type RequestDataGovernanceDispositionResult =
 export type ApproveDataGovernanceDispositionResult =
   | Readonly<{ readonly outcome: "recorded"; readonly status: DataGovernanceDispositionStatus }>
   | Readonly<{ readonly outcome: "not_approvable" }>
+  | Readonly<{ readonly outcome: "self_approval_blocked" }>
   | Readonly<{ readonly outcome: "unauthorized" }>
   | Readonly<{ readonly outcome: "service_unavailable" }>;
 
@@ -98,7 +99,7 @@ export interface DataGovernanceDispositionDependencies {
 
 type RpcOutcome =
   | Readonly<{ readonly ok: true; readonly data: Record<string, unknown> }>
-  | Readonly<{ readonly ok: false; readonly code: string }>;
+  | Readonly<{ readonly ok: false; readonly code: string; readonly message: string }>;
 
 function ownRecord(value: unknown): Record<string, unknown> | null {
   if (value === null || typeof value !== "object" || Array.isArray(value)) return null;
@@ -106,16 +107,16 @@ function ownRecord(value: unknown): Record<string, unknown> | null {
   return prototype === Object.prototype || prototype === null ? (value as Record<string, unknown>) : null;
 }
 
-/** Nunca lança: todo erro de RPC (esperado ou de transporte) vira um `code` declarado pro chamador classificar. */
+/** Nunca lança: todo erro de RPC (esperado ou de transporte) vira um `code`/`message` declarados pro chamador classificar. */
 async function callRpc(client: RpcClient, name: string, parameters: Readonly<Record<string, unknown>>): Promise<RpcOutcome> {
   try {
     const { data, error } = await client.rpc(name, parameters);
-    if (error !== null) return { ok: false, code: error.code ?? "unknown" };
+    if (error !== null) return { ok: false, code: error.code ?? "unknown", message: error.message };
     const record = ownRecord(data);
-    if (record === null) return { ok: false, code: "malformed_response" };
+    if (record === null) return { ok: false, code: "malformed_response", message: "malformed response" };
     return { ok: true, data: record };
   } catch {
-    return { ok: false, code: "transport_failure" };
+    return { ok: false, code: "transport_failure", message: "transport failure" };
   }
 }
 
@@ -286,6 +287,16 @@ export async function approveTenantDataGovernanceDisposition(
     p_command_fingerprint: beforeStatus.status.commandFingerprint,
   });
   if (!approveResult.ok) {
+    // 42501 é reaproveitado por duas checagens distintas da mesma RPC
+    // (autor não pode aprovar o próprio pedido de exclusão de tenant, e
+    // comando/policy fora da janela de autorização): o código sozinho não
+    // distingue as duas, então casa pelo texto exato da exceção. Exceção
+    // deliberada ao padrão de só usar `code`, feita porque mintar um
+    // SQLSTATE novo só pra esta regra de negócio pareceu mais frágil do
+    // que casar a mensagem literal que a própria RPC sempre devolve.
+    if (approveResult.code === "42501" && approveResult.message === "the request author cannot approve their own tenant deletion request") {
+      return Object.freeze({ outcome: "self_approval_blocked" });
+    }
     if (approveResult.code === "42501") return Object.freeze({ outcome: "unauthorized" });
     if (approveResult.code === "55000") return Object.freeze({ outcome: "not_approvable" });
     return Object.freeze({ outcome: "service_unavailable" });
@@ -371,6 +382,7 @@ async function submitApprovalDecision(formData: FormData, decision: "approve" | 
   revalidatePath(SETTINGS_PATH);
   if (result.outcome === "recorded") redirect(`${SETTINGS_PATH}?governance_status=registrado`);
   if (result.outcome === "not_approvable") redirect(`${SETTINGS_PATH}?governance_error=nao_aprovavel`);
+  if (result.outcome === "self_approval_blocked") redirect(`${SETTINGS_PATH}?governance_error=autoaprovacao_bloqueada`);
   if (result.outcome === "unauthorized") redirect(`${SETTINGS_PATH}?governance_error=apenas_admin`);
   redirect(`${SETTINGS_PATH}?governance_error=falha_ao_aprovar`);
 }
