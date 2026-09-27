@@ -96,11 +96,19 @@ export function BillingSection({
 
       <p style={{ marginTop: 16, fontSize: "0.8rem", color: "var(--text-faint)" }}>
         Precisa de um volume diferente ou contrato anual?{" "}
-        <a href="mailto:fernando@axtroai.com?subject=Plano%20sob%20medida" style={{ color: "var(--accent)" }}>
+        <a
+          href="mailto:fernando@axtroai.com?subject=Plano%20sob%20medida"
+          style={{ color: "var(--accent)", textDecoration: "underline" }}
+        >
           Fale com o time
         </a>
         {" · "}
-        <a href="/precos" target="_blank" rel="noopener" style={{ color: "var(--accent)" }}>
+        <a
+          href="/precos"
+          target="_blank"
+          rel="noopener"
+          style={{ color: "var(--accent)", textDecoration: "underline" }}
+        >
           Ver todos os planos
         </a>
       </p>

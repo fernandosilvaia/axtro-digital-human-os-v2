@@ -1,6 +1,7 @@
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 
+import AxeBuilder from "@axe-core/playwright";
 import { expect, test } from "@playwright/test";
 
 /**
@@ -303,6 +304,41 @@ test("termos e privacidade são públicos e linkados no signup", async ({ page, 
   await page.goto("/signup");
   await expect(page.locator('a[href="/termos"]')).toBeVisible();
   await expect(page.locator('a[href="/privacidade"]')).toBeVisible();
+});
+
+// A auditoria WCAG 2.1 A/AA de public-discovery.spec.ts só cobre a
+// superfície pública: nunca existiu um jeito de logar de verdade pra testar
+// o app-shell autenticado (o motivo desta suíte local inteira existir) até
+// esta suíte rodar pela primeira vez. Mesma varredura, agora nas 5 páginas
+// do menu principal. Colocado antes dos dois testes que já se sabe que
+// falham (comentário logo abaixo): a suíte inteira roda em modo serial, e
+// uma falha interrompe o restante do arquivo -- testes depois de uma falha
+// conhecida nunca rodariam.
+//
+// Um único teste faz um único login e varre as 5 páginas na mesma sessão,
+// em vez de 5 testes chamando login() cada um: um login por página nesta
+// suíte (que já loga bastante em outros testes) estourou de verdade o
+// limitador de 10 tentativas/min por IP de signIn() (achado rodando pela
+// primeira vez, "Muitas tentativas em sequência" na tela) -- rate limit
+// correto do produto, não bug, só um jeito errado de escrever o teste.
+const AUTHENTICATED_ACCESSIBILITY_SCANNED_PATHS = ["/dashboard", "/agentes", "/conhecimento", "/conversas", "/configuracoes"] as const;
+
+test("app-shell autenticado não tem violação de acessibilidade WCAG 2.1 A/AA detectável automaticamente", async ({ page }) => {
+  await login(page);
+  const allViolations: Record<string, unknown> = {};
+  for (const path of AUTHENTICATED_ACCESSIBILITY_SCANNED_PATHS) {
+    await page.goto(path, { waitUntil: "networkidle" });
+    const results = await new AxeBuilder({ page }).withTags(["wcag2a", "wcag2aa", "wcag21a", "wcag21aa"]).analyze();
+    if (results.violations.length > 0) {
+      allViolations[path] = results.violations.map((violation) => ({
+        id: violation.id,
+        impact: violation.impact,
+        help: violation.help,
+        nodes: violation.nodes.map((node) => node.target.join(" ")),
+      }));
+    }
+  }
+  expect(allViolations, `violações de acessibilidade: ${JSON.stringify(allViolations, null, 2)}`).toEqual({});
 });
 
 // Achado rodando esta suíte pela primeira vez (2026-09-27): este teste e o
