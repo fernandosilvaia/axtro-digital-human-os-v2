@@ -14,6 +14,18 @@
       "runtimeArgs": ["PORTAL_FAKE_PROVIDERS=1", "pnpm", "--filter", "@axtro/portal", "run", "dev"],
       "port": 3000,
       "autoPort": true
+    },
+    {
+      "name": "portal-public-demo-flow",
+      "runtimeExecutable": "env",
+      "runtimeArgs": [
+        "PORTAL_FAKE_PROVIDERS=1",
+        "PORTAL_PUBLIC_DEMO_STATE_SECRET=000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f",
+        "PORTAL_PUBLIC_DEMO_EDGE_POLICY_ATTESTATION=axtro-public-demo-edge/v3;scope=global;post-start=120/60s;post-command-end=600/60s;get-head-demo=900/60s;concurrency=32;queue=0;reject=429",
+        "pnpm", "--filter", "@axtro/portal", "run", "dev"
+      ],
+      "port": 3000,
+      "autoPort": true
     }
   ]
 }

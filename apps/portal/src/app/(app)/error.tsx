@@ -13,11 +13,7 @@
  * exatamente aqui, e o que estava sendo digitado/colado JÁ tinha sido limpo
  * do estado otimista do componente antes do erro. "Tentar de novo" também
  * não ajuda nesse caso: a sessão continua morta. Link direto pro login
- * cobre o caso real sem prometer o que não é garantido. (O chat de teste em
- * /agentes/[id]/testar ganhou seu PRÓPRIO try/catch na mesma onda,
- * preview-chat.tsx, e não cai mais aqui; citado como exemplo até este
- * comentário ser corrigido pela auto-revisão da própria onda que o
- * introduziu, achado real de doc desatualizada no mesmo commit.)
+ * cobre o caso real sem prometer o que não é garantido.
  */
 import { useEffect } from "react";
 

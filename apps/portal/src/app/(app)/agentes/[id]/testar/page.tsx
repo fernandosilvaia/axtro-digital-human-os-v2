@@ -64,8 +64,9 @@ export default async function AgentPreviewPage({ params }: { params: Promise<{ i
         <p style={{ color: "var(--text-muted)", margin: "4px 0 0", fontSize: "0.9rem" }}>
           Chat e salas de vídeo são sandbox, não alcançam clientes reais. Já a seção de reunião
           externa coloca o agente numa reunião de verdade: use com um link seu para testar.
-          O agente se apresenta como IA e responde fatos apenas com base nas fontes de conhecimento ativas da conta;
-          sem fontes, ele não cita preços nem condições.
+          Nas salas de vídeo e de apresentação, o agente se apresenta como IA e responde fatos
+          apenas com base nas fontes de conhecimento ativas da conta; sem fontes, ele não cita
+          preços nem condições.
         </p>
       </header>
       <VideoConfig
