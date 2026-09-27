@@ -92,7 +92,7 @@ export default async function SettingsPage({
             <h2 id="perfil-conta" className="section-title">Perfil da conta</h2>
             {isAdmin ? (
               <TenantProfileForm
-                key={`${tenant.legal_name}|${tenant.default_language}|${tenant.default_timezone}`}
+                key={tenant.id}
                 legalName={tenant.legal_name}
                 defaultLanguage={tenant.default_language}
                 defaultTimezone={tenant.default_timezone}
