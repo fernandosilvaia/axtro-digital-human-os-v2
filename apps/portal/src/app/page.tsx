@@ -1,6 +1,7 @@
 import Image from "next/image";
 
 import { RevealOnScroll } from "@/components/reveal-on-scroll";
+import { ScrollToHash } from "@/components/scroll-to-hash";
 import { DemoSubmitButton } from "./demo-button";
 import { absoluteUrl, createPageMetadata, SITE_NAME } from "@/lib/site";
 
@@ -135,6 +136,7 @@ const STRUCTURED_DATA = [
 export default function LandingPage() {
   return (
     <div className="landing landing--closer">
+      <ScrollToHash />
       <header className="landing-nav">
         <div className="landing-nav-inner">
           <a className="brand-lockup" href="#top" aria-label="Axtro Closer AI Human, início">
