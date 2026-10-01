@@ -350,7 +350,7 @@ test("provider timeout persists a retry and never acknowledges or releases the b
   assert.equal(failure.p_permanent, false);
 });
 
-test("leased or unavailable billing cannot release cleanup and provider termination is not replayed by the worker", async () => {
+test("leased or unavailable billing retains cleanup while the worker still attempts provider termination", async () => {
   const calls = [];
   let terminations = 0;
   const nextLease = oneRowAtATime([row()]);
@@ -369,12 +369,112 @@ test("leased or unavailable billing cannot release cleanup and provider terminat
     endConversation: async () => { terminations += 1; },
   }));
   assert.equal(result.failed, 1);
-  assert.equal(terminations, 0);
+  assert.equal(terminations, 1);
   assert.equal(calls.some(([name]) => name === "portal_ack_provider_effect_reconciliation_service"), false);
   const failure = calls.find(([name]) => name === "portal_fail_provider_effect_reconciliation_service")[1];
   assert.equal(failure.p_error_code, "billing_void_unavailable");
   assert.equal(failure.p_permanent, false);
 });
+
+for (const providerId of ["tavus", "recall"]) {
+  for (const billing of ["true", "false", "error", "throw"]) {
+    for (const stop of ["success", "rejected", "throws"]) {
+      test(`${providerId}: billing ${billing} and stop ${stop} settle independently with ACK only for both successes`, async () => {
+        const calls = [], stopped = [];
+        const ref = providerId === "tavus" ? "conv_cleanup_001" : "bot_cleanup_001";
+        const nextLease = oneRowAtATime([row({providerId, providerRef: ref})]);
+        const rpc = (name, parameters) => {
+          calls.push([name, parameters]);
+          if (name === "portal_lease_provider_effect_reconciliation_service") return Promise.resolve(nextLease());
+          if (name === "portal_void_unleased_billing_usage_service") {
+            if (billing === "throw") throw new Error("synthetic RPC transport failure");
+            return Promise.resolve(billing === "error" ? {data: true, error: {message: "synthetic void unavailable"}} : ok(billing === "true"));
+          }
+          if (name === "portal_ack_provider_effect_reconciliation_service" || name === "portal_fail_provider_effect_reconciliation_service") return Promise.resolve(ok(true));
+          if (name === "portal_provider_effect_reconciliation_backlog_service") return Promise.resolve(ok(billing === "true" && stop === "success" ? BACKLOG : {...BACKLOG, pending: 1, cleanupPending: 1}));
+          throw new Error(`unexpected RPC ${name}`);
+        };
+        const terminate = (resource) => {
+          stopped.push(resource);
+          if (stop === "throws") {const failure = new Error("synthetic synchronous provider failure"); failure.name = "provider_unavailable"; throw failure;}
+          if (stop === "rejected") {const failure = new Error("synthetic provider rejection"); failure.name = "provider_unavailable"; return Promise.reject(failure);}
+          return Promise.resolve();
+        };
+        const result = await reconcilePendingProviderEffects(1, dependencies(rpc, {
+          endConversation: providerId === "tavus" ? terminate : () => {throw new Error("wrong provider called");},
+          leaveCall: providerId === "recall" ? terminate : () => {throw new Error("wrong provider called");},
+        }));
+        assert.deepEqual(stopped, [ref]);
+        assert.equal(calls.filter(([name]) => name === "portal_void_unleased_billing_usage_service").length, 1);
+        const successful = billing === "true" && stop === "success";
+        const acknowledgements = calls.filter(([name]) => name === "portal_ack_provider_effect_reconciliation_service");
+        const failures = calls.filter(([name]) => name === "portal_fail_provider_effect_reconciliation_service");
+        assert.equal(result.reconciled, successful ? 1 : 0); assert.equal(result.failed, successful ? 0 : 1);
+        assert.equal(acknowledgements.length, successful ? 1 : 0); assert.equal(failures.length, successful ? 0 : 1);
+        assert.equal(calls.some(([name]) => name === "portal_reconcile_provider_effect_service"), false);
+        if (successful) {
+          const receiptRef = `${providerId}:${providerId === "tavus" ? "end" : "leave"}:${ref}`;
+          assert.equal(acknowledgements[0][1].p_lease_token, LEASE_TOKEN);
+          assert.equal(acknowledgements[0][1].p_provider_receipt_ref, receiptRef);
+          assert.equal(acknowledgements[0][1].p_receipt_id, stableProviderReconciliationReceiptId(RESERVATION_A, "compensation_confirmed", receiptRef));
+        } else {
+          assert.equal(failures[0][1].p_reservation_id, RESERVATION_A);
+          assert.equal(failures[0][1].p_lease_token, LEASE_TOKEN);
+          assert.equal(failures[0][1].p_permanent, false);
+          assert.equal(failures[0][1].p_error_code, stop === "success" ? "billing_void_unavailable" : "provider_unavailable");
+          assert.equal(result.cleanupPending, 1);
+        }
+      });
+    }
+  }
+  test(`${providerId}: a pending billing response cannot prevent stopping a known resource or authorize an early ACK`, async () => {
+    const calls = [], nextLease = oneRowAtATime([row({providerId})]);
+    let resolveVoid, markStopStarted;
+    const pendingVoid = new Promise((resolve) => {resolveVoid = resolve;});
+    const stopStarted = new Promise((resolve) => {markStopStarted = resolve;});
+    const rpc = async (name, parameters) => {
+      calls.push([name, parameters]);
+      if (name === "portal_lease_provider_effect_reconciliation_service") return nextLease();
+      if (name === "portal_void_unleased_billing_usage_service") return pendingVoid;
+      if (name === "portal_ack_provider_effect_reconciliation_service") return ok(true);
+      if (name === "portal_provider_effect_reconciliation_backlog_service") return ok(BACKLOG);
+      throw new Error(`unexpected RPC ${name}`);
+    };
+    const terminate = async () => {markStopStarted();};
+    const run = reconcilePendingProviderEffects(1, dependencies(rpc, {endConversation: terminate, leaveCall: terminate}));
+    await stopStarted;
+    assert.equal(calls.some(([name]) => name === "portal_ack_provider_effect_reconciliation_service"), false);
+    resolveVoid(ok(true)); const result = await run;
+    assert.equal(result.reconciled, 1); assert.equal(calls.filter(([name]) => name === "portal_ack_provider_effect_reconciliation_service").length, 1);
+  });
+  test(`${providerId}: partial cleanup remains leased for retry and only a later complete success is acknowledged`, async () => {
+    const calls = [], stopped = [], ref = providerId === "tavus" ? "conv_cleanup_001" : "bot_cleanup_001";
+    let successful = false;
+    const run = async (leaseToken, attempts) => {
+      const nextLease = oneRowAtATime([row({providerId, providerRef: ref, leaseToken, attempts})]);
+      const rpc = async (name, parameters) => {
+        calls.push([name, parameters]);
+        if (name === "portal_lease_provider_effect_reconciliation_service") return nextLease();
+        if (name === "portal_void_unleased_billing_usage_service") return ok(successful);
+        if (name === "portal_ack_provider_effect_reconciliation_service" || name === "portal_fail_provider_effect_reconciliation_service") return ok(true);
+        if (name === "portal_provider_effect_reconciliation_backlog_service") return ok(successful ? BACKLOG : {...BACKLOG, pending: 1, cleanupPending: 1});
+        throw new Error(`unexpected RPC ${name}`);
+      };
+      const terminate = async (resource) => {stopped.push(resource);};
+      return reconcilePendingProviderEffects(1, dependencies(rpc, {createLeaseToken: () => leaseToken, endConversation: terminate, leaveCall: terminate}));
+    };
+    const first = await run(LEASE_TOKEN, 1); assert.equal(first.failed, 1); assert.equal(first.reconciled, 0); assert.equal(first.cleanupPending, 1);
+    successful = true; const second = await run(LEASE_TOKEN_B, 2);
+    assert.equal(second.reconciled, 1); assert.equal(second.failed, 0);
+    assert.deepEqual(stopped, [ref, ref]);
+    const failures = calls.filter(([name]) => name === "portal_fail_provider_effect_reconciliation_service");
+    const acknowledgements = calls.filter(([name]) => name === "portal_ack_provider_effect_reconciliation_service");
+    assert.equal(failures.length, 1); assert.equal(failures[0][1].p_lease_token, LEASE_TOKEN);
+    assert.equal(acknowledgements.length, 1); assert.equal(acknowledgements[0][1].p_lease_token, LEASE_TOKEN_B);
+    const receiptRef = `${providerId}:${providerId === "tavus" ? "end" : "leave"}:${ref}`;
+    assert.equal(acknowledgements[0][1].p_receipt_id, stableProviderReconciliationReceiptId(RESERVATION_A, "compensation_confirmed", receiptRef));
+  });
+}
 
 test("slow rows receive independent single-row leases instead of sharing one expiring batch", async () => {
   const leaseParameters = [];

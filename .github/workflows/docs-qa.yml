@@ -43,6 +43,10 @@ jobs:
         run: |
           pnpm install --frozen-lockfile
           uv sync --locked --all-groups
+      - name: Check current Python registry advisories (fail on lookup errors)
+        run: |
+          uv export --frozen --all-groups --format requirements-txt --no-hashes --no-emit-project --no-emit-workspace --output-file "$RUNNER_TEMP/axtro-python-audit.txt"
+          uvx pip-audit==2.10.1 --requirement "$RUNNER_TEMP/axtro-python-audit.txt" --disable-pip --no-deps
       - name: Lint
         run: pnpm lint
       - name: Typecheck

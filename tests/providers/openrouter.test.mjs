@@ -90,7 +90,7 @@ test("privacy-fenced generation sends the exact routing object and preserves the
   });
 });
 
-test("privacy preflight is revalidated before a 429 retry and can fence the second dispatch", async () => {
+test("privacy preflight occurs once before the sole 429 dispatch", async () => {
   let preflights = 0;
   const { calls, implementation } = fakeFetch(async () =>
     new Response("rate limited", { status: 429, headers: { "retry-after": "0" } }));
@@ -99,15 +99,11 @@ test("privacy preflight is revalidated before a 429 retry and can fence the seco
     fetchImplementation: implementation,
     privacy: {
       routingConfiguration: provider.OPENROUTER_PRIVACY_ROUTING_CONFIGURATION,
-      revalidateBeforeDispatch: () => {
-        preflights += 1;
-        if (preflights === 2) throw new Error("attestation expired");
-      },
+      revalidateBeforeDispatch: () => { preflights += 1; },
     },
   });
-
-  await assert.rejects(() => port.generate(request()), /attestation expired/);
-  assert.equal(preflights, 2);
+  await assert.rejects(() => port.generate(request()), (error) => error.code === "provider_rejected");
+  assert.equal(preflights, 1);
   assert.equal(calls.length, 1);
 });
 
@@ -268,44 +264,49 @@ test("timeout aborta a chamada e vira provider_timeout", async () => {
   await assert.rejects(() => port.generate(request()), (error) => error.code === "provider_timeout");
 });
 
-test("achado onda 7 (D-V2-116): HTTP 429 é retentado UMA vez (respeitando retry-after: 0) e sucede na segunda tentativa", async () => {
-  let attempt = 0;
-  const { calls, implementation } = fakeFetch(async () => {
-    attempt += 1;
-    if (attempt === 1) {
-      return new Response("rate limited", { status: 429, headers: { "retry-after": "0" } });
-    }
-    return new Response(JSON.stringify(completionPayload()), { status: 200 });
+for (const kind of ["generation", "embedding"]) {
+  for (const status of [429, 503]) {
+    test(`${kind} HTTP ${status} cancels the body and never spends on a hidden retry`, async () => {
+      let cancelled = 0;
+      const { calls, implementation } = fakeFetch(async () => {
+        if (calls.length > 1) return new Response(JSON.stringify(completionPayload()));
+        return new Response(new ReadableStream({
+          cancel() { cancelled += 1; },
+        }), { status, headers: { "retry-after": "0" } });
+      });
+      const options = { apiKey: API_KEY, fetchImplementation: implementation };
+      const operation = kind === "generation"
+        ? () => provider.createOpenRouterTextGenerationPort(options).generate(request())
+        : () => provider.createOpenRouterEmbeddingPort(options).embed({ model: "openai/text-embedding-3-small", inputs: ["chunk"] });
+      await assert.rejects(operation, (error) => error.code === (status === 429 ? "provider_rejected" : "provider_unavailable"));
+      assert.equal(calls.length, 1);
+      assert.equal(cancelled, 1);
+    });
+  }
+  test(`${kind} deadline stays live while reading a stalled response body`, async () => {
+    const { calls, implementation } = fakeFetch(async (_url, init) => {
+      const stream = new ReadableStream({ start(controller) {
+        init.signal.addEventListener("abort", () => controller.error(new DOMException("aborted", "AbortError")), { once: true });
+      } });
+      return new Response(stream);
+    });
+    const options = { apiKey: API_KEY, fetchImplementation: implementation, timeoutMs: 20 };
+    const operation = kind === "generation"
+      ? () => provider.createOpenRouterTextGenerationPort(options).generate(request())
+      : () => provider.createOpenRouterEmbeddingPort(options).embed({ model: "openai/text-embedding-3-small", inputs: ["chunk"] });
+    await assert.rejects(operation, (error) => error.code === "provider_timeout");
+    assert.equal(calls.length, 1);
   });
-  const port = provider.createOpenRouterTextGenerationPort({ apiKey: API_KEY, fetchImplementation: implementation });
+}
 
-  const result = await port.generate(request());
-
-  assert.equal(result.text, "Olá! Posso ajudar com a proposta.");
-  assert.equal(calls.length, 2, "deveria ter tentado de novo depois do 429");
-});
-
-test("achado onda 7 (D-V2-116): 429 na SEGUNDA tentativa também vira provider_rejected, só uma retentativa, não um loop", async () => {
-  const { calls, implementation } = fakeFetch(async () => new Response("rate limited", { status: 429, headers: { "retry-after": "0" } }));
-  const port = provider.createOpenRouterTextGenerationPort({ apiKey: API_KEY, fetchImplementation: implementation });
-
-  await assert.rejects(() => port.generate(request()), (error) => error.code === "provider_rejected");
-  assert.equal(calls.length, 2, "deveria ter tentado exatamente 2 vezes (1 original + 1 retry), nunca mais");
-});
-
-test("achado onda 7 (D-V2-116): embed também retenta uma vez em 429 antes de devolver o vetor", async () => {
-  let attempt = 0;
-  const { calls, implementation } = fakeFetch(async () => {
-    attempt += 1;
-    if (attempt === 1) return new Response("rate limited", { status: 429, headers: { "retry-after": "0" } });
-    return new Response(JSON.stringify(embeddingsPayload([[0.1, 0.2]])), { status: 200 });
+test("privacy denial before dispatch creates no physical provider attempt", async () => {
+  const { calls, implementation } = fakeFetch(async () => new Response(JSON.stringify(completionPayload())));
+  const port = provider.createOpenRouterTextGenerationPort({ apiKey: API_KEY, fetchImplementation: implementation,
+    privacy: { routingConfiguration: provider.OPENROUTER_PRIVACY_ROUTING_CONFIGURATION,
+      revalidateBeforeDispatch: () => { throw new Error("attestation expired"); } },
   });
-  const port = provider.createOpenRouterEmbeddingPort({ apiKey: API_KEY, fetchImplementation: implementation });
-
-  const result = await port.embed({ model: "openai/text-embedding-3-small", inputs: ["chunk a"] });
-
-  assert.deepEqual(result.embeddings, [[0.1, 0.2]]);
-  assert.equal(calls.length, 2);
+  await assert.rejects(() => port.generate(request()), /attestation expired/);
+  assert.equal(calls.length, 0);
 });
 
 test("sem chave configurada o port nem é construído", () => {
@@ -430,3 +431,32 @@ test("usage ausente ou inválida normaliza para zero em vez de inventar número"
   const result = await port.generate(request());
   assert.deepEqual(result.usage, { inputTokens: 0, outputTokens: 0 });
 });
+
+for (const kind of ["generation", "embedding"]) {
+  for (const cancellation of ["pending", "rejected"]) {
+    test(`${kind} ${cancellation} error body cancellation cannot block its terminal error`, async () => {
+      let cancellations = 0;
+      const { calls, implementation } = fakeFetch(async () => new Response(new ReadableStream({
+        cancel() {
+          cancellations += 1;
+          return cancellation === "pending" ? new Promise(() => {}) : Promise.reject(new Error("cancel failed"));
+        },
+      }), { status: 503 }));
+      const options = { apiKey: API_KEY, fetchImplementation: implementation, timeoutMs: 10 };
+      const operation = kind === "generation"
+        ? () => provider.createOpenRouterTextGenerationPort(options).generate(request())
+        : () => provider.createOpenRouterEmbeddingPort(options).embed({ model: "openai/text-embedding-3-small", inputs: ["chunk"] });
+      // Bound this injected failure so an implementation regression cannot hang the suite.
+      let watchdog;
+      try {
+        await Promise.race([
+          assert.rejects(operation, (error) => error.code === "provider_unavailable"),
+          new Promise((_, reject) => { watchdog = setTimeout(() => reject(new Error("error cancellation blocked classification")), 100); }),
+        ]);
+      } finally { clearTimeout(watchdog); }
+      assert.equal(calls.length, 1);
+      assert.equal(cancellations, 1);
+      assert.equal(calls[0].init.signal.aborted, true);
+    });
+  }
+}

@@ -9,7 +9,7 @@ dependencies = []
 dev = [
   "jsonschema==4.26.0",
   "PyYAML==6.0.2",
-  "pytest==8.4.2"
+  "pytest==9.0.3"
 ]
 
 [tool.uv.workspace]

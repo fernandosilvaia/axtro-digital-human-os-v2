@@ -51,7 +51,7 @@ function fakeBridge({ status = { enabled: true }, admission = null, scene = null
   return { bridge, calls, directorCalls };
 }
 
-test("runtime bridge admits, consumes per provider, binds and receipts an allowlisted scene", async () => {
+test("runtime bridge admits and binds providers but cannot claim a scene effect without a renderer", async () => {
   const { bridge, calls, directorCalls } = fakeBridge();
   const admitted = await bridge.admitPortalChannel(admissionInput());
   assert.equal(admitted.outcome, "admitted");
@@ -60,11 +60,12 @@ test("runtime bridge admits, consumes per provider, binds and receipts an allowl
   assert.deepEqual(await bridge.consumePortalChannelGrant({ grant: admitted.grant, consumerKind: "recall" }), { outcome: "consumed", code: "admitted" });
   assert.deepEqual(await bridge.bindPortalProviderChannel({ grant: admitted.grant, reservationId: IDS[7], provider: "tavus", providerRef: "conversation_123", providerUrl: "https://tavus.daily.co/example" }), { outcome: "bound", code: "bound" });
   const scene = await bridge.executePortalSceneIntent({ grant: admitted.grant, sceneIntent: { generationId: 0, sceneType: "slide_deck" } });
-  assert.equal(scene.outcome, "executed");
-  assert.equal(directorCalls.length, 1);
-  assert.equal(calls.filter((call) => call.name === "portal_consume_runtime_channel_grant_service").length, 3);
+  assert.deepEqual(scene, { outcome: "rejected", code: "scene_rejected" });
+  assert.equal(directorCalls.length, 0);
+  assert.equal(calls.filter((call) => call.name === "portal_consume_runtime_channel_grant_service").length, 2);
   assert.deepEqual(calls.find((call) => call.name === "portal_admit_runtime_channel_service").parameters.p_capabilities, ["scene_presentation", "recording", "visual_analysis"]);
-  assert.equal(calls.at(-1).name, "portal_execute_runtime_scene_service");
+  assert.equal(calls.at(-1).name, "portal_runtime_channel_status_service");
+  assert.equal(calls.filter((call) => call.name === "portal_execute_runtime_scene_service").length, 0);
 });
 
 test("runtime bridge refuses admission before RPC when disclosure is not confirmed", async () => {
@@ -125,4 +126,32 @@ test("runtime bridge fails closed on a durable kill switch before provider admis
   const { bridge, calls } = fakeBridge({ status: { enabled: false, code: "kill_switch_active" } });
   assert.deepEqual(await bridge.admitPortalChannel(admissionInput()), { outcome: "rejected", code: "kill_switch_active" });
   assert.equal(calls.length, 1);
+});
+
+for (const sceneReceipt of [true, false, { outcome: "succeeded" }]) {
+  test(`scene success cannot be fabricated by a receipt RPC returning ${JSON.stringify(sceneReceipt)}`, async () => {
+    const { bridge, calls, directorCalls } = fakeBridge({ scene: sceneReceipt });
+    const admitted = await bridge.admitPortalChannel(admissionInput());
+    assert.equal(admitted.outcome, "admitted");
+    const before = calls.length;
+    assert.deepEqual(await bridge.executePortalSceneIntent({ grant: admitted.grant,
+      sceneIntent: { generationId: 0, sceneType: "slide_deck" } }), { outcome: "rejected", code: "scene_rejected" });
+    assert.deepEqual(calls.slice(before).map((call) => call.name), ["portal_runtime_channel_status_service"]);
+    assert.equal(directorCalls.length, 0);
+  });
+}
+
+test("scene kill switch and disabled bridge stay closed before any scene consumption", async () => {
+  const active = fakeBridge();
+  const admitted = await active.bridge.admitPortalChannel(admissionInput());
+  assert.equal(admitted.outcome, "admitted");
+  const closed = fakeBridge({ status: { enabled: false, code: "kill_switch_active" } });
+  assert.deepEqual(await closed.bridge.executePortalSceneIntent({ grant: admitted.grant, sceneIntent: { generationId: 0 } }),
+    { outcome: "rejected", code: "kill_switch_active" });
+  assert.deepEqual(closed.calls.map((call) => call.name), ["portal_runtime_channel_status_service"]);
+  let rpcCalls = 0;
+  const disabled = createPortalChannelRuntimeBridge({ env: {}, rpc: { rpc() { rpcCalls += 1; throw new Error("unexpected"); } } });
+  assert.deepEqual(await disabled.executePortalSceneIntent({ grant: admitted.grant, sceneIntent: { generationId: 0 } }),
+    { outcome: "rejected", code: "bridge_disabled" });
+  assert.equal(rpcCalls, 0);
 });

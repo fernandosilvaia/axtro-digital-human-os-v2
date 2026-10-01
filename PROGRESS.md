@@ -73,8 +73,8 @@
 | `AUD-02` | done | Autorização pré-custo e atribuição de ativos de vídeo |
 | `AUD-03` | done | Lifecycle de mídia e completion durante interrupção |
 | `AUD-04` | done | Disponibilidade de exclusão e browser |
-| `AUD-05` | in_progress | Reparos econômicos, advisory Python e receipt de cena |
-| `AUD-06` | planned | Evidências finais e opções open source |
+| `AUD-05` | done | Reparos econômicos, advisory Python e receipt de cena |
+| `AUD-06` | in_progress | Evidências finais e opções open source |
 
 | ID | Marco | Status | Título | Dependências | Evidência |
 |---|---|---|---|---|---|
@@ -1327,3 +1327,7 @@ ADR-047 e contrato fechado 70 publicados localmente antes do producer/consumer. 
 ### AUD-04 concluída, 2026-10-01
 
 UI deixa explícita a indisponibilidade da exclusão individual e preserva ativação, pausa, revogação e reativação. Providers reais são apagados do ambiente local/public de Playwright. 17 E2E autenticados passaram em 49,5 s, com exatamente um POST/login e cache validado em dashboard protegido; 14 E2E públicos passaram em 58,4 s, incluindo demo ativa/encerrada com axe em desktop/mobile. QA independente: 15 testes focados verdes; Portal typecheck e diffcheck verdes. AUD-05 iniciada para contabilidade conservadora, compensação independente, tentativa paga única, advisory Python e helper de cena fechado sem renderer.
+
+### AUD-05 concluída, 2026-10-01
+
+ADR-048 implementada: envelope de tokens ausentes, replay histórico sem reescrita, custo canônico na precisão existente com bounds brutos antes de round, timeout sem falsa invoice, compensação independente de billing, POST único e helper de cena fechado sem renderer. PostgreSQL 0001-0073 passou, incluindo fixtures anteriores e novas, snapshots imutáveis, NULL/no-charge, conflitos e isolamento; revisões de dados e custos aprovaram. Root gates: 1.977 Node + 35 Python, lint e nove validadores verdes; Portal typecheck/build verdes. Python registry: 12 pacotes, zero advisories, pytest 9.0.3 e gate CI pip-audit 2.10.1. Revisão arquitetura/QA aprovou 85 testes focados. Quantização monetária, ajustes históricos e unknown sem recuperação pelo Portal continuam explícitos. AUD-06 iniciada para relatório final, evidência visual e opções open source.

@@ -274,9 +274,15 @@ try {
   const videoAssetGovernanceApplied = applySupabaseMigrations(databaseUrl, 72, 72);
   assert.deepEqual(videoAssetGovernanceApplied, ["0072"]);
   await assertVideoAssetAssignmentGovernancePhase(databaseUrl);
+  const financialHistoricalFixture = seedHistoricalAiTimeoutReceipt(databaseUrl);
+  const inheritedFinancialCapabilities = queryJson(databaseUrl, asRoleSql("service_role", null,
+    "SELECT public.portal_schema_capabilities_service();"));
+  const financialRepairApplied = applySupabaseMigrations(databaseUrl, 73, 73);
+  assert.deepEqual(financialRepairApplied, ["0073"]);
+  assertAiUsageFinancialEvidenceRepairPhase(databaseUrl, financialHistoricalFixture, inheritedFinancialCapabilities);
   assertMigrationReceiptLineage(databaseUrl);
 
-  console.log("SUPABASE PORTAL INTEGRATION PASSED: migrations 0001-0072 in contiguous order, immutable checksums, grants, RLS, transcripts, reservations, data governance and readiness capability");
+  console.log("SUPABASE PORTAL INTEGRATION PASSED: migrations 0001-0073 in contiguous order, immutable checksums, grants, RLS, transcripts, reservations, data governance and readiness capability");
 } catch (error) {
   primaryError = error;
   throw error;
@@ -314,11 +320,11 @@ function supabaseMigrationInventory() {
   const migrations = readdirSync(supabaseMigrationDirectory)
     .filter((name) => /^\d{4}_.+\.sql$/.test(name))
     .sort();
-  assert.equal(migrations.length, 72, "the harness must cover every Supabase-only migration through 0072");
+  assert.equal(migrations.length, 73, "the harness must cover every Supabase-only migration through 0073");
   assert.deepEqual(
     migrations.map((migration) => Number(migration.slice(0, 4))),
-    Array.from({ length: 72 }, (_, index) => index + 1),
-    "Supabase-only migration versions must be contiguous and unique from 0001 through 0072",
+    Array.from({ length: 73 }, (_, index) => index + 1),
+    "Supabase-only migration versions must be contiguous and unique from 0001 through 0073",
   );
   assert.equal(migrations[48], "0049_portal_text_preview_admission.sql");
   assert.equal(migrations[49], "0050_meeting_terminal_notification_claim.sql");
@@ -337,6 +343,7 @@ function supabaseMigrationInventory() {
   assert.equal(migrations[69], "0070_data_governance_catalog_onboarding_repair.sql");
   assert.equal(migrations[70], "0071_data_governance_write_fence_repair.sql");
   assert.equal(migrations[71], "0072_agent_video_asset_assignment_governance.sql");
+  assert.equal(migrations[72], "0073_ai_usage_financial_evidence_repair.sql");
   assert.equal(migrationChecksum(migrations[48]), "79b24e7fdc768a30b02d3596b71799fae484043e37561ddfcd435f46076b3100");
   assert.equal(migrationChecksum(migrations[49]), "262e033328175f704f8cfef1cafdcb0a2ef9b9aac7e4cc86f2b33890044c7224");
   return migrations;
@@ -765,11 +772,10 @@ function assertSpokenLanguagesPhase(databaseUrl) {
     "spoken languages cleanup");
 }
 
-// D-V2-178: uma reserva ambigua bloqueia TODA nova reserva do tenant, e ate
-// aqui nao existia caminho de volta (a rota manual e 404 por desenho ate a
-// M5-02, e a RPC de operador exige evidencia real do provider). A varredura
-// resolve as VENCIDAS assumindo o pior caso. O que esta fase trava e a
-// fronteira: ela nao pode destravar cedo, e nao pode destravar barato.
+// Historical v67 behavior is exercised before v73. This is a regression
+// fixture, not endorsement: ADR-048 disables these synthetic settlements.
+// The v73 phase proves that historical rows are preserved without claiming
+// they were reconciled by an invoice or corrected retroactively.
 function assertAiUsageUnknownSweepPhase(databaseUrl) {
   const reservationId = "019f0000-0000-7000-8000-000000001670";
   const costEventId = "019f0000-0000-7000-8000-000000001671";
@@ -805,9 +811,8 @@ function assertAiUsageUnknownSweepPhase(databaseUrl) {
   assert.equal(queryJson(databaseUrl, begin(nextId, nextCostEventId, "ai:brain:sweep-two")).outcome, "reserved",
     "depois do prazo o tenant volta a poder reservar");
 
-  // 4) A direcao da suposicao e o coracao disto: assume o MAXIMO reservado,
-  // nunca menos. Superestimar o gasto contra o teto interno e seguro; se
-  // assumisse zero, esta valvula viraria um jeito de esconder consumo.
+  // 4) Preserve the historical maximum-envelope behavior as a fixture.
+  // These token/cost assumptions are not a real provider invoice.
   const campo = (coluna) => queryScalar(databaseUrl,
     `SELECT ${coluna} FROM public.ai_usage_reservations WHERE id='${reservationId}';`);
   assert.equal(campo("state"), "committed");
@@ -815,9 +820,8 @@ function assertAiUsageUnknownSweepPhase(databaseUrl) {
   assert.equal(Number(campo("actual_output_tokens")), 512, "assume o teto de saida");
   assert.equal(Number(campo("reported_cost_usd")), 0.05, "assume o custo maximo reservado");
 
-  // 5) O recibo diz que a evidencia e uma SUPOSICAO, nao uma fatura. Sem isto,
-  // um gasto assumido seria indistinguivel de um confirmado pelo provider na
-  // auditoria.
+  // 5) The historical receipt identifies its synthetic assumption even
+  // though the old cost row incorrectly labels its source provider_reported.
   assert.equal(queryScalar(databaseUrl,
     `SELECT evidence FROM public.ai_usage_reconciliation_receipts WHERE reservation_id='${reservationId}';`),
     "timeout_assumed_max");
@@ -837,6 +841,319 @@ function assertAiUsageUnknownSweepPhase(databaseUrl) {
     DELETE FROM public.ai_usage_reconciliation_receipts WHERE tenant_id='${fixture.tenantAlpha}';
     DELETE FROM public.ai_usage_reservations WHERE tenant_id='${fixture.tenantAlpha}' AND id IN ('${reservationId}','${nextId}');
   `), "sweep cleanup");
+}
+
+function aiFinancialSnapshot(databaseUrl, tenantIds) {
+  const tenants = tenantIds.map((id) => `'${id}'`).join(",");
+  return queryJson(databaseUrl, `SELECT jsonb_build_object(
+    'reservations',(SELECT coalesce(jsonb_agg(to_jsonb(r) ORDER BY id),'[]'::jsonb) FROM public.ai_usage_reservations r WHERE tenant_id IN (${tenants})),
+    'receipts',(SELECT coalesce(jsonb_agg(to_jsonb(r) ORDER BY id),'[]'::jsonb) FROM public.ai_usage_reconciliation_receipts r WHERE tenant_id IN (${tenants})),
+    'ledger',(SELECT coalesce(jsonb_agg(to_jsonb(c) ORDER BY id),'[]'::jsonb) FROM public.cost_events c WHERE tenant_id IN (${tenants}))
+  );`);
+}
+
+function seedHistoricalAiTimeoutReceipt(databaseUrl) {
+  const tenantId = governanceUuid(73000);
+  const agentId = governanceUuid(73001);
+  const reservationId = governanceUuid(73002);
+  const costId = governanceUuid(73003);
+  assertSucceeded(runSql(databaseUrl, `
+    INSERT INTO public.tenants(id,slug,legal_name,status,home_region,default_language,default_timezone)
+      VALUES ('${tenantId}','ai-financial-historical','AI Financial Historical Fixture','active','local','en','UTC');
+    INSERT INTO public.agents(tenant_id,id,name,role_type,status,disclosure_profile_id)
+      VALUES ('${tenantId}','${agentId}','AI Financial Historical Agent','sales','active','default');
+  `), "isolated historical financial fixture");
+  assert.equal(queryJson(databaseUrl, asRoleSql("service_role", null, `SELECT public.portal_begin_ai_usage_reservation_service(
+    '${reservationId}','${costId}','${tenantId}','${agentId}',null,'ai:v73:historical','brain_generation',20000,512,0.05);`)).outcome, "reserved");
+  assert.equal(queryJson(databaseUrl, asRoleSql("service_role", null,
+    `SELECT public.portal_mark_ai_usage_in_flight_service('${reservationId}');`)).acquired, true);
+  assert.equal(queryScalar(databaseUrl, asRoleSql("service_role", null,
+    `SELECT public.portal_mark_ai_usage_unknown_service('${reservationId}','historical_timeout_fixture');`)), "t");
+  assertSucceeded(runSql(databaseUrl, `UPDATE public.ai_usage_reservations SET updated_at=now()-interval '2 hours' WHERE id='${reservationId}';`),
+    "age historical v67 reservation");
+  assert.equal(queryScalar(databaseUrl, asRoleSql("service_role", null,
+    `SELECT public.portal_sweep_stale_ai_usage_unknown_service('${tenantId}');`)), "1");
+  // Generate legacy zero-token commits through the actual pre-v73 RPC, not
+  // forged INSERTs. They are preserved for exact raw replay after the repair.
+  const legacyCommits = ["0.05", "0", "0.000003155"].map((cost, index) => ({
+    id: governanceUuid(73004 + index), costId: governanceUuid(73100 + index), cost,
+    canonicalCost: cost === "0.000003155" ? 0.00000316 : Number(cost),
+  }));
+  for (const [index, legacy] of legacyCommits.entries()) {
+    assert.equal(queryJson(databaseUrl, asRoleSql("service_role", null, `SELECT public.portal_begin_ai_usage_reservation_service(
+      '${legacy.id}','${legacy.costId}','${tenantId}','${agentId}',null,'ai:v73:legacy-zero-${index}','brain_generation',20000,512,0.05);`)).outcome, "reserved");
+    assert.equal(queryJson(databaseUrl, asRoleSql("service_role", null,
+      `SELECT public.portal_mark_ai_usage_in_flight_service('${legacy.id}');`)).acquired, true);
+    assert.equal(queryJson(databaseUrl, asRoleSql("service_role", null,
+      `SELECT public.portal_commit_ai_usage_service('${legacy.id}',0,0,${legacy.cost});`)).committed, true);
+    if (legacy.cost === "0.000003155") assertFailed(spawnSync(psqlPath,
+      psqlArgs(databaseUrl, ["--set", "VERBOSITY=verbose", "--command", asRoleSql("service_role", null,
+        `SELECT public.portal_commit_ai_usage_service('${legacy.id}',0,0,${legacy.cost});`)]),
+      { encoding: "utf8", env: childEnvironment() }), "pre-v73 raw nine-decimal cost reproduces the replay conflict", /ERROR:.*23505:/);
+  }
+  const snapshot = aiFinancialSnapshot(databaseUrl, [tenantId]);
+  assert.equal(snapshot.receipts.length, 1);
+  assert.equal(snapshot.receipts[0].evidence, "timeout_assumed_max");
+  assert.equal(snapshot.ledger.length, 4);
+  for (const legacy of legacyCommits) {
+    const reservation = snapshot.reservations.find(({ id }) => id === legacy.id);
+    const event = snapshot.ledger.find(({ id }) => id === legacy.costId);
+    assert.equal(reservation.actual_input_tokens, 0);
+    assert.equal(reservation.actual_output_tokens, 0);
+    assert.equal(reservation.reported_cost_usd, legacy.canonicalCost);
+    assert.equal(event.quantity, 0);
+    assert.equal(event.amount_usd, 0);
+  }
+  return { tenantId, agentId, reservationId, costId, snapshot, legacyCommits };
+}
+
+function assertAiUsageFinancialEvidenceRepairPhase(databaseUrl, historical, inheritedCapabilities) {
+  const capabilities = queryJson(databaseUrl, asRoleSql("service_role", null, "SELECT public.portal_schema_capabilities_service();"));
+  assert.deepEqual(capabilities, { ...inheritedCapabilities, version: 73,
+    aiUsageTimeoutSettlementEnabled: false, aiUsageFinancialEvidenceRepair: true });
+  assert.equal(capabilities.aiUsageReservations, true);
+  assert.equal(capabilities.aiUsageReconciliation, true);
+  assert.equal(capabilities.dataGovernanceCanonicalContractsReady, false);
+  assert.deepEqual(aiFinancialSnapshot(databaseUrl, [historical.tenantId]), historical.snapshot,
+    "v73 preserves every historical reservation, synthetic receipt and immutable cost field");
+
+  const tenants = [73010, 73020, 73030, 73040].map((sequence) => ({ tenantId: governanceUuid(sequence), agentId: governanceUuid(sequence + 1) }));
+  assertSucceeded(runSql(databaseUrl, tenants.map(({ tenantId, agentId }, index) => `
+    INSERT INTO public.tenants(id,slug,legal_name,status,home_region,default_language,default_timezone)
+      VALUES ('${tenantId}','ai-financial-v73-${index}','AI Financial V73 ${index}','active','local','en','UTC');
+    INSERT INTO public.agents(tenant_id,id,name,role_type,status,disclosure_profile_id)
+      VALUES ('${tenantId}','${agentId}','AI Financial V73 Agent ${index}','sales','active','default');
+  `).join("\n")), "isolated v73 financial tenants");
+  const [zero, quota, invoice, noCharge] = tenants;
+  const reserve = (tenant, id, costId, key) => queryJson(databaseUrl, asRoleSql("service_role", null,
+    `SELECT public.portal_begin_ai_usage_reservation_service('${id}','${costId}','${tenant.tenantId}','${tenant.agentId}',null,'${key}','brain_generation',20000,512,0.05);`));
+  const dispatch = (id) => queryJson(databaseUrl, asRoleSql("service_role", null,
+    `SELECT public.portal_mark_ai_usage_in_flight_service('${id}');`));
+  const commitSql = (id, cost) => `SELECT public.portal_commit_ai_usage_service('${id}',0,0,${cost});`;
+  const deny = (sql, message, expectedState) => assertFailed(spawnSync(psqlPath,
+    psqlArgs(databaseUrl, ["--set", "VERBOSITY=verbose", "--command", sql]),
+    { encoding: "utf8", env: childEnvironment() }), message, new RegExp(`ERROR:.*${expectedState}:`));
+
+  for (const legacy of historical.legacyCommits) {
+    assert.deepEqual(queryJson(databaseUrl, asRoleSql("service_role", null, commitSql(legacy.id, legacy.cost))),
+      { committed: true, replayed: true, costEventId: legacy.costId },
+      "a pre-v73 zero tuple with a positive or zero cost keeps its exact raw replay");
+    deny(asRoleSql("service_role", null, `SELECT public.portal_commit_ai_usage_service('${legacy.id}',1,0,${legacy.cost});`),
+      "altered token tuple conflicts with the historical raw commit", "23505");
+    deny(asRoleSql("service_role", null, commitSql(legacy.id, legacy.cost === "0" ? "0.01" : "0")),
+      "altered reported cost conflicts with the historical raw commit", "23505");
+    if (legacy.cost === "0.000003155") {
+      assert.equal(queryJson(databaseUrl, asRoleSql("service_role", null, commitSql(legacy.id, "0.000003159"))).replayed, true,
+        "a legacy cost equivalent at numeric(20,8) precision replays");
+      deny(asRoleSql("service_role", null, commitSql(legacy.id, "0.000003166")), "changed canonical legacy cost conflicts", "23505");
+    }
+    for (const invalidCost of ["-0.000000001", "0.050000001"]) deny(asRoleSql("service_role", null, commitSql(legacy.id, invalidCost)),
+      "original monetary bounds apply before legacy replay canonicalization", "22023");
+    assert.equal(queryScalar(databaseUrl, `SELECT count(*) FROM public.cost_events WHERE id='${legacy.costId}';`), "1");
+    assert.deepEqual(aiFinancialSnapshot(databaseUrl, [historical.tenantId]), historical.snapshot,
+      "legacy raw replay/conflicts preserve complete reservations, ledger, receipts and timestamps without rewriting old evidence");
+  }
+
+  // A dollar cost alone cannot make missing token usage free against quota.
+  // Reservation evidence preserves the exact cost; ledger keeps its canonical
+  // rounded quantity*unit reconciliation and therefore mixed precision.
+  for (const [index, cost] of ["0.05", "0", "null"].entries()) {
+    const id = governanceUuid(74100 + index);
+    const costId = governanceUuid(74200 + index);
+    assert.equal(reserve(zero, id, costId, `ai:v73:zero-${index}`).outcome, "reserved");
+    assert.equal(dispatch(id).acquired, true);
+    assert.deepEqual(queryJson(databaseUrl, asRoleSql("service_role", null, commitSql(id, cost))),
+      { committed: true, replayed: false, costEventId: costId });
+    const row = queryJson(databaseUrl, `SELECT jsonb_build_object(
+      'input',r.actual_input_tokens,'output',r.actual_output_tokens,'reported',r.reported_cost_usd,
+      'quantity',c.quantity,'unit',c.unit_cost_usd,'amount',c.amount_usd,'source',c.source,
+      'reconciles',c.amount_usd=round(c.quantity*c.unit_cost_usd,8),
+      'precisionEight',c.amount_usd=round(c.amount_usd,8)
+    ) FROM public.ai_usage_reservations r JOIN public.cost_events c ON c.tenant_id=r.tenant_id AND c.id=r.cost_event_id WHERE r.id='${id}';`);
+    assert.equal(row.input, 20000);
+    assert.equal(row.output, 512);
+    assert.equal(row.quantity, 20512);
+    assert.equal(row.reported, cost === "null" ? null : Number(cost));
+    assert.equal(row.source, cost === "null" ? "estimated" : "provider_reported");
+    assert.equal(row.reconciles, true);
+    assert.equal(row.precisionEight, true);
+    assert.equal(row.unit, cost === "0" ? 0 : 0.0000024376);
+    assert.equal(row.amount, cost === "0" ? 0 : 0.05000005,
+      "20512-token envelope keeps the existing canonical unit quantization instead of fabricating exact invoice dollars");
+    const snapshot = aiFinancialSnapshot(databaseUrl, [zero.tenantId]);
+    assert.equal(queryJson(databaseUrl, asRoleSql("service_role", null, commitSql(id, cost))).replayed, true,
+      "the original raw zero tuple remains replayable after normalization");
+    deny(asRoleSql("service_role", null, `SELECT public.portal_commit_ai_usage_service('${id}',1,0,${cost});`),
+      "different token tuple conflicts with normalized commit evidence", "23505");
+    const changedCost = cost === "null" ? "0" : "null";
+    deny(asRoleSql("service_role", null, commitSql(id, changedCost)), "different raw reported cost conflicts", "23505");
+    assert.deepEqual(aiFinancialSnapshot(databaseUrl, [zero.tenantId]), snapshot,
+      "raw replay/conflict neither writes a second cost nor changes timestamps or evidence");
+    assert.equal(reserve(zero, governanceUuid(74300 + index), governanceUuid(74400 + index), `ai:v73:zero-${index}`).reservationId, id,
+      "begin replay retains the original reservation identity");
+  }
+  deny(asRoleSql("service_role", null, `SELECT public.portal_begin_ai_usage_reservation_service(
+    '${governanceUuid(74500)}','${governanceUuid(74501)}','${zero.tenantId}','${invoice.agentId}',null,'ai:v73:cross-tenant','brain_generation',20000,512,0.05);`),
+    "service boundary rejects another tenant's agent", "42501");
+  assert.equal(queryScalar(databaseUrl, `SELECT count(*) FROM public.ai_usage_reservations WHERE id='${governanceUuid(74500)}';`), "0");
+
+  const precisionId = governanceUuid(74502);
+  const precisionCostId = governanceUuid(74503);
+  assert.equal(reserve(zero, precisionId, precisionCostId, "ai:v73:monetary-scale").outcome, "reserved");
+  assert.equal(dispatch(precisionId).acquired, true);
+  const beforePrecisionCommit = aiFinancialSnapshot(databaseUrl, [zero.tenantId]);
+  for (const invalidCost of ["-0.000000001", "0.050000001"]) deny(asRoleSql("service_role", null, commitSql(precisionId, invalidCost)),
+    "original monetary bounds are checked before rounding a new commit", "22023");
+  assert.deepEqual(aiFinancialSnapshot(databaseUrl, [zero.tenantId]), beforePrecisionCommit,
+    "tiny negative and fractional over-envelope costs have zero writes");
+  assert.equal(queryJson(databaseUrl, asRoleSql("service_role", null, commitSql(precisionId, "0.000003155"))).committed, true);
+  const afterPrecisionCommit = aiFinancialSnapshot(databaseUrl, [zero.tenantId]);
+  assert.equal(afterPrecisionCommit.reservations.find(({ id }) => id === precisionId).reported_cost_usd, 0.00000316);
+  assert.equal(afterPrecisionCommit.ledger.filter(({ id }) => id === precisionCostId).length, 1);
+  for (const equivalentCost of ["0.000003155", "0.000003159", "0.00000316"]) {
+    assert.equal(queryJson(databaseUrl, asRoleSql("service_role", null, commitSql(precisionId, equivalentCost))).replayed, true,
+      "new nine-decimal costs replay against their canonical eight-decimal storage value");
+  }
+  deny(asRoleSql("service_role", null, commitSql(precisionId, "0.000003166")), "a different canonical monetary value conflicts", "23505");
+  for (const invalidCost of ["-0.000000001", "0.050000001"]) deny(asRoleSql("service_role", null, commitSql(precisionId, invalidCost)),
+    "original monetary bounds apply before committed replay", "22023");
+  assert.deepEqual(aiFinancialSnapshot(databaseUrl, [zero.tenantId]), afterPrecisionCommit,
+    "canonical monetary replay/conflicts add no event or timestamp write");
+
+  const negativeId = governanceUuid(74510);
+  assert.equal(reserve(zero, negativeId, governanceUuid(74511), "ai:v73:negative-tuple").outcome, "reserved");
+  assert.equal(dispatch(negativeId).acquired, true);
+  deny(asRoleSql("service_role", null, `SELECT public.portal_commit_ai_usage_service('${negativeId}',-1,1,null);`),
+    "negative inputs adding up to zero are not a missing-usage tuple", "55000");
+  assert.equal(queryScalar(databaseUrl, `SELECT state FROM public.ai_usage_reservations WHERE id='${negativeId}';`), "provider_in_flight");
+  for (const invalidCost of ["-0.01", "0.05000001"]) deny(asRoleSql("service_role", null, commitSql(negativeId, invalidCost)),
+    "zero-tuple normalization preserves reported-cost bounds", "22023");
+  assertSucceeded(runSql(databaseUrl, `UPDATE public.ai_usage_reservations SET provider_dispatched_at=now()-interval '2 days',
+    updated_at=now()-interval '2 days' WHERE id='${negativeId}';`), "age provider-in-flight fixture beyond every sweep TTL");
+
+  assertSucceeded(runSql(databaseUrl, `INSERT INTO public.cost_events(tenant_id,id,provider_id,service,unit_type,quantity,unit_cost_usd,amount_usd,source,occurred_at)
+    VALUES ('${quota.tenantId}','${governanceUuid(74600)}','openrouter','ai.v73.cap.fixture','token',479488,0,0,'estimated',now());`), "v73 exact daily quota boundary");
+  const quotaId = governanceUuid(74601);
+  assert.equal(reserve(quota, quotaId, governanceUuid(74602), "ai:v73:quota-zero").outcome, "reserved");
+  assert.equal(dispatch(quotaId).acquired, true);
+  assert.equal(queryJson(databaseUrl, asRoleSql("service_role", null, commitSql(quotaId, "0.05"))).committed, true);
+  const capped = reserve(quota, governanceUuid(74603), governanceUuid(74604), "ai:v73:quota-after");
+  assert.equal(capped.outcome, "capped");
+  assert.equal(capped.bucket, "ai_tokens_daily");
+  assert.equal(capped.usage, 500000, "zero tuple with positive cost consumes its entire quota envelope");
+
+  const unknowns = [invoice, noCharge].map((tenant, index) => ({ ...tenant,
+    id: governanceUuid(74700 + index), costId: governanceUuid(74800 + index), receiptId: governanceUuid(74900 + index) }));
+  for (const [index, unknown] of unknowns.entries()) {
+    assert.equal(reserve(unknown, unknown.id, unknown.costId, `ai:v73:unknown-${index}`).outcome, "reserved");
+    assert.equal(dispatch(unknown.id).acquired, true);
+    assert.equal(queryScalar(databaseUrl, asRoleSql("service_role", null,
+      `SELECT public.portal_mark_ai_usage_unknown_service('${unknown.id}','v73_ambiguous_fixture');`)), "t");
+    assertSucceeded(runSql(databaseUrl, `UPDATE public.ai_usage_reservations SET created_at=now()-interval '3 days',
+      provider_dispatched_at=now()-interval '2 days',updated_at=now()-interval '2 days' WHERE id='${unknown.id}';`), "age ambiguous financial fixture beyond every sweep TTL");
+  }
+  const allTenants = [...tenants.map(({ tenantId }) => tenantId), historical.tenantId];
+  const beforeSweeps = aiFinancialSnapshot(databaseUrl, allTenants);
+  for (let repetition = 0; repetition < 2; repetition += 1) {
+    for (const unknown of [zero, ...unknowns]) {
+      for (const age of [900, 1800, 86400]) assert.equal(queryScalar(databaseUrl, asRoleSql("service_role", null,
+        `SELECT public.portal_sweep_stale_ai_usage_unknown_service('${unknown.tenantId}',${age});`)), "0");
+      assert.equal(queryScalar(databaseUrl, asRoleSql("service_role", null,
+        `SELECT public.portal_sweep_stale_ai_usage_unknown_service('${unknown.tenantId}');`)), "0");
+      assert.equal(reserve(unknown, governanceUuid(75000 + repetition), governanceUuid(75100 + repetition), `ai:v73:blocked-${repetition}`).outcome, "blocked_unknown",
+        "elapsed time cannot admit another paid AI attempt");
+    }
+  }
+  assert.deepEqual(aiFinancialSnapshot(databaseUrl, allTenants), beforeSweeps,
+    "repeated explicit and reservation-triggered sweeps change no rows, timestamps, receipts or ledger entries");
+  for (const invalidAge of ["null", "899", "86401"]) deny(asRoleSql("service_role", null,
+    `SELECT public.portal_sweep_stale_ai_usage_unknown_service('${invoice.tenantId}',${invalidAge});`), "sweep age contract is unchanged", "22023");
+
+  const mutationSignatures = [
+    "public.portal_commit_ai_usage_service(app.uuid_v7,integer,integer,numeric)",
+    "public.portal_sweep_stale_ai_usage_unknown_service(app.uuid_v7,integer)",
+    "public.portal_reconcile_ai_usage_service(app.uuid_v7,app.uuid_v7,text,text,integer,integer,numeric)",
+  ];
+  for (const signature of mutationSignatures) {
+    for (const role of ["anon", "authenticated"]) assert.equal(queryScalar(databaseUrl,
+      `SELECT has_function_privilege('${role}','${signature}','EXECUTE');`), "f");
+    assert.equal(queryScalar(databaseUrl, `SELECT has_function_privilege('service_role','${signature}','EXECUTE');`), "t");
+  }
+  for (const role of ["anon", "authenticated"]) {
+    const user = role === "authenticated" ? fixture.userAlpha : null;
+    for (const sql of [commitSql(unknowns[0].id, "0.05"),
+      `SELECT public.portal_sweep_stale_ai_usage_unknown_service('${invoice.tenantId}');`,
+      `SELECT public.portal_reconcile_ai_usage_service('${unknowns[0].receiptId}','${unknowns[0].id}','provider_invoice_no_charge','invoice:v73:unauthorized');`]) {
+      deny(asRoleSql(role, user, sql), "browser/anonymous caller has no financial reconciliation authority", "42501");
+    }
+  }
+  assert.deepEqual(aiFinancialSnapshot(databaseUrl, allTenants), beforeSweeps, "invalid/unauthorized calls have zero financial side effects");
+
+  for (const [index, unknown] of unknowns.entries()) {
+    const evidence = index === 0 ? "provider_invoice_usage_confirmed" : "provider_invoice_no_charge";
+    const extra = index === 0 ? ",6,4,0.000003155" : "";
+    const reference = `invoice:v73:${index}`;
+    const reconcileSql = `SELECT public.portal_reconcile_ai_usage_service('${unknown.receiptId}','${unknown.id}','${evidence}','${reference}'${extra});`;
+    const beforeEvidence = aiFinancialSnapshot(databaseUrl, [unknown.tenantId]);
+    for (const invalidCost of ["-0.000000001", "0.050000001"]) {
+      deny(asRoleSql("service_role", null, `SELECT public.portal_reconcile_ai_usage_service('${unknown.receiptId}','${unknown.id}',
+        '${evidence}','${reference}',${index === 0 ? "6,4" : "null,null"},${invalidCost});`),
+        "real-evidence original monetary bounds are enforced before rounding", "22023");
+    }
+    if (index === 1) {
+      for (const nonNullCost of ["0.000003155", "0.000000001", "0"]) {
+        deny(asRoleSql("service_role", null, `SELECT public.portal_reconcile_ai_usage_service('${unknown.receiptId}','${unknown.id}',
+          '${evidence}','${reference}',null,null,${nonNullCost});`),
+          "no-charge evidence requires NULL even when the monetary value rounds to zero", "22023");
+      }
+    }
+    assert.deepEqual(aiFinancialSnapshot(databaseUrl, [unknown.tenantId]), beforeEvidence,
+      "invalid original invoice costs and no-charge payloads leave ambiguous evidence untouched");
+    const result = queryJson(databaseUrl, asRoleSql("service_role", null, reconcileSql));
+    assert.equal(result.reconciled, true);
+    assert.equal(result.replayed, false);
+    assert.equal(result.state, index === 0 ? "committed" : "released");
+    const after = aiFinancialSnapshot(databaseUrl, [unknown.tenantId]);
+    assert.equal(after.receipts.length, 1);
+    assert.equal(after.receipts[0].evidence, evidence);
+    assert.equal(after.ledger.length, index === 0 ? 1 : 0);
+    if (index === 0) {
+      assert.equal(after.reservations[0].reported_cost_usd, 0.00000316);
+      assert.equal(after.receipts[0].reported_cost_usd, 0.00000316);
+      assert.equal(after.ledger[0].quantity, 10);
+      assert.equal(after.ledger[0].amount_usd, 0.00000316);
+    } else assert.equal(after.receipts[0].reported_cost_usd, null);
+    assert.equal(queryJson(databaseUrl, asRoleSql("service_role", null, reconcileSql)).replayed, true);
+    if (index === 0) {
+      assert.equal(queryJson(databaseUrl, asRoleSql("service_role", null,
+        reconcileSql.replace("0.000003155", "0.000003159"))).replayed, true, "invoice costs equivalent at eight decimals replay");
+      deny(asRoleSql("service_role", null, reconcileSql.replace("0.000003155", "0.000003166")),
+        "changed canonical invoice cost conflicts", "23505");
+    } else {
+      deny(asRoleSql("service_role", null, `SELECT public.portal_reconcile_ai_usage_service('${unknown.receiptId}','${unknown.id}',
+        '${evidence}','${reference}',null,null,0.000000001);`),
+        "no-charge receipt NULL remains distinct from a monetary value rounded to zero", "23505");
+    }
+    for (const invalidCost of ["-0.000000001", "0.050000001"]) deny(asRoleSql("service_role", null,
+      `SELECT public.portal_reconcile_ai_usage_service('${unknown.receiptId}','${unknown.id}','${evidence}',
+        '${reference}',${index === 0 ? "6,4" : "null,null"},${invalidCost});`), "original cost bounds remain effective on receipt replay", "22023");
+    deny(asRoleSql("service_role", null, reconcileSql.replace(reference, `${reference}:changed`)), "conflicting invoice/no-charge receipt is immutable", "23505");
+    assert.deepEqual(aiFinancialSnapshot(databaseUrl, [unknown.tenantId]), after,
+      "real-evidence replay/conflict has exactly one receipt and no timestamp/ledger rewrite");
+    const nextId = governanceUuid(75200 + index);
+    assert.equal(reserve(unknown, nextId, governanceUuid(75300 + index), `ai:v73:resolved-${index}`).outcome, "reserved",
+      "only real service evidence restores AI admission");
+  }
+  deny(asRoleSql("service_role", null, `SELECT public.portal_reconcile_ai_usage_service(
+    '${governanceUuid(75400)}','${historical.reservationId}','provider_invoice_usage_confirmed','invoice:v73:historical',6,4,0.005);`),
+    "historical timeout receipt cannot be silently overwritten by a later invoice", "23505");
+  deny(asRoleSql("service_role", null, `SELECT public.portal_reconcile_ai_usage_service(
+    '${governanceUuid(75401)}','${unknowns[0].id}','timeout_assumed_max','timeout:v73:forged',20000,512,0.05);`),
+    "real-evidence RPC cannot create a new timeout receipt", "22023");
+  assertFailed(runSql(databaseUrl, `UPDATE public.cost_events SET amount_usd=0 WHERE id='${historical.costId}';`),
+    "historical cost event remains append-only even for the fixture superuser");
+  assert.deepEqual(aiFinancialSnapshot(databaseUrl, [historical.tenantId]), historical.snapshot,
+    "historical synthetic settlement is preserved, not retrospectively certified or reconciled");
 }
 
 // D-V2-179: `portal_set_agent_video_config` tinha zero chamadores em todo o

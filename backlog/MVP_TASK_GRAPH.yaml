@@ -81,7 +81,7 @@ tasks:
     lane: security
     dependencies: [AUD-04]
     objective: Repair missing-usage accounting, billing-independent compensation, hidden paid retries, timeout assumptions, the development dependency advisory and dormant scene execution claims without provider effects.
-    primary_files: [pyproject.toml, uv.lock, .github/workflows/docs-qa.yml, tests/python/test_dependency_scan.py, packages/provider-openrouter/src/index.ts, tests/providers/openrouter.test.mjs, apps/portal/src/lib/paid-effects/reconciler.ts, tests/portal/provider-effect-reconciler.test.mjs, database/supabase-only/, scripts/supabase-portal-integration.mjs, scripts/validate_database_contract.py, tests/database/supabase-schema-lineage.test.mjs, apps/portal/src/lib/runtime/portal-channel-runtime-bridge.ts, tests/portal/runtime-channel-bridge.test.mjs, docs/adr/, docs/operations/]
+    primary_files: [pyproject.toml, uv.lock, .github/workflows/docs-qa.yml, tests/python/test_dependency_scan.py, packages/provider-openrouter/src/index.ts, tests/providers/openrouter.test.mjs, apps/portal/src/lib/paid-effects/reconciler.ts, tests/portal/provider-effect-reconciler.test.mjs, database/supabase-only/, scripts/supabase-portal-integration.mjs, scripts/validate_database_contract.py, tests/database/supabase-schema-lineage.test.mjs, apps/portal/src/lib/runtime/portal-channel-runtime-bridge.ts, tests/portal/runtime-channel-bridge.test.mjs, docs/adr/, docs/operations/, docs/security/SECURITY_ARCHITECTURE.md]
     acceptance:
       - Python advisory scan is green and cannot be confused with the npm gate
       - scene helper never claims successful execution without a controlled renderer

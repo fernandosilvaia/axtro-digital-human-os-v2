@@ -318,11 +318,6 @@ function asScopedRejection(code: unknown): "kill_switch_active" | "channel_inact
   return code === "kill_switch_active" ? "kill_switch_active" : "channel_inactive";
 }
 
-function requiredSceneDirector(value: PortalSceneDirector | undefined): PortalSceneDirector {
-  if (!value) throw new PortalRuntimeBridgeInputError("scene director is required to execute a scene");
-  return value;
-}
-
 /**
  * This helper is server-only by convention: caller identity must already be
  * resolved from a signed session or server-issued control-tower proof. The
@@ -355,7 +350,6 @@ export function createPortalChannelRuntimeBridge(dependencies: PortalChannelRunt
   const client = dependencies.rpc ?? createServiceRoleClient();
   const env = dependencies.env ?? process.env;
   const idGenerator = dependencies.idGenerator ?? createUuidV7;
-  const sceneDirector = dependencies.sceneDirector;
 
   const assertPortalChannelActive = async (input: PortalChannelStatusInput): Promise<PortalChannelStatusResult> => {
     if (!processEnabled(env)) return rejection("bridge_disabled");
@@ -548,27 +542,9 @@ export function createPortalChannelRuntimeBridge(dependencies: PortalChannelRunt
     const preflight = await assertPortalChannelActive({ tenantId: grant.tenantId, agentId: grant.agentId, channel: grant.channel, capability: STATUS_CAPABILITIES.scenePublish });
     if (preflight.outcome === "rejected") return rejection(preflight.code);
     if (generationId !== grant.generationId) return rejection("stale_generation");
-    const consumed = await consumePortalChannelGrant({ grant, consumerKind: "scene" });
-    if (consumed.outcome === "rejected") return rejection(consumed.code === "grant_consumed" ? "scene_rejected" : consumed.code);
-    const selected = requiredSceneDirector(sceneDirector).selectScene(input.sceneIntent, grant.capabilitySet);
-    if (selected.outcome !== "accepted") return rejection("scene_rejected");
-    if (selected.directive.generationId !== generationId) return rejection("stale_generation");
-    try {
-      const receipt = await rpcValue(client, PORTAL_RUNTIME_BRIDGE_RPC.executeScene, {
-        p_receipt_id: input.sceneId === undefined ? assertUuidV7(idGenerator(), "sceneId") : assertUuidV7(input.sceneId, "sceneId"),
-        p_grant_id: grant.grantId,
-        p_scene_id: selected.directive.manifestId,
-        p_manifest_id: selected.directive.manifestId,
-        p_generation: generationId,
-        p_outcome: "succeeded",
-        p_effect_hash: sha256Canonical({ grantId: grant.grantId, directive: selected.directive, generationId }),
-      });
-      if (receipt !== true) return rejection("scene_rejected");
-      return Object.freeze({ outcome: "executed", code: "scene_executed", directive: selected.directive });
-    } catch (error) {
-      if (error instanceof PortalRuntimeBridgeInputError) throw error;
-      return rejection("service_unavailable");
-    }
+    // Selection alone cannot prove an observed effect (ADR-038/048).
+    // Keep the grant unconsumed until a controlled renderer can acknowledge it.
+    return rejection("scene_rejected");
   };
 
   return Object.freeze({ admitPortalChannel, consumePortalChannelGrant, assertPortalProviderDispatchActive, bindPortalProviderChannel, assertPortalChannelActive, executePortalSceneIntent });

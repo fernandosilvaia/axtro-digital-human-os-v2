@@ -97,7 +97,7 @@ sessão exige `essential_processing` no guard do bounded context. Um grant com
 - dependency and container scans;
 - committed advisory snapshot for deterministic M0-M1 dependency scanning; malformed input and high or critical findings fail closed;
 - `security/dependency-advisories.json` is a versioned regression corpus, not a current vulnerability inventory. Empty or malformed input and known high or critical findings fail closed. The corpus covers historical nanoid, Next.js and sharp regressions.
-- CI also runs `pnpm audit --audit-level high` against the current registry before installation and fails on lookup errors. The offline corpus does not replace this gate. Python and container advisories still require a separate release check; npm audit does not cover them. See `../operations/AUDIT_2026-10-01.md` for local audit evidence.
+- CI also runs `pnpm audit --audit-level high` against the current registry before installation and fails on lookup errors. The offline corpus does not replace this gate. CI separately exports the frozen Python lock and runs pinned pip-audit 2.10.1 without ignores or error bypass. Container advisories still require a separate release check; npm audit does not cover them. See `../operations/AUDIT_2026-10-01.md` for local audit evidence.
 - signed images and provenance quando disponível;
 - SDK de provider encapsulado em adapter;
 - version pin, changelog review e canary.

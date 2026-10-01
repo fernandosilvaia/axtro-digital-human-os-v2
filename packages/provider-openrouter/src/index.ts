@@ -99,71 +99,36 @@ const MAX_MESSAGE_CHARS = 4000;
 const MAX_OUTPUT_TOKENS_CAP = 1024;
 const MODEL_PATTERN = /^[a-z0-9][a-z0-9._\/:-]{2,127}$/i;
 const DEFAULT_TIMEOUT_MS = 30_000;
-const RATE_LIMIT_RETRY_DELAY_MS = 400;
-const MAX_RATE_LIMIT_RETRY_DELAY_MS = 2000;
-
-interface RateLimitRetryAttempt {
+interface ProviderAttempt {
   readonly response: Response;
   readonly clearTimer: () => void;
 }
 
-/**
- * Uma única retentativa em HTTP 429 antes de desistir (achado onda 7,
- * D-V2-116): sem isto, uma contenção momentânea de capacidade compartilhada
- * no OpenRouter (rate limit é por definição transitório, ao contrário de um
- * 400/422 permanente) derrubava a chamada inteira na primeira resposta:
- * abortando um lote de embedding de conhecimento sem salvar nada, ou
- * devolvendo a fala de fallback genérica no meio de uma geração de texto.
- * O timer de timeout é recriado por tentativa e segue vivo até o corpo da
- * resposta MANTIDA ser consumido pelo chamador (disciplina de D-V2-109).
- */
-async function fetchWithRateLimitRetry(
+/** One physical paid attempt per reservation; timeout covers the response body. */
+async function fetchSingleAttempt(
   fetchImplementation: typeof fetch,
   url: string,
   init: { readonly method: string; readonly headers: Record<string, string>; readonly body: string },
   timeoutMs: number,
   providerLabel: string,
   revalidateBeforeDispatch?: () => void | Promise<void>,
-): Promise<RateLimitRetryAttempt> {
-  for (let attempt = 1; attempt <= 2; attempt++) {
-    await revalidateBeforeDispatch?.();
-    const controller = new AbortController();
-    const timer = setTimeout(() => controller.abort(), timeoutMs);
-    let response: Response;
-    try {
-      response = await fetchImplementation(url, { ...init, signal: controller.signal });
-    } catch (error) {
+): Promise<ProviderAttempt> {
+  await revalidateBeforeDispatch?.();
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), timeoutMs);
+  try {
+    const response = await fetchImplementation(url, { ...init, signal: controller.signal });
+    return { response, clearTimer: () => {
       clearTimeout(timer);
-      if (error instanceof Error && error.name === "AbortError") {
-        throw new TextGenerationError("provider_timeout", `${providerLabel} timed out after ${timeoutMs}ms`);
-      }
-      throw new TextGenerationError("provider_unavailable", `${providerLabel} request failed before a response`);
+      controller.abort();
+    } };
+  } catch (error) {
+    clearTimeout(timer);
+    if (error instanceof Error && error.name === "AbortError") {
+      throw new TextGenerationError("provider_timeout", `${providerLabel} timed out after ${timeoutMs}ms`);
     }
-    if (response.status === 429 && attempt === 1) {
-      clearTimeout(timer);
-      // O corpo do 429 nunca é lido: sem drenar/cancelar o stream, o socket
-      // subjacente fica preso aguardando o corpo até o keep-alive expirar,
-      // vazando conexões do pool sob rate-limit sustentado.
-      await response.body?.cancel().catch(() => {});
-      await sleep(rateLimitRetryDelayMs(response.headers.get("retry-after")));
-      continue;
-    }
-    return { response, clearTimer: () => clearTimeout(timer) };
+    throw new TextGenerationError("provider_unavailable", `${providerLabel} request failed before a response`);
   }
-  // Inatingível: o loop de 2 tentativas sempre retorna ou lança acima.
-  throw new TextGenerationError("provider_unavailable", `${providerLabel} request failed`);
-}
-
-function rateLimitRetryDelayMs(retryAfterHeader: string | null): number {
-  const parsed = retryAfterHeader !== null ? Number(retryAfterHeader) : NaN;
-  if (Number.isFinite(parsed) && parsed >= 0) {
-    return Math.min(parsed * 1000, MAX_RATE_LIMIT_RETRY_DELAY_MS);
-  }
-  return RATE_LIMIT_RETRY_DELAY_MS;
-}
-
-function sleep(ms: number): Promise<void> {
-  return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
 export function createOpenRouterTextGenerationPort(options: OpenRouterAdapterOptions): TextGenerationPort {
@@ -202,7 +167,7 @@ export function createOpenRouterTextGenerationPort(options: OpenRouterAdapterOpt
     async generate(request: TextGenerationRequest): Promise<TextGenerationResult> {
       validateRequest(request);
 
-      const { response, clearTimer } = await fetchWithRateLimitRetry(
+      const { response, clearTimer } = await fetchSingleAttempt(
         fetchImplementation,
         ENDPOINT,
         {
@@ -235,7 +200,8 @@ export function createOpenRouterTextGenerationPort(options: OpenRouterAdapterOpt
       // body pendurado não escapam do timeout (auditoria 2026-08-02).
       try {
         if (!response.ok) {
-          // Corpo de erro nunca é repassado cru: pode ecoar headers/entrada.
+          // Cancel unread bodies without awaiting hostile/pending cancellation; finally aborts this request.
+          void response.body?.cancel().catch(() => {});
           const code: TextGenerationErrorCode = response.status >= 500 ? "provider_unavailable" : "provider_rejected";
           throw new TextGenerationError(code, `OpenRouter respondeu HTTP ${response.status}`);
         }
@@ -302,7 +268,7 @@ export function createOpenRouterEmbeddingPort(options: OpenRouterAdapterOptions)
     async embed(request: EmbeddingRequest): Promise<EmbeddingResult> {
       validateEmbeddingRequest(request);
 
-      const { response, clearTimer } = await fetchWithRateLimitRetry(
+      const { response, clearTimer } = await fetchSingleAttempt(
         fetchImplementation,
         EMBEDDINGS_ENDPOINT,
         {
@@ -329,7 +295,8 @@ export function createOpenRouterEmbeddingPort(options: OpenRouterAdapterOptions)
 
       try {
         if (!response.ok) {
-          // Corpo de erro nunca é repassado cru: pode ecoar headers/entrada.
+          // Cancel unread bodies without awaiting hostile/pending cancellation; finally aborts this request.
+          void response.body?.cancel().catch(() => {});
           const code: TextGenerationErrorCode = response.status >= 500 ? "provider_unavailable" : "provider_rejected";
           throw new TextGenerationError(code, `OpenRouter respondeu HTTP ${response.status}`);
         }

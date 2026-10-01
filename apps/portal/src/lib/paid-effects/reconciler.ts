@@ -356,20 +356,32 @@ export async function reconcilePendingProviderEffects(
       continue;
     }
 
+    const providerRef = row.providerRef;
     try {
-      const billingVoid = await supabase.rpc("portal_void_unleased_billing_usage_service", {
-        p_reservation_id: row.reservationId,
-        p_reason: "cleanup_reconciliation",
-      });
-      if (billingVoid.error || billingVoid.data !== true) {
-        const voidError = new Error(billingVoid.error
-          ? `provider-effect billing void failed: ${billingVoid.error.message}`
-          : "provider-effect billing usage is leased or could not be voided");
-        voidError.name = "billing_void_unavailable";
-        throw voidError;
-      }
-      if (row.providerId === "tavus") await withTimeout(ports.tavus.endConversation(row.providerRef), providerTimeoutMs);
-      else await withTimeout(ports.recall.leaveCall(row.providerRef), providerTimeoutMs);
+      // ADR-048: stopping a known resource cannot depend on billing availability.
+      // Async wrappers capture synchronous throws as well as rejected promises.
+      const [billingVoid, termination] = await Promise.allSettled([
+        (async () => {
+          try {
+            const outcome = await supabase.rpc("portal_void_unleased_billing_usage_service", {
+              p_reservation_id: row.reservationId,
+              p_reason: "cleanup_reconciliation",
+            });
+            if (outcome.error || outcome.data !== true) throw new Error("billing void was not confirmed");
+          } catch {
+            const voidError = new Error("provider-effect billing usage could not be confirmed as voided");
+            voidError.name = "billing_void_unavailable";
+            throw voidError;
+          }
+        })(),
+        (async () => {
+          if (row.providerId === "tavus") await withTimeout(ports.tavus.endConversation(providerRef), providerTimeoutMs);
+          else await withTimeout(ports.recall.leaveCall(providerRef), providerTimeoutMs);
+        })(),
+      ]);
+      // Neither partial success authorizes a receipt or releases the barrier.
+      if (termination.status === "rejected") throw termination.reason;
+      if (billingVoid.status === "rejected") throw billingVoid.reason;
       const providerReceiptRef = providerTerminationReceiptRef(row.providerId, row.providerRef);
       const receiptId = stableProviderReconciliationReceiptId(row.reservationId, "compensation_confirmed", providerReceiptRef);
       const acknowledgement = await supabase.rpc("portal_ack_provider_effect_reconciliation_service", {

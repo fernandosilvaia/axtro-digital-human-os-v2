@@ -108,6 +108,33 @@ class DependencyScanTests(unittest.TestCase):
         self.assertLess(audit_index, install_index)
         self.assertNotIn("continue-on-error", workflow[scan_index:install_index])
 
+    def test_python_ci_exports_the_frozen_lock_and_audits_without_bypass(self) -> None:
+        import yaml
+        workflow = yaml.safe_load((ROOT / ".github/workflows/docs-qa.yml").read_text(encoding="utf-8"))
+        steps = workflow["jobs"]["validate-foundation"]["steps"]
+        audit = next(step for step in steps if "uvx pip-audit" in step.get("run", ""))
+        self.assertNotIn("continue-on-error", audit)
+        command = audit["run"]
+        self.assertIn("uv export --frozen --all-groups", command)
+        self.assertIn("--no-emit-project --no-emit-workspace", command)
+        self.assertIn("uvx pip-audit==2.10.1", command)
+        self.assertIn("--disable-pip --no-deps", command)
+        for bypass in ("--ignore-vuln", "||", "--no-audit"):
+            self.assertNotIn(bypass, command)
+
+    def test_python_export_contains_locked_fixed_pytest_and_no_local_projects(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            exported = Path(temporary_directory) / "requirements.txt"
+            completed = subprocess.run(["uv", "export", "--frozen", "--offline", "--all-groups",
+                "--format", "requirements-txt", "--no-hashes", "--no-emit-project", "--no-emit-workspace",
+                "--output-file", str(exported)], cwd=ROOT, text=True, capture_output=True, check=False)
+            self.assertEqual(0, completed.returncode, completed.stdout + completed.stderr)
+            requirements = exported.read_text(encoding="utf-8")
+            self.assertIn("pytest==9.0.3", requirements)
+            self.assertNotIn("pytest==8.4.2", requirements)
+            self.assertNotIn("-e ", requirements)
+            self.assertNotIn("file://", requirements)
+
     def _run_fixture(self, fixture: Path, advisory_path: Path) -> subprocess.CompletedProcess[str]:
         return subprocess.run(
             [sys.executable, str(SCANNER), "--root", str(fixture), "--advisories", str(advisory_path)],
