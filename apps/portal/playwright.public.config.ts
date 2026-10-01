@@ -27,6 +27,13 @@ export default defineConfig({
       NEXT_PUBLIC_SUPABASE_URL: "https://placeholder.supabase.co",
       NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY: "sb_publishable_placeholder",
       PORTAL_FAKE_PROVIDERS: "1",
+      // Explicit empties override inherited credentials and Next .env files.
+      TAVUS_API_KEY: "",
+      RECALL_API_KEY: "",
+      OPENROUTER_API_KEY: "",
+      RESEND_API_KEY: "",
+      STRIPE_SECRET_KEY: "",
+      GOOGLE_OAUTH_CLIENT_SECRET: "",
       PORTAL_PUBLIC_DEMO_STATE_SECRET: "000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f",
       PORTAL_PUBLIC_DEMO_EDGE_POLICY_ATTESTATION:
         "axtro-public-demo-edge/v3;scope=global;post-start=120/60s;post-command-end=600/60s;get-head-demo=900/60s;concurrency=32;queue=0;reject=429",

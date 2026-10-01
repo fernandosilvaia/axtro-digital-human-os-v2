@@ -38,8 +38,8 @@ export function CreateAgentForm() {
         </button>
       </div>
       <p style={{ fontSize: "0.76rem", color: "var(--text-faint)", margin: "10px 0 0" }}>
-        O agente é criado como rascunho, ative quando quiser. A persona de vídeo (voz e avatar) é
-        provisionada automaticamente na ativação.
+        O agente é criado como rascunho, ative quando quiser. A disponibilidade de voz e avatar
+        depende de onboarding e provisionamento aprovado pela plataforma.
       </p>
       {state.error && <p className="form-error" role="alert" style={{ margin: "10px 0 0" }}>{state.error}</p>}
       {state.done && !state.error && (

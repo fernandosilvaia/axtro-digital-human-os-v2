@@ -33,6 +33,13 @@ export default defineConfig({
     timeout: 120_000,
     env: {
       PORTAL_FAKE_PROVIDERS: "1",
+      // Explicit empties override inherited credentials and Next .env files.
+      TAVUS_API_KEY: "",
+      RECALL_API_KEY: "",
+      OPENROUTER_API_KEY: "",
+      RESEND_API_KEY: "",
+      STRIPE_SECRET_KEY: "",
+      GOOGLE_OAUTH_CLIENT_SECRET: "",
       NEXT_PUBLIC_SUPABASE_URL: "http://127.0.0.1:58421",
       NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY: "sb_publishable_ACJWlzQHlZjBrEguHvfOxg_3BJgxAaH",
       SUPABASE_SERVICE_ROLE_KEY:

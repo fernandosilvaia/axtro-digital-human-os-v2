@@ -47,6 +47,12 @@ export default async function KnowledgePage() {
         </p>
       </header>
 
+      {isAdmin && (
+        <p style={{ color: "var(--text-muted)", fontSize: "0.85rem" }}>
+          A exclusão individual de fontes está indisponível. Revogar impede o uso do conteúdo e preserva o registro.
+        </p>
+      )}
+
       {sources.length === 0 ? (
         <div className="empty-state">
           <div className="icon" aria-hidden="true">▤</div>

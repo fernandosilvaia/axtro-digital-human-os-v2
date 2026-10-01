@@ -5,7 +5,7 @@ import { SITE_NAME } from "@/lib/site";
 import { StatusBadge } from "@/components/status-badge";
 
 import { AgentStatusToggle } from "./agent-status-toggle";
-import { AgentDeleteButton } from "./agent-delete-button";
+import { AgentDeletionUnavailable } from "./agent-delete-button";
 import { CreateAgentForm } from "./create-agent-form";
 
 export const metadata: Metadata = { title: `Agentes, ${SITE_NAME}` };
@@ -39,6 +39,8 @@ export default async function AgentsPage() {
           Apresentadores digitais da sua conta, cada um com papel, políticas e provedores próprios.
         </p>
       </header>
+
+      {isAdmin && <AgentDeletionUnavailable />}
 
       {agents.length === 0 ? (
         <div className="empty-state">
@@ -75,7 +77,6 @@ export default async function AgentsPage() {
                         Testar
                       </a>
                       {isAdmin && <AgentStatusToggle agentId={agent.id} status={agent.status} />}
-                      {isAdmin && agent.status === "draft" && <AgentDeleteButton agentId={agent.id} agentName={agent.name} />}
                     </td>
                   </tr>
                 ))}

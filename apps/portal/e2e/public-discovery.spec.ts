@@ -285,3 +285,33 @@ test("bypass da demo é exato e prefixos parecidos continuam protegidos", async 
   }
 });
 
+
+for (const viewport of [{width: 1280, height: 900}, {width: 390, height: 844}]) {
+  test(`demo ativa e encerrada acessível em ${viewport.width}px`, async ({ browser }) => {
+    const context = await browser.newContext({viewport});
+    const page = await context.newPage();
+    try {
+      await page.goto("/");
+      await page.getByRole("button", {name: "Assistir à demonstração"}).click();
+      await expect(page.getByRole("heading", {name: /Entenda a operação antes/i})).toBeVisible();
+      await expectNoHorizontalOverflow(page);
+      const active = await new AxeBuilder({page}).withTags(["wcag2a", "wcag2aa", "wcag21a", "wcag21aa"]).analyze();
+      expect(active.violations, JSON.stringify(active.violations.map(({id, nodes}) => ({id, targets: nodes.map(node => node.target)})))).toEqual([]);
+      const budget = page.locator("aside strong");
+      await expect(budget).toHaveText("12");
+      // Exercise the real bounded endpoint instead of mocking a terminal UI.
+      for (let remaining = 11; remaining >= 0; remaining--) {
+        await page.getByRole("button", {name: "Recomeçar percurso"}).click();
+        await expect(budget).toHaveText(String(remaining));
+      }
+      await page.getByRole("button", {name: "Recomeçar percurso"}).click();
+      await expect(page.getByRole("heading", {name: "A simulação terminou sem persistir dados."})).toBeVisible();
+      await expectNoHorizontalOverflow(page);
+      const ended = await new AxeBuilder({page}).withTags(["wcag2a", "wcag2aa", "wcag21a", "wcag21aa"]).analyze();
+      expect(ended.violations, JSON.stringify(ended.violations.map(({id, nodes}) => ({id, targets: nodes.map(node => node.target)})))).toEqual([]);
+      await expect(page.getByRole("button", {name: "Iniciar nova sessão"})).toBeVisible();
+    } finally {
+      await context.close();
+    }
+  });
+}

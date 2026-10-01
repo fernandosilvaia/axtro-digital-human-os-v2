@@ -293,11 +293,11 @@ test("termos e privacidade são públicos e linkados no signup", async ({ page, 
   await expect(page.locator('a[href="/privacidade"]')).toBeVisible();
 });
 
-test("ciclo de vida completo do agente: criar → ativar → pausar → excluir", async ({ page }) => {
+test("ciclo de vida do agente: criar, ativar, pausar e preservar sem exclusão", async ({ page }) => {
   await login(page);
   await page.goto("/agentes");
 
-  // Nome único por execução, e o teste limpa atrás de si via exclusão.
+  // Fixture isolada preservada: exclusão individual não está disponível.
   const agentName = `E2E Ciclo ${Date.now().toString(36)}`;
   await page.fill("#agent-name", agentName);
   await page.getByRole("button", { name: "Criar rascunho" }).click();
@@ -312,13 +312,15 @@ test("ciclo de vida completo do agente: criar → ativar → pausar → excluir"
   await row.getByRole("button", { name: "Pausar" }).click();
   await expect(row.getByRole("button", { name: "Ativar" })).toBeVisible({ timeout: 20_000 });
 
-  // Exclusão exige dupla confirmação deliberada.
-  await row.getByRole("button", { name: `Excluir o rascunho ${agentName}` }).click();
-  await row.getByRole("button", { name: `Confirmar exclusão de ${agentName}` }).click();
-  await expect(row).not.toBeVisible({ timeout: 20_000 });
+  await expect(row.getByRole("button", { name: /Excluir|Confirmar exclusão/i })).toHaveCount(0);
+  await expect(page.getByText("A exclusão individual de agentes está indisponível.", { exact: false })).toBeVisible();
+  await page.reload();
+  await expect(row).toBeVisible();
+  await expect(row.getByRole("button", { name: "Ativar" })).toBeVisible();
+  await expect(row.getByRole("button", { name: /Excluir|Confirmar exclusão/i })).toHaveCount(0);
 });
 
-test("ciclo de vida da fonte: criar pendente → excluir", async ({ page }) => {
+test("ciclo de vida da fonte: preservar pendente e manter revogação reversível", async ({ page }) => {
   await login(page);
   await page.goto("/conhecimento");
 
@@ -328,9 +330,25 @@ test("ciclo de vida da fonte: criar pendente → excluir", async ({ page }) => {
   const row = page.locator("tr", { hasText: sourceName });
   await expect(row).toBeVisible({ timeout: 30_000 });
 
-  await row.getByRole("button", { name: `Excluir a fonte ${sourceName}` }).click();
-  await row.getByRole("button", { name: `Confirmar exclusão da fonte ${sourceName}` }).click();
-  await expect(row).not.toBeVisible({ timeout: 20_000 });
+  await expect(row.getByText("Pendente", { exact: true })).toBeVisible();
+  await expect(row.getByRole("button", { name: /Excluir|Confirmar exclusão|Revogar|Reativar/i })).toHaveCount(0);
+  await expect(page.getByText("A exclusão individual de fontes está indisponível.", { exact: false })).toBeVisible();
+  await page.reload();
+  await expect(row).toBeVisible();
+  await expect(row.getByText("Pendente", { exact: true })).toBeVisible();
+  await expect(page.getByRole("button", { name: /Excluir|Confirmar exclusão/i })).toHaveCount(0);
+
+  // A fonte ingerida da fixture pode ser revogada e restaurada; a fonte
+  // pendente acima ainda não tem conteúdo elegível para ativação.
+  const ingestedName = "Método Silva, Biblioteca de Objeções e Respostas (Kit 05)";
+  const ingestedRow = page.locator("tr", { hasText: ingestedName });
+  await ingestedRow.getByRole("button", { name: `Revogar a fonte ${ingestedName}` }).click();
+  await expect(ingestedRow.getByRole("button", { name: `Reativar a fonte ${ingestedName}` })).toBeVisible({ timeout: 20_000 });
+  await ingestedRow.getByRole("button", { name: `Reativar a fonte ${ingestedName}` }).click();
+  await expect(ingestedRow.getByRole("button", { name: `Revogar a fonte ${ingestedName}` })).toBeVisible({ timeout: 20_000 });
+  await page.reload();
+  await expect(ingestedRow.getByRole("button", { name: `Revogar a fonte ${ingestedName}` })).toBeVisible();
+  await expect(row).toBeVisible();
 });
 
 async function login(page: import("@playwright/test").Page): Promise<void> {

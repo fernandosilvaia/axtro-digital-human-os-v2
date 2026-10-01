@@ -72,8 +72,8 @@
 | `AUD-01` | done | Dependências, isolamento E2E e gate de worker |
 | `AUD-02` | done | Autorização pré-custo e atribuição de ativos de vídeo |
 | `AUD-03` | done | Lifecycle de mídia e completion durante interrupção |
-| `AUD-04` | in_progress | Disponibilidade de exclusão e browser |
-| `AUD-05` | planned | Reparos econômicos, advisory Python e receipt de cena |
+| `AUD-04` | done | Disponibilidade de exclusão e browser |
+| `AUD-05` | in_progress | Reparos econômicos, advisory Python e receipt de cena |
 | `AUD-06` | planned | Evidências finais e opções open source |
 
 | ID | Marco | Status | Título | Dependências | Evidência |
@@ -1323,3 +1323,7 @@ Next.js 16.3.6, sharp 0.35.5 e baseline-browser-mapping 2.11.26 corrigem os advi
 ### AUD-03 concluída, 2026-10-01
 
 ADR-047 e contrato fechado 70 publicados localmente antes do producer/consumer. 17 casos do servidor, 20 replays de coordinator, 77 replays TSX e 11 testes de geração passaram. Revisões arquitetura, realtime e QA aprovaram; typecheck/lint/diff verdes. Cleanup local não dispara provider stop, efeito possível preserva intenção, storage tem namespace tenant+agent+canal, completion interrompido não retoma geração concluída. Mensagem sem conversation_id preserva compatibilidade sob chamada/epoch capturados; mismatch recusado. Unknown sem referência e fechamento da aba exigem reconciliação durável futura; não existe prova de silêncio físico. AUD-04 iniciada para disponibilidade de exclusão e browser, incluindo remoção de credenciais herdadas dos testes. Revisão financeira adicional identificou quatro reparos para AUD-05, com fronteira final documental AUD-06.
+
+### AUD-04 concluída, 2026-10-01
+
+UI deixa explícita a indisponibilidade da exclusão individual e preserva ativação, pausa, revogação e reativação. Providers reais são apagados do ambiente local/public de Playwright. 17 E2E autenticados passaram em 49,5 s, com exatamente um POST/login e cache validado em dashboard protegido; 14 E2E públicos passaram em 58,4 s, incluindo demo ativa/encerrada com axe em desktop/mobile. QA independente: 15 testes focados verdes; Portal typecheck e diffcheck verdes. AUD-05 iniciada para contabilidade conservadora, compensação independente, tentativa paga única, advisory Python e helper de cena fechado sem renderer.

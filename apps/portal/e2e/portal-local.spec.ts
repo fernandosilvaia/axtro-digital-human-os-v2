@@ -13,11 +13,9 @@ import { expect, test } from "@playwright/test";
  * .env.local nunca pode ser usado por testes autenticados.
  */
 
-// Leitura defensiva: este arquivo também é descoberto pelo playwright.config.ts
-// padrão (testDir: "./e2e", sem exclusão), que roda contra produção via
-// .env.local. Sem isto, a ausência de .env.e2e-local.local (todo ambiente
-// que não montou o Supabase local deste repo) derrubaria o import do módulo
-// inteiro em vez de pular os testes como o portal.spec.ts original já faz.
+// A configuração local descobre apenas esta suíte; as configurações padrão
+// e pública selecionam seus próprios arquivos. A leitura defensiva permite
+// listar esta suíte sem credenciais e informar a fixture local ausente.
 let env: Record<string, string> = {};
 try {
   const envFile = readFileSync(resolve(import.meta.dirname, "../.env.e2e-local.local"), "utf8");
@@ -35,6 +33,16 @@ const E2E_TENANT_ADMIN_EMAIL = env.E2E_TENANT_ADMIN_EMAIL ?? "";
 const E2E_TENANT_ADMIN_PASSWORD = env.E2E_TENANT_ADMIN_PASSWORD ?? "";
 const RAFAELA_ID = "019f6de0-0000-7000-8000-0000000a0001";
 const BRUNO_NAME = "Bruno, Closer Empresarial";
+// Cookie cache is process-local and never written to disk or logged. Each
+// Playwright context remains isolated; only authenticated tests opt in.
+let fixtureAuthCookies: Awaited<ReturnType<import("@playwright/test").BrowserContext["cookies"]>> = [];
+let fixturePasswordRequests = 0;
+
+function observePasswordRequests(page: import("@playwright/test").Page) {
+  page.on("request", (request) => {
+    if (request.method() === "POST" && new URL(request.url()).pathname === "/login") fixturePasswordRequests += 1;
+  });
+}
 
 function authCookiesAreIdentical(
   left: readonly Readonly<{ name: string; value: string; domain: string; path: string }>[],
@@ -53,11 +61,17 @@ function authCookiesAreIdentical(
 test.beforeAll(() => {
   test.skip(
     E2E_TENANT_ADMIN_EMAIL.length === 0 || E2E_TENANT_ADMIN_PASSWORD.length === 0,
-    "E2E_TENANT_ADMIN_EMAIL/E2E_TENANT_ADMIN_PASSWORD ausentes em .env.local",
+    "E2E_TENANT_ADMIN_EMAIL/E2E_TENANT_ADMIN_PASSWORD ausentes em .env.e2e-local.local",
   );
 });
 
 test.describe.configure({ mode: "serial" });
+
+test.afterAll(() => {
+  if (E2E_TENANT_ADMIN_EMAIL && E2E_TENANT_ADMIN_PASSWORD) {
+    expect(fixturePasswordRequests, "a suíte deve autenticar por senha uma única vez e reutilizar a sessão real").toBe(1);
+  }
+});
 
 test("landing pública renderiza e aponta para login", async ({ page }) => {
   await page.goto("/");
@@ -111,6 +125,7 @@ test("rota protegida sem sessão redireciona para login", async ({ page }) => {
 });
 
 test("login da fixture de cliente leva à central com progresso e custos explicitamente atribuídos", async ({ page }) => {
+  observePasswordRequests(page);
   await page.goto("/login");
   await page.fill('input[type="email"]', E2E_TENANT_ADMIN_EMAIL);
   await page.fill('input[type="password"]', E2E_TENANT_ADMIN_PASSWORD);
@@ -122,6 +137,8 @@ test("login da fixture de cliente leva à central com progresso e custos explici
   // T8: painel de custo (ledger de efeitos pagos, M5-01 renomeou de "estimado" para "atribuído").
   await expect(page.getByText("Custo atribuído hoje")).toBeVisible();
   await expect(page.getByText("Ledger estimado/reportado: não é a fatura conciliada")).toBeVisible();
+  fixtureAuthCookies = (await page.context().cookies()).filter((cookie) => cookie.name.startsWith("sb-"));
+  expect(fixtureAuthCookies.length > 0, "login real deve produzir sessão da fixture").toBe(true);
 });
 
 test("demo isolada preserva cookies, tenant e papel do cliente autenticado", async ({ page, context }) => {
@@ -211,13 +228,50 @@ test("agentes: lista carrega e admin ativa e pausa um rascunho", async ({ page }
   await expect(brunoRow.getByRole("button", { name: "Ativar" })).toBeVisible({ timeout: 20_000 });
 });
 
-test("preview textual permanece fechado durante a recuperação contract-first", async ({ page }) => {
+test("preview textual permanece fechado e vídeo sem provider libera uma nova tentativa", async ({ page }) => {
   await login(page);
+  await page.addInitScript(() => {
+    const writes: { key: string; value: string }[] = [];
+    Object.defineProperty(window, "__e2eCallWrites", { value: writes });
+    const setItem = Storage.prototype.setItem;
+    Storage.prototype.setItem = function (key, value) {
+      setItem.call(this, key, value);
+      if (this === window.sessionStorage && key.startsWith("axtro:call:")) writes.push({ key, value });
+    };
+  });
+  const remoteProviderRequests: string[] = [];
+  page.on("request", (request) => {
+    const hostname = new URL(request.url()).hostname;
+    if (/(?:^|\.)(?:tavus\.(?:io|ai)|daily\.co)$/.test(hostname)) remoteProviderRequests.push(hostname);
+  });
   await page.goto(`/agentes/${RAFAELA_ID}/testar`);
   const preview = page.locator('section[aria-labelledby="text-preview-recovery-title"]');
   await expect(preview.getByRole("heading", { name: "Proteção de privacidade em restauração" })).toBeVisible();
   await expect(preview.getByText("Nenhum provider, ledger ou transcript é acionado", { exact: false })).toBeVisible();
   await expect(preview.locator("form, input, textarea, button")).toHaveCount(0);
+
+  const videoConsent = page.getByRole("group", { name: "Consentimento para esta demonstração" });
+  for (const label of [/processamento essencial/, /gravação de áudio/, /transcrição persistente/, /análise comportamental/, /análise visual/]) {
+    await videoConsent.getByLabel(label).check();
+  }
+  const startVideo = page.getByRole("button", { name: "Iniciar conversa em vídeo" });
+  await expect(startVideo).toBeEnabled();
+  await startVideo.click();
+  await expect(page.getByRole("alert").filter({ hasText: "O provider de vídeo ainda não está configurado neste ambiente." })).toBeVisible();
+  await expect(startVideo).toBeEnabled();
+  const marker = await page.evaluate((agentId) => {
+    const writes = ((window as Window & { __e2eCallWrites?: { key: string; value: string }[] }).__e2eCallWrites ?? [])
+      .filter(({ key }) => key.endsWith(`:${encodeURIComponent(agentId)}:video`));
+    const written = writes[0];
+    return {
+      writes: writes.length,
+      tenantNamespaced: written?.key.split(":").length === 5 && Boolean(written.key.split(":")[2]),
+      commandIsUuid: /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(written?.value ?? ""),
+      cleared: written !== undefined && window.sessionStorage.getItem(written.key) === null,
+    };
+  }, RAFAELA_ID);
+  expect(marker).toEqual({ writes: 1, tenantNamespaced: true, commandIsUuid: true, cleared: true });
+  expect(remoteProviderRequests).toEqual([]);
 });
 
 test("apresentação simulada abre o deck e navega slides", async ({ page }) => {
@@ -310,10 +364,8 @@ test("termos e privacidade são públicos e linkados no signup", async ({ page, 
 // superfície pública: nunca existiu um jeito de logar de verdade pra testar
 // o app-shell autenticado (o motivo desta suíte local inteira existir) até
 // esta suíte rodar pela primeira vez. Mesma varredura, agora nas 5 páginas
-// do menu principal. Colocado antes dos dois testes que já se sabe que
-// falham (comentário logo abaixo): a suíte inteira roda em modo serial, e
-// uma falha interrompe o restante do arquivo -- testes depois de uma falha
-// conhecida nunca rodariam.
+// do menu principal. A suíte é serial e preserva os registros de ciclo
+// de vida: a exclusão individual está indisponível.
 //
 // Um único teste faz um único login e varre as 5 páginas na mesma sessão,
 // em vez de 5 testes chamando login() cada um: um login por página nesta
@@ -341,19 +393,11 @@ test("app-shell autenticado não tem violação de acessibilidade WCAG 2.1 A/AA 
   expect(allViolations, `violações de acessibilidade: ${JSON.stringify(allViolations, null, 2)}`).toEqual({});
 });
 
-// Achado rodando esta suíte pela primeira vez (2026-09-27): este teste e o
-// seguinte ("ciclo de vida da fonte") FALHAM no passo de exclusão, e é
-// esperado -- migration 0059 desativou a exclusão direta de agentes e
-// fontes (só resta o pedido formal de disposição de dados, tenant inteiro).
-// Mesmo achado do portal.spec.ts original, nunca corrigido lá porque nunca
-// tinha rodado. Redesenho dos botões de exclusão já está numa tarefa
-// separada pendente com o Fernando; quando resolvida, atualizar os dois
-// testes aqui (e no portal.spec.ts original) pra refletir o novo fluxo.
-test("ciclo de vida completo do agente: criar → ativar → pausar → excluir", async ({ page }) => {
+test("ciclo de vida do agente: criar, ativar, pausar e preservar sem exclusão", async ({ page }) => {
   await login(page);
   await page.goto("/agentes");
 
-  // Nome único por execução, e o teste limpa atrás de si via exclusão.
+  // Fixture isolada preservada: exclusão individual não está disponível.
   const agentName = `E2E Ciclo ${Date.now().toString(36)}`;
   await page.fill("#agent-name", agentName);
   await page.getByRole("button", { name: "Criar rascunho" }).click();
@@ -368,13 +412,15 @@ test("ciclo de vida completo do agente: criar → ativar → pausar → excluir"
   await row.getByRole("button", { name: "Pausar" }).click();
   await expect(row.getByRole("button", { name: "Ativar" })).toBeVisible({ timeout: 20_000 });
 
-  // Exclusão exige dupla confirmação deliberada.
-  await row.getByRole("button", { name: `Excluir o rascunho ${agentName}` }).click();
-  await row.getByRole("button", { name: `Confirmar exclusão de ${agentName}` }).click();
-  await expect(row).not.toBeVisible({ timeout: 20_000 });
+  await expect(row.getByRole("button", { name: /Excluir|Confirmar exclusão/i })).toHaveCount(0);
+  await expect(page.getByText("A exclusão individual de agentes está indisponível.", { exact: false })).toBeVisible();
+  await page.reload();
+  await expect(row).toBeVisible();
+  await expect(row.getByRole("button", { name: "Ativar" })).toBeVisible();
+  await expect(row.getByRole("button", { name: /Excluir|Confirmar exclusão/i })).toHaveCount(0);
 });
 
-test("ciclo de vida da fonte: criar pendente → excluir", async ({ page }) => {
+test("ciclo de vida da fonte: preservar pendente e manter revogação reversível", async ({ page }) => {
   await login(page);
   await page.goto("/conhecimento");
 
@@ -384,17 +430,44 @@ test("ciclo de vida da fonte: criar pendente → excluir", async ({ page }) => {
   const row = page.locator("tr", { hasText: sourceName });
   await expect(row).toBeVisible({ timeout: 30_000 });
 
-  await row.getByRole("button", { name: `Excluir a fonte ${sourceName}` }).click();
-  await row.getByRole("button", { name: `Confirmar exclusão da fonte ${sourceName}` }).click();
-  await expect(row).not.toBeVisible({ timeout: 20_000 });
+  await expect(row.getByText("Pendente", { exact: true })).toBeVisible();
+  await expect(row.getByRole("button", { name: /Excluir|Confirmar exclusão|Revogar|Reativar/i })).toHaveCount(0);
+  await expect(page.getByText("A exclusão individual de fontes está indisponível.", { exact: false })).toBeVisible();
+  await page.reload();
+  await expect(row).toBeVisible();
+  await expect(row.getByText("Pendente", { exact: true })).toBeVisible();
+  await expect(page.getByRole("button", { name: /Excluir|Confirmar exclusão/i })).toHaveCount(0);
+
+  // A fonte ingerida da fixture pode ser revogada e restaurada; a fonte
+  // pendente acima ainda não tem conteúdo elegível para ativação.
+  const ingestedName = "Método Silva, Biblioteca de Objeções e Respostas (Kit 05)";
+  const ingestedRow = page.locator("tr", { hasText: ingestedName });
+  await ingestedRow.getByRole("button", { name: `Revogar a fonte ${ingestedName}` }).click();
+  await expect(ingestedRow.getByRole("button", { name: `Reativar a fonte ${ingestedName}` })).toBeVisible({ timeout: 20_000 });
+  await ingestedRow.getByRole("button", { name: `Reativar a fonte ${ingestedName}` }).click();
+  await expect(ingestedRow.getByRole("button", { name: `Revogar a fonte ${ingestedName}` })).toBeVisible({ timeout: 20_000 });
+  await page.reload();
+  await expect(ingestedRow.getByRole("button", { name: `Revogar a fonte ${ingestedName}` })).toBeVisible();
+  await expect(row).toBeVisible();
 });
 
 async function login(page: import("@playwright/test").Page): Promise<void> {
+  observePasswordRequests(page);
+  if (fixtureAuthCookies.length > 0) {
+    await page.context().addCookies(fixtureAuthCookies);
+    // /login renders its form even with valid auth. Verify the cached real
+    // session at a protected route instead of submitting the password again.
+    await page.goto("/dashboard");
+    await expect(page).toHaveURL(/\/dashboard$/);
+    await expect(page.getByRole("heading", { name: "Central da sua operação de conversa." })).toBeVisible();
+    fixtureAuthCookies = (await page.context().cookies()).filter((cookie) => cookie.name.startsWith("sb-"));
+    expect(fixtureAuthCookies.length > 0, "a sessão real reutilizada deve permanecer válida").toBe(true);
+    return;
+  }
   await page.goto("/login");
-  // Sessão persistida de teste anterior redireciona direto.
-  if (page.url().includes("/dashboard")) return;
   await page.fill('input[type="email"]', E2E_TENANT_ADMIN_EMAIL);
   await page.fill('input[type="password"]', E2E_TENANT_ADMIN_PASSWORD);
   await page.click('button[type="submit"]');
   await page.waitForURL(/\/dashboard/, { timeout: 30_000 });
+  fixtureAuthCookies = (await page.context().cookies()).filter((cookie) => cookie.name.startsWith("sb-"));
 }
