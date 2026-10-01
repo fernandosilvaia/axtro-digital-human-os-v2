@@ -1,0 +1,56 @@
+{
+  "schema_version": "1.0.0",
+  "date": "2026-10-01",
+  "scope": "local_corrective_audit",
+  "branch": "codex/audit-2026-10-01",
+  "baseline_commit": "3f0a489",
+  "code_commit": "a91f03e",
+  "findings_documented": 24,
+  "tests": {
+    "node": {
+      "passed": 1977,
+      "failed": 0,
+      "skipped": 0
+    },
+    "python": {
+      "passed": 35
+    },
+    "browser_authenticated_local": {
+      "passed": 17
+    },
+    "browser_public_production_build": {
+      "passed": 14
+    },
+    "validators": {
+      "passed": 9
+    }
+  },
+  "postgres": {
+    "portal_migrations_applied_in_ephemeral_harness": "0001-0073",
+    "core_integration": "passed",
+    "rls_integration": "passed"
+  },
+  "advisory_snapshot": {
+    "npm_known_findings": 0,
+    "python_packages_checked": 12,
+    "python_known_findings": 0
+  },
+  "gates": {
+    "lint": "passed",
+    "workspace_build": "passed",
+    "portal_typecheck": "passed",
+    "portal_production_build": "passed",
+    "contract_generation": "passed"
+  },
+  "evidence_limits": {
+    "browser_suite_boundary": "AUD-04",
+    "manual_browser_boundary": "AUD-05",
+    "real_provider_canary": false,
+    "physical_silence_proven": false,
+    "remote_schema_reconfirmed": false,
+    "remote_migrations_applied": false,
+    "published": false,
+    "m6_04_canonical_ready": false,
+    "historical_financial_adjustments_complete": false
+  }
+}

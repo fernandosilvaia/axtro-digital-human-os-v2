@@ -4,6 +4,10 @@
 
 O primeiro produto é o **Sales Closer Role Pack**, mas o kernel não é acoplado a vendas. A mesma fundação poderá suportar SDR, onboarding, customer success, suporte, recepção e outros papéis empresariais.
 
+Auditoria local de 2026-10-01: [relatório e 24 achados](docs/operations/AUDIT_2026-10-01.md).
+Gates: 1.977 Node + 35 Python, 31 cenários de browser e PostgreSQL até 0073.
+Correções permanecem locais; M6-04 e homologação audiovisual continuam pendentes.
+
 ## Estado real da entrega
 
 **Duas camadas com níveis distintos de evidência.** O kernel M0-M3 (fundação genérica de

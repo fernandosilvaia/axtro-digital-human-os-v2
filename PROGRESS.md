@@ -1,14 +1,13 @@
 # Progresso de implementação
 
-## Auditoria autônoma de 2026-10-01, em progresso
+## Auditoria autônoma de 2026-10-01, incremento local concluído
 
-- Pedido: auditar o sistema, corrigir falhas verificáveis, avaliar melhorias open source e exercer a experiência no navegador.
-- Baseline: `main`; alteração preexistente em `apps/portal/next-env.d.ts` preservada. A situação de produção descrita abaixo é histórica, não foi reconfirmada nesta auditoria.
-- Tarefa normativa continua `M6-04` (`in_progress`). Revisões read-only independentes cobrem segurança do Portal, governança de dados, realtime, arquitetura e qualidade. Cada correção terá write set fechado, regressão e fronteira própria.
-- Primeiro gate: `python3 scripts/validate_all.py` encontrou Python global sem PyYAML/jsonschema. `uv sync` confirmou as dependências locais; os validadores serão executados pelo ambiente do projeto. Isso não é falha de contrato nem um gate verde.
-- Regra de parada: encerrar o incremento quando correções confirmadas estiverem testadas e revisadas, com relatório de cobertura e pendências. Não inferir prontidão comercial, aplicar migrations remotas nem realizar efeitos pagos a partir de testes locais.
-- Baseline confirmada: 1.797 testes Node + 31 Python; nove validadores e lint verdes. `db:portal:test` falhou antes das fases por contagem 69 diante de 70 migrations; essa evidência é vermelha, apesar do último histórico verde. Browser autenticado local: 15 passaram, exclusão direta de rascunho falhou como previsto pela política SQL e o último teste não executou. Auditoria online de dependências: três críticas e uma alta; snapshot offline cobre somente nanoid.
-- Incremento M6-04 validado: migration forward-only `0071`, subject write fence, cobertura das seis tabelas novas, drenagem de efeitos calendar/checkout e monotonicidade do fake. Gate canônico M6-04 continua fechado até completar seus critérios. `pnpm db:portal:test` percorreu 0001-0071 e passou; build e 27 testes de workflow verdes. Falsificação com função histórica reprovou subject UPDATE como esperado; PK, INSERT/UPDATE/DELETE das seis tabelas e reservas não terminais foram exercidos. A contagem do teste de lineage também foi atualizada para 71.
+- Baseline `main` em `3f0a489`; entrega local em `codex/audit-2026-10-01`. A alteração preexistente em `apps/portal/next-env.d.ts` foi preservada.
+- 24 achados documentados em [AUDIT_2026-10-01.md](docs/operations/AUDIT_2026-10-01.md); sete fronteiras convencionais, incluindo o reparo inicial M6-04 e AUD01-AUD06. Revisões independentes de segurança, dados, realtime, arquitetura, qualidade e custos.
+- Correções: dependências/gates, fences de dados/efeitos, autorização antes de embeddings, atribuição governada de assets, lifecycle de chamada, recuperação conservadora, completion, disponibilidade de exclusão, evidência monetária e idempotência. 70 contratos locais com geração determinística.
+- Evidência: 1.977 Node + 35 Python, lint, build, Portal typecheck/build, nove validadores e PostgreSQL 0001-0073 verdes; core DB/RLS passaram. Browser: 17 E2E locais + 14 públicos e inspeção manual desktop/mobile. Advisory snapshots npm/PyPI sem vulnerabilidades conhecidas; CI consulta ambos novamente.
+- Tarefa normativa `M6-04` permanece `in_progress` e `dataGovernanceCanonicalContractsReady=false`. Nenhum provider real, migration remota, push ou deploy nesta auditoria; estado hospedado histórico não foi reconfirmado.
+- Regra de parada atendida: reparos confirmados testados/revisados, relatório e evidência disponíveis. Limites de invoices/ledger históricos, unknown, revogação concorrente, asset ownership, recuperação durável e mídia real estão descritos no relatório com próximos passos. Opções open source são experimentos propostos, sem seleção definitiva de provider.
 
 **Snapshot histórico de 2026-08-31 (produção não reconfirmada):** M0-M6-03 com código e validação local concluídos; M6-04 permanece em progresso com sua fundação validada localmente até a migration 0059. O Portal do commit `70baf02` está publicado no Railway, enquanto o Supabase hospedado foi confirmado pelo predeploy em schema v50 e não recebeu a 0059. A demo pública deixou de autenticar um usuário e tenant compartilhados: agora é uma simulação sintética, isolada por cookie HMAC, limitada, descartável e sem caminho para banco, provider ou efeito pago. A notificação terminal usa outbox durável, e o core do preview textual permanece hard-closed até M6-06. A promoção realtime continua bloqueada por uma fronteira de mídia P0 não comprovada.
 
@@ -74,7 +73,7 @@
 | `AUD-03` | done | Lifecycle de mídia e completion durante interrupção |
 | `AUD-04` | done | Disponibilidade de exclusão e browser |
 | `AUD-05` | done | Reparos econômicos, advisory Python e receipt de cena |
-| `AUD-06` | in_progress | Evidências finais e opções open source |
+| `AUD-06` | done | Evidências finais e opções open source |
 
 | ID | Marco | Status | Título | Dependências | Evidência |
 |---|---|---|---|---|---|
@@ -1331,3 +1330,7 @@ UI deixa explícita a indisponibilidade da exclusão individual e preserva ativa
 ### AUD-05 concluída, 2026-10-01
 
 ADR-048 implementada: envelope de tokens ausentes, replay histórico sem reescrita, custo canônico na precisão existente com bounds brutos antes de round, timeout sem falsa invoice, compensação independente de billing, POST único e helper de cena fechado sem renderer. PostgreSQL 0001-0073 passou, incluindo fixtures anteriores e novas, snapshots imutáveis, NULL/no-charge, conflitos e isolamento; revisões de dados e custos aprovaram. Root gates: 1.977 Node + 35 Python, lint e nove validadores verdes; Portal typecheck/build verdes. Python registry: 12 pacotes, zero advisories, pytest 9.0.3 e gate CI pip-audit 2.10.1. Revisão arquitetura/QA aprovou 85 testes focados. Quantização monetária, ajustes históricos e unknown sem recuperação pelo Portal continuam explícitos. AUD-06 iniciada para relatório final, evidência visual e opções open source.
+
+### AUD-06 concluída, 2026-10-01
+
+Relatório reconcilia 24 achados, scopes de evidência, gates e limites. JSON de validação aponta a91f03e como código validado e distingue browser, fake, SQL e publicação. Screenshots nativas JPEG finais registram desktop e mobile, sem conversão de pixels. LiveKit, pgvector, whisper.cpp e Promptfoo têm fontes oficiais e experimentos, mais três hipóteses de produto. Docs QA, contract drift e diffcheck passaram. Não foi declarado M6-04 concluído nem promoção de produção.
