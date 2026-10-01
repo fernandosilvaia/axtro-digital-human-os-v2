@@ -12,6 +12,30 @@ SCANNER = ROOT / "scripts" / "dependency_scan.py"
 
 
 class DependencyScanTests(unittest.TestCase):
+    def test_empty_corpus_cannot_claim_a_clean_regression_result(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            fixture = Path(temporary_directory)
+            self._write_locks(fixture)
+            advisory_path = fixture / "advisories.json"
+            advisory_path.write_text(json.dumps({"schema_version": "1.0.0", "advisories": []}), encoding="utf-8")
+            completed = self._run_fixture(fixture, advisory_path)
+            self.assertNotEqual(0, completed.returncode)
+            self.assertIn("cannot be empty", completed.stdout)
+
+    def test_committed_corpus_blocks_vulnerable_next_and_sharp_versions(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            fixture = Path(temporary_directory)
+            self._write_locks(fixture)
+            advisory_path = ROOT / "security" / "dependency-advisories.json"
+            for package, vulnerable, patched in (("next", "16.3.0", "16.3.6"), ("sharp", "0.35.3", "0.35.4")):
+                for version, expected_clean in ((vulnerable, False), (patched, True)):
+                    (fixture / "pnpm-lock.yaml").write_text(
+                        f"lockfileVersion: '9.0'\n\npackages:\n  '{package}@{version}':\n    resolution: {{integrity: sha512-test}}\n",
+                        encoding="utf-8",
+                    )
+                    completed = self._run_fixture(fixture, advisory_path)
+                    self.assertEqual(expected_clean, completed.returncode == 0, completed.stdout + completed.stderr)
+
     def test_committed_locks_pass_the_deterministic_gate(self) -> None:
         completed = subprocess.run(
             [sys.executable, str(SCANNER)],
@@ -80,6 +104,9 @@ class DependencyScanTests(unittest.TestCase):
         scan_index = workflow.index("python3 scripts/dependency_scan.py")
         install_index = workflow.index("pnpm install --frozen-lockfile")
         self.assertLess(scan_index, install_index)
+        audit_index = workflow.index("run: pnpm audit --audit-level high")
+        self.assertLess(audit_index, install_index)
+        self.assertNotIn("continue-on-error", workflow[scan_index:install_index])
 
     def _run_fixture(self, fixture: Path, advisory_path: Path) -> subprocess.CompletedProcess[str]:
         return subprocess.run(

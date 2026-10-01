@@ -69,8 +69,8 @@
 
 | ID | Status | Fronteira |
 |---|---|---|
-| `AUD-01` | planned | Dependências, isolamento E2E e gate de worker |
-| `AUD-02` | planned | Autorização pré-custo e atribuição de ativos de vídeo |
+| `AUD-01` | done | Dependências, isolamento E2E e gate de worker |
+| `AUD-02` | in_progress | Autorização pré-custo e atribuição de ativos de vídeo |
 | `AUD-03` | planned | Lifecycle de mídia e completion durante interrupção |
 | `AUD-04` | planned | Disponibilidade de exclusão e browser |
 | `AUD-05` | planned | Evidências e opções open source |
@@ -1310,3 +1310,7 @@ bake-off credenciado de provider e piloto interno real de M3-10.
 - Última peça de código puro do funil ADR-041 sem bloqueio externo: `metodo-silva.ts` só ensinava o modelo a usar as tools de cena, zero instrução sobre `register_lead`/`propose_meeting_slots`/`confirm_meeting_slot`. Parágrafo novo "AGENDAMENTO E CONTATO" (pt-BR e inglês), no mesmo estilo dos parágrafos vizinhos ("MODO APRESENTAÇÃO", "HANDOFF"): quando oferecer cada tool, como converter a lista de horários pra fala natural mantendo a posição certa, e a cláusula de segurança central: nunca declarar a reunião confirmada por conta própria, sempre seguir o texto literal que a tool devolve.
 - Confirmado que o prompt continua bem abaixo do teto de 14.000 chars já travado por teste (`tests/portal/metodo-silva-brain.test.mjs`). Teste novo cobrindo os 3 nomes de tool e a cláusula de segurança nas duas línguas. Gate completo verde: `tsc --build --force`, `pnpm lint`, 1523 testes Node + 31 Python, `validate_all.py` 9/9.
 - Com isso, as 4 peças de código puro que a auditoria de 11 agentes (D-V2-163) tinha identificado estão fechadas. O que resta pro go-live 100% depende só de decisão/credencial/infra do Fernando: ADR-040 (Stripe Connect) do zero, credenciais Google Calendar/Telnyx, WAF da demo pública, P0 de media boundary, religar o GitHub Actions financeiro (desabilitado manualmente em 26/08), e religar M6-04 (governança de dados).
+
+### AUD-01 concluída, 2026-10-01
+
+Next.js 16.3.6, sharp 0.35.5 e baseline-browser-mapping 2.11.26 corrigem os advisories encontrados. Audit atual do registry sem vulnerabilidades; build e 12 E2E públicos passaram. Corpus offline explícito, gate online de CI sem bypass, 35 regressões de isolamento E2E e summaries de workers passaram. Nove validadores passaram com inventário v71. AUD-02 iniciada: autorização antes de embeddings e fechamento de atribuição arbitrária de persona/replica. Nenhuma migration remota ou efeito pago executado.

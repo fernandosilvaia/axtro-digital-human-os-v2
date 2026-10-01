@@ -502,7 +502,7 @@ test("scheduled dispatcher is periodic, manually runnable and validates URL/secr
   assert.match(workflow, /--max-time 480/);
   assert.doesNotMatch(workflow, /^\s*--retry\b/m);
   assert.match(workflow, /Authorization: Bearer \$\{BILLING_DISPATCH_SECRET\}/);
-  assert.match(workflow, /jq -e -f scripts\/worker-response-gate\.jq/);
+  assert.match(workflow, /jq -e --arg worker billing -f scripts\/worker-response-gate\.jq/);
   assert.match(workflow, /held,oldestHeldAgeSeconds,providerInFlight,unknown,cleanupPending,oldestProviderPendingAgeSeconds/);
   const route = await readFile(new URL("../../apps/portal/src/app/api/internal/billing-usage/route.ts", import.meta.url), "utf8");
   assert.match(route, /isBillingUsageDispatchEnabled\(env\)/);
@@ -513,45 +513,44 @@ test("scheduled dispatcher is periodic, manually runnable and validates URL/secr
   assert.match(runbook, /test mode/);
 });
 
-test("worker response gate fails closed for every critical result and backlog counter", () => {
+test("billing response gate requires the complete observable result and independent catalog verification", () => {
   const gate = fileURLToPath(new URL("../../scripts/worker-response-gate.jq", import.meta.url));
-  const run = (payload) => spawnSync("jq", ["-e", "-f", gate], {
-    input: JSON.stringify(payload),
-    encoding: "utf8",
+  const run = (payload, worker = "billing") => spawnSync("jq", ["-e", "--arg", "worker", worker, "-f", gate], {
+    input: JSON.stringify(payload), encoding: "utf8",
   }).status;
-
-  const billingSuccess = Object.freeze({
-    ok: true,
-    catalogVerified: true,
-    failed: 0,
-    deadLettered: 0,
-    deadLetterBacklog: 0,
-    unknown: 0,
-    cleanupPending: 0,
-  });
-  assert.equal(run(billingSuccess), 0, "billing payload may omit operatorRequired");
-  const reconcilerSuccess = { ...billingSuccess, operatorRequired: 0 };
-  delete reconcilerSuccess.catalogVerified;
-  assert.equal(run(reconcilerSuccess), 0, "reconciler payload requires zero operator work");
-
-  assert.notEqual(run({ ...billingSuccess, ok: false }), 0);
-  assert.notEqual(run({ ...billingSuccess, catalogVerified: false }), 0);
-  const missingCatalog = { ...billingSuccess };
-  delete missingCatalog.catalogVerified;
-  assert.notEqual(run(missingCatalog), 0, "billing payload cannot omit catalog verification");
-  for (const counter of ["failed", "deadLettered", "deadLetterBacklog", "unknown", "cleanupPending"]) {
-    const absent = { ...billingSuccess };
-    delete absent[counter];
-    assert.notEqual(run(absent), 0, `${counter} cannot be absent`);
-    for (const value of [null, "0", 1]) {
-      assert.notEqual(run({ ...billingSuccess, [counter]: value }), 0, `${counter}=${String(value)} must fail`);
+  const success = {
+    ok: true, catalogVerified: true, leased: 2, delivered: 2, failed: 0, deadLettered: 0,
+    backlog: 0, deadLetterBacklog: 0, held: 0, providerInFlight: 0, unknown: 0, cleanupPending: 0,
+    oldestAgeSeconds: null, oldestHeldAgeSeconds: null, oldestProviderPendingAgeSeconds: null,
+  };
+  assert.equal(run(success), 0);
+  assert.equal(run({ ...success, operatorRequired: 0 }), 0);
+  assert.equal(run({ ...success, backlog: 2, held: 1, providerInFlight: 1,
+    oldestAgeSeconds: 3, oldestHeldAgeSeconds: 5, oldestProviderPendingAgeSeconds: 10 }), 0);
+  for (const worker of ["reconciler", "unknown", ""]) assert.notEqual(run(success, worker), 0);
+  for (const payload of [null, [], 0, "result", true, {}]) assert.notEqual(run(payload), 0);
+  for (const name of Object.keys(success)) {
+    const missing = { ...success }; delete missing[name];
+    assert.notEqual(run(missing), 0, `${name} must be present`);
+  }
+  for (const name of ["leased", "delivered", "failed", "deadLettered", "backlog", "deadLetterBacklog",
+    "held", "providerInFlight", "unknown", "cleanupPending"]) {
+    for (const value of [null, "0", -1, 0.5, false, {}, []]) {
+      assert.notEqual(run({ ...success, [name]: value }), 0, `${name} rejects ${JSON.stringify(value)}`);
     }
   }
-  for (const value of [null, "0", 1]) {
-    assert.notEqual(
-      run({ ...billingSuccess, operatorRequired: value }),
-      0,
-      `operatorRequired=${String(value)} must fail when present`,
-    );
+  for (const name of ["failed", "deadLettered", "deadLetterBacklog", "unknown", "cleanupPending", "operatorRequired"]) {
+    assert.notEqual(run({ ...success, [name]: 1 }), 0, `${name} must be zero`);
   }
+  for (const name of ["oldestAgeSeconds", "oldestHeldAgeSeconds", "oldestProviderPendingAgeSeconds"]) {
+    for (const value of ["0", -1, 0.5, false, {}, []]) assert.notEqual(run({ ...success, [name]: value }), 0);
+    assert.equal(run({ ...success, [name]: 0 }), 0);
+  }
+  for (const payload of [
+    { ...success, ok: false }, { ...success, catalogVerified: false },
+    { ...success, catalogVerified: "true" }, { ...success, operatorRequired: 0, catalogVerified: false },
+    { ...success, backlog: 1 }, { ...success, held: 1 }, { ...success, providerInFlight: 1 },
+  ]) assert.notEqual(run(payload), 0);
+  const bypass = { ...success, operatorRequired: 0 }; delete bypass.catalogVerified;
+  assert.notEqual(run(bypass), 0, "operatorRequired cannot replace billing catalog verification");
 });

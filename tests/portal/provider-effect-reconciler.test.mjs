@@ -1,5 +1,7 @@
 import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
+import { spawnSync } from "node:child_process";
+import { fileURLToPath } from "node:url";
 import { registerHooks } from "node:module";
 import test from "node:test";
 
@@ -466,7 +468,7 @@ test("scheduled operation is periodic, protected, bounded and fail-closed", asyn
   assert.match(workflow, /Authorization: Bearer \$\{PROVIDER_EFFECT_RECONCILE_SECRET\}/);
   assert.match(workflow, /--max-time 90/);
   assert.doesNotMatch(workflow, /^\s*--retry\b/m);
-  assert.match(workflow, /jq -e -f scripts\/worker-response-gate\.jq/);
+  assert.match(workflow, /jq -e --arg worker reconciler -f scripts\/worker-response-gate\.jq/);
   const automaticRoute = await readFile(new URL("../../apps/portal/src/app/api/internal/provider-effects/reconcile/route.ts", import.meta.url), "utf8");
   const manualRoute = await readFile(new URL("../../apps/portal/src/app/api/internal/provider-effects/manual/route.ts", import.meta.url), "utf8");
   assert.match(automaticRoute, /isProviderEffectReconcilerEnabled\(env\)/);
@@ -477,4 +479,42 @@ test("scheduled operation is periodic, protected, bounded and fail-closed", asyn
   assert.match(manualRoute, /status: 404/);
   assert.doesNotMatch(manualRoute, /PROVIDER_EFFECT_RECONCILE_SECRET|manuallyReconcileProviderEffect/);
   assert.doesNotMatch(manualRoute, /tenantId|actorId/);
+});
+
+
+test("reconciler response gate rejects incomplete, unobservable and cross-worker results", () => {
+  const gate = fileURLToPath(new URL("../../scripts/worker-response-gate.jq", import.meta.url));
+  const run = (payload, worker = "reconciler") => spawnSync("jq", ["-e", "--arg", "worker", worker, "-f", gate], {
+    input: JSON.stringify(payload), encoding: "utf8",
+  }).status;
+  const success = {
+    ok: true, leased: 2, reconciled: 2, failed: 0, deadLettered: 0, operatorRequired: 0,
+    backlog: 0, processing: 0, deadLetterBacklog: 0, providerInFlight: 0, unknown: 0,
+    cleanupPending: 0, oldestAgeSeconds: null, oldestUnknownAgeSeconds: null,
+  };
+  assert.equal(run(success), 0);
+  assert.equal(run({ ...success, backlog: 1, processing: 1, providerInFlight: 2, oldestAgeSeconds: 10 }), 0);
+  for (const worker of ["billing", "unknown", ""]) assert.notEqual(run(success, worker), 0);
+  for (const payload of [null, [], 0, "result", true, {}]) assert.notEqual(run(payload), 0);
+  for (const name of Object.keys(success)) {
+    const missing = { ...success }; delete missing[name];
+    assert.notEqual(run(missing), 0, `${name} must be present`);
+  }
+  for (const name of ["leased", "reconciled", "failed", "deadLettered", "operatorRequired", "backlog",
+    "processing", "deadLetterBacklog", "providerInFlight", "unknown", "cleanupPending"]) {
+    for (const value of [null, "0", -1, 0.5, false, {}, []]) {
+      assert.notEqual(run({ ...success, [name]: value }), 0, `${name} rejects ${JSON.stringify(value)}`);
+    }
+  }
+  for (const name of ["failed", "deadLettered", "deadLetterBacklog", "unknown", "cleanupPending", "operatorRequired"]) {
+    assert.notEqual(run({ ...success, [name]: 1 }), 0, `${name} must be zero`);
+  }
+  for (const name of ["oldestAgeSeconds", "oldestUnknownAgeSeconds"]) {
+    for (const value of ["0", -1, 0.5, false, {}, []]) assert.notEqual(run({ ...success, [name]: value }), 0);
+    assert.equal(run({ ...success, [name]: 0 }), 0);
+  }
+  for (const payload of [{ ...success, ok: false }, { ...success, backlog: 1 },
+    { ...success, processing: 1 }, { ...success, operatorRequired: 1, catalogVerified: true }]) {
+    assert.notEqual(run(payload), 0);
+  }
 });

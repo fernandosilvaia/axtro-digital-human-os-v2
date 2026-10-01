@@ -96,7 +96,8 @@ sessão exige `essential_processing` no guard do bounded context. Um grant com
 - SBOM por release;
 - dependency and container scans;
 - committed advisory snapshot for deterministic M0-M1 dependency scanning; malformed input and high or critical findings fail closed;
-- the snapshot (`security/dependency-advisories.json`) sat empty from M0 through the project's current milestone (M4) with no refresh mechanism: it vacuously passed `scripts/dependency_scan.py` regardless of lockfile content the entire time, letting a real HIGH CVE (nanoid, GHSA-2V37-7H3G-55P8) sit in `pnpm-lock.yaml` undetected until wave-7 hardening audit found it (D-V2-116, 2026-08-12). Fixed the immediate finding (bumped nanoid within its 3.x line via `pnpm-workspace.yaml` `overrides`, populated the snapshot with the real historical entry) but the refresh is still a manual, undocumented-cadence operational step, not an automated one, per this doc's own design intent (network-free, deterministic scan), an automated live query was deliberately not added; a human needs to periodically re-run `pnpm audit`/`uv` equivalent and update this file, ideally as a required step before each release milestone gate, not left to chance;
+- `security/dependency-advisories.json` is a versioned regression corpus, not a current vulnerability inventory. Empty or malformed input and known high or critical findings fail closed. The corpus covers historical nanoid, Next.js and sharp regressions.
+- CI also runs `pnpm audit --audit-level high` against the current registry before installation and fails on lookup errors. The offline corpus does not replace this gate. Python and container advisories still require a separate release check; npm audit does not cover them. See `../operations/AUDIT_2026-10-01.md` for local audit evidence.
 - signed images and provenance quando disponível;
 - SDK de provider encapsulado em adapter;
 - version pin, changelog review e canary.

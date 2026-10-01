@@ -56,5 +56,5 @@ jobs:
             jq -c '{ok,error}' "${RESPONSE_FILE}" 2>/dev/null || true
             exit 1
           fi
-          jq -e -f scripts/worker-response-gate.jq "${RESPONSE_FILE}" >/dev/null
+          jq -e --arg worker billing -f scripts/worker-response-gate.jq "${RESPONSE_FILE}" >/dev/null
           jq -c '{leased,delivered,failed,deadLettered,backlog,oldestAgeSeconds,deadLetterBacklog,held,oldestHeldAgeSeconds,providerInFlight,unknown,cleanupPending,oldestProviderPendingAgeSeconds}' "${RESPONSE_FILE}"

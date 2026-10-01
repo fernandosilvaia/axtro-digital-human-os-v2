@@ -53,5 +53,5 @@ jobs:
             jq -c '{ok,error}' "${RESPONSE_FILE}" 2>/dev/null || true
             exit 1
           fi
-          jq -e -f scripts/worker-response-gate.jq "${RESPONSE_FILE}" >/dev/null
+          jq -e --arg worker reconciler -f scripts/worker-response-gate.jq "${RESPONSE_FILE}" >/dev/null
           jq -c '{leased,reconciled,failed,deadLettered,operatorRequired,backlog,processing,deadLetterBacklog,providerInFlight,unknown,cleanupPending,oldestAgeSeconds,oldestUnknownAgeSeconds}' "${RESPONSE_FILE}"

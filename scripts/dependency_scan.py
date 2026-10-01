@@ -1,9 +1,9 @@
 #!/usr/bin/env python3
 """Deterministic high-severity dependency gate for committed JS and Python locks.
 
-The advisory snapshot is versioned with the repository. This script never opens
-the network, so M0-M1 gates remain reproducible and fail closed when the locks
-or snapshot cannot be parsed.
+The versioned advisory corpus is a regression gate, not a current registry audit.
+This script never opens the network. CI separately runs pnpm audit so newly
+published advisories and lookup failures cannot silently become a clean result.
 """
 from __future__ import annotations
 
@@ -52,6 +52,8 @@ def load_advisories(path: Path) -> tuple[Advisory, ...]:
         raise DependencyScanError("advisory snapshot has an invalid shape")
     if raw.get("schema_version") != "1.0.0" or not isinstance(raw.get("advisories"), list):
         raise DependencyScanError("advisory snapshot has an unsupported version")
+    if not raw["advisories"]:
+        raise DependencyScanError("advisory regression corpus cannot be empty")
 
     advisories: list[Advisory] = []
     seen: set[tuple[str, str, str]] = set()
@@ -201,7 +203,7 @@ def main(argv: list[str] | None = None) -> int:
         for dependency, advisory in findings:
             print(f"- {advisory.identifier}: {dependency.ecosystem}:{dependency.name}@{dependency.version} ({advisory.severity})")
         return 1
-    print("DEPENDENCY SCAN PASSED: no high or critical findings in committed locks")
+    print("DEPENDENCY SCAN PASSED: no known high or critical findings in the versioned regression corpus; run pnpm audit for current registry advisories")
     return 0
 
 
