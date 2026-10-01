@@ -77,3 +77,11 @@ Fixtures de áudio ou eventos para:
 - agente falando demais.
 
 Cada replay produz timeline e métricas determinísticas.
+
+## Completion durante interrupção (ADR-047)
+
+Completion da geração vigente em `committed` ou `agent_interrupted` libera o
+floor para `idle`, limpa geração e counters. Silêncio posterior não retoma
+playback concluído. Completion de geração antiga é ignorado, inclusive quando
+outra geração está interrompida. O evento confirma fim lógico do turno, não
+silêncio físico de um provider remoto.

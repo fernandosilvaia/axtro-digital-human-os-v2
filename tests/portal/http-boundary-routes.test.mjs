@@ -637,13 +637,14 @@ test("Resend webhook returns 413 for declared and chunked overflow before signat
 });
 
 test("every browser video consumer revalidates the provider URL, and video-call.tsx no longer embeds the provider by raw iframe", async () => {
-  const [videoCall, presentationRoom, externalMeeting] = await Promise.all([
+  const [videoCall, presentationRoom, externalMeeting, lifecycle] = await Promise.all([
     readFile(new URL("../../apps/portal/src/app/(app)/agentes/[id]/testar/video-call.tsx", import.meta.url), "utf8"),
     readFile(new URL("../../apps/portal/src/app/(app)/agentes/[id]/testar/presentation-room.tsx", import.meta.url), "utf8"),
     readFile(new URL("../../apps/portal/src/app/(app)/agentes/[id]/testar/external-meeting.tsx", import.meta.url), "utf8"),
+    readFile(new URL("../../apps/portal/src/app/(app)/agentes/[id]/testar/call-lifecycle.ts", import.meta.url), "utf8"),
   ]);
 
-  for (const source of [videoCall, presentationRoom, externalMeeting]) {
+  for (const source of [lifecycle, externalMeeting]) {
     assert.match(source, /isTrustedTavusConversationUrl/);
   }
   // ADR-041: video-call.tsx (modo vídeo livre) migrou do <iframe> puro pro
@@ -653,6 +654,8 @@ test("every browser video consumer revalidates the provider URL, and video-call.
   // volta a embutir o provider por iframe.
   assert.doesNotMatch(videoCall, /<iframe/);
   assert.doesNotMatch(presentationRoom, /<iframe/);
-  assert.match(videoCall, /createCallObject/);
-  assert.match(videoCall, /@daily-co\/daily-js/);
+  assert.match(videoCall, /useCallLifecycle/);
+  assert.match(presentationRoom, /useCallLifecycle/);
+  assert.match(lifecycle, /createCallObject/);
+  assert.match(lifecycle, /@daily-co\/daily-js/);
 });

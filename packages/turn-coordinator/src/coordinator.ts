@@ -292,7 +292,7 @@ export function createTurnCoordinator(profile: TurnCoordinatorProfile): TurnCoor
         return;
       }
       case "presenter_turn_completed": {
-        if (state !== "committed" || signal.generationId !== currentGenerationId) return;
+        if ((state !== "committed" && state !== "agent_interrupted") || signal.generationId !== currentGenerationId) return;
         transition("presenter_turn_completed", signal.atMs);
         currentGenerationId = null;
         candidateVoicedMs = 0;

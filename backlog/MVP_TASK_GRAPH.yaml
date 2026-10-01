@@ -22,7 +22,7 @@ milestones:
     exit_gate: M5-03
   Audit:
     name: Local corrective audit 2026-10-01
-    exit_gate: AUD-05
+    exit_gate: AUD-06
 tasks:
   - id: AUD-01
     milestone: Audit
@@ -55,7 +55,7 @@ tasks:
     lane: realtime
     dependencies: [AUD-02]
     objective: Retain early media tracks, suppress results from earlier calls, clean partial Daily objects and release completed generations during interruptions.
-    primary_files: ["apps/portal/src/app/(app)/agentes/[id]/testar/", packages/turn-coordinator/, tests/portal/, tests/realtime/, docs/adr/]
+    primary_files: ["apps/portal/src/app/(app)/agentes/[id]/testar/", apps/portal/src/lib/actions/video-conversation.ts, contracts/, packages/contracts-ts/, packages/contracts-py/, packages/turn-coordinator/, scripts/generate_contract_types.py, scripts/validate_contracts.py, tests/portal/, tests/realtime/, tests/python/test_contract_generation.py, docs/adr/, docs/architecture/TURN_COORDINATOR.md]
     acceptance:
       - tracks received during join attach when media elements mount and stopped tracks detach
       - result from call A is never sent to call B after restart or unmount
@@ -68,17 +68,33 @@ tasks:
     lane: frontend
     dependencies: [AUD-03]
     objective: Make individual deletion availability truthful while preserving governance controls and finish local browser validation.
-    primary_files: ["apps/portal/src/app/(app)/agentes/", "apps/portal/src/app/(app)/conhecimento/", apps/portal/e2e/, tests/ui/]
+    primary_files: ["apps/portal/src/app/(app)/agentes/", "apps/portal/src/app/(app)/conhecimento/", apps/portal/e2e/, apps/portal/playwright.local.config.ts, apps/portal/playwright.public.config.ts, tests/ui/]
     acceptance:
       - UI does not offer successful individual deletion where the SQL workflow refuses it
       - local E2E verifies preserved resources, usable status transitions and source revocation
       - public demo active and ended states pass accessibility checks
+      - local and public test environments erase inherited provider credentials before browser interaction
     tests: [authenticated local browser flow, resource preservation, demo axe checks, desktop and mobile visual inspection]
   - id: AUD-05
     milestone: Audit
-    title: Reconcile audit evidence and open-source improvement options
+    title: Repair residual economic, advisory and execution gates
     lane: documentation
     dependencies: [AUD-04]
+    objective: Repair missing-usage accounting, billing-independent compensation, hidden paid retries, timeout assumptions, the development dependency advisory and dormant scene execution claims without provider effects.
+    primary_files: [pyproject.toml, uv.lock, .github/workflows/docs-qa.yml, tests/python/test_dependency_scan.py, packages/provider-openrouter/src/index.ts, tests/providers/openrouter.test.mjs, apps/portal/src/lib/paid-effects/reconciler.ts, tests/portal/provider-effect-reconciler.test.mjs, database/supabase-only/, scripts/supabase-portal-integration.mjs, scripts/validate_database_contract.py, tests/database/supabase-schema-lineage.test.mjs, apps/portal/src/lib/runtime/portal-channel-runtime-bridge.ts, tests/portal/runtime-channel-bridge.test.mjs, docs/adr/, docs/operations/]
+    acceptance:
+      - Python advisory scan is green and cannot be confused with the npm gate
+      - scene helper never claims successful execution without a controlled renderer
+      - cost-bearing responses with missing token usage consume a conservative envelope and preserve reported cost
+      - compensation tries known provider termination even when billing void fails, without premature ACK
+      - one reservation causes at most one physical OpenRouter attempt and ambiguous effects remain unknown
+      - elapsed time never fabricates a provider invoice or terminal reconciliation receipt
+    tests: [PostgreSQL usage and invoice replay, cleanup with failed billing, one-attempt adapter replay, Python registry audit, scene no-effect gate]
+  - id: AUD-06
+    milestone: Audit
+    title: Reconcile final evidence and open-source improvement options
+    lane: documentation
+    dependencies: [AUD-05]
     objective: Record exact local evidence, honest remaining release gaps and source-backed reversible improvement experiments.
     primary_files: [README.md, PROGRESS.md, docs/operations/, artifacts/audit-2026-10-01/]
     acceptance:

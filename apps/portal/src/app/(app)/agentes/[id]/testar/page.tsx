@@ -38,6 +38,10 @@ export default async function AgentPreviewPage({ params }: { params: Promise<{ i
   if (!agent) notFound();
   // Fuso da CONTA pro agendamento/painel de reuniões: "15:00" tem que ser
   // 15:00 no relógio do dono da conta (auditoria 2026-08-02).
+  if (!overview.tenant?.id) {
+    return <div className="error-banner" role="alert">Não foi possível confirmar a conta desta sessão. Recarregue a página antes de iniciar uma chamada.</div>;
+  }
+  const tenantId = overview.tenant.id;
   const timeZone = overview.tenant?.default_timezone ?? "America/New_York";
   // Status do cerebro e a URL que a persona precisa chamar. `fetchAgentBrainStatus`
   // ja degrada para "nao configurado" em qualquer falha, entao nunca derruba a pagina.
@@ -83,8 +87,8 @@ export default async function AgentPreviewPage({ params }: { params: Promise<{ i
       />
       <ExternalMeeting agentId={agent.id} agentName={agent.name} timeZone={timeZone} />
       <MeetingSessions agentId={agent.id} timeZone={timeZone} />
-      <PresentationRoom agentId={agent.id} agentName={agent.name} />
-      <VideoCall agentId={agent.id} agentName={agent.name} />
+      <PresentationRoom tenantId={tenantId} agentId={agent.id} agentName={agent.name} />
+      <VideoCall tenantId={tenantId} agentId={agent.id} agentName={agent.name} />
       <div style={{ height: 16 }} />
       <PreviewChat agentId={agent.id} agentName={agent.name} />
       <ClosingProposal agentId={agent.id} agentName={agent.name} />

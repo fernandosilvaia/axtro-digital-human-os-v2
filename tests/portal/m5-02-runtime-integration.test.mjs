@@ -3,7 +3,7 @@ import { readFile } from "node:fs/promises";
 import test from "node:test";
 
 const root = new URL("../../", import.meta.url);
-const [videoActions, meetingActions, leadRoute, recallRoute, presentationClient, videoClient, bridgeMigration, businessActionToolCall, toolCallDispatcher] = await Promise.all([
+const [videoActions, meetingActions, leadRoute, recallRoute, presentationClient, videoClient, bridgeMigration, businessActionToolCall, toolCallDispatcher, lifecycle] = await Promise.all([
   readFile(new URL("apps/portal/src/lib/actions/video-conversation.ts", root), "utf8"),
   readFile(new URL("apps/portal/src/lib/actions/meeting-bot.ts", root), "utf8"),
   readFile(new URL("apps/portal/src/app/api/leads/video-session/route.ts", root), "utf8"),
@@ -13,6 +13,7 @@ const [videoActions, meetingActions, leadRoute, recallRoute, presentationClient,
   readFile(new URL("database/supabase-only/0043_portal_runtime_bridge_contract.sql", root), "utf8"),
   readFile(new URL("apps/portal/src/lib/actions/business-action-tool-call.ts", root), "utf8"),
   readFile(new URL("apps/portal/src/app/(app)/agentes/[id]/testar/tool-call-dispatcher.ts", root), "utf8"),
+  readFile(new URL("apps/portal/src/app/(app)/agentes/[id]/testar/call-lifecycle.ts", root), "utf8"),
 ]);
 
 function appearsBefore(source, first, second, message) {
@@ -46,26 +47,21 @@ test("a Recall callback needs a matching durable grant and consumes Tavus immedi
 });
 
 test("provider tool calls cannot mutate the browser scene or report false success", () => {
-  // ADR-041 wave B: handleToolCall now also reads `agentId` (business_action
-  // path, dispatched to the server), so its useCallback dependency array grew
-  // from [] to [agentId] -- the scene branch below is byte-identical to what
-  // it was before that ADR, only the closing bracket text changed.
-  const handler = presentationClient.match(/const handleToolCall[\s\S]*?\n  }, \[agentId\]\);/)?.[0] ?? "";
+  assert.match(presentationClient, /useCallLifecycle/);
+  const handler = lifecycle.slice(lifecycle.indexOf("const handleTool ="), lifecycle.indexOf("const start ="));
   assert.match(handler, /Comando de cena recusado/);
-  assert.match(handler, /status: "error"/);
+  assert.match(handler, /"error"/);
   assert.doesNotMatch(handler, /goTo\(/);
   assert.doesNotMatch(handler, /status: "success"/);
   assert.match(presentationClient, /manifesto, geração e recibo validados pelo servidor/);
 });
 
-test("video-call.tsx (post ADR-041 Daily migration) also cannot mutate scene or report false success, and dispatches business actions with mode video", () => {
-  const handler = videoClient.match(/const handleToolCall[\s\S]*?\n  }, \[agentId\]\);/)?.[0] ?? "";
-  assert.match(handler, /Comando de cena recusado/);
-  assert.match(handler, /status: "error"/);
-  assert.doesNotMatch(handler, /status: "success"/);
-  assert.match(handler, /dispatchToolCall\(\{ agentId, commandId, mode: "video", message \}\)/);
-  assert.match(videoClient, /createCallObject/);
-  assert.match(videoClient, /app-message/);
+test("video mode uses the shared Daily lifecycle and sends business actions with captured command identity", () => {
+  assert.match(videoClient, /useCallLifecycle/);
+  assert.match(videoClient, /mode: "video"/);
+  assert.match(lifecycle, /dispatchToolCall\(\{ agentId, commandId: attempt\.commandId, mode, message \}\)/);
+  assert.match(lifecycle, /createCallObject/);
+  assert.match(lifecycle, /app-message/);
 });
 
 test("ADR-041: attaching/creating a Tavus tool is an account operation, never reachable from the live tool-call runtime", () => {

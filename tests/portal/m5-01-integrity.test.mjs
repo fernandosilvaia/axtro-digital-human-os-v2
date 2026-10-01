@@ -107,8 +107,10 @@ test("all failures after the provider fence remain unknown", () => {
   assert.match(migration, /compensation_confirmed/);
 });
 
-test("human paid intents generate one command id at the client boundary and server code has no clock buckets", () => {
-  for (const source of [videoClient, presentationClient, meetingClient]) assert.match(source, /crypto\.randomUUID\(\)/);
+test("human paid intents generate one command id at the client boundary and server code has no clock buckets", async () => {
+  const callLifecycle = await readFile(new URL("apps/portal/src/app/(app)/agentes/[id]/testar/call-lifecycle.ts", root), "utf8");
+  for (const source of [videoClient, presentationClient]) assert.match(source, /useCallLifecycle/);
+  for (const source of [callLifecycle, meetingClient]) assert.match(source, /crypto\.randomUUID\(\)/);
   assert.doesNotMatch(videoActions, /stableEffectKey|Date\.now\(\)\s*\/\s*VIDEO_CONVERSATION_DEDUP/);
   assert.match(meetingActions, /meeting-join:\$\{tenantId\}:\$\{commandId\}/);
   assert.match(meetingActions, /meetingRelatedRef = opaqueMeetingReference\(commandId\)/);

@@ -7,15 +7,12 @@
  * bridge ADR-038 (manifesto fechado, geração, fence e recibo durável).
  */
 
-import { useCallback, useEffect, useRef, useState } from "react";
-
-import { isTrustedTavusConversationUrl } from "@axtro/provider-tavus";
+import { useCallback, useRef, useState } from "react";
 
 import type { Deck, DeckSlide, DeckSlideKind } from "@/lib/presentation/deck";
 import { startPresentationConversation, stopPresentationConversation, type VideoChannelConsent } from "@/lib/actions/video-conversation";
-import { classifyToolCallName } from "@/lib/runtime/tool-call-names";
 
-import { dispatchToolCall, type ToolCallMessage } from "./tool-call-dispatcher";
+import { useCallLifecycle } from "./call-lifecycle";
 
 const INITIAL_CONSENT: VideoChannelConsent = {
   disclosure: false,
@@ -163,34 +160,25 @@ function SlideBody({ slide, accent }: { slide: DeckSlide; accent: string }) {
   );
 }
 
-type DailyCall = {
-  join(options: { url: string }): Promise<unknown>;
-  leave(): Promise<unknown>;
-  destroy(): Promise<unknown>;
-  setLocalAudio(enabled: boolean): unknown;
-  sendAppMessage(message: unknown, to?: string): unknown;
-  on(event: string, handler: (event: never) => void): unknown;
-};
-
-export function PresentationRoom({ agentId, agentName }: { agentId: string; agentName: string }) {
-  const [phase, setPhase] = useState<"idle" | "starting" | "live" | "ended">("idle");
-  const [error, setError] = useState<string | null>(null);
+export function PresentationRoom({ tenantId, agentId, agentName }: { tenantId: string; agentId: string; agentName: string }) {
   const [deck, setDeck] = useState<Deck | null>(null);
   const [slideIndex, setSlideIndex] = useState(0);
-  const [muted, setMuted] = useState(false);
   const [simulated, setSimulated] = useState(false);
   const [consent, setConsent] = useState<VideoChannelConsent>(INITIAL_CONSENT);
-  const [stopping, setStopping] = useState(false);
-  const [providerStopConfirmed, setProviderStopConfirmed] = useState(false);
-
-  const callRef = useRef<DailyCall | null>(null);
-  const conversationIdRef = useRef<string | null>(null);
-  const commandIdRef = useRef<string | null>(null);
   const slideIndexRef = useRef(0);
   const deckRef = useRef<Deck | null>(null);
-  const remoteVideoRef = useRef<HTMLVideoElement | null>(null);
-  const remoteAudioRef = useRef<HTMLAudioElement | null>(null);
-  const localVideoRef = useRef<HTMLVideoElement | null>(null);
+  const acceptResult = useCallback((result: Awaited<ReturnType<typeof startPresentationConversation>>) => {
+    if (!result.deck) return false;
+    deckRef.current = result.deck;
+    setDeck(result.deck);
+    slideIndexRef.current = 0;
+    setSlideIndex(0);
+    setSimulated(result.simulated === true);
+    return true;
+  }, []);
+  const { phase, error, muted, stopping, providerStopConfirmed, storageReady, start, end: leave, reset, toggleMute, remoteVideoRef, remoteAudioRef, localVideoRef } = useCallLifecycle({
+    tenantId, agentId, mode: "presentation", consent, startAction: startPresentationConversation, stopAction: stopPresentationConversation, acceptResult,
+  });
 
   const goTo = useCallback((index: number) => {
     const currentDeck = deckRef.current;
@@ -201,190 +189,12 @@ export function PresentationRoom({ agentId, agentName }: { agentId: string; agen
     return clamped;
   }, []);
 
-  const handleToolCall = useCallback((message: ToolCallMessage) => {
-    const currentDeck = deckRef.current;
-    const call = callRef.current;
-    if (!currentDeck || !call) return;
-    const name = message.properties?.name ?? "";
-    const toolCallId = message.properties?.tool_call_id;
-    if (!toolCallId) return;
-
-    const category = classifyToolCallName(name);
-
-    if (category === "scene") {
-      // A mensagem vem do provider e pode conter instruções ou argumentos
-      // adversariais. Não há grant/manifest/receipt verificável no browser,
-      // logo ela não possui autoridade para modificar a cena local. ADR-041
-      // não muda este comportamento -- cena continua fora do seu escopo.
-      call.sendAppMessage(
-        {
-          message_type: "conversation",
-          event_type: "conversation.tool_result",
-          conversation_id: conversationIdRef.current ?? message.conversation_id ?? "",
-          properties: {
-            tool_call_id: toolCallId,
-            output: `Comando de cena recusado: a apresentação requer o bridge de cenas aprovado pelo servidor. Slide atual: ${slideIndexRef.current + 1} de ${currentDeck.slides.length}.`,
-            status: "error",
-          },
-        },
-        "*",
-      );
-      return;
-    }
-
-    if (category === "business_action") {
-      // ADR-041: register_lead/propose_meeting_slots/confirm_meeting_slot
-      // vão até a Server Action nova pelo dispatcher compartilhado. Sem
-      // commandId (apresentação ainda não terminou de subir) não há uma
-      // chamada viva pra resolver do outro lado -- nada seguro a responder.
-      const commandId = commandIdRef.current;
-      if (commandId === null) return;
-      void dispatchToolCall({ agentId, commandId, mode: "presentation", message }).then((result) => {
-        const activeCall = callRef.current;
-        if (result === null || !activeCall) return;
-        activeCall.sendAppMessage(
-          {
-            message_type: "conversation",
-            event_type: "conversation.tool_result",
-            conversation_id: conversationIdRef.current ?? message.conversation_id ?? "",
-            properties: {
-              tool_call_id: result.toolCallId,
-              output: result.output,
-              status: result.status,
-            },
-          },
-          "*",
-        );
-      });
-      return;
-    }
-
-    // category === "unknown": nenhum tool_result é enviado, igual ao comportamento anterior a esta ADR.
-  }, [agentId]);
-
-  const attachTrack = useCallback((track: MediaStreamTrack, isLocal: boolean) => {
-    if (track.kind === "video") {
-      const element = isLocal ? localVideoRef.current : remoteVideoRef.current;
-      if (element) element.srcObject = new MediaStream([track]);
-    } else if (track.kind === "audio" && !isLocal && remoteAudioRef.current) {
-      remoteAudioRef.current.srcObject = new MediaStream([track]);
-    }
-  }, []);
-
-  const start = useCallback(() => {
-    setError(null);
-    setProviderStopConfirmed(false);
-    setPhase("starting");
-    const commandId = crypto.randomUUID();
-    void (async () => {
-      const result = await startPresentationConversation(agentId, commandId, consent);
-      if (result.simulated && result.deck) {
-        // Modo demonstração: deck navegável manualmente, sem sala de vídeo.
-        deckRef.current = result.deck;
-        setDeck(result.deck);
-        slideIndexRef.current = 0;
-        setSlideIndex(0);
-        setSimulated(true);
-        setPhase("live");
-        return;
-      }
-      if (!result.url || !result.deck) {
-        setError(result.error ?? "Erro inesperado.");
-        setPhase("idle");
-        return;
-      }
-      const conversationUrl = result.url;
-      if (!isTrustedTavusConversationUrl(conversationUrl)) {
-        setError("A sala de vídeo retornou um endereço não confiável.");
-        setPhase("idle");
-        return;
-      }
-      deckRef.current = result.deck;
-      conversationIdRef.current = result.conversationId;
-      commandIdRef.current = commandId;
-      setDeck(result.deck);
-      slideIndexRef.current = 0;
-      setSlideIndex(0);
-      try {
-        const DailyIframe = (await import("@daily-co/daily-js")).default;
-        const call = DailyIframe.createCallObject() as unknown as DailyCall;
-        callRef.current = call;
-        call.on("track-started", ((event: { participant?: { local?: boolean }; track?: MediaStreamTrack }) => {
-          if (event.track) attachTrack(event.track, event.participant?.local === true);
-        }) as never);
-        call.on("app-message", ((event: { data?: ToolCallMessage }) => {
-          const data = event.data;
-          if (data?.message_type === "conversation" && data.event_type === "conversation.tool_call") {
-            handleToolCall(data);
-          }
-        }) as never);
-        call.on("left-meeting", (() => setPhase("ended")) as never);
-        await call.join({ url: conversationUrl });
-        setPhase("live");
-      } catch {
-        setError("Não foi possível entrar na sala de vídeo. Verifique câmera e microfone e tente de novo.");
-        setPhase("idle");
-      }
-    })();
-  }, [agentId, attachTrack, consent, handleToolCall]);
-
-  const disposeClientCall = useCallback(() => {
-    const call = callRef.current;
-    callRef.current = null;
-    if (call) {
-      void call.leave().catch(() => undefined).finally(() => {
-        void call.destroy().catch(() => undefined);
-      });
-    }
-  }, []);
-
-  const leave = useCallback(async () => {
-    if (simulated) {
-      disposeClientCall();
-      setPhase("ended");
-      return;
-    }
-    const commandId = commandIdRef.current;
-    if (commandId === null) {
-      setError("Não encontramos a apresentação ativa para encerrar. Atualize a página antes de tentar de novo.");
-      return;
-    }
-
-    setError(null);
-    setStopping(true);
-    try {
-      const result = await stopPresentationConversation(agentId, commandId);
-      if (!result.stopped) {
-        setError(result.error ?? "Não foi possível confirmar o encerramento agora. Tente novamente.");
-        return;
-      }
-      // Mantém a chamada e sua chave de idempotência até a parada remota ser
-      // confirmada. Assim, uma falha de rede/provider não descarta o único
-      // caminho seguro para o operador repetir o comando.
-      commandIdRef.current = null;
-      disposeClientCall();
-      setProviderStopConfirmed(true);
-      setPhase("ended");
-    } catch {
-      setError("Não foi possível confirmar o encerramento agora. Tente novamente.");
-    } finally {
-      setStopping(false);
-    }
-  }, [agentId, disposeClientCall, simulated]);
-
-  useEffect(() => () => {
-    // Navegação/fechamento de aba não oferece uma confirmação de provider;
-    // não pode disparar um stop fire-and-forget que consuma o commandId sem
-    // deixar feedback ou retry para o operador.
-    disposeClientCall();
-  }, [disposeClientCall]);
-
-  function toggleMute() {
-    const call = callRef.current;
-    if (!call) return;
-    const next = !muted;
-    call.setLocalAudio(!next);
-    setMuted(next);
+  if (phase === "recovery") {
+    return <section className="card" style={{ marginTop: 16 }}>
+      <p role="status">Há uma intenção de apresentação pendente nesta aba. Confirme o pedido de encerramento antes de iniciar outra apresentação.</p>
+      {error && <p className="form-error" role="alert">{error}</p>}
+      <button type="button" className="btn" onClick={leave} disabled={stopping}>{stopping ? "Confirmando encerramento…" : "Tentar encerrar apresentação pendente"}</button>
+    </section>;
   }
 
   if (phase === "idle" || phase === "starting") {
@@ -393,7 +203,7 @@ export function PresentationRoom({ agentId, agentName }: { agentId: string; agen
         <div style={{ flex: 1, minWidth: 240 }}>
           <h3 style={{ fontSize: "0.95rem", marginBottom: 4 }}>Apresentação ao vivo 🎬</h3>
           <p style={{ color: "var(--text-muted)", fontSize: "0.84rem", margin: 0 }}>
-            {agentName} conduz a reunião com slides na tela, ela mesma avança a apresentação enquanto conversa com você, como numa sala de conferência real.
+            {agentName} conduz a reunião com slides na tela, você navega os slides manualmente enquanto conversa com a assistente de IA.
           </p>
         </div>
         <fieldset style={{ width: "100%", border: 0, padding: 0, margin: 0, display: "grid", gap: 8 }}>
@@ -429,7 +239,7 @@ export function PresentationRoom({ agentId, agentName }: { agentId: string; agen
           })}
         </fieldset>
         {error && <p className="form-error" role="alert" style={{ margin: 0, width: "100%" }}>{error}</p>}
-        <button type="button" className="btn btn-primary" onClick={start} disabled={phase === "starting" || !allConsentConfirmed(consent)} style={{ padding: "11px 20px" }}>
+        <button type="button" className="btn btn-primary" onClick={start} disabled={!storageReady || phase === "starting" || !allConsentConfirmed(consent)} style={{ padding: "11px 20px" }}>
           {phase === "starting" ? "Montando a sala…" : "Iniciar apresentação"}
         </button>
       </section>
@@ -442,7 +252,7 @@ export function PresentationRoom({ agentId, agentName }: { agentId: string; agen
         <p style={{ margin: 0, color: "var(--text-muted)", fontSize: "0.88rem" }}>
           {providerStopConfirmed
             ? "O provider confirmou o pedido de encerramento da apresentação."
-            : "Apresentação finalizada nesta tela."} <button type="button" className="btn" onClick={() => { setPhase("idle"); setDeck(null); setSimulated(false); setProviderStopConfirmed(false); }} style={{ marginLeft: 8 }}>Nova apresentação</button>
+            : "Apresentação finalizada nesta tela."} <button type="button" className="btn" onClick={() => { reset(); setDeck(null); setSimulated(false); }} style={{ marginLeft: 8 }}>Nova apresentação</button>
         </p>
       </section>
     );

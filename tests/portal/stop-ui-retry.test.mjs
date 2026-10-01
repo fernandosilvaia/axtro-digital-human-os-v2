@@ -3,10 +3,11 @@ import { readFile } from "node:fs/promises";
 import test from "node:test";
 
 const root = new URL("../../", import.meta.url);
-const [videoCall, presentationRoom, externalMeeting] = await Promise.all([
+const [videoCall, presentationRoom, externalMeeting, lifecycle] = await Promise.all([
   readFile(new URL("apps/portal/src/app/(app)/agentes/[id]/testar/video-call.tsx", root), "utf8"),
   readFile(new URL("apps/portal/src/app/(app)/agentes/[id]/testar/presentation-room.tsx", root), "utf8"),
   readFile(new URL("apps/portal/src/app/(app)/agentes/[id]/testar/external-meeting.tsx", root), "utf8"),
+  readFile(new URL("apps/portal/src/app/(app)/agentes/[id]/testar/call-lifecycle.ts", root), "utf8"),
 ]);
 
 function functionBody(source, name, endMarker) {
@@ -17,24 +18,20 @@ function functionBody(source, name, endMarker) {
 }
 
 test("operator stop controls retain retryable client state until the server confirms", () => {
-  const videoStop = functionBody(videoCall, "const end = useCallback", "  useEffect(() =>");
-  assert.match(videoStop, /await stopVideoConversation\(agentId, commandId\)/);
-  assert.match(videoStop, /if \(!result\.stopped\)[\s\S]*setError/);
-  assert.ok(videoStop.indexOf("if (!result.stopped)") < videoStop.indexOf("commandIdRef.current = null"));
-  assert.doesNotMatch(videoCall, /void stopVideoConversation/);
-  assert.match(videoCall, /Confirmando encerramento/);
-  assert.match(videoCall, /role="alert"/);
-  assert.match(videoCall, /O provider confirmou o pedido de encerramento da conversa/);
+  const stop = functionBody(lifecycle, "const end = useCallback", "  const reset = useCallback");
+  assert.match(stop, /await stopAction\(agentId, attempt\.commandId\)/);
+  assert.match(stop, /if \(!result\.stopped\)[\s\S]*setError/);
+  assert.ok(stop.indexOf("if (!result.stopped)") < stop.indexOf("clearCommand(attempt.commandId)"));
+  for (const source of [videoCall, presentationRoom]) {
+    assert.match(source, /useCallLifecycle/);
+    assert.match(source, /Confirmando encerramento/);
+    assert.match(source, /role="alert"/);
+    assert.match(source, /O provider confirmou o pedido de encerramento/);
+    assert.match(source, /Tentar encerrar/);
+  }
+  assert.match(videoCall, /stopAction: stopVideoConversation/);
+  assert.match(presentationRoom, /stopAction: stopPresentationConversation/);
   assert.doesNotMatch(videoCall, /conversa encerrada/);
-
-  const presentationStop = functionBody(presentationRoom, "const leave = useCallback", "  useEffect(() =>");
-  assert.match(presentationStop, /await stopPresentationConversation\(agentId, commandId\)/);
-  assert.match(presentationStop, /if \(!result\.stopped\)[\s\S]*setError/);
-  assert.ok(presentationStop.indexOf("if (!result.stopped)") < presentationStop.indexOf("commandIdRef.current = null"));
-  assert.doesNotMatch(presentationRoom, /void stopPresentationConversation/);
-  assert.match(presentationRoom, /Confirmando encerramento/);
-  assert.match(presentationRoom, /role="alert"/);
-  assert.match(presentationRoom, /O provider confirmou o pedido de encerramento da apresentação/);
   assert.doesNotMatch(presentationRoom, /Apresentação encerrada/);
 
   const externalStop = functionBody(externalMeeting, "function stopMeeting()", "  const returnedConversationUrl");

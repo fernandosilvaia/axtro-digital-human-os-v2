@@ -845,6 +845,11 @@ class PortalTextPreviewSignedStatePayload(TypedDict):
     issued_at: str
     expires_at: str
 
+# Source: contracts/schemas/portal_video_start_effect.schema.json; schema: https://schemas.axtro.ai/v2/portal_video_start_effect.schema.json; version: 2.0.0.
+class PortalVideoStartEffect(TypedDict):
+    schema_version: Literal['2.0.0']
+    remoteEffect: Literal['not_started', 'possible', 'committed']
+
 # Source: contracts/schemas/post_call_workflow_command.schema.json; schema: https://schemas.axtro.ai/v2/post_call_workflow_command.schema.json; version: 2.0.0.
 class PostCallWorkflowCommand(TypedDict):
     schema_version: Literal['2.0.0']
@@ -1560,6 +1565,12 @@ CONTRACT_METADATA: dict[str, dict[str, str]] = {
     "source_hash": "c141a591a5fecd850918c5a1af7d8cdf49322cfd038cb2a1a4f2bb717087617a",
     "source_schema": "contracts/schemas/portal_text_preview_signed_state_payload.schema.json"
   },
+  "PortalVideoStartEffect": {
+    "schema_id": "https://schemas.axtro.ai/v2/portal_video_start_effect.schema.json",
+    "schema_version": "2.0.0",
+    "source_hash": "8c82aa10c9cdd53c5f31c64203591a9df3db9a326dbc06f4f353db3168abb8bd",
+    "source_schema": "contracts/schemas/portal_video_start_effect.schema.json"
+  },
   "PostCallWorkflowCommand": {
     "schema_id": "https://schemas.axtro.ai/v2/post_call_workflow_command.schema.json",
     "schema_version": "2.0.0",
@@ -1789,6 +1800,7 @@ __all__ = [
     'PortalTextPreviewAdmission',
     'PortalTextPreviewBrowserCommand',
     'PortalTextPreviewSignedStatePayload',
+    'PortalVideoStartEffect',
     'PostCallWorkflowCommand',
     'PostCallWorkflowResult',
     'PostCallWorkflowStatus',

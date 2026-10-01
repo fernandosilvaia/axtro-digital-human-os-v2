@@ -1,7 +1,7 @@
 /*
  * GENERATED FILE. DO NOT EDIT.
  * generator: scripts/generate_contract_types.py@1.2.0
- * source: 69 JSON Schema Draft 2020-12 documents under contracts/schemas/
+ * source: 70 JSON Schema Draft 2020-12 documents under contracts/schemas/
  */
 
 export const CONTRACT_GENERATOR_VERSION = "1.2.0" as const;
@@ -934,6 +934,12 @@ export interface PortalTextPreviewSignedStatePayload {
   expires_at: string;
 }
 
+/** Source: contracts/schemas/portal_video_start_effect.schema.json; schema: https://schemas.axtro.ai/v2/portal_video_start_effect.schema.json; version: 2.0.0. */
+export interface PortalVideoStartEffect {
+  schema_version: "2.0.0";
+  remoteEffect: "not_started" | "possible" | "committed";
+}
+
 /** Source: contracts/schemas/post_call_workflow_command.schema.json; schema: https://schemas.axtro.ai/v2/post_call_workflow_command.schema.json; version: 2.0.0. */
 export interface PostCallWorkflowCommand {
   schema_version: "2.0.0";
@@ -1770,6 +1776,12 @@ export const CONTRACT_METADATA = {
     "schema_version": "2.0.0",
     "source_hash": "c141a591a5fecd850918c5a1af7d8cdf49322cfd038cb2a1a4f2bb717087617a",
     "source_schema": "contracts/schemas/portal_text_preview_signed_state_payload.schema.json"
+  },
+  "PortalVideoStartEffect": {
+    "schema_id": "https://schemas.axtro.ai/v2/portal_video_start_effect.schema.json",
+    "schema_version": "2.0.0",
+    "source_hash": "8c82aa10c9cdd53c5f31c64203591a9df3db9a326dbc06f4f353db3168abb8bd",
+    "source_schema": "contracts/schemas/portal_video_start_effect.schema.json"
   },
   "PostCallWorkflowCommand": {
     "schema_id": "https://schemas.axtro.ai/v2/post_call_workflow_command.schema.json",

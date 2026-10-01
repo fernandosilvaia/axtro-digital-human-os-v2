@@ -71,9 +71,10 @@
 |---|---|---|
 | `AUD-01` | done | Dependências, isolamento E2E e gate de worker |
 | `AUD-02` | done | Autorização pré-custo e atribuição de ativos de vídeo |
-| `AUD-03` | in_progress | Lifecycle de mídia e completion durante interrupção |
-| `AUD-04` | planned | Disponibilidade de exclusão e browser |
-| `AUD-05` | planned | Evidências e opções open source |
+| `AUD-03` | done | Lifecycle de mídia e completion durante interrupção |
+| `AUD-04` | in_progress | Disponibilidade de exclusão e browser |
+| `AUD-05` | planned | Reparos econômicos, advisory Python e receipt de cena |
+| `AUD-06` | planned | Evidências finais e opções open source |
 
 | ID | Marco | Status | Título | Dependências | Evidência |
 |---|---|---|---|---|---|
@@ -1318,3 +1319,7 @@ Next.js 16.3.6, sharp 0.35.5 e baseline-browser-mapping 2.11.26 corrigem os advi
 ### AUD-02 concluída, 2026-10-01
 
 24 regressões runtime de ingestão verificam admin e ownership/status antes de fake, service role, reserva ou provider, com refresh de fontes stale preservado. Migration 0072 trava IDs de ativos já vinculados, mantendo idioma/vertical e apresentação; Action deriva IDs pelo caller RLS e UI mostra somente leitura. PostgreSQL 0001-0072 e 25 testes de Action/UI/lineage passaram, assim como typecheck do Portal. Revisão de segurança sem bloqueador. IDs históricos não equivalem a receipt de ownership; migration remota pendente. Revogação concorrente entre leitura e reserva de embeddings ainda requer fence transacional futura. AUD-03 iniciada: epochs, recuperação da intenção de chamada, early tracks e completion interrompido.
+
+### AUD-03 concluída, 2026-10-01
+
+ADR-047 e contrato fechado 70 publicados localmente antes do producer/consumer. 17 casos do servidor, 20 replays de coordinator, 77 replays TSX e 11 testes de geração passaram. Revisões arquitetura, realtime e QA aprovaram; typecheck/lint/diff verdes. Cleanup local não dispara provider stop, efeito possível preserva intenção, storage tem namespace tenant+agent+canal, completion interrompido não retoma geração concluída. Mensagem sem conversation_id preserva compatibilidade sob chamada/epoch capturados; mismatch recusado. Unknown sem referência e fechamento da aba exigem reconciliação durável futura; não existe prova de silêncio físico. AUD-04 iniciada para disponibilidade de exclusão e browser, incluindo remoção de credenciais herdadas dos testes. Revisão financeira adicional identificou quatro reparos para AUD-05, com fronteira final documental AUD-06.

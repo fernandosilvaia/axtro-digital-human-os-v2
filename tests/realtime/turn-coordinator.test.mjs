@@ -238,3 +238,29 @@ test("turn coordinator: noisy_phone profile requires punctuation completeness be
   coordinator.handleSignal(transcript(atMs, true, true));
   assert.equal(coordinator.state(), "committed", "punctuation completion confirms the endpoint immediately");
 });
+
+test("turn coordinator: interrupted current completion never resumes finished playback", () => {
+  const c = createTurnCoordinator(TURN_COORDINATOR_PROFILES.conversational);
+  c.handleSignal(speech({atMs: 0, durationMs: 400}));
+  c.handleSignal(speech({atMs: 400, durationMs: 700, voiced: false, energy: 0}));
+  const generationId = c.currentGenerationId();
+  c.handleSignal(speech({atMs: 1100, durationMs: 120}));
+  assert.equal(c.state(), "agent_interrupted");
+  c.handleSignal({type: "presenter_turn_completed", atMs: 1220, generationId});
+  assert.equal(c.state(), "idle");
+  assert.equal(c.currentGenerationId(), null);
+  c.handleSignal(speech({atMs: 1220, durationMs: 100, voiced: false, energy: 0}));
+  assert.equal(c.state(), "idle");
+  assert.equal(c.directives().some(d => d.type === "playback_resumed"), false);
+  c.handleSignal(speech({atMs: 1320, durationMs: 400}));
+  c.handleSignal(speech({atMs: 1720, durationMs: 700, voiced: false, energy: 0}));
+  const next = c.currentGenerationId();
+  assert.ok(next > generationId);
+  c.handleSignal(speech({atMs: 2420, durationMs: 120}));
+  c.handleSignal({type: "presenter_turn_completed", atMs: 2540, generationId});
+  assert.equal(c.state(), "agent_interrupted");
+  assert.equal(c.currentGenerationId(), next);
+  c.handleSignal(speech({atMs: 2540, durationMs: 100, voiced: false, energy: 0}));
+  assert.equal(c.state(), "committed");
+  assert.deepEqual(c.directives().filter(d => d.type === "playback_resumed").map(d => d.generationId), [next]);
+});

@@ -1,5 +1,7 @@
 "use server";
 
+import type { PortalVideoStartEffect } from "@axtro/contracts-ts";
+
 import { createTavusVideoConversationPort, VideoProviderError } from "@axtro/provider-tavus";
 
 import { fakeProvidersEnabled } from "@/lib/knowledge";
@@ -15,6 +17,7 @@ import { prepareTavusWebhookCallback, registerTranscriptPlaceholder } from "@/li
 import { fetchKnowledgeDigest, providerLanguageCodes, resolveAgentVideoConfig } from "@/lib/video-config";
 
 export interface VideoConversationResult {
+  readonly effect: PortalVideoStartEffect;
   readonly url: string | null;
   /** Exposto pra alimentar conversation_id nas respostas de tool_result que o app-message do Daily espera (ADR-041, mesmo padrão de PresentationConversationResult) -- nunca usado como identidade de tenant/autorização, só rótulo de correlação. */
   readonly conversationId: string | null;
@@ -34,6 +37,7 @@ export interface StopVideoConversationResult {
 }
 
 export interface PresentationConversationResult {
+  readonly effect: PortalVideoStartEffect;
   readonly url: string | null;
   readonly conversationId: string | null;
   readonly deck: Deck | null;
@@ -183,7 +187,7 @@ export async function stopPresentationConversation(agentId: string, commandId: s
 }
 
 export async function startVideoConversation(agentId: string, commandId: string, consent: VideoChannelConsent): Promise<VideoConversationResult> {
-  if (!isPaidEffectCommandId(commandId)) return { url: null, conversationId: null, error: "A intenção da chamada é inválida. Tente novamente." };
+  if (!isPaidEffectCommandId(commandId)) return { effect: { schema_version: "2.0.0", remoteEffect: "not_started" }, url: null, conversationId: null, error: "A intenção da chamada é inválida. Tente novamente." };
   const apiKey = process.env.TAVUS_API_KEY ?? "";
   const defaultReplicaId = process.env.TAVUS_REPLICA_ID ?? "";
   if (apiKey.trim().length === 0) {
@@ -197,16 +201,16 @@ export async function startVideoConversation(agentId: string, commandId: string,
     if (!fakeProvidersEnabled()) {
       trackError("video_conversation_tavus_key_missing", new Error("TAVUS_API_KEY not configured"), { agent_id: agentId, mode: "video" });
     }
-    return { url: null, conversationId: null, error: "O provider de vídeo ainda não está configurado neste ambiente." };
+    return { effect: { schema_version: "2.0.0", remoteEffect: "not_started" }, url: null, conversationId: null, error: "O provider de vídeo ainda não está configurado neste ambiente." };
   }
 
   const [overview, agents] = await Promise.all([fetchTenantOverview(), fetchAgents()]);
   if (!overview.provisioned || !overview.tenant) {
-    return { url: null, conversationId: null, error: "Conta ainda não provisionada." };
+    return { effect: { schema_version: "2.0.0", remoteEffect: "not_started" }, url: null, conversationId: null, error: "Conta ainda não provisionada." };
   }
   const agent = agents.find((candidate) => candidate.id === agentId);
   if (!agent) {
-    return { url: null, conversationId: null, error: "Agente não encontrado nesta conta." };
+    return { effect: { schema_version: "2.0.0", remoteEffect: "not_started" }, url: null, conversationId: null, error: "Agente não encontrado nesta conta." };
   }
 
   // Config de vídeo específica do agente (persona própria = voz/percepção próprias).
@@ -214,7 +218,7 @@ export async function startVideoConversation(agentId: string, commandId: string,
 
   const configResult = await resolveAgentVideoConfig(supabase, agentId, "video");
   if (!configResult.ok) {
-    return { url: null, conversationId: null, error: configResult.error };
+    return { effect: { schema_version: "2.0.0", remoteEffect: "not_started" }, url: null, conversationId: null, error: configResult.error };
   }
   const config = configResult.config;
 
@@ -224,7 +228,7 @@ export async function startVideoConversation(agentId: string, commandId: string,
   const personaId = config.configured && config.persona_id ? config.persona_id : undefined;
   const replicaId = config.configured && config.replica_id ? config.replica_id : defaultReplicaId;
   if (!personaId && replicaId.trim().length === 0) {
-    return { url: null, conversationId: null, error: "Este agente ainda não tem avatar de vídeo configurado." };
+    return { effect: { schema_version: "2.0.0", remoteEffect: "not_started" }, url: null, conversationId: null, error: "Este agente ainda não tem avatar de vídeo configurado." };
   }
   const language = config.language ?? "portuguese";
   // Agente multilingue (0066): quando declarado, a Tavus recebe o array e o
@@ -238,7 +242,7 @@ export async function startVideoConversation(agentId: string, commandId: string,
     consent,
   });
   if (runtimeAdmission.outcome === "rejected") {
-    return { url: null, conversationId: null, error: runtimeAdmissionError(runtimeAdmission.code) };
+    return { effect: { schema_version: "2.0.0", remoteEffect: "not_started" }, url: null, conversationId: null, error: runtimeAdmissionError(runtimeAdmission.code) };
   }
   const runtimeGrant = runtimeAdmission.grant;
 
@@ -257,36 +261,36 @@ export async function startVideoConversation(agentId: string, commandId: string,
     maxDurationSeconds: 600,
   };
   const reservation = await retryReleasedProviderEffect(reservationInput, await beginProviderEffect(reservationInput));
-  if (reservation.outcome === "capped") return { url: null, conversationId: null, error: VIDEO_CAP_MESSAGE };
+  if (reservation.outcome === "capped") return { effect: { schema_version: "2.0.0", remoteEffect: "not_started" }, url: null, conversationId: null, error: VIDEO_CAP_MESSAGE };
   if (reservation.outcome === "blocked_unknown" || reservation.reservationId === null) {
-    return { url: null, conversationId: null, error: "Uma tentativa anterior ainda está em reconciliação. Aguarde antes de tentar novamente." };
+    return { effect: { schema_version: "2.0.0", remoteEffect: "possible" }, url: null, conversationId: null, error: "Uma tentativa anterior ainda está em reconciliação. Aguarde antes de tentar novamente." };
   }
   if (reservation.state === "committed" && reservation.providerUrl && reservation.providerRef) {
     const bindingFailure = await bindCommittedTavusRuntimeChannel(runtimeGrant, reservation.reservationId, reservation.providerRef, reservation.providerUrl);
     if (bindingFailure) {
       await compensateVideoConversation(port, reservation.reservationId, reservation.providerRef, "runtime_binding_failed").catch(() => undefined);
-      return { url: null, conversationId: null, error: runtimeAdmissionError(bindingFailure) };
+      return { effect: { schema_version: "2.0.0", remoteEffect: "possible" }, url: null, conversationId: null, error: runtimeAdmissionError(bindingFailure) };
     }
-    if (reservation.customerDeliveryState === "activated") return { url: reservation.providerUrl, conversationId: reservation.providerRef, error: null };
+    if (reservation.customerDeliveryState === "activated") return { effect: { schema_version: "2.0.0", remoteEffect: "committed" }, url: reservation.providerUrl, conversationId: reservation.providerRef, error: null };
     const persisted = await registerTranscriptPlaceholder(overview.tenant.id, agentId, "video", reservation.providerRef);
-    if (persisted) return { url: reservation.providerUrl, conversationId: reservation.providerRef, error: null };
+    if (persisted) return { effect: { schema_version: "2.0.0", remoteEffect: "committed" }, url: reservation.providerUrl, conversationId: reservation.providerRef, error: null };
     await compensateVideoConversation(port, reservation.reservationId, reservation.providerRef, "replay_persistence_failed").catch(() => undefined);
-    return { url: null, conversationId: null, error: "A chamada não pôde ser registrada com segurança. Tente novamente." };
+    return { effect: { schema_version: "2.0.0", remoteEffect: "possible" }, url: null, conversationId: null, error: "A chamada não pôde ser registrada com segurança. Tente novamente." };
   }
   if (isRateLimited(videoConversationDedupKey(overview.tenant.id, commandId, "video"), VIDEO_CONVERSATION_DEDUP_WINDOW_MS, 1)) {
-    return { url: null, conversationId: null, error: "Uma chamada já está sendo aberta para este agente. Aguarde alguns segundos antes de tentar de novo." };
+    return { effect: { schema_version: "2.0.0", remoteEffect: "possible" }, url: null, conversationId: null, error: "Uma chamada já está sendo aberta para este agente. Aguarde alguns segundos antes de tentar de novo." };
   }
   const dispatchFailure = await claimTavusRuntimeDispatch(runtimeGrant);
   if (dispatchFailure) {
     await releaseProviderEffect(reservation.reservationId, "not_dispatched").catch(() => undefined);
-    return { url: null, conversationId: null, error: runtimeAdmissionError(dispatchFailure) };
+    return { effect: { schema_version: "2.0.0", remoteEffect: "possible" }, url: null, conversationId: null, error: runtimeAdmissionError(dispatchFailure) };
   }
   let callbackUrl: string;
   try {
     callbackUrl = (await prepareTavusWebhookCallback(reservation.reservationId)).callbackUrl;
   } catch (error) {
     trackError("video_webhook_capability_bind_failed", error, { agent_id: agentId });
-    return { url: null, conversationId: null, error: "A chamada não pôde ser preparada com segurança. Tente novamente." };
+    return { effect: { schema_version: "2.0.0", remoteEffect: "possible" }, url: null, conversationId: null, error: "A chamada não pôde ser preparada com segurança. Tente novamente." };
   }
   try {
     const conversation = await port.createConversation(
@@ -331,7 +335,7 @@ export async function startVideoConversation(agentId: string, commandId: string,
     });
     if (bindingFailure.outcome === "rejected") {
       await compensateVideoConversation(port, reservation.reservationId, conversation.conversationId, "runtime_binding_failed").catch(() => undefined);
-      return { url: null, conversationId: null, error: runtimeAdmissionError(bindingFailure.code) };
+      return { effect: { schema_version: "2.0.0", remoteEffect: "possible" }, url: null, conversationId: null, error: runtimeAdmissionError(bindingFailure.code) };
     }
     // Placeholder do histórico (D-V2-106): o webhook da Tavus preenche
     // `turns` quando a call terminar (application.transcription_ready).
@@ -340,20 +344,20 @@ export async function startVideoConversation(agentId: string, commandId: string,
         await compensateVideoConversation(port, reservation.reservationId, conversation.conversationId, "transcript_persistence_failed");
       }
       catch (compensationError) { trackError("video_transcript_compensation_failed", compensationError, { agent_id: agentId }); }
-      return { url: null, conversationId: null, error: "A chamada não pôde ser registrada com segurança. Tente novamente." };
+      return { effect: { schema_version: "2.0.0", remoteEffect: "possible" }, url: null, conversationId: null, error: "A chamada não pôde ser registrada com segurança. Tente novamente." };
     }
     // Provider cost is committed, but customer billing stays held until the
     // capability-authenticated transcript callback proves a human user turn.
-    return { url: conversation.conversationUrl, conversationId: conversation.conversationId, error: null };
+    return { effect: { schema_version: "2.0.0", remoteEffect: "committed" }, url: conversation.conversationUrl, conversationId: conversation.conversationId, error: null };
   } catch (error) {
     await fenceProviderFailure(reservation.reservationId, error).catch((fenceError) => trackError("video_effect_fence_failed", fenceError, { agent_id: agentId }));
     if (error instanceof VideoProviderError) {
       if (error.code === "provider_rejected") {
-        return { url: null, conversationId: null, error: "O provider de vídeo recusou a chamada (limite de conversas simultâneas ou créditos). Tente novamente em instantes." };
+        return { effect: { schema_version: "2.0.0", remoteEffect: "possible" }, url: null, conversationId: null, error: "O provider de vídeo recusou a chamada (limite de conversas simultâneas ou créditos). Tente novamente em instantes." };
       }
-      return { url: null, conversationId: null, error: "Não foi possível iniciar a conversa em vídeo agora." };
+      return { effect: { schema_version: "2.0.0", remoteEffect: "possible" }, url: null, conversationId: null, error: "Não foi possível iniciar a conversa em vídeo agora." };
     }
-    return { url: null, conversationId: null, error: "Erro inesperado ao iniciar o vídeo." };
+    return { effect: { schema_version: "2.0.0", remoteEffect: "possible" }, url: null, conversationId: null, error: "Erro inesperado ao iniciar o vídeo." };
   }
 }
 
@@ -365,27 +369,27 @@ export async function startVideoConversation(agentId: string, commandId: string,
  * com o roteiro do deck.
  */
 export async function startPresentationConversation(agentId: string, commandId: string, consent: VideoChannelConsent): Promise<PresentationConversationResult> {
-  if (!isPaidEffectCommandId(commandId)) return { url: null, conversationId: null, deck: null, error: "A intenção da apresentação é inválida. Tente novamente." };
+  if (!isPaidEffectCommandId(commandId)) return { effect: { schema_version: "2.0.0", remoteEffect: "not_started" }, url: null, conversationId: null, deck: null, error: "A intenção da apresentação é inválida. Tente novamente." };
   const apiKey = process.env.TAVUS_API_KEY ?? "";
   const fakeMode = fakeProvidersEnabled();
   if (apiKey.trim().length === 0 && !fakeMode) {
     trackError("video_conversation_tavus_key_missing", new Error("TAVUS_API_KEY not configured"), { agent_id: agentId, mode: "presentation" });
-    return { url: null, conversationId: null, deck: null, error: "O provider de vídeo ainda não está configurado neste ambiente." };
+    return { effect: { schema_version: "2.0.0", remoteEffect: "not_started" }, url: null, conversationId: null, deck: null, error: "O provider de vídeo ainda não está configurado neste ambiente." };
   }
 
   const [overview, agents] = await Promise.all([fetchTenantOverview(), fetchAgents()]);
   if (!overview.provisioned || !overview.tenant) {
-    return { url: null, conversationId: null, deck: null, error: "Conta ainda não provisionada." };
+    return { effect: { schema_version: "2.0.0", remoteEffect: "not_started" }, url: null, conversationId: null, deck: null, error: "Conta ainda não provisionada." };
   }
   const agent = agents.find((candidate) => candidate.id === agentId);
   if (!agent) {
-    return { url: null, conversationId: null, deck: null, error: "Agente não encontrado nesta conta." };
+    return { effect: { schema_version: "2.0.0", remoteEffect: "not_started" }, url: null, conversationId: null, deck: null, error: "Agente não encontrado nesta conta." };
   }
 
   const supabase = await createClient();
   const configResult = await resolveAgentVideoConfig(supabase, agentId, "presentation");
   if (!configResult.ok) {
-    return { url: null, conversationId: null, deck: null, error: configResult.error };
+    return { effect: { schema_version: "2.0.0", remoteEffect: "not_started" }, url: null, conversationId: null, deck: null, error: configResult.error };
   }
   const config = configResult.config;
   const language: "portuguese" | "english" = config.language === "english" ? "english" : "portuguese";
@@ -397,12 +401,12 @@ export async function startPresentationConversation(agentId: string, commandId: 
   // Modo demonstração (T3): sem sala de vídeo real, o deck volta navegável
   // manualmente, sem tocar o provider nem o ledger.
   if (fakeMode) {
-    return { url: null, conversationId: "simulated", deck, error: null, simulated: true };
+    return { effect: { schema_version: "2.0.0", remoteEffect: "not_started" }, url: null, conversationId: "simulated", deck, error: null, simulated: true };
   }
 
   const personaId = config.configured ? config.persona_id ?? null : null;
   if (!personaId) {
-    return { url: null, conversationId: null, deck: null, error: "Este agente ainda não tem persona de vídeo configurada. O modo apresentação exige uma." };
+    return { effect: { schema_version: "2.0.0", remoteEffect: "not_started" }, url: null, conversationId: null, deck: null, error: "Este agente ainda não tem persona de vídeo configurada. O modo apresentação exige uma." };
   }
 
   const runtimeAdmission = await admitAuthenticatedTavusChannel(supabase, {
@@ -412,7 +416,7 @@ export async function startPresentationConversation(agentId: string, commandId: 
     consent,
   });
   if (runtimeAdmission.outcome === "rejected") {
-    return { url: null, conversationId: null, deck: null, error: runtimeAdmissionError(runtimeAdmission.code) };
+    return { effect: { schema_version: "2.0.0", remoteEffect: "not_started" }, url: null, conversationId: null, deck: null, error: runtimeAdmissionError(runtimeAdmission.code) };
   }
   const runtimeGrant = runtimeAdmission.grant;
 
@@ -436,34 +440,34 @@ export async function startPresentationConversation(agentId: string, commandId: 
     maxDurationSeconds: 900,
   };
   const reservation = await retryReleasedProviderEffect(reservationInput, await beginProviderEffect(reservationInput));
-  if (reservation.outcome === "capped") return { url: null, conversationId: null, deck: null, error: VIDEO_CAP_MESSAGE };
-  if (reservation.outcome === "blocked_unknown" || reservation.reservationId === null) return { url: null, conversationId: null, deck: null, error: "Uma tentativa anterior ainda está em reconciliação." };
+  if (reservation.outcome === "capped") return { effect: { schema_version: "2.0.0", remoteEffect: "not_started" }, url: null, conversationId: null, deck: null, error: VIDEO_CAP_MESSAGE };
+  if (reservation.outcome === "blocked_unknown" || reservation.reservationId === null) return { effect: { schema_version: "2.0.0", remoteEffect: "possible" }, url: null, conversationId: null, deck: null, error: "Uma tentativa anterior ainda está em reconciliação." };
   if (reservation.state === "committed" && reservation.providerUrl && reservation.providerRef) {
     const bindingFailure = await bindCommittedTavusRuntimeChannel(runtimeGrant, reservation.reservationId, reservation.providerRef, reservation.providerUrl);
     if (bindingFailure) {
       await compensateVideoConversation(port, reservation.reservationId, reservation.providerRef, "runtime_binding_failed").catch(() => undefined);
-      return { url: null, conversationId: null, deck: null, error: runtimeAdmissionError(bindingFailure) };
+      return { effect: { schema_version: "2.0.0", remoteEffect: "possible" }, url: null, conversationId: null, deck: null, error: runtimeAdmissionError(bindingFailure) };
     }
-    if (reservation.customerDeliveryState === "activated") return { url: reservation.providerUrl, conversationId: reservation.providerRef, deck, error: null };
+    if (reservation.customerDeliveryState === "activated") return { effect: { schema_version: "2.0.0", remoteEffect: "committed" }, url: reservation.providerUrl, conversationId: reservation.providerRef, deck, error: null };
     const persisted = await registerTranscriptPlaceholder(overview.tenant.id, agentId, "video", reservation.providerRef);
-    if (persisted) return { url: reservation.providerUrl, conversationId: reservation.providerRef, deck, error: null };
+    if (persisted) return { effect: { schema_version: "2.0.0", remoteEffect: "committed" }, url: reservation.providerUrl, conversationId: reservation.providerRef, deck, error: null };
     await compensateVideoConversation(port, reservation.reservationId, reservation.providerRef, "replay_persistence_failed").catch(() => undefined);
-    return { url: null, conversationId: null, deck: null, error: "A apresentação não pôde ser registrada com segurança." };
+    return { effect: { schema_version: "2.0.0", remoteEffect: "possible" }, url: null, conversationId: null, deck: null, error: "A apresentação não pôde ser registrada com segurança." };
   }
   if (isRateLimited(videoConversationDedupKey(overview.tenant.id, commandId, "presentation"), VIDEO_CONVERSATION_DEDUP_WINDOW_MS, 1)) {
-    return { url: null, conversationId: null, deck: null, error: "Uma apresentação já está sendo aberta para este agente. Aguarde alguns segundos antes de tentar de novo." };
+    return { effect: { schema_version: "2.0.0", remoteEffect: "possible" }, url: null, conversationId: null, deck: null, error: "Uma apresentação já está sendo aberta para este agente. Aguarde alguns segundos antes de tentar de novo." };
   }
   const dispatchFailure = await claimTavusRuntimeDispatch(runtimeGrant);
   if (dispatchFailure) {
     await releaseProviderEffect(reservation.reservationId, "not_dispatched").catch(() => undefined);
-    return { url: null, conversationId: null, deck: null, error: runtimeAdmissionError(dispatchFailure) };
+    return { effect: { schema_version: "2.0.0", remoteEffect: "possible" }, url: null, conversationId: null, deck: null, error: runtimeAdmissionError(dispatchFailure) };
   }
   let callbackUrl: string;
   try {
     callbackUrl = (await prepareTavusWebhookCallback(reservation.reservationId)).callbackUrl;
   } catch (error) {
     trackError("presentation_webhook_capability_bind_failed", error, { agent_id: agentId });
-    return { url: null, conversationId: null, deck: null, error: "A apresentação não pôde ser preparada com segurança." };
+    return { effect: { schema_version: "2.0.0", remoteEffect: "possible" }, url: null, conversationId: null, deck: null, error: "A apresentação não pôde ser preparada com segurança." };
   }
   try {
     const conversation = await port.createConversation({
@@ -487,24 +491,24 @@ export async function startPresentationConversation(agentId: string, commandId: 
     });
     if (bindingFailure.outcome === "rejected") {
       await compensateVideoConversation(port, reservation.reservationId, conversation.conversationId, "runtime_binding_failed").catch(() => undefined);
-      return { url: null, conversationId: null, deck: null, error: runtimeAdmissionError(bindingFailure.code) };
+      return { effect: { schema_version: "2.0.0", remoteEffect: "possible" }, url: null, conversationId: null, deck: null, error: runtimeAdmissionError(bindingFailure.code) };
     }
     if (!(await registerTranscriptPlaceholder(overview.tenant.id, agentId, "video", conversation.conversationId))) {
       try {
         await compensateVideoConversation(port, reservation.reservationId, conversation.conversationId, "transcript_persistence_failed");
       }
       catch (compensationError) { trackError("presentation_transcript_compensation_failed", compensationError, { agent_id: agentId }); }
-      return { url: null, conversationId: null, deck: null, error: "A apresentação não pôde ser registrada com segurança." };
+      return { effect: { schema_version: "2.0.0", remoteEffect: "possible" }, url: null, conversationId: null, deck: null, error: "A apresentação não pôde ser registrada com segurança." };
     }
     // Delivery/billing is activated only by the authenticated Tavus callback
     // after a non-empty human turn is durably present in the transcript.
-    return { url: conversation.conversationUrl, conversationId: conversation.conversationId, deck, error: null };
+    return { effect: { schema_version: "2.0.0", remoteEffect: "committed" }, url: conversation.conversationUrl, conversationId: conversation.conversationId, deck, error: null };
   } catch (error) {
     await fenceProviderFailure(reservation.reservationId, error).catch((fenceError) => trackError("presentation_effect_fence_failed", fenceError, { agent_id: agentId }));
     if (error instanceof VideoProviderError && error.code === "provider_rejected") {
-      return { url: null, conversationId: null, deck: null, error: "O provider de vídeo recusou a chamada (limite de conversas simultâneas ou créditos). Tente novamente em instantes." };
+      return { effect: { schema_version: "2.0.0", remoteEffect: "possible" }, url: null, conversationId: null, deck: null, error: "O provider de vídeo recusou a chamada (limite de conversas simultâneas ou créditos). Tente novamente em instantes." };
     }
-    return { url: null, conversationId: null, deck: null, error: "Não foi possível iniciar a apresentação agora." };
+    return { effect: { schema_version: "2.0.0", remoteEffect: "possible" }, url: null, conversationId: null, deck: null, error: "Não foi possível iniciar a apresentação agora." };
   }
 }
 

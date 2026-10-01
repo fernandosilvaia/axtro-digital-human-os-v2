@@ -42,3 +42,7 @@ test("state machine: undefined transitions throw a typed error instead of silent
   assert.equal(canHandleTurnCoordinatorEvent("idle", "speech_started"), true);
   assert.equal(canHandleTurnCoordinatorEvent("idle", "endpoint_confirmed"), false);
 });
+
+test("state machine: completed presenter releases interrupted generation", () => {
+  assert.equal(reduceTurnCoordinatorState("agent_interrupted", "presenter_turn_completed"), "idle");
+});

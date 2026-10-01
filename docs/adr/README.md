@@ -49,3 +49,5 @@ Accepted decisions for V2. The Constitution has precedence. A change to an accep
 - [ADR-043](ADR-043-durable-meeting-terminal-notification-outbox.md): outbox PostgreSQL tenant-scoped para notificações terminais, com payload congelado, lease, idempotência do provider, receipts e falha fechada.
 - [ADR-044](ADR-044-portal-text-preview-authority-and-rollout-split.md): restaura o core contract-first do preview textual, repara autoridade de admissão de forma forward-only e separa a ativação operacional em M6-06.
 - [ADR-045](ADR-045-isolated-public-demo-boundary.md): separa a demonstração pública de autenticação e tenancy, usando fixture sintética e estado curto assinado sem banco, provider ou efeitos reais.
+
+- [ADR-047](ADR-047-browser-call-lifecycle-recovery.md): epochs de chamada no browser, contrato de efeito remoto, recuperação tenant-scoped e completion durante interrupção.

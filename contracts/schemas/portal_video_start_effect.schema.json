@@ -1,0 +1,26 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://schemas.axtro.ai/v2/portal_video_start_effect.schema.json",
+  "title": "Portal Video Start Effect",
+  "description": "Closed effect classification for this start invocation, never a historical command-status query. Browser starts use a fresh command UUID; recovery invokes stop only. Provider acceptance is not physical media silence.",
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "schema_version": {
+      "type": "string",
+      "const": "2.0.0"
+    },
+    "remoteEffect": {
+      "type": "string",
+      "enum": [
+        "not_started",
+        "possible",
+        "committed"
+      ]
+    }
+  },
+  "required": [
+    "schema_version",
+    "remoteEffect"
+  ]
+}

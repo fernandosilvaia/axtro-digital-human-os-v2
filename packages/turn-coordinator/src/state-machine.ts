@@ -46,6 +46,7 @@ const TRANSITIONS: Readonly<Record<TurnCoordinatorState, Partial<Record<TurnCoor
     interruption_candidate: "agent_interrupted",
   }),
   agent_interrupted: Object.freeze({
+    presenter_turn_completed: "idle",
     interruption_confirmed: "user_speaking",
     interruption_false_positive: "recovered_false_interrupt",
   }),
