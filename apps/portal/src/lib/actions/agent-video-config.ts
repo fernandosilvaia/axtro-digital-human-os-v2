@@ -2,15 +2,7 @@
 
 import { createClient } from "@/lib/supabase/server";
 
-/**
- * Provisionamento self-service da persona de vídeo por agente
- * (D-V2-179, `portal_set_agent_video_config`, 0068).
- *
- * A RPC existe desde a 0022 e nunca teve chamador nem tela: até esta ação,
- * todo agente de vídeo em produção só existia porque alguém rodava SQL
- * manual. As guardas de dado (tenant_admin, formato de persona/replica,
- * vocabulário de idioma e vertical) vivem todas na RPC SECURITY DEFINER.
- */
+/** Edits preferences of an existing binding. Asset assignment is platform-governed. */
 
 export interface VideoConfigActionState {
   readonly error: string | null;
@@ -26,6 +18,9 @@ export interface VideoConfigStatus {
 }
 
 function mapRpcError(message: string): string {
+  if (message.includes("video asset assignment requires governed provisioning")) {
+    return "A vinculação de persona e réplica exige provisionamento aprovado pela plataforma.";
+  }
   if (message.includes("authentication required")) {
     return "Sua sessão expirou. Recarregue a página e entre de novo.";
   }
@@ -56,18 +51,27 @@ function mapRpcError(message: string): string {
 export async function setAgentVideoConfig(
   agentId: string,
   input: {
-    readonly personaId: string;
-    readonly replicaId: string | null;
     readonly language: string;
     readonly spokenLanguages: readonly string[] | null;
     readonly closerVertical: string;
   },
 ): Promise<VideoConfigActionState> {
   const supabase = await createClient();
+  const { data, error: readError } = await supabase.rpc("portal_agent_video_config", { p_agent_id: agentId });
+  if (readError) return { error: "Não foi possível ler a configuração de vídeo. Tente novamente." };
+  if (data === null || typeof data !== "object" || data.configured !== true) {
+    return { error: "Vídeo não configurado. Solicite o onboarding governado da persona e réplica." };
+  }
+  // Asset identities come from authenticated same-tenant state, never browser input.
+  const personaId = typeof data.persona_id === "string" ? data.persona_id : null;
+  const replicaId = typeof data.replica_id === "string" ? data.replica_id : null;
+  if (personaId === null && replicaId === null) {
+    return { error: "Vídeo não configurado. Solicite o onboarding governado da persona e réplica." };
+  }
   const { error } = await supabase.rpc("portal_set_agent_video_config", {
     p_agent_id: agentId,
-    p_persona_id: input.personaId,
-    p_replica_id: input.replicaId,
+    p_persona_id: personaId,
+    p_replica_id: replicaId,
     p_language: input.language,
     p_spoken_languages: input.spokenLanguages,
     p_closer_vertical: input.closerVertical,

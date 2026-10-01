@@ -6,19 +6,7 @@ import { useState, useTransition } from "react";
 import { setAgentVideoConfig, type VideoConfigStatus } from "@/lib/actions/agent-video-config";
 import { CLOSER_VERTICALS, VIDEO_LANGUAGES } from "@/lib/video-config-options";
 
-/**
- * Persona de vídeo do agente (D-V2-179, `portal_set_agent_video_config`).
- *
- * NÃO cria persona na Tavus nem gera custo: só liga o agente a um
- * persona_id/replica_id que a plataforma já provisionou por fora (dashboard
- * Tavus). Criação automática de persona real é um efeito pago, deliberadamente
- * fora daqui. Ver `agent-video.ts`, que trava em "fluxo governado de
- * onboarding" até existir uma reserva durável específica pra isso.
- *
- * A RPC existe desde a 0022 e nunca teve tela nem chamador: até aqui, toda
- * persona em produção (a Sofia inclusive) só existia porque alguém rodava
- * INSERT manual.
- */
+/** Existing asset IDs are visible but assignment requires governed onboarding. */
 export function VideoConfig({
   agentId,
   status,
@@ -29,8 +17,6 @@ export function VideoConfig({
   isAdmin: boolean;
 }) {
   const [error, setError] = useState<string | null>(null);
-  const [personaId, setPersonaId] = useState(status.personaId ?? "");
-  const [replicaId, setReplicaId] = useState(status.replicaId ?? "");
   const [language, setLanguage] = useState(status.language ?? "portuguese");
   const [spokenLanguages, setSpokenLanguages] = useState<readonly string[]>(
     status.spokenLanguages ?? [status.language ?? "portuguese"],
@@ -53,19 +39,11 @@ export function VideoConfig({
 
   function save() {
     setError(null);
-    const trimmedPersona = personaId.trim();
-    const trimmedReplica = replicaId.trim();
-    if (trimmedPersona.length === 0) {
-      setError("Informe o ID da persona Tavus.");
-      return;
-    }
     // spoken_languages so vale a pena mandar com mais de um idioma; um so e
     // exatamente o comportamento padrao (NULL na coluna, 0066).
     const languagesToSend = spokenLanguages.length > 1 ? spokenLanguages : null;
     startTransition(async () => {
       const result = await setAgentVideoConfig(agentId, {
-        personaId: trimmedPersona,
-        replicaId: trimmedReplica.length > 0 ? trimmedReplica : null,
         language,
         spokenLanguages: languagesToSend,
         closerVertical,
@@ -82,13 +60,13 @@ export function VideoConfig({
     <section className="card" style={{ marginBottom: 16 }}>
       <h2 className="section-title">Persona de vídeo</h2>
       <p style={{ color: "var(--text-muted)", fontSize: "0.88rem", margin: "0 0 14px" }}>
-        Liga este agente a uma persona (e réplica, se houver) já criadas na Tavus. Não cria nada
-        novo nem gera custo aqui, só grava o ID que a plataforma provisionou para esta conta.
+        A vinculação de persona e réplica exige provisionamento aprovado pela plataforma.
+        Você pode editar idioma e vertical dos ativos já vinculados.
       </p>
 
       {status.configured ? (
         <p style={{ margin: "0 0 12px", fontSize: "0.9rem" }}>
-          Estado: <strong>configurado</strong>
+          Estado: <strong>vínculo de vídeo registrado</strong>
           <span style={{ color: "var(--text-faint)", fontSize: "0.78rem" }}>
             {" "}· persona {status.personaId}
             {status.replicaId !== null ? ` · réplica ${status.replicaId}` : ""}
@@ -96,12 +74,18 @@ export function VideoConfig({
         </p>
       ) : (
         <p style={{ margin: "0 0 12px", fontSize: "0.9rem" }}>
-          Estado: <strong>não configurado</strong>. Sem isso o agente não tem vídeo, apresentação
-          nem reunião externa.
+          Estado: <strong>onboarding governado pendente</strong>. Solicite à plataforma o
+          provisionamento aprovado da persona e réplica para habilitar vídeo.
         </p>
       )}
 
-      {isAdmin ? (
+      {status.configured && (
+        <p style={{ color: "var(--text-muted)", fontSize: "0.82rem" }}>
+          O vínculo registrado não comprova a autorização de uso de imagem ou voz.
+        </p>
+      )}
+
+      {isAdmin && status.configured ? (
         <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
           <div style={{ display: "flex", gap: 12, flexWrap: "wrap" }}>
             <div className="field" style={{ marginBottom: 0, flex: "1 1 220px" }}>
@@ -109,11 +93,10 @@ export function VideoConfig({
               <input
                 id="video-persona"
                 type="text"
-                value={personaId}
-                onChange={(event) => setPersonaId(event.target.value)}
+                value={status.personaId ?? ""}
+                readOnly
                 maxLength={64}
                 autoComplete="off"
-                placeholder="p6f9cfb4817e"
               />
             </div>
             <div className="field" style={{ marginBottom: 0, flex: "1 1 220px" }}>
@@ -121,11 +104,10 @@ export function VideoConfig({
               <input
                 id="video-replica"
                 type="text"
-                value={replicaId}
-                onChange={(event) => setReplicaId(event.target.value)}
+                value={status.replicaId ?? ""}
+                readOnly
                 maxLength={64}
                 autoComplete="off"
-                placeholder="r862e3a3c5e0"
               />
             </div>
             <div className="field" style={{ marginBottom: 0, flex: "1 1 160px" }}>
@@ -169,15 +151,15 @@ export function VideoConfig({
 
           <div>
             <button type="button" className="btn btn-primary" onClick={save} disabled={pending}>
-              {pending ? "Salvando…" : status.configured ? "Atualizar persona" : "Salvar persona"}
+              {pending ? "Salvando…" : "Salvar idioma e vertical"}
             </button>
           </div>
         </div>
-      ) : (
+      ) : !isAdmin ? (
         <p style={{ fontSize: "0.78rem", color: "var(--text-faint)", margin: 0 }}>
           Só um administrador da conta pode configurar o vídeo do agente.
         </p>
-      )}
+      ) : null}
 
       {error && <p className="form-error" role="alert" style={{ marginTop: 10 }}>{error}</p>}
     </section>

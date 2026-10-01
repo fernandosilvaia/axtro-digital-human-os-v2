@@ -70,8 +70,8 @@
 | ID | Status | Fronteira |
 |---|---|---|
 | `AUD-01` | done | Dependências, isolamento E2E e gate de worker |
-| `AUD-02` | in_progress | Autorização pré-custo e atribuição de ativos de vídeo |
-| `AUD-03` | planned | Lifecycle de mídia e completion durante interrupção |
+| `AUD-02` | done | Autorização pré-custo e atribuição de ativos de vídeo |
+| `AUD-03` | in_progress | Lifecycle de mídia e completion durante interrupção |
 | `AUD-04` | planned | Disponibilidade de exclusão e browser |
 | `AUD-05` | planned | Evidências e opções open source |
 
@@ -1314,3 +1314,7 @@ bake-off credenciado de provider e piloto interno real de M3-10.
 ### AUD-01 concluída, 2026-10-01
 
 Next.js 16.3.6, sharp 0.35.5 e baseline-browser-mapping 2.11.26 corrigem os advisories encontrados. Audit atual do registry sem vulnerabilidades; build e 12 E2E públicos passaram. Corpus offline explícito, gate online de CI sem bypass, 35 regressões de isolamento E2E e summaries de workers passaram. Nove validadores passaram com inventário v71. AUD-02 iniciada: autorização antes de embeddings e fechamento de atribuição arbitrária de persona/replica. Nenhuma migration remota ou efeito pago executado.
+
+### AUD-02 concluída, 2026-10-01
+
+24 regressões runtime de ingestão verificam admin e ownership/status antes de fake, service role, reserva ou provider, com refresh de fontes stale preservado. Migration 0072 trava IDs de ativos já vinculados, mantendo idioma/vertical e apresentação; Action deriva IDs pelo caller RLS e UI mostra somente leitura. PostgreSQL 0001-0072 e 25 testes de Action/UI/lineage passaram, assim como typecheck do Portal. Revisão de segurança sem bloqueador. IDs históricos não equivalem a receipt de ownership; migration remota pendente. Revogação concorrente entre leitura e reserva de embeddings ainda requer fence transacional futura. AUD-03 iniciada: epochs, recuperação da intenção de chamada, early tracks e completion interrompido.

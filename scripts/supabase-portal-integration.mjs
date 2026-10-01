@@ -271,9 +271,12 @@ try {
   assertDataSubjectGovernanceRedaction(databaseUrl);
   assertTenantGovernanceDeletion(databaseUrl);
   assertDataGovernanceActiveRequestCancelLifecycle(databaseUrl);
+  const videoAssetGovernanceApplied = applySupabaseMigrations(databaseUrl, 72, 72);
+  assert.deepEqual(videoAssetGovernanceApplied, ["0072"]);
+  await assertVideoAssetAssignmentGovernancePhase(databaseUrl);
   assertMigrationReceiptLineage(databaseUrl);
 
-  console.log("SUPABASE PORTAL INTEGRATION PASSED: migrations 0001-0071 in contiguous order, immutable checksums, grants, RLS, transcripts, reservations, data governance and readiness capability");
+  console.log("SUPABASE PORTAL INTEGRATION PASSED: migrations 0001-0072 in contiguous order, immutable checksums, grants, RLS, transcripts, reservations, data governance and readiness capability");
 } catch (error) {
   primaryError = error;
   throw error;
@@ -311,11 +314,11 @@ function supabaseMigrationInventory() {
   const migrations = readdirSync(supabaseMigrationDirectory)
     .filter((name) => /^\d{4}_.+\.sql$/.test(name))
     .sort();
-  assert.equal(migrations.length, 71, "the harness must cover every Supabase-only migration through 0071");
+  assert.equal(migrations.length, 72, "the harness must cover every Supabase-only migration through 0072");
   assert.deepEqual(
     migrations.map((migration) => Number(migration.slice(0, 4))),
-    Array.from({ length: 71 }, (_, index) => index + 1),
-    "Supabase-only migration versions must be contiguous and unique from 0001 through 0071",
+    Array.from({ length: 72 }, (_, index) => index + 1),
+    "Supabase-only migration versions must be contiguous and unique from 0001 through 0072",
   );
   assert.equal(migrations[48], "0049_portal_text_preview_admission.sql");
   assert.equal(migrations[49], "0050_meeting_terminal_notification_claim.sql");
@@ -331,6 +334,9 @@ function supabaseMigrationInventory() {
   assert.equal(migrations[66], "0067_ai_usage_unknown_timeout_sweep.sql");
   assert.equal(migrations[67], "0068_agent_video_config_self_service_catches_up.sql");
   assert.equal(migrations[68], "0069_business_action_checkout_stripe_connect.sql");
+  assert.equal(migrations[69], "0070_data_governance_catalog_onboarding_repair.sql");
+  assert.equal(migrations[70], "0071_data_governance_write_fence_repair.sql");
+  assert.equal(migrations[71], "0072_agent_video_asset_assignment_governance.sql");
   assert.equal(migrationChecksum(migrations[48]), "79b24e7fdc768a30b02d3596b71799fae484043e37561ddfcd435f46076b3100");
   assert.equal(migrationChecksum(migrations[49]), "262e033328175f704f8cfef1cafdcb0a2ef9b9aac7e4cc86f2b33890044c7224");
   return migrations;
@@ -912,6 +918,106 @@ function assertAgentVideoConfigSelfServicePhase(databaseUrl) {
 // commit->webhook. Cria seu proprio agente/sessao fixture (mesmo padrao de
 // assertAgentVideoConfigSelfServicePhase acima) pra nao depender do estado
 // que outras fases ja deixaram em tenantAlpha/agentAlpha.
+async function assertVideoAssetAssignmentGovernancePhase(databaseUrl) {
+  const ids = [1701, 1702, 1703, 1704].map((offset) => governanceUuid(offset));
+  const persona = "p0072fixture";
+  const replica = "r0072fixture";
+  const governedMessage = /video asset assignment requires governed provisioning/;
+  const sqlText = (value) => value === null ? "null" : `'${sqlLiteral(value)}'`;
+  const invoke = (agentId, personaId, replicaId, language = "spanish", spoken = "array['spanish','english']", vertical = "life_insurance_qualification") =>
+    `SELECT public.portal_set_agent_video_config('${agentId}',${sqlText(personaId)},${sqlText(replicaId)},${sqlText(language)},${spoken},${sqlText(vertical)});`;
+  const asAdmin = (sql) => asRoleSql("authenticated", fixture.userAlpha, sql);
+  const capabilities = queryJson(databaseUrl, asRoleSql("service_role", null,
+    "SELECT public.portal_schema_capabilities_service();"));
+  assert.equal(capabilities.version, 72);
+  assert.equal(capabilities.videoAssetAssignmentGoverned, true);
+  assert.equal(capabilities.dataGovernanceCanonicalContractsReady, false);
+  assertSucceeded(runSql(databaseUrl, `
+    INSERT INTO public.agents(tenant_id,id,name,role_type,status,disclosure_profile_id) VALUES
+      ${ids.map((agentId, index) => `('${fixture.tenantAlpha}','${agentId}','Video governance fixture ${index}','sales','active','default')`).join(",")};
+    INSERT INTO public.agent_video_config(tenant_id,agent_id,tavus_persona_id,tavus_replica_id,language,presentation_kind) VALUES
+      ('${fixture.tenantAlpha}','${ids[0]}','${persona}','${replica}','english','platform'),
+      ('${fixture.tenantAlpha}','${ids[1]}','${persona}',null,'english','sales'),
+      ('${fixture.tenantAlpha}','${ids[2]}',null,'${replica}','english','sales');
+  `), "seed existing, null-replica, replica-only and unconfigured bindings");
+  const countBefore = queryScalar(databaseUrl,
+    `SELECT count(*) FROM public.agent_video_config WHERE tenant_id='${fixture.tenantAlpha}';`);
+  for (const [agentId, personaId, replicaId] of [[ids[0], persona, replica], [ids[1], persona, null], [ids[2], null, replica]]) {
+    assertSucceeded(runSql(databaseUrl, asAdmin(invoke(agentId, personaId, replicaId))),
+      "unchanged assets allow language and vertical preferences, including null IDs");
+    const row = queryJson(databaseUrl, `SELECT jsonb_build_object('persona',tavus_persona_id,'replica',tavus_replica_id,
+      'language',language,'spoken',spoken_languages,'vertical',closer_vertical,'kind',presentation_kind)
+      FROM public.agent_video_config WHERE tenant_id='${fixture.tenantAlpha}' AND agent_id='${agentId}';`);
+    assert.deepEqual(row, { persona: personaId, replica: replicaId, language: "spanish", spoken: ["spanish", "english"],
+      vertical: "life_insurance_qualification", kind: agentId === ids[0] ? "platform" : "sales" });
+  }
+  for (const [agentId, personaId, replicaId] of [
+    [ids[0], "pforeignasset", replica], [ids[0], persona, "rforeignasset"],
+    [ids[0], null, replica], [ids[0], persona, null], [ids[1], persona, replica],
+    [ids[2], persona, replica], [ids[3], persona, replica], [ids[3], null, null],
+  ]) {
+    const sql = invoke(agentId, personaId, replicaId);
+    assertFailed(runSql(databaseUrl, asAdmin(sql)), "asset changes and new bindings require governed provisioning", governedMessage);
+    const perform = sql.replace(/^SELECT /, "PERFORM ");
+    assertSucceeded(runSql(databaseUrl, asAdmin(`DO $denial$ BEGIN
+      BEGIN ${perform} RAISE EXCEPTION 'expected SQLSTATE 42501';
+      EXCEPTION WHEN insufficient_privilege THEN NULL; END;
+    END $denial$;`)), "asset assignment denies specifically with SQLSTATE 42501");
+  }
+  assertFailed(runSql(databaseUrl, asAdmin(invoke(fixture.agentBeta, persona, replica))),
+    "an administrator cannot edit another tenant's asset binding", /agent not found for this account/);
+  assertFailed(runSql(databaseUrl, `BEGIN;
+    UPDATE public.user_tenant_memberships SET role='tenant_operator' WHERE user_id='${fixture.userAlpha}';
+    ${asAdmin(invoke(ids[0], persona, replica))}
+  `), "tenant_operator cannot edit even unchanged assets", /only a tenant_admin/);
+  assertFailed(runSql(databaseUrl, asRoleSql("authenticated", null, invoke(ids[0], persona, replica))),
+    "a missing authenticated identity cannot edit preferences", /authentication required/);
+  assertFailed(runSql(databaseUrl, asAdmin(invoke(ids[0], persona, replica, null, "null"))),
+    "null language is rejected without changing assets", /language must be/);
+  assertFailed(runSql(databaseUrl, asAdmin(invoke(ids[0], persona, replica, "english", "array['spanish']"))),
+    "opening language must be recognized", /spoken_languages must have/);
+  for (const role of ["anon", "authenticated", "service_role"]) {
+    assert.equal(queryScalar(databaseUrl, `SELECT has_table_privilege('${role}','public.agent_video_config','INSERT')
+      OR has_table_privilege('${role}','public.agent_video_config','UPDATE')
+      OR has_table_privilege('${role}','public.agent_video_config','DELETE');`), "f", `${role} has no direct asset mutation ACL`);
+    assertFailed(runSql(databaseUrl, asRoleSql(role, role === "authenticated" ? fixture.userAlpha : null,
+      `UPDATE public.agent_video_config SET tavus_persona_id='pforeignasset' WHERE agent_id='${ids[0]}';`)),
+    "direct asset assignment is denied", /permission denied/);
+  }
+  assert.equal(queryScalar(databaseUrl,
+    `SELECT count(*) FROM public.agent_video_config WHERE tenant_id='${fixture.tenantAlpha}';`), countBefore,
+  "no denied request creates a video binding");
+
+  const barrier = "video-asset-v72-race";
+  const owner = runSqlAsync(databaseUrl, `BEGIN;
+    UPDATE public.agent_video_config SET tavus_replica_id='r0072changed' WHERE tenant_id='${fixture.tenantAlpha}' AND agent_id='${ids[0]}';
+    SELECT pg_advisory_xact_lock(72001);
+    DO $barrier$ DECLARE deadline timestamptz:=clock_timestamp()+interval '5 seconds'; BEGIN LOOP
+      EXIT WHEN EXISTS(SELECT 1 FROM public.axtro_supabase_test_barriers WHERE name='${barrier}');
+      IF clock_timestamp()>deadline THEN RAISE EXCEPTION 'asset race barrier timeout'; END IF;
+      PERFORM pg_sleep(0.01);
+    END LOOP; END $barrier$; COMMIT;`);
+  let editor;
+  try {
+    await waitForAdvisoryLockHolder(databaseUrl, 72001);
+    editor = runSqlAsync(databaseUrl, `SET application_name='video_asset_stale_edit'; ${asAdmin(invoke(ids[0], persona, replica))}`);
+    await waitForBlockedApplicationLocks(databaseUrl, ["video_asset_stale_edit"]);
+    assertSucceeded(runSql(databaseUrl, `INSERT INTO public.axtro_supabase_test_barriers(name) VALUES('${barrier}');`),
+      "release the concurrent privileged provisioning write");
+    assertSucceeded(await owner, "platform write establishes the new asset identity");
+    assertFailed(await editor, "FOR UPDATE rechecks IDs after a concurrent binding change", governedMessage);
+    assert.equal(queryScalar(databaseUrl, `SELECT tavus_replica_id FROM public.agent_video_config
+      WHERE tenant_id='${fixture.tenantAlpha}' AND agent_id='${ids[0]}';`), "r0072changed",
+    "the stale preference call cannot overwrite concurrent provisioning");
+  } finally {
+    runSql(databaseUrl, `INSERT INTO public.axtro_supabase_test_barriers(name) VALUES('${barrier}') ON CONFLICT DO NOTHING;`);
+    await Promise.allSettled([owner, ...(editor ? [editor] : [])]);
+    runSql(databaseUrl, `DELETE FROM public.axtro_supabase_test_barriers WHERE name='${barrier}';`);
+  }
+  assertSucceeded(runSql(databaseUrl, `DELETE FROM public.agents WHERE tenant_id='${fixture.tenantAlpha}' AND id IN (${ids.map((id) => `'${id}'`).join(",")});`),
+    "clean isolated video governance fixtures");
+}
+
 function assertBusinessActionCheckoutStripeConnectPhase(databaseUrl) {
   const capabilities = queryJson(databaseUrl, asRoleSql("service_role", null, "SELECT public.portal_schema_capabilities_service();"));
   assert.equal(capabilities.version, 69, "0069 enables the ADR-040 checkout via Stripe Connect contract");

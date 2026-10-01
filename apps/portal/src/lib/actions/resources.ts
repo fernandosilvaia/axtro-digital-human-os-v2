@@ -96,6 +96,9 @@ export async function createKnowledgeSource(
   if (!overview.provisioned || !overview.tenant) {
     return { error: "Conta ainda não provisionada.", done: false };
   }
+  if (overview.role !== "tenant_admin") {
+    return { error: "Somente administradores podem cadastrar fontes.", done: false };
+  }
   const supabase = await createClient();
   const sourceId = createUuidV7();
   const { error } = await supabase.rpc("portal_create_knowledge_source", {
@@ -134,6 +137,16 @@ async function ingestContentForSource(
   const fakeMode = fakeProvidersEnabled();
   const contentHash = contentSha256(content);
   try {
+    // Read through caller RLS before fake or paid dispatch. A revoked source
+    // cannot consume a reservation merely to be rejected by the ingest RPC.
+    const { data: sources, error: sourceError } = await supabase.rpc("portal_list_knowledge_sources");
+    if (sourceError || !Array.isArray(sources)) {
+      return "não foi possível confirmar a disponibilidade da fonte.";
+    }
+    const source = sources.find((item) => item !== null && typeof item === "object" && item.id === sourceId);
+    if (!source || !["pending", "active", "stale"].includes(source.status)) {
+      return "a fonte não está disponível para ingestão nesta conta.";
+    }
     const texts = chunkContent(content);
     // Esta validação é determinística e acontece antes de a reserva cruzar a
     // fence de dispatch. Sem ela, um documento Unicode dentro do limite de
@@ -151,14 +164,6 @@ async function ingestContentForSource(
     const embedded = fakeMode
       ? { outcome: "committed" as const, value: await embedChunks(process.env.OPENROUTER_API_KEY ?? "", texts) }
       : await (async () => {
-        // Antes de usar service role, confirme ownership com a RPC RLS do
-        // caller. A reserva revalida o mesmo par tenant/source no banco.
-        const { data: sources, error: sourceError } = await supabase.rpc("portal_list_knowledge_sources");
-        if (sourceError || !Array.isArray(sources) || !sources.some((source) => (
-          source !== null && typeof source === "object" && (source as { id?: unknown }).id === sourceId
-        ))) {
-          throw new Error("knowledge source is not owned by the authenticated tenant");
-        }
         return executeReservedAiUsage({
           // Service role so the browser-authenticated caller never controls a
           // token/cost envelope or ledger transition. tenantId came from the
@@ -235,6 +240,9 @@ export async function updateKnowledgeSourceContent(
   const overview = await fetchTenantOverview();
   if (!overview.provisioned || !overview.tenant) {
     return { error: "Conta ainda não provisionada.", done: false };
+  }
+  if (overview.role !== "tenant_admin") {
+    return { error: "Somente administradores podem atualizar o conteúdo das fontes.", done: false };
   }
   const supabase = await createClient();
   const ingestError = await ingestContentForSource(supabase, overview.tenant.id, sourceId, content);
