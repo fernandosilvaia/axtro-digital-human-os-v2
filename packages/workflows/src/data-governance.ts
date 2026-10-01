@@ -291,6 +291,7 @@ interface StoredItem {
   view: DataGovernanceWorkItem;
   operation: DataDispositionOperation;
   leaseToken: string | null;
+  leaseFence: number;
   leaseExpiresAt: string | null;
 }
 interface StoredHold {
@@ -415,7 +416,7 @@ export function createInMemoryDataGovernanceRepository(options: DataGovernanceRe
       const normalizedItems = inventory.work_items.map((raw) => normalizeWorkItem(raw, stored, defaultMaxAttempts, now));
       if (new Set(normalizedItems.map((item) => item.work_item_id)).size !== normalizedItems.length || normalizedItems.some((item) => stored.items.has(item.work_item_id))) throw new DataGovernanceConflictError();
       for (const item of normalizedItems) {
-        stored.items.set(item.work_item_id, { view: item, operation: "apply", leaseToken: null, leaseExpiresAt: null });
+        stored.items.set(item.work_item_id, { view: item, operation: "apply", leaseFence: 0, leaseToken: null, leaseExpiresAt: null });
       }
       refreshHeldItems(stored, now);
       stored.status = copy({ ...stored.status, inventory_fingerprint: sha256Canonical([...stored.items.values()].map(({ view }) => view)) });
@@ -533,7 +534,7 @@ export function createInMemoryDataGovernanceRepository(options: DataGovernanceRe
         transition(stored, "operator_required", now, "retry_budget_exhausted");
         return copy({ outcome: "terminal", execution: null, status: stored.status });
       }
-      const leaseFence = (item.view.lease_fence ?? 0) + 1;
+      const leaseFence = ++item.leaseFence;
       const leaseExpiresAt = new Date(nowMs + leaseMs).toISOString();
       item.operation = operation;
       item.leaseToken = claimToken;

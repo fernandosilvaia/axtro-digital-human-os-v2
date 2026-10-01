@@ -1,10 +1,20 @@
 # Progresso de implementação
 
-**Estado atual:** M0-M6-03 com código e validação local concluídos; M6-04 permanece em progresso com sua fundação validada localmente até a migration 0059. O Portal do commit `70baf02` está publicado no Railway, enquanto o Supabase hospedado foi confirmado pelo predeploy em schema v50 e não recebeu a 0059. A demo pública deixou de autenticar um usuário e tenant compartilhados: agora é uma simulação sintética, isolada por cookie HMAC, limitada, descartável e sem caminho para banco, provider ou efeito pago. A notificação terminal usa outbox durável, e o core do preview textual permanece hard-closed até M6-06. A promoção realtime continua bloqueada por uma fronteira de mídia P0 não comprovada.
+## Auditoria autônoma de 2026-10-01, em progresso
+
+- Pedido: auditar o sistema, corrigir falhas verificáveis, avaliar melhorias open source e exercer a experiência no navegador.
+- Baseline: `main`; alteração preexistente em `apps/portal/next-env.d.ts` preservada. A situação de produção descrita abaixo é histórica, não foi reconfirmada nesta auditoria.
+- Tarefa normativa continua `M6-04` (`in_progress`). Revisões read-only independentes cobrem segurança do Portal, governança de dados, realtime, arquitetura e qualidade. Cada correção terá write set fechado, regressão e fronteira própria.
+- Primeiro gate: `python3 scripts/validate_all.py` encontrou Python global sem PyYAML/jsonschema. `uv sync` confirmou as dependências locais; os validadores serão executados pelo ambiente do projeto. Isso não é falha de contrato nem um gate verde.
+- Regra de parada: encerrar o incremento quando correções confirmadas estiverem testadas e revisadas, com relatório de cobertura e pendências. Não inferir prontidão comercial, aplicar migrations remotas nem realizar efeitos pagos a partir de testes locais.
+- Baseline confirmada: 1.797 testes Node + 31 Python; nove validadores e lint verdes. `db:portal:test` falhou antes das fases por contagem 69 diante de 70 migrations; essa evidência é vermelha, apesar do último histórico verde. Browser autenticado local: 15 passaram, exclusão direta de rascunho falhou como previsto pela política SQL e o último teste não executou. Auditoria online de dependências: três críticas e uma alta; snapshot offline cobre somente nanoid.
+- Incremento M6-04 validado: migration forward-only `0071`, subject write fence, cobertura das seis tabelas novas, drenagem de efeitos calendar/checkout e monotonicidade do fake. Gate canônico M6-04 continua fechado até completar seus critérios. `pnpm db:portal:test` percorreu 0001-0071 e passou; build e 27 testes de workflow verdes. Falsificação com função histórica reprovou subject UPDATE como esperado; PK, INSERT/UPDATE/DELETE das seis tabelas e reservas não terminais foram exercidos. A contagem do teste de lineage também foi atualizada para 71.
+
+**Snapshot histórico de 2026-08-31 (produção não reconfirmada):** M0-M6-03 com código e validação local concluídos; M6-04 permanece em progresso com sua fundação validada localmente até a migration 0059. O Portal do commit `70baf02` está publicado no Railway, enquanto o Supabase hospedado foi confirmado pelo predeploy em schema v50 e não recebeu a 0059. A demo pública deixou de autenticar um usuário e tenant compartilhados: agora é uma simulação sintética, isolada por cookie HMAC, limitada, descartável e sem caminho para banco, provider ou efeito pago. A notificação terminal usa outbox durável, e o core do preview textual permanece hard-closed até M6-06. A promoção realtime continua bloqueada por uma fronteira de mídia P0 não comprovada.
 
 **Marco atual:** M6, Production Recovery and Customer Readiness
 **Tarefa atual:** M6-04, exclusão, redação e legal hold (`in_progress`).
-**Última evidência verde:** 2026-08-31: `pnpm test` verde com build TypeScript, 1.496 testes Node e 31 Python; suíte M6-04 focada com 52 testes; `pnpm lint`, typecheck e build do Portal, `UV_CACHE_DIR=.uv-cache uv run pytest`, `python3 scripts/validate_all.py`, `pnpm contracts:check`, `git diff --check` e harness PostgreSQL 17 de 0001 a 0059 verdes. O commit `70baf02` foi enviado para `origin/codex/deep-production-audit` e publicado no Railway como deployment `94b884a8-218d-47f9-8ad9-c7b7a0c6a3c6`, com predeploy em schema hospedado v50, landing, `/api/health` e `/api/ready` respondendo 200. Nenhuma migration remota, flag, segredo, provider real ou efeito pago foi alterado.
+**Evidência histórica de 2026-08-31:** `pnpm test` verde com build TypeScript, 1.496 testes Node e 31 Python; suíte M6-04 focada com 52 testes; `pnpm lint`, typecheck e build do Portal, `UV_CACHE_DIR=.uv-cache uv run pytest`, `python3 scripts/validate_all.py`, `pnpm contracts:check`, `git diff --check` e harness PostgreSQL 17 de 0001 a 0059 verdes. O commit `70baf02` foi enviado para `origin/codex/deep-production-audit` e publicado no Railway como deployment `94b884a8-218d-47f9-8ad9-c7b7a0c6a3c6`, com predeploy em schema hospedado v50, landing, `/api/health` e `/api/ready` respondendo 200. Nenhuma migration remota, flag, segredo, provider real ou efeito pago foi alterado.
 **Bloqueadores internos:** P0 para promoção realtime: falta prova end-to-end de mídia controlada, cancelamento e descarte de saída tardia de Tavus/Recall. Para a demo pública, rollout exige a política edge global v3 comprovada, segredo dedicado, canário operacional e revogação auditada da identidade compartilhada antiga; o código local não autoriza essas ações remotas. Para notificações, a lease global de M6-01 não isola um tenant canário; M6-05 bloqueia provider real, flag ativa em ambiente compartilhado, agenda e tráfego de clientes até fechar escopo de canary, quota, fairness, custo, circuit breaker, reconciliação final, SLO de backlog, retenção e fila operacional. Para o preview textual, M6-06 bloqueia qualquer provider real até existir relay PostgreSQL, cleanup agendado, reconciliação de ambiguidade, privacidade verificável, orçamento tenant-fair e rollout canário autorizado.
 **Pendências externas:** RESOLVIDO em 2026-09-04 (D-V2-166): os dois workflows financeiros do GitHub Actions estavam `disabled_manually`, não apenas sem repo variable. Foram religados, as quatro repo variables e os dois secrets foram criados. Atualização 2026-09-13 (D-V2-170): Fernando autorizou ligar `PORTAL_BUSINESS_ACTION_BRIDGE_ENABLED=true` e `PORTAL_RUNTIME_BRIDGE_ENABLED=true` em produção, explicitamente como risco aceito pra ele testar o produto com a própria empresa, não como liberação comercial (o P0 de media boundary segue aberto). `PORTAL_PROVIDER_TERMINATION_ENABLED=false` continua desligada. Achado 2026-09-18 (mesma sessão que corrigiu o travessão em todo o repo): a conta GitHub voltou a ficar com billing travado de ~2026-09-14 até 2026-09-18, derrubando de novo os dois workflows financeiros e o CI inteiro por ~4 dias (achado e corrigido nesta sessão); voltaram a rodar com sucesso a partir de ~19h35 UTC de hoje, mas a cadência real observada do cron do GitHub Actions (declarado a cada 5min) ainda está bem mais espaçada que isso enquanto o agendador do GitHub recupera a prioridade normal do repo, então `/api/ready` (`workers` check) ainda oscila pra `false` entre execuções: não é um bug de código, deve se resolver sozinho.
 
@@ -54,6 +64,16 @@
 - Use `blocked` somente para dependência realmente irreversível; M0-M2 devem usar fakes quando faltarem credenciais.
 
 ## Task ledger
+
+### Manutenção independente da auditoria de 2026-10-01
+
+| ID | Status | Fronteira |
+|---|---|---|
+| `AUD-01` | planned | Dependências, isolamento E2E e gate de worker |
+| `AUD-02` | planned | Autorização pré-custo e atribuição de ativos de vídeo |
+| `AUD-03` | planned | Lifecycle de mídia e completion durante interrupção |
+| `AUD-04` | planned | Disponibilidade de exclusão e browser |
+| `AUD-05` | planned | Evidências e opções open source |
 
 | ID | Marco | Status | Título | Dependências | Evidência |
 |---|---|---|---|---|---|

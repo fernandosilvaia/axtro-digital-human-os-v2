@@ -20,7 +20,72 @@ milestones:
   M5:
     name: Production Integrity, Trust and Discovery
     exit_gate: M5-03
+  Audit:
+    name: Local corrective audit 2026-10-01
+    exit_gate: AUD-05
 tasks:
+  - id: AUD-01
+    milestone: Audit
+    title: Repair dependency and test environment gates
+    lane: security
+    dependencies: [M0-02]
+    objective: Patch vulnerable existing Next dependencies, distinguish offline advisory fixtures from live audit, and isolate browser test suites and worker response validation.
+    primary_files: [apps/portal/package.json, apps/portal/playwright.config.ts, pnpm-lock.yaml, security/dependency-advisories.json, scripts/worker-response-gate.jq, .github/workflows/docs-qa.yml, tests/]
+    acceptance:
+      - online dependency audit has no high or critical finding and fails CI on lookup failure
+      - offline fixtures reject the previously vulnerable locked versions
+      - each Playwright configuration discovers only its own environment suite
+      - worker response gate rejects absent, negative, fractional and malformed mandatory counters
+    tests: [dependency audit, advisory negative fixtures, Playwright list-only selection, worker summary negative matrix]
+  - id: AUD-02
+    milestone: Audit
+    title: Reject unauthorized embedding and video asset assignment
+    lane: security
+    dependencies: [AUD-01]
+    objective: Authorize knowledge ingestion before cost and prevent self-service assignment of unverified persona or replica identifiers.
+    primary_files: [apps/portal/src/lib/actions/resources.ts, apps/portal/src/lib/actions/agent-video-config.ts, "apps/portal/src/app/(app)/agentes/[id]/testar/video-config.tsx", database/supabase-only/, scripts/supabase-portal-integration.mjs, tests/portal/]
+    acceptance:
+      - tenant_operator, unowned and revoked sources cannot reserve or dispatch embeddings
+      - direct RPC cannot assign or replace persona or replica while existing configuration accepts language and vertical edits
+      - existing video links are not represented as verified ownership receipts
+    tests: [runtime authorization before provider, source eligibility, SQL cross-tenant asset assignment, direct table ACL]
+  - id: AUD-03
+    milestone: Audit
+    title: Fence browser call lifecycle and completed generations
+    lane: realtime
+    dependencies: [AUD-02]
+    objective: Retain early media tracks, suppress results from earlier calls, clean partial Daily objects and release completed generations during interruptions.
+    primary_files: ["apps/portal/src/app/(app)/agentes/[id]/testar/", packages/turn-coordinator/, tests/portal/, tests/realtime/, docs/adr/]
+    acceptance:
+      - tracks received during join attach when media elements mount and stopped tracks detach
+      - result from call A is never sent to call B after restart or unmount
+      - pending starts and join failures leave no local Daily object alive
+      - completion during interrupted state cannot resume completed generation and stale completion stays ignored
+    tests: [TSX lifecycle replay, late tool success and rejection, unmount across awaits, partial join cleanup, completion order replay]
+  - id: AUD-04
+    milestone: Audit
+    title: Align unavailable deletion experience and browser assertions
+    lane: frontend
+    dependencies: [AUD-03]
+    objective: Make individual deletion availability truthful while preserving governance controls and finish local browser validation.
+    primary_files: ["apps/portal/src/app/(app)/agentes/", "apps/portal/src/app/(app)/conhecimento/", apps/portal/e2e/, tests/ui/]
+    acceptance:
+      - UI does not offer successful individual deletion where the SQL workflow refuses it
+      - local E2E verifies preserved resources, usable status transitions and source revocation
+      - public demo active and ended states pass accessibility checks
+    tests: [authenticated local browser flow, resource preservation, demo axe checks, desktop and mobile visual inspection]
+  - id: AUD-05
+    milestone: Audit
+    title: Reconcile audit evidence and open-source improvement options
+    lane: documentation
+    dependencies: [AUD-04]
+    objective: Record exact local evidence, honest remaining release gaps and source-backed reversible improvement experiments.
+    primary_files: [README.md, PROGRESS.md, docs/operations/, artifacts/audit-2026-10-01/]
+    acceptance:
+      - facts implemented locally are distinguished from remote deployment and commercial validation
+      - all confirmed findings have disposition and remaining gaps have concrete next steps
+      - open-source options include official references and benchmark criteria without choosing permanent providers
+    tests: [docs QA, contract drift, full local gates, diff check]
   - id: M0-01
     milestone: M0
     title: Bootstrap modular monorepo

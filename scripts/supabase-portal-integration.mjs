@@ -259,9 +259,21 @@ try {
   assert.deepEqual(checkoutStripeConnectApplied, ["0069"]);
   assertBusinessActionCheckoutStripeConnectPhase(databaseUrl);
 
+  const catalogRepairApplied = applySupabaseMigrations(databaseUrl, 70, 70);
+  assert.deepEqual(catalogRepairApplied, ["0070"]);
+  assert.equal(queryScalar(databaseUrl, "SELECT app.data_governance_catalog_complete();"), "t");
+  const fenceRepairApplied = applySupabaseMigrations(databaseUrl, 71, 71);
+  assert.deepEqual(fenceRepairApplied, ["0071"]);
+  assertDataGovernanceFenceRepairPhase(databaseUrl);
+  // v59 structural and privilege checks remain at their historical phase.
+  // End-to-end flows run at v71 to cover the six onboarded tables and their
+  // installed write fences, including real calendar and checkout reservations.
+  assertDataSubjectGovernanceRedaction(databaseUrl);
+  assertTenantGovernanceDeletion(databaseUrl);
+  assertDataGovernanceActiveRequestCancelLifecycle(databaseUrl);
   assertMigrationReceiptLineage(databaseUrl);
 
-  console.log("SUPABASE PORTAL INTEGRATION PASSED: migrations 0001-0069 in contiguous order, immutable checksums, grants, RLS, transcripts, reservations, data governance and readiness capability");
+  console.log("SUPABASE PORTAL INTEGRATION PASSED: migrations 0001-0071 in contiguous order, immutable checksums, grants, RLS, transcripts, reservations, data governance and readiness capability");
 } catch (error) {
   primaryError = error;
   throw error;
@@ -299,11 +311,11 @@ function supabaseMigrationInventory() {
   const migrations = readdirSync(supabaseMigrationDirectory)
     .filter((name) => /^\d{4}_.+\.sql$/.test(name))
     .sort();
-  assert.equal(migrations.length, 69, "the harness must cover every Supabase-only migration through 0069");
+  assert.equal(migrations.length, 71, "the harness must cover every Supabase-only migration through 0071");
   assert.deepEqual(
     migrations.map((migration) => Number(migration.slice(0, 4))),
-    Array.from({ length: 69 }, (_, index) => index + 1),
-    "Supabase-only migration versions must be contiguous and unique from 0001 through 0069",
+    Array.from({ length: 71 }, (_, index) => index + 1),
+    "Supabase-only migration versions must be contiguous and unique from 0001 through 0071",
   );
   assert.equal(migrations[48], "0049_portal_text_preview_admission.sql");
   assert.equal(migrations[49], "0050_meeting_terminal_notification_claim.sql");
@@ -1418,9 +1430,57 @@ function assertDataGovernanceDispositionPhase(databaseUrl, v58Capabilities) {
     );
   `)), "authenticated point deletion is hard-closed", /direct deletion disabled/);
 
-  assertDataSubjectGovernanceRedaction(databaseUrl);
-  assertTenantGovernanceDeletion(databaseUrl);
-  assertDataGovernanceActiveRequestCancelLifecycle(databaseUrl);
+}
+
+function assertDataGovernanceFenceRepairPhase(databaseUrl) {
+  const capabilities = queryJson(databaseUrl, asRoleSql("service_role", null,
+    "SELECT public.portal_schema_capabilities_service();"));
+  assert.equal(capabilities.version, 71);
+  assert.equal(capabilities.dataGovernanceCatalogComplete, true);
+  assert.equal(capabilities.dataGovernanceWriteFenceRepaired, true);
+  assert.equal(capabilities.dataGovernanceCanonicalContractsReady, false);
+  const unfenced = queryScalar(databaseUrl, `
+    SELECT count(*) FROM public.data_governance_resource_catalog c
+    WHERE c.catalog_generation='pre_v59' AND c.relation_name<>'public.tenants'
+      AND NOT EXISTS(SELECT 1 FROM pg_trigger t
+        WHERE t.tgrelid=to_regclass(c.relation_name)
+          AND t.tgname='data_governance_write_fence' AND NOT t.tgisinternal
+          AND t.tgfoid=to_regprocedure('app.enforce_data_governance_write_fence()')
+          AND t.tgenabled IN ('O','A') AND t.tgtype=31);
+  `);
+  assert.equal(unfenced, "0", "all 91 business relations have the exact enabled row write fence");
+  for (const mutation of [
+    "ALTER TABLE public.google_calendar_oauth_states DISABLE TRIGGER data_governance_write_fence;",
+    "DROP TRIGGER data_governance_write_fence ON public.google_calendar_oauth_states;",
+    `DROP TRIGGER data_governance_write_fence ON public.google_calendar_oauth_states;
+     CREATE TRIGGER data_governance_write_fence BEFORE INSERT OR UPDATE OR DELETE
+       ON public.google_calendar_oauth_states FOR EACH ROW EXECUTE FUNCTION app.prevent_mutation();`,
+    "ALTER TABLE public.google_calendar_oauth_states ENABLE REPLICA TRIGGER data_governance_write_fence;",
+  ]) {
+    assertSucceeded(runSql(databaseUrl, `BEGIN; ${mutation}
+      DO $probe$ BEGIN
+        IF app.data_governance_catalog_complete() THEN
+          RAISE EXCEPTION 'catalog accepted a broken write fence';
+        END IF;
+      END $probe$; ROLLBACK;`),
+    "missing, disabled, wrong-function or replica-only fences make the catalog incomplete");
+  }
+  assert.equal(queryScalar(databaseUrl, "SELECT app.data_governance_catalog_complete();"), "t");
+  assert.equal(queryScalar(databaseUrl, "SELECT app.data_governance_attestation_authorities_ready(true);"), "f",
+    "new subject surfaces still require independent production authority provisioning");
+  for (const [index, resourceCode] of [
+    "db_portal_business_action_checkout_reservations",
+    "db_portal_business_action_checkout_reconcile_approvals",
+  ].entries()) {
+    const secret = governanceAuthoritySecret("coverage_producer", resourceCode);
+    const fingerprint = createHash("sha256").update(Buffer.from(secret, "hex")).digest("hex");
+    assertSucceeded(runSql(databaseUrl, `
+      INSERT INTO app.data_governance_attestation_authorities(
+        authority_id,authority_kind,resource_code,key_material,key_fingerprint)
+      VALUES('${governanceUuid(12500 + index)}','coverage_producer','${resourceCode}',
+        decode('${secret}','hex'),'${fingerprint}');
+    `), `provision isolated fake authority for ${resourceCode}`);
+  }
 }
 
 function governanceAuthoritySecret(kind, resourceCode) {
@@ -1782,6 +1842,23 @@ function assertDataSubjectGovernanceRedaction(databaseUrl) {
       '${fixture.tenantAlpha}','${ids.request}',null,null,null,null,null,true
     );
   `)).state, "ready", "the exact subject manifest closes inventory");
+
+  assertFailed(runSql(databaseUrl, `
+    UPDATE public.conversation_transcripts SET turns='[]'::jsonb
+    WHERE tenant_id='${fixture.tenantAlpha}' AND id='${ids.transcript}';
+  `), "an ordinary writer cannot mutate a subject artifact after inventory", /artifact writes fenced by data-subject governance/);
+  assertFailed(runSql(databaseUrl, `
+    DELETE FROM public.conversation_transcripts
+    WHERE tenant_id='${fixture.tenantAlpha}' AND id='${ids.transcript}';
+  `), "an ordinary delete cannot bypass the subject artifact fence", /artifact writes fenced by data-subject governance/);
+  assertFailed(runSql(databaseUrl, `
+    UPDATE public.conversation_transcripts SET id='${governanceUuid(34)}'
+    WHERE tenant_id='${fixture.tenantAlpha}' AND id='${ids.transcript}';
+  `), "changing the artifact primary key cannot escape the subject manifest", /artifact identity relocation is forbidden/);
+  assertSucceeded(runSql(databaseUrl, `
+    UPDATE public.conversation_transcripts SET ended_at=ended_at
+    WHERE tenant_id='${fixture.tenantBeta}' AND id='${ids.betaTranscript}';
+  `), "the subject fence does not block another tenant's artifact");
 
   const heldItem = subjectManifest.find((item) => item.resourceCode === "external_cache");
   assert.ok(heldItem, "cache surface is present in the closed external manifest");
@@ -2339,6 +2416,54 @@ function assertTenantGovernanceDeletion(databaseUrl) {
       'tenant_operator','pending','${adminOne}'
     );
   `), "seed an isolated two-admin tenant with retained-source history");
+  const effectIds = Object.fromEntries(["agent","session","presenter","calendarGrant","checkoutGrant","proposal","slot","calendar","checkout"]
+    .map((name, index) => [name, governanceUuid(930 + index)]));
+  assertSucceeded(runSql(databaseUrl, `
+    INSERT INTO public.agents(tenant_id,id,name,role_type,status,disclosure_profile_id)
+    VALUES('${tenantId}','${effectIds.agent}','Governance effects fixture','sales','active','default');
+    INSERT INTO public.sessions(tenant_id,id,agent_id,role_pack_id,role_pack_version,channel_type,status)
+    VALUES('${tenantId}','${effectIds.session}','${effectIds.agent}','sales_closer','1.0.0','native_room','completed');
+    INSERT INTO public.session_participants(tenant_id,id,session_id,participant_type)
+    VALUES('${tenantId}','${effectIds.presenter}','${effectIds.session}','digital_presenter');
+    INSERT INTO public.portal_business_action_grants(id,tenant_id,agent_id,session_id,presenter_id,action_kind,command_fingerprint)
+    VALUES('${effectIds.calendarGrant}','${tenantId}','${effectIds.agent}','${effectIds.session}','${effectIds.presenter}','confirm_meeting_slot','${"a".repeat(64)}'),
+      ('${effectIds.checkoutGrant}','${tenantId}','${effectIds.agent}','${effectIds.session}','${effectIds.presenter}','request_checkout','${"b".repeat(64)}');
+    INSERT INTO public.portal_business_action_proposals(id,tenant_id,agent_id,session_id,presenter_id,grant_id,duration_minutes,timezone)
+    VALUES('${effectIds.proposal}','${tenantId}','${effectIds.agent}','${effectIds.session}','${effectIds.presenter}','${effectIds.calendarGrant}',30,'UTC');
+    INSERT INTO public.portal_business_action_proposal_slots(id,tenant_id,proposal_id,slot_index,start_at,end_at,timezone)
+    VALUES('${effectIds.slot}','${tenantId}','${effectIds.proposal}',0,now()+interval '1 day',now()+interval '1 day 30 minutes','UTC');
+    INSERT INTO public.portal_business_action_calendar_reservations(
+      id,tenant_id,agent_id,session_id,presenter_id,grant_id,proposal_id,slot_id,contact_email,start_at,end_at,timezone,
+      state,google_event_id,google_calendar_id,provider_dispatched_at,committed_at,completed_at)
+    VALUES('${effectIds.calendar}','${tenantId}','${effectIds.agent}','${effectIds.session}','${effectIds.presenter}',
+      '${effectIds.calendarGrant}','${effectIds.proposal}','${effectIds.slot}','effects@example.test',now()+interval '1 day',now()+interval '1 day 30 minutes','UTC',
+      'completed','abcdef0123456789','primary',now(),now(),now());
+    INSERT INTO public.portal_business_action_checkout_reservations(
+      id,tenant_id,agent_id,session_id,presenter_id,grant_id,product_id,display_name,unit_amount_cents,
+      stripe_price_id,stripe_account_id,approval_expires_at,stripe_idempotency_key,state,provider_dispatched_at,committed_at,completed_at)
+    VALUES('${effectIds.checkout}','${tenantId}','${effectIds.agent}','${effectIds.session}','${effectIds.presenter}',
+      '${effectIds.checkoutGrant}','test_product','Governance fixture',100,'price_GovernanceFixture','acct_GovernanceFixture',
+      now()+interval '1 hour','governance-checkout-fixture-0001','payment_completed',now(),now(),now());
+
+    INSERT INTO public.provider_effect_reservations(
+      id,tenant_id,agent_id,idempotency_key,provider_id,effect_kind,cap_bucket,state,cost_event_id,
+      provider_request_ref,max_duration_seconds,estimated_cost_usd,cost_rate_card_ref,cost_rate_card_as_of,
+      released_at,release_evidence)
+    VALUES('${governanceUuid(944)}','${tenantId}','${effectIds.agent}','governance-provider-fixture',
+      'tavus','tavus_conversation','tavus_video_daily','released','${governanceUuid(945)}',
+      'ppr_governancefixture',60,0.37,'governance-fixture@1',now(),now(),'pre_dispatch_cancelled');
+    INSERT INTO public.google_calendar_oauth_states(state_hash,tenant_id,actor_id,expires_at)
+    VALUES('${"d".repeat(64)}','${tenantId}','${actorOne}',now()+interval '5 minutes');
+    INSERT INTO public.portal_business_action_checkout_connections(id,tenant_id,stripe_account_id,connected_by_actor_id)
+    VALUES('${governanceUuid(941)}','${tenantId}','acct_GovernanceFixture','${actorOne}');
+    INSERT INTO public.portal_business_action_checkout_products(id,tenant_id,product_id,display_name,stripe_price_id,unit_amount_cents,changed_by_actor_id)
+    VALUES('${governanceUuid(942)}','${tenantId}','test_product','Governance fixture','price_GovernanceFixture',100,'${actorOne}');
+    INSERT INTO public.portal_business_action_checkout_reconcile_approvals(id,tenant_id,reservation_id,evidence_fingerprint,outcome,operator_actor_id)
+    VALUES('${governanceUuid(943)}','${tenantId}','${effectIds.checkout}','${"c".repeat(64)}','committed','${actorOne}');
+    INSERT INTO public.portal_business_action_checkout_stripe_event_receipts(event_id,event_type,tenant_id,reservation_id,connected_account_id,payload_fingerprint,receipt_state,receipt_applied)
+    VALUES('evt_GovernanceFixture','checkout.session.completed','${tenantId}','${effectIds.checkout}',
+      'acct_GovernanceFixture','${"e".repeat(64)}','payment_completed',true);
+  `), "seed real FK-valid terminal calendar and checkout effects for closing-fence tests");
   const untouchedBeta = queryJson(databaseUrl, `
     SELECT jsonb_build_object(
       'state',data_governance_state,'status',status,'writeEpoch',data_write_epoch,
@@ -2440,7 +2565,7 @@ function assertTenantGovernanceDeletion(databaseUrl) {
     const [resourceCode, relationName, locatorStrategy] = row.split("|");
     return { resourceCode, relationName, locatorStrategy };
   });
-  assert.equal(catalog.length, 86, "tenant inventory evaluates the complete pre-v59 database catalog");
+  assert.equal(catalog.length, 92, "tenant inventory evaluates the complete pre-v59 database catalog");
   for (const entry of catalog) {
     if (entry.relationName === "public.tenants") {
       inventoryRows.push({ ...entry, databaseRowId: tenantId });
@@ -2497,6 +2622,43 @@ function assertTenantGovernanceDeletion(databaseUrl) {
     `SELECT state FROM public.data_governance_requests WHERE id='${ids.request}';`), "ready",
   "a cross-tenant lease attempt has no state or fence side effect");
 
+  const leaseProbe = `SELECT public.portal_lease_data_governance_work_items_service(
+    '${tenantId}','${ids.request}','${ids.worker}','${governanceUuid(1298)}',1,60);`;
+  for (const state of ["reserved","provider_in_flight","unknown","cleanup_pending","committed"]) {
+    assertFailed(runSql(databaseUrl, `BEGIN;
+      UPDATE public.portal_business_action_calendar_reservations
+      SET state='${state}',completed_at=null,
+        provider_dispatched_at=${state === "reserved" ? "null" : "now()"},
+        committed_at=${state === "committed" ? "now()" : "null"}
+      WHERE id='${effectIds.calendar}'; ${asRoleSql("service_role", null, leaseProbe)}
+    `), `calendar ${state} blocks the tenant fence`, /tenant has unsettled provider effects/);
+  }
+  assertFailed(runSql(databaseUrl, `BEGIN;
+    UPDATE public.portal_business_action_calendar_reservations SET completed_at=null
+      WHERE id='${effectIds.calendar}'; ${asRoleSql("service_role", null, leaseProbe)}
+  `), "calendar completed without terminal timestamp blocks closing", /tenant has unsettled provider effects/);
+  for (const state of ["pending_approval","reserved","provider_in_flight","unknown","committed"]) {
+    assertFailed(runSql(databaseUrl, `BEGIN;
+      UPDATE public.portal_business_action_checkout_reservations
+      SET state='${state}',completed_at=null,
+        provider_dispatched_at=${["pending_approval", "reserved"].includes(state) ? "null" : "now()"},
+        committed_at=${state === "committed" ? "now()" : "null"}
+      WHERE id='${effectIds.checkout}'; ${asRoleSql("service_role", null, leaseProbe)}
+    `), `checkout ${state} blocks the tenant fence`, /tenant has unsettled provider effects/);
+  }
+  for (const [state, completedAt] of [["committed", "null"], ["completed", "null"], ["completed", "now()"],
+    ["unknown", "now()"], ["cleanup_pending", "now()"]]) {
+    assertFailed(runSql(databaseUrl, `BEGIN;
+      UPDATE public.provider_effect_reservations
+      SET state='${state}',completed_at=${completedAt},provider_ref='governance-provider-test-ref',
+        provider_dispatched_at=now(),committed_at=now(),failure_code='cleanup_unknown'
+      WHERE id='${governanceUuid(944)}'; ${asRoleSql("service_role", null, leaseProbe)}
+    `), `provider ${state} cannot turn cleanup_unknown into terminal evidence`, /tenant has unsettled provider effects/);
+  }
+  assert.equal(queryScalar(databaseUrl,
+    `SELECT data_governance_state FROM public.tenants WHERE id='${tenantId}';`), "open",
+  "every denied effect probe rolls back without installing the tenant fence");
+
   let leaseSequence = 1300;
   let receiptSequence = 1500;
   let firstLease = true;
@@ -2513,6 +2675,22 @@ function assertTenantGovernanceDeletion(databaseUrl) {
     if (leased.length === 0) break;
     if (firstLease) {
       firstLease = false;
+      for (const table of ["google_calendar_oauth_states","portal_business_action_checkout_connections",
+        "portal_business_action_checkout_products","portal_business_action_checkout_reservations",
+        "portal_business_action_checkout_reconcile_approvals","portal_business_action_checkout_stripe_event_receipts"]) {
+        assertFailed(runSql(databaseUrl, `
+          INSERT INTO public.${table} SELECT (jsonb_populate_record(null::public.${table},
+            jsonb_build_object('tenant_id','${tenantId}','id','${governanceUuid(950)}'))).*;
+        `), `${table} rejects INSERT after the tenant fence`, /tenant writes fenced by data governance/);
+        assertFailed(runSql(databaseUrl, `
+          UPDATE public.${table} SET tenant_id=tenant_id WHERE tenant_id='${tenantId}';
+        `), `${table} rejects UPDATE after the tenant fence`, /tenant writes fenced by data governance/);
+        assertFailed(runSql(databaseUrl, `DELETE FROM public.${table} WHERE tenant_id='${tenantId}';`),
+          `${table} rejects DELETE after the tenant fence`, /tenant writes fenced by data governance/);
+
+
+      }
+
       assert.equal(leased.length, 7, "the first broad lease claims every external surface");
       assert.ok(leased.every((item) => item.surface !== "database"),
         "p_limit=50 cannot mix external cleanup with database deletion");
@@ -2681,10 +2859,14 @@ function assertTenantGovernanceDeletion(databaseUrl) {
   assert.equal(queryScalar(databaseUrl,
     `SELECT count(*) FROM public.tenant_invites WHERE tenant_id='${tenantId}';`), "0",
   "tenant deletion removes UUIDv4 invite rows");
-  assert.equal(queryScalar(databaseUrl, `
-    SELECT count(*) FROM public.data_governance_work_items
-    WHERE request_id='${ids.request}' AND state='retained_exception';
-  `), "1", "the retain_content_free source leaves one closed exception projection");
+  assert.deepEqual(queryRows(databaseUrl, `
+    SELECT resource_code FROM public.data_governance_work_items
+    WHERE request_id='${ids.request}' AND state='retained_exception'
+    ORDER BY resource_code;
+  `), ["db_portal_business_action_checkout_reconcile_approvals",
+    "db_portal_business_action_checkout_stripe_event_receipts",
+    "db_provider_effect_reservations", "db_usage_ledger"],
+  "each seeded retain_content_free source leaves its exact closed exception projection");
   assert.ok(Number(queryScalar(databaseUrl, `
     SELECT count(*) FROM public.data_governance_attempt_receipts WHERE request_id='${ids.request}';
   `)) >= inventoryRows.length * 2 - 1, "apply and verify attempts leave bounded content-free evidence");

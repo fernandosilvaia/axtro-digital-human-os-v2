@@ -680,6 +680,8 @@ test("expired apply leases reconcile external effects and fail closed for databa
   assert.equal(reconciledClaim.outcome, "claimed");
   assert.equal(reconciledClaim.execution.operation, "reconcile");
   assert.equal(reconciledClaim.execution.work_item.attempt, 2);
+  assert.ok(reconciledClaim.execution.work_item.lease_fence > firstExternalClaim.execution.work_item.lease_fence,
+    "reclaim after expiry keeps a strictly increasing private fence");
   assert.equal(externalSetup.repository.listReceipts(request, externalCommand.request_id).at(-1).outcome, "effect_unknown");
 
   const databaseSetup = fixture({ base: 12_400 });
@@ -738,6 +740,8 @@ test("expired verification lease is safely verified again", () => {
   });
   assert.equal(firstVerifyClaim.outcome, "claimed");
   assert.equal(firstVerifyClaim.execution.operation, "verify");
+  assert.ok(firstVerifyClaim.execution.work_item.lease_fence > applyClaim.execution.work_item.lease_fence,
+    "checkpoint clears the public lease without resetting the private counter");
   setup.clock.advanceBy(101);
   const secondVerifyClaim = setup.repository.claimNext(request, {
     request_id: cmd.request_id,
@@ -747,6 +751,17 @@ test("expired verification lease is safely verified again", () => {
   });
   assert.equal(secondVerifyClaim.outcome, "claimed");
   assert.equal(secondVerifyClaim.execution.operation, "verify");
+  assert.ok(secondVerifyClaim.execution.work_item.lease_fence > firstVerifyClaim.execution.work_item.lease_fence);
+  assert.throws(() => setup.repository.checkpoint(request, {
+    request_id: cmd.request_id,
+    work_item_id: secondVerifyClaim.execution.work_item.work_item_id,
+    claim_token: secondVerifyClaim.execution.claim_token,
+    lease_fence: firstVerifyClaim.execution.work_item.lease_fence,
+    operation: "verify",
+    attempt: secondVerifyClaim.execution.work_item.attempt,
+    result: { outcome: "succeeded", code: "effect_confirmed" },
+    retry_delay_ms: 100,
+  }), workflows.DataGovernanceConflictError, "a stale fence is rejected even with the current token and attempt");
 });
 
 test("granular legal hold blocks only the held item, and late hold or cancellation is denied", async () => {
