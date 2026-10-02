@@ -39,6 +39,8 @@ jobs:
         run: python3 scripts/dependency_scan.py
       - name: Check current registry advisories (fail on lookup errors)
         run: pnpm audit --audit-level high
+      - name: Check isolated closer lab advisories (fail on lookup errors)
+        run: npm audit --prefix experiments/closer-lab --audit-level high
       - name: Install workspace dependencies
         run: |
           pnpm install --frozen-lockfile
@@ -53,6 +55,8 @@ jobs:
         run: pnpm typecheck
       - name: Test TypeScript and bootstrap contracts
         run: pnpm test
+      - name: Generate synthetic closer regression report
+        run: pnpm quality:closer
       - name: Test Python validators and negative fixtures
         run: uv run pytest
       - name: Run architecture, contract and security validators

@@ -51,3 +51,5 @@ Accepted decisions for V2. The Constitution has precedence. A change to an accep
 - [ADR-045](ADR-045-isolated-public-demo-boundary.md): separa a demonstração pública de autenticação e tenancy, usando fixture sintética e estado curto assinado sem banco, provider ou efeitos reais.
 
 - [ADR-047](ADR-047-browser-call-lifecycle-recovery.md): epochs de chamada no browser, contrato de efeito remoto, recuperação tenant-scoped e completion durante interrupção.
+
+- [ADR-049](ADR-049-closer-quality-and-open-source-experiments.md): laboratorio por receipts, busca hibrida e adapters open source isolados, sem promocao automatica.

@@ -69,8 +69,11 @@ const DEFAULT_PASS_THRESHOLD = 0.7;
 const EVALUATOR_VERSION_PATTERN = /^[0-9]+\.[0-9]+\.[0-9]+$/;
 
 export function createEvaluator(evaluatorVersion: string, options: CreateEvaluatorOptions = {}): Evaluator {
-  if (!EVALUATOR_VERSION_PATTERN.test(evaluatorVersion)) throw new EvaluationError("invalid evaluatorVersion");
-  const passThreshold = options.passThreshold ?? DEFAULT_PASS_THRESHOLD;
+  if (typeof evaluatorVersion !== "string" || evaluatorVersion.length > 100 || !EVALUATOR_VERSION_PATTERN.test(evaluatorVersion)) throw new EvaluationError("invalid evaluatorVersion");
+  const passThreshold = options.passThreshold === undefined ? DEFAULT_PASS_THRESHOLD : options.passThreshold;
+  if (typeof passThreshold !== "number" || !Number.isFinite(passThreshold) || passThreshold < 0 || passThreshold > 1) {
+    throw new EvaluationError("invalid passThreshold");
+  }
 
   return Object.freeze({
     evaluatorVersion,
@@ -88,7 +91,12 @@ export function createEvaluator(evaluatorVersion: string, options: CreateEvaluat
         scoreHandoff(scenario),
       ];
 
-      const overallScore = dimensionScores.reduce((sum, entry) => sum + entry.score, 0) / dimensionScores.length;
+      // Keep historical major 0/1 score semantics reproducible. Version 2+ excludes
+      // the unmeasured naturalness marker; the lab explicitly uses version 2.0.0.
+      const measured = Number(evaluatorVersion.split(".")[0]) < 2
+        ? dimensionScores
+        : dimensionScores.filter((entry) => entry.dimension !== "naturalness");
+      const overallScore = measured.reduce((sum, entry) => sum + entry.score, 0) / measured.length;
       const hasCriticalViolation = dimensionScores.some((entry) => entry.criticalViolation);
       const status: ScenarioEvaluationStatus = hasCriticalViolation
         ? "failed_critical_violation"
@@ -239,3 +247,6 @@ export {
   type PilotGateDecision,
   type PilotGateReport,
 } from "./pilot-gate.js";
+
+export * from "./receipt-evidence.js";
+export * from "./compare.js";

@@ -1,5 +1,5 @@
 version: 2
-as_of: 2026-08-13
+as_of: 2026-10-01
 execution_rule: A task may start only when all dependencies are green and its owned files are not being edited by another worktree.
 milestones:
   M0:
@@ -23,7 +23,75 @@ milestones:
   Audit:
     name: Local corrective audit 2026-10-01
     exit_gate: AUD-06
+  Improvements:
+    name: Closer quality and open source experiments
+    exit_gate: IMP-04
 tasks:
+  - id: IMP-01
+    milestone: Improvements
+    title: Implement receipt-based closer quality lab and offline Promptfoo bridge
+    lane: quality
+    dependencies: [AUD-06, M3-08]
+    objective: Compare versioned closer candidates using bounded synthetic scenarios and canonical receipts, without claiming model or human quality from fake outputs.
+    primary_files: [packages/evaluation/, experiments/closer-lab/, tests/golden/, package.json, .github/workflows/docs-qa.yml, docs/operations/CLOSER_IMPROVEMENTS_2026-10-01.md, PROGRESS.md]
+    acceptance:
+      - confirmed lead, meeting, checkout link and payment remain distinct and require successful tenant-scoped receipts
+      - missing disclosure, unsupported completion and tenant mismatch fail critically regardless of score
+      - baseline and candidate comparison records regressions and human-review requirements and never promotes automatically
+      - Promptfoo uses local custom provider and pinned isolated development tooling with telemetry disabled and no provider credentials
+    tests: [receipt projection, duplicate and conflicting receipts, unknown effects, cross-tenant denial, forged completion, candidate regression, malformed input, offline CLI]
+  - id: IMP-02
+    milestone: Improvements
+    title: Add measured pgvector and lexical hybrid knowledge retrieval
+    lane: data
+    dependencies: [IMP-01, M3-02]
+    objective: Add a tenant-scoped hybrid RPC and source citations with bounded candidate ranking and validity checks, while preserving the old RPC for rollout compatibility.
+    primary_files: [contracts/, packages/contracts-ts/, packages/contracts-py/, scripts/generate_contract_types.py, scripts/validate_contracts.py, tests/python/test_contract_generation.py, database/supabase-only/, scripts/supabase-portal-integration.mjs, scripts/validate_database_contract.py, tests/database/, packages/knowledge-engine/, tests/knowledge/, apps/portal/src/lib/, apps/portal/src/app/api/brain/, tests/portal/, docs/operations/CLOSER_IMPROVEMENTS_2026-10-01.md, PROGRESS.md]
+    acceptance:
+      - exact commercial terms and semantic candidates combine deterministically with tenant, active-source and version-validity filters
+      - citations contain source, chunk and version identifiers and retrieved text stays untrusted
+      - old schema deployments preserve existing retrieval without paying for a second embedding attempt
+      - PostgreSQL proves cross-tenant denial, revocation, expiry, lexical-only retrieval and stable ranking
+      - embedding admission and dispatch revalidate source eligibility transactionally without releasing dispatched or unknown financial evidence
+    tests: [SQL hybrid corpus, validity and revocation, wrong tenant, malformed vectors and limits, RPC compatibility, injection, byte budget]
+  - id: IMP-03
+    milestone: Improvements
+    title: Implement isolated LiveKit and whisper.cpp benchmark adapters
+    lane: realtime
+    dependencies: [IMP-02, M2-13]
+    objective: Add explicit opt-in adapters and reproducible benchmarks for local transcription and controlled media cancellation without selecting a production provider.
+    primary_files: [experiments/realtime-lab/, tests/python/, docs/operations/CLOSER_IMPROVEMENTS_2026-10-01.md, PROGRESS.md]
+    acceptance:
+      - SDK factories use explicit engines and no network, model or credential discovery at import
+      - generation fencing, bounded queues, cancellation, deadlines and cleanup have deterministic negative tests
+      - whisper subprocess uses fixed arguments, explicit local assets, bounded output and timeout without shell execution
+      - WER and latency measurements distinguish fake adapter checks from real audio evidence and refuse automatic promotion
+    tests: [stale output, cancellation races, timeout, cleanup, process failure, malformed transcript, WER boundaries, capability gate]
+  - id: IMP-04
+    milestone: Improvements
+    title: Reconcile remaining roadmap and validate closer improvements
+    lane: release
+    dependencies: [IMP-03, IMP-05]
+    objective: Consolidate independent reviews, executable local evidence and precise remaining governance and production requirements.
+    primary_files: [README.md, PROGRESS.md, docs/operations/, artifacts/closer-improvements-2026-10-01/]
+    acceptance:
+      - implemented integrations are distinguished from measured model quality, physical media proof and production rollout
+      - active M6-04 blockers name canonical SQL ledgers and outbox rather than claiming the existing schemas are absent
+      - full local gates and independent domain reviews pass and the preexisting working-tree change is preserved
+    tests: [full suite, lint, typecheck, build, contract and docs validators, local PostgreSQL, independent reviews]
+  - id: IMP-05
+    milestone: Improvements
+    title: Extend typed data-governance redaction to conversation turns
+    lane: data-governance
+    dependencies: [IMP-03, M6-00]
+    objective: Implement one bounded M6-04 projector for conversation_turns while preserving append-only identity and closed canonical-readiness gates.
+    primary_files: [database/supabase-only/, scripts/supabase-portal-integration.mjs, scripts/validate_database_contract.py, tests/database/supabase-schema-lineage.test.mjs, database/deletion-graph.md, docs/operations/CLOSER_IMPROVEMENTS_2026-10-01.md, PROGRESS.md]
+    acceptance:
+      - authorized redaction clears only transcript_text and transcript_ciphertext and preserves every other column
+      - catalog shape, projection version, item/tenant/lease/hold fences and independent verification are mandatory
+      - replay is idempotent while stale authority, drift, cross-tenant mutation and structural changes are denied
+      - M6-04 remains in progress and dataGovernanceCanonicalContractsReady remains false
+    tests: [typed projector, wrong tenant, hold, stale lease, forbidden column mutation, drift, final verification, SQL full lineage]
   - id: AUD-01
     milestone: Audit
     title: Repair dependency and test environment gates

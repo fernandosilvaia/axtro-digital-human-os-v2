@@ -10,6 +10,7 @@
 import { UUID_V7_PATTERN as TENANT_ID_PATTERN } from "@axtro/domain";
 
 import type { ScenarioEvaluationResult } from "./index.js";
+import { parseEvaluationResult } from "./result-validation.js";
 
 export const MINIMUM_REVIEWED_CALLS = 20;
 
@@ -99,21 +100,30 @@ function summarizeChannel(channel: PilotChannel, calls: readonly PilotCallRecord
   if (calls.length === 0) {
     return Object.freeze({ channel, callCount: 0, averageOverallScore: 0, totalEstimatedCostUsdMicros: 0, totalProviderReportedCostUsdMicros: 0 });
   }
+  const estimated = calls.reduce((sum, call) => sum + call.estimatedCostUsdMicros, 0);
+  const reported = calls.reduce((sum, call) => sum + call.providerReportedCostUsdMicros, 0);
+  if (!Number.isSafeInteger(estimated) || !Number.isSafeInteger(reported)) throw new PilotGateError("cost aggregate exceeds safe precision");
   return Object.freeze({
     channel,
     callCount: calls.length,
     averageOverallScore: calls.reduce((sum, call) => sum + call.evaluation.overallScore, 0) / calls.length,
-    totalEstimatedCostUsdMicros: calls.reduce((sum, call) => sum + call.estimatedCostUsdMicros, 0),
-    totalProviderReportedCostUsdMicros: calls.reduce((sum, call) => sum + call.providerReportedCostUsdMicros, 0),
+    totalEstimatedCostUsdMicros: estimated,
+    totalProviderReportedCostUsdMicros: reported,
   });
 }
 
 function parseCalls(value: unknown): readonly PilotCallRecord[] {
   if (!Array.isArray(value) || value.length > 10_000) throw new PilotGateError("invalid calls array");
-  const parsed = value.map((item, index) => parseCall(item, index));
+  let totalEvidenceChars = 0;
+  const parsed = value.map((item, index) => {
+    const call = parseCall(item, index);
+    totalEvidenceChars += call.evaluation.dimensionScores.reduce((sum, entry) => sum + entry.evidence.reduce((subtotal, item) => subtotal + item.length, 0), 0);
+    if (totalEvidenceChars > 2_000_000) throw new PilotGateError("evaluation evidence exceeds aggregate bound");
+    return call;
+  });
   const seen = new Set<string>();
   for (const call of parsed) {
-    if (seen.has(call.callId)) throw new PilotGateError(`duplicate callId: ${call.callId}`);
+    if (seen.has(call.callId)) throw new PilotGateError("duplicate callId");
     seen.add(call.callId);
   }
   return Object.freeze(parsed);
@@ -122,18 +132,16 @@ function parseCalls(value: unknown): readonly PilotCallRecord[] {
 function parseCall(value: unknown, index: number): PilotCallRecord {
   if (value === null || typeof value !== "object") throw new PilotGateError(`invalid calls[${index}]`);
   const record = value as Record<string, unknown>;
-  if (typeof record.callId !== "string" || record.callId.length === 0) throw new PilotGateError(`invalid calls[${index}].callId`);
+  if (typeof record.callId !== "string" || record.callId.length === 0 || record.callId.length > 200) throw new PilotGateError(`invalid calls[${index}].callId`);
   if (!CHANNELS.includes(record.channel as PilotChannel)) throw new PilotGateError(`invalid calls[${index}].channel`);
   if (typeof record.tenantId !== "string" || !TENANT_ID_PATTERN.test(record.tenantId)) throw new PilotGateError(`invalid calls[${index}].tenantId`);
-  if (record.evaluation === null || typeof record.evaluation !== "object") throw new PilotGateError(`invalid calls[${index}].evaluation`);
-  const evaluation = record.evaluation as ScenarioEvaluationResult;
-  if (typeof evaluation.status !== "string" || typeof evaluation.overallScore !== "number" || typeof evaluation.scenarioId !== "string") {
-    throw new PilotGateError(`invalid calls[${index}].evaluation shape`);
-  }
-  if (typeof record.estimatedCostUsdMicros !== "number" || record.estimatedCostUsdMicros < 0) {
+  let evaluation: ScenarioEvaluationResult;
+  try { evaluation = parseEvaluationResult(record.evaluation); }
+  catch { throw new PilotGateError(`invalid calls[${index}].evaluation`); }
+  if (typeof record.estimatedCostUsdMicros !== "number" || !Number.isSafeInteger(record.estimatedCostUsdMicros) || record.estimatedCostUsdMicros < 0) {
     throw new PilotGateError(`invalid calls[${index}].estimatedCostUsdMicros`);
   }
-  if (typeof record.providerReportedCostUsdMicros !== "number" || record.providerReportedCostUsdMicros < 0) {
+  if (typeof record.providerReportedCostUsdMicros !== "number" || !Number.isSafeInteger(record.providerReportedCostUsdMicros) || record.providerReportedCostUsdMicros < 0) {
     throw new PilotGateError(`invalid calls[${index}].providerReportedCostUsdMicros`);
   }
   if (typeof record.tenancyViolationDetected !== "boolean") throw new PilotGateError(`invalid calls[${index}].tenancyViolationDetected`);

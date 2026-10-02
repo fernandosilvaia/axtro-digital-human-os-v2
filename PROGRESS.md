@@ -1,5 +1,22 @@
 # Progresso de implementação
 
+## Melhorias do closer de 2026-10-01, ciclo iniciado
+
+- Autorizacao do proprietario para implementar melhorias e experimentos open source com autonomia local.
+- Baseline `72ab1e9`, branch `codex/audit-2026-10-01`; nove validadores verdes antes de editar. Alteracao preexistente de `apps/portal/next-env.d.ts` preservada.
+- Ordem fechada: IMP-01 laboratorio por receipts/Promptfoo; IMP-02 busca hibrida pgvector; IMP-03 adapters LiveKit/whisper.cpp; IMP-05 projector tipado de turnos; IMP-04 revisao integrada e evidencias.
+- Tarefa em execucao: IMP-01, implementacao e revisoes concluidas; fechamento local. Cada tarefa termina com testes, revisao independente, evidencia e commit antes da seguinte. M6-04 permanece em progresso, sem alterar gates de producao.
+- Regra de parada: cinco incrementos locais executaveis e revisados, sem provider definitivo, chamada paga, dados reais destruidos, migration remota ou publicacao implicita.
+
+| ID | Marco | Estado | Entrega | Dependencias | Evidencia |
+|---|---|---|---|---|---|
+| `IMP-01` | Improvements | done | Laboratorio do closer por receipts e Promptfoo | `AUD-06`, `M3-08` | 105 goldens, CLI real 10 assertions, audit isolado zero/633 pacotes, build/lint e duas revisoes aprovadas |
+| `IMP-02` | Improvements | pending | Busca hibrida pgvector | `IMP-01`, `M3-02` | Ainda nao iniciada |
+| `IMP-03` | Improvements | pending | LiveKit e whisper.cpp isolados | `IMP-02`, `M2-13` | Ainda nao iniciada |
+| `IMP-05` | Improvements | pending | Projector tipado de conversation_turns | `IMP-03`, `M6-00` | Ainda nao iniciada |
+| `IMP-04` | Improvements | pending | Revisao e evidencias integradas | `IMP-03`, `IMP-05` | Ainda nao iniciada |
+
+
 ## Auditoria autônoma de 2026-10-01, incremento local concluído
 
 - Baseline `main` em `3f0a489`; entrega local em `codex/audit-2026-10-01`. A alteração preexistente em `apps/portal/next-env.d.ts` foi preservada.
@@ -1334,3 +1351,11 @@ ADR-048 implementada: envelope de tokens ausentes, replay histórico sem reescri
 ### AUD-06 concluída, 2026-10-01
 
 Relatório reconcilia 24 achados, scopes de evidência, gates e limites. JSON de validação aponta a91f03e como código validado e distingue browser, fake, SQL e publicação. Screenshots nativas JPEG finais registram desktop e mobile, sem conversão de pixels. LiveKit, pgvector, whisper.cpp e Promptfoo têm fontes oficiais e experimentos, mais três hipóteses de produto. Docs QA, contract drift e diffcheck passaram. Não foi declarado M6-04 concluído nem promoção de produção.
+
+### 2026-10-01, IMP-01 concluido localmente
+
+- Gate offline rejeita limiares/resultados/custos invalidos, snapshots mutaveis e contradicoes criticas. Major 0/1 preserva media historica; major 2 exclui naturalidade nao medida.
+- Projecao por receipts valida tenant/session/intent/tool, hash, cronologia e consentimento informado; estados ambiguos e pagamento sem produtor canonico nao viram conversao.
+- Comparacao exige mesmo contexto e algoritmo, detecta regressao e nunca promove automaticamente. Inputs dependem de armazenamento canonico autenticado; ainda nao ha adapter do Portal para sua shape propria.
+- Tooling Promptfoo isolado 0.116.7 e nove overrides explicitos, sem dependencia de producao. 633 pacotes com audit atual zero; SQLite 13.0.3 compilado localmente com headers Node 26. CLI real passou dez assertions com egress/subprocess guard; corpus inclui negativos intencionais e aggregate blocked e esperado.
+- Build/lint/diff verdes; 105 goldens e duas revisoes independentes aprovadas. M6-04/gates remotos preservados. Proxima tarefa: IMP-02.

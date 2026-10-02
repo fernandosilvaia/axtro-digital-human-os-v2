@@ -9,11 +9,13 @@ const evaluation = await import(pathToFileURL(join(root, "packages/evaluation/di
 const TENANT_ALPHA = "018bcfe5-0000-7abc-8f01-020304050607";
 
 function passedEvaluation(scenarioId = "scenario-1") {
-  return { scenarioId, evaluatorVersion: "1.0.0", locale: "en-US", dimensionScores: [], overallScore: 0.9, status: "passed" };
+  return evaluation.createEvaluator("2.0.0").evaluate({ scenarioId, locale: "en-US", turns: [{ role: "presenter", text: "Synthetic response" }], expectedFacts: [], prohibitedClaims: ["unapproved"], maxPresenterTurnChars: 200, requiresHandoff: false, handoffOccurred: false, expectedQualificationDimensions: [], qualificationDimensionsCovered: [] });
 }
 
 function criticalEvaluation(scenarioId = "scenario-critical") {
-  return { scenarioId, evaluatorVersion: "1.0.0", locale: "en-US", dimensionScores: [], overallScore: 0.5, status: "failed_critical_violation" };
+  const result = passedEvaluation(scenarioId);
+  const dimensionScores = result.dimensionScores.map((entry) => entry.dimension === "policy" ? { ...entry, score: 0, criticalViolation: true, evidence: ["unapproved"] } : entry);
+  return { ...result, dimensionScores, overallScore: 0.8, status: "failed_critical_violation" };
 }
 
 let callRecordSequence = 0;
