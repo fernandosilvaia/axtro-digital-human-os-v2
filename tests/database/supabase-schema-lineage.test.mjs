@@ -9,15 +9,15 @@ async function sha256(filename) {
   return createHash("sha256").update(await readFile(new URL(filename, migrationDirectory))).digest("hex");
 }
 
-test("Supabase lineage is contiguous through v74 and immutable historical blobs keep their checksums", async () => {
+test("Supabase lineage is contiguous through v75 and immutable historical blobs keep their checksums", async () => {
   const migrations = (await readdir(migrationDirectory))
     .filter((name) => /^\d{4}_.+\.sql$/.test(name))
     .sort();
 
-  assert.equal(migrations.length, 74);
+  assert.equal(migrations.length, 75);
   assert.deepEqual(
     migrations.map((name) => Number(name.slice(0, 4))),
-    Array.from({ length: 74 }, (_, index) => index + 1),
+    Array.from({ length: 75 }, (_, index) => index + 1),
   );
   assert.equal(migrations[48], "0049_portal_text_preview_admission.sql");
   assert.equal(migrations[49], "0050_meeting_terminal_notification_claim.sql");
@@ -47,6 +47,7 @@ test("Supabase lineage is contiguous through v74 and immutable historical blobs 
   assert.equal(migrations[71], "0072_agent_video_asset_assignment_governance.sql");
   assert.equal(migrations[72], "0073_ai_usage_financial_evidence_repair.sql");
   assert.equal(migrations[73], "0074_portal_hybrid_knowledge_retrieval.sql");
+  assert.equal(migrations[74], "0075_conversation_turn_redaction_projector.sql");
 });
 
 test("v60 resolves a proposal's slotIndex to slot_id through a read-only, service_role-only, anti-oracle lookup", async () => {
@@ -275,4 +276,23 @@ test("v56 republishes the complete v49, v50 and business-action capability union
   ]) assert.match(migration, new RegExp(`'${capability}'`), capability);
   assert.match(migration, /revoke all on function public\.portal_schema_capabilities_service\(\) from public,anon,authenticated;/);
   assert.match(migration, /grant execute on function public\.portal_schema_capabilities_service\(\) to service_role;/);
+});
+
+
+test("v75 enrolls only known turn shape and preserves exact leased two-field projection", async () => {
+  const migration = await readFile(new URL("0075_conversation_turn_redaction_projector.sql",migrationDirectory),"utf8");
+  assert.match(migration,/known conversation turn shape required/);
+  assert.match(migration,/conversation-turn-redaction@1/);
+  assert.match(migration,/i\.current_operation='apply'/);
+  assert.match(migration,/i\.lease_expires_at>clock_timestamp\(\)/);
+  assert.match(migration,/r\.inventory_fingerprint=app\.data_governance_catalog_fingerprint\(\)/);
+  assert.match(migration,/v_item\.lease_token is distinct from p_lease_token/);
+  assert.match(migration,/v_item\.fencing_token is distinct from p_fencing_token/);
+  assert.match(migration,/to_jsonb\(old\)-'transcript_text'-'transcript_ciphertext'/);
+  assert.match(migration,/to_jsonb\(new\)-'transcript_text'-'transcript_ciphertext'/);
+  assert.match(migration,/update public\.conversation_turns set transcript_text=null,transcript_ciphertext=null/);
+  assert.match(migration,/and transcript_text is null and transcript_ciphertext is null/);
+  assert.match(migration,/create trigger conversation_turns_append_only before update or delete/);
+  assert.match(migration,/app\.data_governance_has_active_hold/);
+  assert.doesNotMatch(migration,/disable trigger|current_setting|create or replace function public\.portal_schema_capabilities_service/i);
 });

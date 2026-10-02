@@ -12,7 +12,7 @@ M6-04 remains in progress. Experiments do not select or activate a production pr
 | IMP-01 receipt-based closer lab and Promptfoo | done | 105 goldens; real CLI 10 assertions; full isolated audit 0/633; independent architecture/security approval |
 | IMP-02 pgvector hybrid retrieval | done | SQL 0001-0074; 15 fixtures; 94 focused Node, independent 109; 12 Python; 71 contracts; three reviews |
 | IMP-03 LiveKit and whisper.cpp lab | done | 27 tests + 5 subtests; real SDK lifecycle; 12 CPU audio runs; zero/88 Python advisories; two reviews |
-| IMP-05 typed turn redaction | pending | pending |
+| IMP-05 typed turn redaction | done | SQL 0001-0075; lineage 10; exact two-field projection, lease/hold/catalog fences and physical verification |
 | IMP-04 integrated review | pending | pending |
 
 ## Evidence boundaries
@@ -234,3 +234,24 @@ to expose timing variation and the original startup outlier. The isolated SDK fu
 scan covers 88 packages with zero known findings; a separate current scan of CMake Python
 4.4.3 finds zero. These scans do not certify native dependencies or acoustic quality.
 Nine validators, lint and diff check pass. No production dependency/default changed.
+
+### IMP-05 typed turn projection
+
+Migration 0075 enrolls only the known 13-column turn shape and installs an UPDATE/DELETE
+append-only guard absent from the portable predecessor. Authorized projection sets only
+transcript_text and transcript_ciphertext to NULL and compares all eleven other fields
+exactly. Normal insert and governed irreversible-deletion authority remain separate paths.
+The v71 catalog checks are preserved and extended with exact trigger, version and shape.
+
+Apply and independent verify require tenant/request/item/target, current inventory fingerprint,
+nonnull matching lease/fencing tokens, live write generation and legal-hold authority. Session
+GUCs alone grant nothing. Final verification reads the actual row and requires present identity
+with both content fields NULL, even after a successful receipt. Existing transcript projections
+and the financial/retrieval regressions remain supported. Full local PostgreSQL 0001-0075,
+ten lineage tests and the database validator pass. Unknown schema, disabled guard, nullable
+authority, metadata drift, restore, structural edits, holds and text/cipher/missing-row tamper
+all have negative coverage. M6-04 is still incomplete; no canonical SQL/outbox or remote deletion
+is claimed. SQL head is 75, capability bundle stays 73 and canonical readiness stays false.
+
+Data and security reviewers approve the frozen IMP-05 patch. Lint, diff check and all nine
+validators pass. No actual customer data or hosted schema was changed.

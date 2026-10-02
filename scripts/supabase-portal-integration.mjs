@@ -282,9 +282,14 @@ try {
   assertAiUsageFinancialEvidenceRepairPhase(databaseUrl, financialHistoricalFixture, inheritedFinancialCapabilities);
   assert.deepEqual(applySupabaseMigrations(databaseUrl, 74, 74), ["0074"]);
   await assertHybridKnowledgePhase(databaseUrl);
+  const turnMigration = readFileSync(join(supabaseMigrationDirectory,"0075_conversation_turn_redaction_projector.sql"),"utf8");
+  const turnShapePreflight = turnMigration.slice(turnMigration.indexOf("do $known_turn_shape$"),turnMigration.indexOf("$known_turn_shape$;")+"$known_turn_shape$;".length);
+  assertFailed(runSql(databaseUrl,`BEGIN; ALTER TABLE public.conversation_turns ADD COLUMN unexpected_preexisting_content text; ${turnShapePreflight} COMMIT;`),"v75 refuses to enroll preexisting shape drift",/known conversation turn shape required/);
+  assert.deepEqual(applySupabaseMigrations(databaseUrl, 75, 75), ["0075"]);
+  assertConversationTurnRedactionPhase(databaseUrl);
   assertMigrationReceiptLineage(databaseUrl);
 
-  console.log("SUPABASE PORTAL INTEGRATION PASSED: migrations 0001-0074 in contiguous order, immutable checksums, grants, RLS, transcripts, reservations, data governance and readiness capability");
+  console.log("SUPABASE PORTAL INTEGRATION PASSED: migrations 0001-0075 in contiguous order, immutable checksums, grants, RLS, transcripts, reservations, data governance and readiness capability");
 } catch (error) {
   primaryError = error;
   throw error;
@@ -310,6 +315,106 @@ function applySupabaseMigrations(databaseUrl, firstVersion, lastVersion) {
     applied.push(version);
   }
   return applied;
+}
+
+function assertConversationTurnRedactionPhase(databaseUrl) {
+  const id = (n) => `019f0000-0075-7000-8000-${String(n).padStart(12,"0")}`;
+  const tenant = fixture.tenantAlpha;
+  const session = id(1), participant = id(2), turn = id(3), otherTurn = id(4), subject = id(5);
+  const request = id(6), item = id(7), approval = id(8), worker = id(9), lease = id(10);
+  const row = () => queryJson(databaseUrl, `SELECT to_jsonb(t) FROM public.conversation_turns t WHERE tenant_id='${tenant}' AND id='${turn}';`);
+  const stripped = (value) => { const {transcript_text: _text, transcript_ciphertext: _cipher, ...rest} = value; return rest; };
+  const service = (sql) => queryJson(databaseUrl, asRoleSql("service_role",null,sql));
+  assert.equal(queryScalar(databaseUrl,"SELECT app.data_governance_catalog_complete();"),"t");
+  assert.equal(service("SELECT public.portal_schema_capabilities_service();").dataGovernanceCanonicalContractsReady,false);
+  assertSucceeded(runSql(databaseUrl, `
+    INSERT INTO public.sessions(tenant_id,id,agent_id,role_pack_id,role_pack_version,channel_type,status)
+    VALUES('${tenant}','${session}','${fixture.agentAlpha}','sales_closer','1.0.0','native_room','completed');
+    INSERT INTO public.session_participants(tenant_id,id,session_id,participant_type)
+    VALUES('${tenant}','${participant}','${session}','customer');
+    INSERT INTO public.conversation_turns(tenant_id,id,session_id,participant_id,turn_index,role,transcript_text,transcript_ciphertext,language,started_at,ended_at,interrupted)
+    VALUES('${tenant}','${turn}','${session}','${participant}',0,'participant','synthetic redaction fixture',decode('aabb','hex'),'pt',now()-interval '10 seconds',now(),true),
+      ('${tenant}','${otherTurn}','${session}','${participant}',1,'presenter','synthetic untouched fixture',null,'en',now(),null,false);
+  `),"v75 synthetic turn fixtures");
+  const original = row();
+  for (const mutation of ["transcript_text=null,transcript_ciphertext=null", "role='system'", "language='es'", "interrupted=false", "created_at=now()", "started_at=now()", `id='${id(99)}'`]) {
+    assertFailed(runSql(databaseUrl, `UPDATE public.conversation_turns SET ${mutation} WHERE tenant_id='${tenant}' AND id='${turn}';`),"ordinary turn mutation denied",/append-only|projection|authority|relocation/);
+  }
+  assertFailed(runSql(databaseUrl, `DELETE FROM public.conversation_turns WHERE tenant_id='${tenant}' AND id='${turn}';`),"ordinary turn deletion denied",/append-only/);
+  assertFailed(runSql(databaseUrl,asRoleSql("service_role",null,`UPDATE public.conversation_turns SET transcript_text=null WHERE tenant_id='${tenant}' AND id='${turn}';`)),"service has no direct turn mutation authority",/permission denied/);
+  const linked = service(`SELECT public.portal_register_data_governance_subject_link_service('${tenant}','${subject}','hmac-sha256:${"7".repeat(64)}','db_conversation_turns',null,'${turn}');`);
+  const locator = linked.resourceLocatorHmac;
+  assertSucceeded(runSql(databaseUrl, `
+    INSERT INTO public.data_governance_requests(tenant_id,id,scope,subject_id,requested_action,purpose_code,state,policy_version,policy_fingerprint,inventory_version,inventory_fingerprint,command_fingerprint,write_epoch,authorized_at,authorization_expires_at,authorized_approval_ids,inventory_completed_at,inventory_item_count,inventory_resource_count)
+    SELECT '${tenant}','${request}','data_subject','${subject}','redact','data_subject_request','ready','1.0.0','${"a".repeat(64)}','1.0.0',app.data_governance_catalog_fingerprint(),'${"b".repeat(64)}',data_write_epoch,now(),now()+interval '1 hour',ARRAY['${approval}'::app.uuid_v7],now(),1,1 FROM public.tenants WHERE id='${tenant}';
+    INSERT INTO public.data_governance_policy_decisions(tenant_id,id,request_id,decision,reason_code,policy_version,policy_fingerprint,command_fingerprint,authorization_expires_at)
+    SELECT tenant_id,'${id(11)}',id,'allow','policy_allowed',policy_version,policy_fingerprint,command_fingerprint,authorization_expires_at FROM public.data_governance_requests WHERE id='${request}';
+    INSERT INTO public.data_governance_approvals(tenant_id,id,request_id,actor_user_id,actor_id,actor_fingerprint,decision,command_fingerprint)
+    VALUES('${tenant}','${approval}','${request}','${fixture.userAlpha}','${fixture.actorAlpha}','hmac-sha256:${"c".repeat(64)}','approve','${"b".repeat(64)}');
+    INSERT INTO public.data_governance_work_items(tenant_id,id,request_id,subject_id,resource_code,resource_locator_hmac,database_row_id,action,state)
+    VALUES('${tenant}','${item}','${request}','${subject}','db_conversation_turns','${locator}','${turn}','redact','pending');
+  `),"seed durable synthetic authorized governance records for actual lease/apply/verify RPCs");
+  const leased = service(`SELECT public.portal_lease_data_governance_work_items_service('${tenant}','${request}','${worker}','${lease}',1,60);`)[0];
+  assert.equal(leased.resourceCode,"db_conversation_turns");
+  const applySql = (leaseArg = `'${lease}'`, fenceArg = String(leased.fencingToken), tenantArg = tenant, itemArg = item) =>
+    `SELECT public.portal_apply_data_governance_database_item_service('${tenantArg}','${request}','${itemArg}',${leaseArg},${fenceArg});`;
+  for (const [token, fence] of [["null",String(leased.fencingToken)],[`'${lease}'`,"null"],["null","null"],[`'${id(12)}'`,String(leased.fencingToken)],[`'${lease}'`,String(leased.fencingToken+1)]]) {
+    assertFailed(runSql(databaseUrl,asRoleSql("service_role",null,applySql(token,fence))),"apply requires exact nonnull lease and fence",/valid work item lease/);
+  }
+  assertFailed(runSql(databaseUrl,asRoleSql("service_role",null,applySql(undefined,undefined,fixture.tenantBeta))),"cross tenant apply denied",/request is not executing/);
+  assertFailed(runSql(databaseUrl,asRoleSql("service_role",null,applySql(undefined,undefined,tenant,id(13)))),"wrong item denied",/valid work item lease/);
+  const heldKey = queryJson(databaseUrl,"SELECT jsonb_build_object('id',key_id,'fingerprint',key_fingerprint) FROM app.data_legal_hold_authority_keys WHERE authority_code='counsel_instruction' AND active LIMIT 1;");
+  const holdSeed = `INSERT INTO public.data_legal_holds(tenant_id,id,purpose_code,authority_code,authorization_id,authorization_fingerprint,authority_key_id,authority_key_fingerprint,issuer_actor_fingerprint,state,expires_at)
+    VALUES('${tenant}','${id(14)}','litigation','counsel_instruction','${id(15)}','${"d".repeat(64)}','${heldKey.id}','${heldKey.fingerprint}','${"e".repeat(64)}','active',now()+interval '1 hour');
+    INSERT INTO public.data_legal_hold_scope_items(tenant_id,hold_id,id,resource_code,subject_id,resource_locator_hmac) VALUES('${tenant}','${id(14)}','${id(16)}','db_conversation_turns','${subject}','${locator}');`;
+  assertSucceeded(runSql(databaseUrl,`BEGIN; ${holdSeed} DO $test$ DECLARE result jsonb; BEGIN result:=public.portal_apply_data_governance_database_item_service('${tenant}','${request}','${item}','${lease}',${leased.fencingToken}); IF result->>'state'<>'held' THEN RAISE EXCEPTION 'hold ignored'; END IF; END $test$; ROLLBACK;`),"matching hold prevents projector effect");
+  const applying = `UPDATE public.data_governance_work_items SET state='applying' WHERE id='${item}';`;
+  for (const mutation of ["role='system'", "language='es'", "interrupted=false", "created_at=created_at+interval '1 second'", "started_at=started_at+interval '1 second'", "ended_at=ended_at+interval '1 second'", "turn_index=3", `participant_id='${id(99)}'`, `session_id='${id(99)}'`, "transcript_text='restored'"]) {
+    const content = mutation.startsWith("transcript_text=") ? "transcript_ciphertext=null" : "transcript_text=null,transcript_ciphertext=null";
+    assertFailed(runSql(databaseUrl,`BEGIN; ${applying} UPDATE public.conversation_turns SET ${content},${mutation} WHERE tenant_id='${tenant}' AND id='${turn}'; COMMIT;`),"even leased worker cannot alter other columns or restore text",/projection/);
+  }
+  for (const corrupt of ["lease_expires_at=now()-interval '1 second'", "fencing_token=0", `database_row_id='${otherTurn}'`, "resource_code='db_conversation_transcripts'"]) {
+    assertFailed(runSql(databaseUrl,`BEGIN; ${applying} UPDATE public.data_governance_work_items SET ${corrupt} WHERE id='${item}'; UPDATE public.conversation_turns SET transcript_text=null,transcript_ciphertext=null WHERE tenant_id='${tenant}' AND id='${turn}'; COMMIT;`),"stale or wrong target authority denied",/authority|fenced/);
+  }
+  assertFailed(runSql(databaseUrl,`BEGIN; UPDATE public.tenants SET data_write_epoch=data_write_epoch+1 WHERE id='${tenant}'; ${asRoleSql("service_role",null,applySql()).replace(/^BEGIN;|COMMIT;$/g,"")} COMMIT;`),"stale tenant generation denied",/write fence is stale/);
+  assertFailed(runSql(databaseUrl,`BEGIN; UPDATE public.data_governance_resource_catalog SET projection_version='conversation-turn-redaction@2' WHERE resource_code='db_conversation_turns'; ${applySql()} COMMIT;`),"projection version drift denied",/catalog drift/);
+  assertFailed(runSql(databaseUrl,`BEGIN; UPDATE public.data_governance_resource_catalog SET legal_hold_applicable=false WHERE resource_code='db_conversation_turns'; ${applySql()} COMMIT;`),"catalog fingerprint drift denied despite complete shape",/catalog drift/);
+  assertSucceeded(runSql(databaseUrl,`BEGIN; ALTER TABLE public.conversation_turns ADD COLUMN unexpected_content text; DO $test$ BEGIN IF app.data_governance_catalog_complete() THEN RAISE EXCEPTION 'shape drift accepted'; END IF; END $test$; ROLLBACK;`),"live turn shape drift closes catalog");
+  assertFailed(runSql(databaseUrl,`BEGIN; SET LOCAL app.data_governance_disposition='true'; UPDATE public.conversation_turns SET transcript_text=null,transcript_ciphertext=null WHERE id='${turn}'; COMMIT;`),"GUC alone never grants projection authority",/authority|fenced/);
+  assertFailed(runSql(databaseUrl,`BEGIN; ${holdSeed} ${applying} UPDATE public.conversation_turns SET transcript_text=null,transcript_ciphertext=null WHERE id='${turn}'; COMMIT;`),"direct projection also respects matching hold",/authority|fenced/);
+  assertSucceeded(runSql(databaseUrl,`BEGIN; ${applying} UPDATE public.conversation_turns SET transcript_text=null,transcript_ciphertext=null WHERE id='${turn}'; UPDATE public.conversation_turns SET transcript_text=null,transcript_ciphertext=null WHERE id='${turn}'; ROLLBACK;`),"NULL projection replay is idempotent within exact live authority");
+  assertSucceeded(runSql(databaseUrl,`BEGIN; ALTER TABLE public.conversation_turns DISABLE TRIGGER conversation_turns_append_only; DO $test$ BEGIN IF app.data_governance_catalog_complete() THEN RAISE EXCEPTION 'disabled projector accepted'; END IF; END $test$; ROLLBACK;`),"disabled projector closes catalog");
+  assert.equal(service(applySql()).state,"verification_pending");
+  assert.deepEqual(stripped(row()),stripped(original),"every non-content column remains exactly unchanged");
+  assert.equal(row().transcript_text,null);assert.equal(row().transcript_ciphertext,null);
+  assert.equal(queryScalar(databaseUrl,`SELECT transcript_text FROM public.conversation_turns WHERE id='${otherTurn}';`),"synthetic untouched fixture");
+  const completeSql = `SELECT public.portal_complete_data_governance_request_service('${tenant}','${request}','${id(17)}');`;
+  assertFailed(runSql(databaseUrl,asRoleSql("service_role",null,completeSql)),"final completion requires independent verification",/not independently verified/);
+  const verifyLease = id(18);
+  const verify = service(`SELECT public.portal_lease_data_governance_work_items_service('${tenant}','${request}','${worker}','${verifyLease}',1,60);`)[0];
+  assert.equal(verify.operation,"verify");
+  for (const [token,fence] of [["null",String(verify.fencingToken)],[`'${verifyLease}'`,"null"],["null","null"]]) {
+    assertFailed(runSql(databaseUrl,asRoleSql("service_role",null,applySql(token,fence))),"verify requires exact nonnull lease and fence",/valid work item lease/);
+  }
+  // Trusted test owner simulates storage tamper inside rollback transactions;
+  // runtime/projector code never disables triggers or opens a generic bypass.
+  const tamper = (mutation) => `ALTER TABLE public.conversation_turns DISABLE TRIGGER conversation_turns_append_only; ALTER TABLE public.conversation_turns DISABLE TRIGGER data_governance_write_fence; ${mutation} ALTER TABLE public.conversation_turns ENABLE TRIGGER conversation_turns_append_only; ALTER TABLE public.conversation_turns ENABLE TRIGGER data_governance_write_fence;`;
+  const corruptions = [`UPDATE public.conversation_turns SET transcript_text='synthetic corrupt text' WHERE id='${turn}';`, `UPDATE public.conversation_turns SET transcript_ciphertext=decode('ccdd','hex') WHERE id='${turn}';`, `DELETE FROM public.conversation_turns WHERE id='${turn}';`];
+  for (const mutation of corruptions) {
+    assertFailed(runSql(databaseUrl,`BEGIN; ${tamper(mutation)} ${applySql(`'${verifyLease}'`,String(verify.fencingToken))} COMMIT;`),"independent verify rejects text, ciphertext or missing row",/independent database verification failed/);
+  }
+  assert.equal(service(applySql(`'${verifyLease}'`,String(verify.fencingToken))).state,"verified");
+  assert.equal(queryScalar(databaseUrl,`SELECT app.data_governance_database_absent('${tenant}','${request}');`),"t");
+  for (const mutation of corruptions) {
+    assertSucceeded(runSql(databaseUrl,`BEGIN; ${tamper(mutation)} DO $test$ BEGIN IF app.data_governance_database_absent('${tenant}','${request}') THEN RAISE EXCEPTION 'tampered content accepted'; END IF; END $test$; ROLLBACK;`),"final physical scan rejects text, ciphertext or missing row despite verify receipt");
+    assertFailed(runSql(databaseUrl,`BEGIN; ${tamper(mutation)} ${completeSql} COMMIT;`),"final completion cannot rely solely on verification receipt",/surviving governed content/);
+  }
+  assert.equal(service(completeSql).state,"completed");
+  assert.equal(service(completeSql).replayed,true);
+  assert.deepEqual(stripped(row()),stripped(original));
+  assertFailed(runSql(databaseUrl,`UPDATE public.conversation_turns SET transcript_text='restore' WHERE id='${turn}';`),"content restore remains denied",/projection|authority/);
+  assert.equal(service("SELECT public.portal_schema_capabilities_service();").version,73,"capability bundle version remains73 by decision");
+  assert.equal(service("SELECT public.portal_schema_capabilities_service();").dataGovernanceCanonicalContractsReady,false);
 }
 
 async function assertHybridKnowledgePhase(databaseUrl) {
@@ -460,11 +565,11 @@ function supabaseMigrationInventory() {
   const migrations = readdirSync(supabaseMigrationDirectory)
     .filter((name) => /^\d{4}_.+\.sql$/.test(name))
     .sort();
-  assert.equal(migrations.length, 74, "the harness must cover every Supabase-only migration through 0074");
+  assert.equal(migrations.length, 75, "the harness must cover every Supabase-only migration through 0075");
   assert.deepEqual(
     migrations.map((migration) => Number(migration.slice(0, 4))),
-    Array.from({ length: 74 }, (_, index) => index + 1),
-    "Supabase-only migration versions must be contiguous and unique from 0001 through 0074",
+    Array.from({ length: 75 }, (_, index) => index + 1),
+    "Supabase-only migration versions must be contiguous and unique from 0001 through 0075",
   );
   assert.equal(migrations[48], "0049_portal_text_preview_admission.sql");
   assert.equal(migrations[49], "0050_meeting_terminal_notification_claim.sql");
@@ -485,6 +590,7 @@ function supabaseMigrationInventory() {
   assert.equal(migrations[71], "0072_agent_video_asset_assignment_governance.sql");
   assert.equal(migrations[72], "0073_ai_usage_financial_evidence_repair.sql");
   assert.equal(migrations[73], "0074_portal_hybrid_knowledge_retrieval.sql");
+  assert.equal(migrations[74], "0075_conversation_turn_redaction_projector.sql");
   assert.equal(migrationChecksum(migrations[48]), "79b24e7fdc768a30b02d3596b71799fae484043e37561ddfcd435f46076b3100");
   assert.equal(migrationChecksum(migrations[49]), "262e033328175f704f8cfef1cafdcb0a2ef9b9aac7e4cc86f2b33890044c7224");
   return migrations;

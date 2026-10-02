@@ -5,7 +5,7 @@
 - Autorizacao do proprietario para implementar melhorias e experimentos open source com autonomia local.
 - Baseline `72ab1e9`, branch `codex/audit-2026-10-01`; nove validadores verdes antes de editar. Alteracao preexistente de `apps/portal/next-env.d.ts` preservada.
 - Ordem fechada: IMP-01 laboratorio por receipts/Promptfoo; IMP-02 busca hibrida pgvector; IMP-03 adapters LiveKit/whisper.cpp; IMP-05 projector tipado de turnos; IMP-04 revisao integrada e evidencias.
-- IMP-01 fechado em `f1555d9`; IMP-02 fechado em `74e8805`; IMP-03 concluido localmente, pronto para commit. Cada tarefa termina com testes, revisao independente, evidencia e commit antes da seguinte. M6-04 permanece em progresso, sem alterar gates de producao.
+- Tarefa em execucao: IMP-05 concluida, pronta para commit. IMP-01 fechado em `f1555d9`; IMP-02 em `74e8805`; IMP-03 em `87a1364`. Cada tarefa termina com testes, revisao independente, evidencia e commit antes da seguinte. M6-04 permanece em progresso, sem alterar gates de producao.
 - Regra de parada: cinco incrementos locais executaveis e revisados, sem provider definitivo, chamada paga, dados reais destruidos, migration remota ou publicacao implicita.
 
 | ID | Marco | Estado | Entrega | Dependencias | Evidencia |
@@ -13,7 +13,7 @@
 | `IMP-01` | Improvements | done | Laboratorio do closer por receipts e Promptfoo | `AUD-06`, `M3-08` | 105 goldens, CLI real 10 assertions, audit isolado zero/633 pacotes, build/lint e duas revisoes aprovadas |
 | `IMP-02` | Improvements | done | Busca hibrida pgvector | `IMP-01`, `M3-02` | 94 focados; review 109; 12 Python; SQL 0001-0074, 15 fixtures; 71 contratos e tres revisoes aprovadas |
 | `IMP-03` | Improvements | done | LiveKit e whisper.cpp isolados | `IMP-02`, `M2-13` | 27 testes + 5 subtests, SDK real, CPU 1.9.4/12 runs, audit zero/88 e duas revisoes |
-| `IMP-05` | Improvements | pending | Projector tipado de conversation_turns | `IMP-03`, `M6-00` | Ainda nao iniciada |
+| `IMP-05` | Improvements | done | Projector tipado de conversation_turns | `IMP-03`, `M6-00` | SQL 0001-0075, lineage 10, authority/NULL/catalog/holds e verificacao fisica |
 | `IMP-04` | Improvements | pending | Revisao e evidencias integradas | `IMP-03`, `IMP-05` | Ainda nao iniciada |
 
 
@@ -1389,3 +1389,17 @@ Relatório reconcilia 24 achados, scopes de evidência, gates e limites. JSON de
 - 27 testes + 5 subtests passaram, py_compile, fake CLI e nove validators/lint/diff verdes. SDK audit atual: 88 pacotes/zero; CMake Python4.4.3 isolado: um pacote/zero. Duas revisoes independentes aprovadas.
 - Binario instalado1.9.2 real passou seis fixtures. Parent compilou tag oficialv1.9.4/commit927cfce com CPU static e CMake4.4.3, sem mudar Homebrew. Doze runs finais com seis WAVs sinteticos/model: tiny19/78 erros e mediana230ms; base10/78 e391ms. Assets ignorados, cache/source temporarios limpos, binario/hash/provenancia retidos.
 - Fonte congelada com hashes antes/depois da execucao identicos. Custo de compute sem preco; corpus pequeno nao estabelece qualidade humana/comercial, cancelamento de audio fisico ou producao. Proxima tarefa: IMP-05.
+
+### 2026-10-01, IMP-05 iniciado
+
+- IMP-03 fechado em 87a1364. Write set reservado: migration aditiva0075, harness SQL, validator/lineage e database/deletion-graph.md. Parent controla Progress/report/decisions.
+- Projector tipado conversation_turns limpa somente transcript_text e transcript_ciphertext, preservando todas as demais colunas e append-only fora de autoridade verificada.
+- Catalog shape/version, tenant/request/item/lease/fence/holds e verificacao independente obrigatorios; sem GUC livre como bypass nem UPDATE generico. M6-04 continua em progresso e canonical readiness=false.
+- Nenhuma migration remota, exclusao real de cliente, schema canonical/outbox falso ou rollout.
+
+### 2026-10-01, IMP-05 concluido localmente
+
+- Migration aditiva 0075 matricula somente shape conhecido de conversation_turns e instala guard append-only que faltava na linhagem portatil. Redaction limpa apenas transcript_text/ciphertext; 11 campos estruturais permanecem exatamente iguais.
+- Catalogo mantem provas v71 e exige trigger ativo/version/fingerprint. Apply/verify rejeitam NULL lease/fence, snapshot stale, tenant errado, hold e GUC sem autoridade. Verificacao independente/final exige linha presente e ambos conteudos NULL; receipts nao substituem leitura fisica.
+- PostgreSQL 0001-0075 passou com checksums imutaveis, regressao financeira/RAG e negativos de restauracao, alteracao estrutural, schema drift, holds e verificacao adulterada. Lineage 10, database validator, typecheck e contratos verdes; suite integrada 2.119 Node + 63 Python e pytest 63 passaram.
+- Capability bundle permanece 73; canonical readiness=false e M6-04 em progresso. Duas revisoes independentes aprovadas, lint/diff e nove validadores verdes. Nenhum banco remoto ou dado real apagado. Proxima tarefa: IMP-04.

@@ -221,6 +221,31 @@ one day and dead-letter payloads after 30 days, subject to an exact legal hold.
 Outbox and attempt receipts are retained only after their closed fields pass
 the content-free rule and their policy window is still active.
 
+### Typed conversation-turn redaction (0075)
+
+`conversation-turn-redaction@1` removes only `transcript_text` and
+`transcript_ciphertext`, setting both to NULL. Every other column, including
+identity, tenant, session, participant, role, language, chronology and flags,
+must compare exactly equal before and after the projection. Ordinary writes
+cannot restore content or change structural columns. Inserts retain the
+existing RLS/write-fence path; governed irreversible deletion retains its
+existing exact authority path.
+
+Enrollment rejects unknown column/type/nullability shape before recording the
+fingerprint. Catalog completeness requires the enabled typed trigger, both
+known projector versions, relation fingerprints and registered strategies.
+Apply and independent verify also require the request's current catalog
+fingerprint, exact nonnull lease/fencing tokens, tenant write generation and
+matching legal-hold checks. A session GUC alone grants no authority. Clearing
+already-NULL fields is idempotent under the same exact live authority.
+
+Independent verification and final completion read the physical row: it must
+still exist with both content fields NULL. An applied or verified receipt does
+not replace this scan. The previous transcript projector remains supported.
+This bounded M6-04 increment does not create canonical SQL ledgers/outbox or
+external proofs; `dataGovernanceCanonicalContractsReady` remains false and the
+capability bundle remains at version 73 while SQL lineage advances to 75.
+
 ### Legal holds
 
 A legal hold is purpose-, artifact- and time-scoped. It blocks only matching
