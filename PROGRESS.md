@@ -5,13 +5,13 @@
 - Autorizacao do proprietario para implementar melhorias e experimentos open source com autonomia local.
 - Baseline `72ab1e9`, branch `codex/audit-2026-10-01`; nove validadores verdes antes de editar. Alteracao preexistente de `apps/portal/next-env.d.ts` preservada.
 - Ordem fechada: IMP-01 laboratorio por receipts/Promptfoo; IMP-02 busca hibrida pgvector; IMP-03 adapters LiveKit/whisper.cpp; IMP-05 projector tipado de turnos; IMP-04 revisao integrada e evidencias.
-- Tarefa em execucao: IMP-01, implementacao e revisoes concluidas; fechamento local. Cada tarefa termina com testes, revisao independente, evidencia e commit antes da seguinte. M6-04 permanece em progresso, sem alterar gates de producao.
+- IMP-01 fechado no commit `f1555d9`; IMP-02 concluido localmente, pronto para commit. Cada tarefa termina com testes, revisao independente, evidencia e commit antes da seguinte. M6-04 permanece em progresso, sem alterar gates de producao.
 - Regra de parada: cinco incrementos locais executaveis e revisados, sem provider definitivo, chamada paga, dados reais destruidos, migration remota ou publicacao implicita.
 
 | ID | Marco | Estado | Entrega | Dependencias | Evidencia |
 |---|---|---|---|---|---|
 | `IMP-01` | Improvements | done | Laboratorio do closer por receipts e Promptfoo | `AUD-06`, `M3-08` | 105 goldens, CLI real 10 assertions, audit isolado zero/633 pacotes, build/lint e duas revisoes aprovadas |
-| `IMP-02` | Improvements | pending | Busca hibrida pgvector | `IMP-01`, `M3-02` | Ainda nao iniciada |
+| `IMP-02` | Improvements | done | Busca hibrida pgvector | `IMP-01`, `M3-02` | 94 focados; review 109; 12 Python; SQL 0001-0074, 15 fixtures; 71 contratos e tres revisoes aprovadas |
 | `IMP-03` | Improvements | pending | LiveKit e whisper.cpp isolados | `IMP-02`, `M2-13` | Ainda nao iniciada |
 | `IMP-05` | Improvements | pending | Projector tipado de conversation_turns | `IMP-03`, `M6-00` | Ainda nao iniciada |
 | `IMP-04` | Improvements | pending | Revisao e evidencias integradas | `IMP-03`, `IMP-05` | Ainda nao iniciada |
@@ -1359,3 +1359,17 @@ Relatório reconcilia 24 achados, scopes de evidência, gates e limites. JSON de
 - Comparacao exige mesmo contexto e algoritmo, detecta regressao e nunca promove automaticamente. Inputs dependem de armazenamento canonico autenticado; ainda nao ha adapter do Portal para sua shape propria.
 - Tooling Promptfoo isolado 0.116.7 e nove overrides explicitos, sem dependencia de producao. 633 pacotes com audit atual zero; SQLite 13.0.3 compilado localmente com headers Node 26. CLI real passou dez assertions com egress/subprocess guard; corpus inclui negativos intencionais e aggregate blocked e esperado.
 - Build/lint/diff verdes; 105 goldens e duas revisoes independentes aprovadas. M6-04/gates remotos preservados. Proxima tarefa: IMP-02.
+
+### 2026-10-01, IMP-02 iniciado
+
+- Dependencia IMP-01 fechada com commit e duas revisoes. Write set: contrato de resultado hibrido/tipos/fixtures, migration 0074, harness/validators/lineage, knowledge-engine, helper e consumidor real da rota brain, testes e docs citados.
+- RPC aditiva, busca exata/FTS com ranking deterministico e validade antes da selecao, citas com identidade, RPC ausente falha fechado e nenhum segundo embedding; signatures e wire shapes antigas preservadas com filtros endurecidos em 0074. Fonte revalidada sob lock na admissao e dispatch; revogacao de papel humano ainda exige admissao autenticada futura.
+- Nenhuma alteracao em flags de preview, provider default, readiness de rollout ou ambiente remoto.
+
+### 2026-10-01, IMP-02 concluido localmente
+
+- Contrato 71 fechado, parser Unicode e tipos gerados; source/version/chunk/hash presentes e trechos sempre nao confiaveis. Contexto limitado a 3800 bytes UTF-8, sem citas sem excerpt.
+- Busca SQL exata FTS/pgvector/RRF, fallback textual nao pago e perguntas PT/EN/ES. Missing RPC retorna vazio, sem segunda embedding. Readonly deadline de ate 2 s com abort quando disponivel; receipts financeiros fora do race.
+- Migration 0074 endurece tambem search autenticado/service e digest legados, preservando shapes. Fonte revalidada sob locks em reserva/dispatch, sem liberar inflight/unknown/committed. Papel humano ainda exige admissao autenticada futura.
+- PostgreSQL 0001-0074 PASS, pgvector real 0.8.5, 15 fixtures: lexical 1/1, perguntas 3/3, vetorial 2/2, exclusoes 5/5. Isso nao mede qualidade comercial nem escala. Capability bundle continua 73, readiness inalterada.
+- 94 Node focados, review independente 109, 12 Python, build/Portal typecheck/lint/diff e nove validadores verdes. Revisoes arquitetura, dados e seguranca aprovadas. Nenhum provider pago ou ambiente remoto. Proxima tarefa: IMP-03.

@@ -45,12 +45,12 @@ tasks:
     title: Add measured pgvector and lexical hybrid knowledge retrieval
     lane: data
     dependencies: [IMP-01, M3-02]
-    objective: Add a tenant-scoped hybrid RPC and source citations with bounded candidate ranking and validity checks, while preserving the old RPC for rollout compatibility.
+    objective: Add a tenant-scoped hybrid RPC and source citations with bounded candidate ranking and validity checks, while preserving secured legacy wire shapes and failing closed before the new migration.
     primary_files: [contracts/, packages/contracts-ts/, packages/contracts-py/, scripts/generate_contract_types.py, scripts/validate_contracts.py, tests/python/test_contract_generation.py, database/supabase-only/, scripts/supabase-portal-integration.mjs, scripts/validate_database_contract.py, tests/database/, packages/knowledge-engine/, tests/knowledge/, apps/portal/src/lib/, apps/portal/src/app/api/brain/, tests/portal/, docs/operations/CLOSER_IMPROVEMENTS_2026-10-01.md, PROGRESS.md]
     acceptance:
       - exact commercial terms and semantic candidates combine deterministically with tenant, active-source and version-validity filters
       - citations contain source, chunk and version identifiers and retrieved text stays untrusted
-      - old schema deployments preserve existing retrieval without paying for a second embedding attempt
+      - a missing hybrid RPC fails closed without a second paid embedding attempt; secured legacy RPC wire shapes remain compatible
       - PostgreSQL proves cross-tenant denial, revocation, expiry, lexical-only retrieval and stable ranking
       - embedding admission and dispatch revalidate source eligibility transactionally without releasing dispatched or unknown financial evidence
     tests: [SQL hybrid corpus, validity and revocation, wrong tenant, malformed vectors and limits, RPC compatibility, injection, byte budget]

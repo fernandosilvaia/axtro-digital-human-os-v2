@@ -10,7 +10,7 @@ M6-04 remains in progress. Experiments do not select or activate a production pr
 | Task | State | Evidence |
 |---|---|---|
 | IMP-01 receipt-based closer lab and Promptfoo | done | 105 goldens; real CLI 10 assertions; full isolated audit 0/633; independent architecture/security approval |
-| IMP-02 pgvector hybrid retrieval | pending | pending |
+| IMP-02 pgvector hybrid retrieval | done | SQL 0001-0074; 15 fixtures; 94 focused Node, independent 109; 12 Python; 71 contracts; three reviews |
 | IMP-03 LiveKit and whisper.cpp lab | pending | pending |
 | IMP-05 typed turn redaction | pending | pending |
 | IMP-04 integrated review | pending | pending |
@@ -99,3 +99,60 @@ upstream promise catch complete. This is documented defense in depth, not an OS 
 Default workspace tests do not import or install optional tooling. CI audits its lock and
 runs deterministic tests/report generation. Naturalness is excluded from evaluator major 2;
 major 0/1 and their parsers preserve the historical algorithm for honest replay/comparison.
+
+### IMP-02 documentation and numerical review
+
+Primary Supabase documentation confirms [hybrid RRF retrieval](https://supabase.com/docs/guides/ai/hybrid-search)
+and [permission-aware RAG](https://supabase.com/docs/guides/ai/rag-with-permissions).
+The [2026 extension change](https://supabase.com/changelog/extension-version-pinning-ignored)
+means hosted extension version clauses no longer establish an installed pin. This increment
+reuses the existing extension without installing or updating it. The reviewer measured local
+PostgreSQL 17 with pgvector 0.8.5, distinct from the 0.8.6 upstream documentation reference.
+
+Independent SQL reproduction exposed float32 overflow: opposite finite vectors with 1e30
+components produced a NaN cosine, which PostgreSQL least/greatest could clamp to similarity 1.
+The patch must normalize safely or reject non-finite raw similarities before clamping, with
+actual positive and negative extreme-vector regressions. This is an implementation finding,
+not a claim of measured production recall.
+
+The security review also rejected a compatibility fallback to the old vector-only RPC:
+its response cannot establish source access policy or version validity. If the new RPC
+is missing, the new consumer returns no knowledge and does not retry the paid embedding.
+Historical SQL files remain immutable. The additive migration must also harden legacy
+search/digest bodies while preserving their signatures and wire shapes; an unverified citation label would
+not make restricted or expired content permissible.
+
+### IMP-02 measured local evidence and limits
+
+PostgreSQL applies immutable contiguous migrations 0001 through 0074. Actual installed
+pgvector is 0.8.5. The 15-fixture synthetic corpus passes lexical Recall@6 1/1, natural
+commercial-question Recall@6 3/3 (PT/EN/ES), vector Recall@12 2/2 and exclusions 5/5.
+These are fixture-sized denominators, not population estimates or commercial-quality claims.
+RRF score for a single top-ranked lane is 0.01639344262295082. Extreme and tiny vectors,
+source admission/dispatch, direct legacy search/digest, wrong tenants and financial replay
+also pass. Historical null validity endpoints remain explicitly unbounded.
+
+The new typed result brings the contract count to 71. Unicode uses code-point lengths for
+schema compatibility and UTF-8 bytes for context budgeting. Empty excerpts are skipped,
+telemetry sink errors cannot escape retrieval, and the real video-brain route consumes the
+new helper. Text Preview remains closed. Unrecognized source policies fail closed; Portal
+still has no canonical role/product/locale policy columns. In-memory filters retain their
+existing richer structure and now use optional genuine vectors instead of hash similarity.
+
+Source status is checked under locks both before reservation and before provider dispatch.
+Only a still-reserved operation may be released as not dispatched; dispatched, unknown and
+committed evidence is preserved. This does not establish authenticated actor binding or close
+the remaining human-role revocation race. The database capability bundle remains version 73,
+while the migration lineage head is 74; no production-readiness version is expanded.
+
+The lexical index expression is eligible for planner optimization through NOT MATERIALIZED;
+actual index use requires EXPLAIN. Exact semantic search still scans eligible embeddings.
+Candidate/result bounds are not a proof of bounded scan work, large-tenant latency or capacity.
+Readonly RPC cancellation/degradation is separate from a database execution-time proof and
+from financial mutation reconciliation. Hosted schema and extension versions are unverified.
+
+IMP-02 is complete locally: architecture, data and security reviews approve the bounded
+patch. The optional readonly search has a maximum two-second response deadline and uses
+Postgrest abortSignal when available; never-settling PromiseLike fakes degrade safely too.
+This deadline does not race mutating usage receipts or prove server-side query cancellation.
+Build, Portal typecheck, lint, diff check and all nine validators pass.

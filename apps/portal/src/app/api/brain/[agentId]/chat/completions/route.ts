@@ -19,8 +19,8 @@ import {
   stableAiUsageIdempotencyKey,
   type AiUsageReservation,
 } from "@/lib/ai-budget/reservations";
-import { AiUsageEnvelopeError } from "@/lib/ai-budget/envelope";
 import { readBoundedTextBody } from "@/lib/http/read-bounded-body";
+import { retrieveBrainKnowledge } from "@/lib/brain/knowledge-retrieval";
 import { embedQuery, prepareEmbeddingQueryForReservedUsage } from "@/lib/knowledge";
 import { createServiceRoleClient, ServiceRoleUnavailableError } from "@/lib/supabase/service";
 import { logError as trackError, logEvent } from "@/lib/telemetry";
@@ -115,105 +115,15 @@ async function resolveConfig(secretHash: string): Promise<ResolvedBrainAgent | n
   };
 }
 
-/**
- * RAG pro caminho de vídeo (fecha o gap declarado desde D-V2-083/M4-04):
- * embeda a pergunta e busca via `portal_search_knowledge_service` (0032,
- * variante service-role de `portal_search_knowledge`, 0010: mesmo corpo de
- * busca, só resolve o tenant por `p_tenant_id` explícito em vez de
- * `auth.uid()`, que não existe nesta chamada servidor-a-servidor). Mesmo
- * piso de similaridade do caminho de chat (agent-preview.ts, 0.25 em cosine
- * do text-embedding-3-small): sem ele, ~1k tokens de chunks irrelevantes
- * entrariam como "mais relevantes" pra qualquer pergunta.
- *
- * Falha (embedding indisponível, RPC fora do ar) SEMPRE degrada pra `[]`,
- * nunca lança. RAG indisponível não pode derrubar a call de vídeo, e sem
- * fontes o agente não inventa (Art. 14).
- *
- * A chamada de embedding também usa reserva prévia, fence antes do envio e
- * commit com tokens/custo reportado. Falha ambígua fecha o tenant até a
- * reconciliação, mas o RAG ainda degrada para `[]` sem expor conversa no log.
- */
+/** Hybrid knowledge is untrusted data, bounded and scoped to the resolved tenant. */
 async function retrieveKnowledge(
-  tenantId: string,
-  agentId: string,
-  queryText: string,
-  idempotencyMaterial: string,
+  tenantId: string, agentId: string, queryText: string, idempotencyMaterial: string,
 ): Promise<readonly BrainKnowledgeMatch[]> {
-  const trimmed = queryText.trim();
-  const apiKey = process.env.OPENROUTER_API_KEY ?? "";
-  if (trimmed.length === 0 || apiKey.trim().length === 0) return [];
-
-  // Nenhuma reserva ou fence é adquirida se a entrada não cabe no envelope
-  // conservador. Isso impede que Unicode/bytes excedam o teto antes de o
-  // provider receber uma chamada.
-  let embeddingQuery: string;
-  try {
-    embeddingQuery = prepareEmbeddingQueryForReservedUsage(
-      trimmed,
-      AI_USAGE_LIMITS.knowledge_query_embedding.maxInputTokens,
-    );
-  } catch (error) {
-    if (error instanceof AiUsageEnvelopeError) {
-      logEvent("brain_knowledge_input_envelope_rejected", { agent_id: agentId });
-      return [];
-    }
-    throw error;
-  }
-
-  const supabase = createServiceRoleClient();
-  const begin = await beginAiUsage({
-    client: supabase,
-    tenantId,
-    operation: "knowledge_query_embedding",
-    idempotencyKey: stableAiUsageIdempotencyKey("knowledge_query_embedding", idempotencyMaterial),
-    agentId,
+  return retrieveBrainKnowledge({ tenantId, agentId, queryText, idempotencyMaterial }, {
+    client: createServiceRoleClient(), apiKey: process.env.OPENROUTER_API_KEY ?? "",
+    prepare: prepareEmbeddingQueryForReservedUsage, embed: embedQuery,
+    recordEvent: (code) => logEvent(code, { tenant_id: tenantId, agent_id: agentId }),
   });
-  if (!begin.allowed) return [];
-  const reservation = begin.reservation;
-  let providerDispatched = false;
-  let terminalRecorded = false;
-  try {
-    providerDispatched = await markAiUsageInFlight(supabase, reservation);
-    if (!providerDispatched) return [];
-    const { embedding, inputTokens, reportedCostUsd } = await embedQuery(
-      apiKey,
-      embeddingQuery,
-      AI_USAGE_LIMITS.knowledge_query_embedding.maxInputTokens,
-    );
-    const committed = await commitAiUsage(supabase, reservation, {
-      inputTokens,
-      outputTokens: 0,
-      ...(reportedCostUsd === undefined ? {} : { reportedCostUsd }),
-    });
-    if (!committed) {
-      await markAiUsageUnknown(supabase, reservation, "usage_commit_failed");
-      terminalRecorded = true;
-      trackError("brain_ai_usage_commit_failed", new Error("knowledge query reservation did not commit"), { tenant_id: tenantId, agent_id: agentId });
-      return [];
-    }
-    const { data, error } = await supabase.rpc("portal_search_knowledge_service", {
-      p_tenant_id: tenantId,
-      p_embedding: embedding,
-      p_limit: 5,
-    });
-    if (error) {
-      trackError("brain_knowledge_search_failed", error, { tenant_id: tenantId });
-      return [];
-    }
-    if (!Array.isArray(data)) return [];
-    return (data as (BrainKnowledgeMatch & { similarity?: number })[])
-      .filter((match) => typeof match.similarity !== "number" || match.similarity >= 0.25)
-      .map((match) => ({ source_name: match.source_name, chunk_text: match.chunk_text }));
-  } catch (error) {
-    if (providerDispatched && !terminalRecorded) {
-      await recordAiUsageProviderFailure(supabase, reservation, error);
-      terminalRecorded = true;
-    } else if (!providerDispatched) {
-      await releaseAiUsageNotDispatched(supabase, reservation);
-    }
-    trackError("brain_knowledge_retrieval_failed", error, { tenant_id: tenantId });
-    return [];
-  }
 }
 
 function sseChunk(payload: unknown): string {

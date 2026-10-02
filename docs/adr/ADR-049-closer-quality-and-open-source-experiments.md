@@ -23,7 +23,11 @@ never trust model text as proof of completion, and expose no raw receipt result 
 Naturalness, real conversation quality and promotion require human and measured evidence.
 
 IMP-02 adds an additive pgvector/lexical hybrid RPC with tenant and source/version filters,
-identity-bearing citations and an unchanged legacy RPC for older deployment compatibility.
+identity-bearing citations and legacy wire compatibility. Historical SQL files remain immutable;
+the additive migration hardens callable legacy search and digest bodies with the same source
+policy and validity filters, so direct Data API calls cannot bypass them.
+The new consumer fails closed when the hybrid RPC is unavailable: the old response has no
+identity or policy/validity evidence, so a compatibility label cannot authorize its content.
 Ranking may be measured on a synthetic corpus without claiming real-world recall. Query
 text remains data; no retrieved instructions enter trusted system context. No second paid
 embedding attempt is permitted during compatibility fallback.

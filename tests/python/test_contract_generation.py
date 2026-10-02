@@ -51,7 +51,7 @@ class ContractGenerationTests(unittest.TestCase):
             self.assertEqual(first_ts, generated_ts.read_bytes())
             self.assertEqual(first_py, generated_py.read_bytes())
             generated_typescript = generated_ts.read_text(encoding="utf-8")
-            self.assertEqual(70, generated_typescript.count('"source_schema"'))
+            self.assertEqual(71, generated_typescript.count('"source_schema"'))
             generated_python = generated_py.read_text(encoding="utf-8")
             self.assertIn("schema_version", generated_python)
             self.assertIn("class _FakeProviderScenarioRequired(TypedDict):", generated_python)
@@ -98,7 +98,7 @@ class ContractGenerationTests(unittest.TestCase):
             errors = list(Draft202012Validator(schema, registry=registry).iter_errors(example))
             self.assertTrue(errors, f"{example_path.relative_to(ROOT)} unexpectedly passed")
             rejected += 1
-        self.assertEqual(70, rejected)
+        self.assertEqual(71, rejected)
 
     def test_portal_text_preview_contracts_bind_privacy_and_browser_authority(self) -> None:
         registry = schema_registry()
@@ -544,6 +544,22 @@ class ContractGenerationTests(unittest.TestCase):
         ):
             self.assertTrue(list(validator.iter_errors(candidate)), "context entry binding unexpectedly passed")
 
+
+    def test_knowledge_search_result_similarity_lanes_are_closed(self) -> None:
+        schema = json.loads((SCHEMAS / "knowledge_search_result.schema.json").read_text())
+        validator = Draft202012Validator(schema)
+        example = json.loads((VALID / "knowledge_search_result.json").read_text())
+        self.assertFalse(list(validator.iter_errors(example)))
+        for kind, similarity in [("lexical", 0.7), ("vector", None), ("hybrid", 0.1)]:
+            candidate = json.loads(json.dumps(example))
+            candidate["matches"][0]["match_kind"] = kind
+            candidate["matches"][0]["similarity"] = similarity
+            self.assertTrue(list(validator.iter_errors(candidate)), (kind, similarity))
+        for kind, similarity in [("vector", 0.25), ("hybrid", 1.0)]:
+            candidate = json.loads(json.dumps(example))
+            candidate["matches"][0]["match_kind"] = kind
+            candidate["matches"][0]["similarity"] = similarity
+            self.assertFalse(list(validator.iter_errors(candidate)))
 
 if __name__ == "__main__":
     unittest.main()

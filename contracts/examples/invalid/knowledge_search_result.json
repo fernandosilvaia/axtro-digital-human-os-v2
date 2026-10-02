@@ -1,0 +1,19 @@
+{
+  "schema_version": "2.0.0",
+  "tenant_id": "019f0000-0000-7000-8000-000000000001",
+  "matches": [
+    {
+      "source_id": "019f0000-0000-7000-8000-000000000002",
+      "version_id": "019f0000-0000-7000-8000-000000000003",
+      "chunk_id": "019f0000-0000-7000-8000-000000000004",
+      "chunk_index": 0,
+      "content_hash": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "source_name": "Synthetic guide",
+      "chunk_text": "Hybrid retrieval fixture.",
+      "score": 0.01639344262295082,
+      "similarity": null,
+      "match_kind": "lexical",
+      "trusted": true
+    }
+  ]
+}

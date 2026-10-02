@@ -1,0 +1,141 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://schemas.axtro.ai/v2/knowledge_search_result.schema.json",
+  "title": "Knowledge Search Result",
+  "description": "Tenant-scoped hybrid retrieval evidence. IDs and chunk index define a citation locator; content remains untrusted. Historical null validity dates are unbounded. No role or product policy claim.",
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "schema_version": {
+      "type": "string",
+      "const": "2.0.0"
+    },
+    "tenant_id": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$"
+    },
+    "matches": {
+      "type": "array",
+      "maxItems": 12,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "source_id": {
+            "type": "string",
+            "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$"
+          },
+          "version_id": {
+            "type": "string",
+            "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$"
+          },
+          "chunk_id": {
+            "type": "string",
+            "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$"
+          },
+          "chunk_index": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 2147483647
+          },
+          "content_hash": {
+            "type": "string",
+            "pattern": "^[0-9a-f]{64}$"
+          },
+          "source_name": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 300
+          },
+          "chunk_text": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 20000
+          },
+          "score": {
+            "type": "number",
+            "minimum": 0,
+            "maximum": 1
+          },
+          "similarity": {
+            "type": [
+              "number",
+              "null"
+            ],
+            "minimum": -1,
+            "maximum": 1
+          },
+          "match_kind": {
+            "type": "string",
+            "enum": [
+              "lexical",
+              "vector",
+              "hybrid"
+            ]
+          },
+          "trusted": {
+            "type": "boolean",
+            "const": false
+          }
+        },
+        "required": [
+          "source_id",
+          "version_id",
+          "chunk_id",
+          "chunk_index",
+          "content_hash",
+          "source_name",
+          "chunk_text",
+          "score",
+          "similarity",
+          "match_kind",
+          "trusted"
+        ],
+        "allOf": [
+          {
+            "if": {
+              "properties": {
+                "match_kind": {
+                  "const": "lexical"
+                }
+              }
+            },
+            "then": {
+              "properties": {
+                "similarity": {
+                  "type": "null"
+                }
+              }
+            }
+          },
+          {
+            "if": {
+              "properties": {
+                "match_kind": {
+                  "enum": [
+                    "vector",
+                    "hybrid"
+                  ]
+                }
+              }
+            },
+            "then": {
+              "properties": {
+                "similarity": {
+                  "type": "number",
+                  "minimum": 0.25,
+                  "maximum": 1
+                }
+              }
+            }
+          }
+        ]
+      }
+    }
+  },
+  "required": [
+    "schema_version",
+    "tenant_id",
+    "matches"
+  ]
+}

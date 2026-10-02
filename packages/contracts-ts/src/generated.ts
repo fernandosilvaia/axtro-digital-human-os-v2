@@ -1,7 +1,7 @@
 /*
  * GENERATED FILE. DO NOT EDIT.
  * generator: scripts/generate_contract_types.py@1.2.0
- * source: 70 JSON Schema Draft 2020-12 documents under contracts/schemas/
+ * source: 71 JSON Schema Draft 2020-12 documents under contracts/schemas/
  */
 
 export const CONTRACT_GENERATOR_VERSION = "1.2.0" as const;
@@ -570,6 +570,25 @@ export interface InteractionSessionState {
   degradation_level: "none" | "minor" | "major" | "voice_only" | "text_only" | "terminated";
   started_at: string | null;
   updated_at: string;
+}
+
+/** Source: contracts/schemas/knowledge_search_result.schema.json; schema: https://schemas.axtro.ai/v2/knowledge_search_result.schema.json; version: 2.0.0. */
+export interface KnowledgeSearchResult {
+  schema_version: "2.0.0";
+  tenant_id: string;
+  matches: Array<{
+    source_id: string;
+    version_id: string;
+    chunk_id: string;
+    chunk_index: number;
+    content_hash: string;
+    source_name: string;
+    chunk_text: string;
+    score: number;
+    similarity: number | null;
+    match_kind: "lexical" | "vector" | "hybrid";
+    trusted: false;
+  }>;
 }
 
 /** Source: contracts/schemas/meeting_terminal_notification_command.schema.json; schema: https://schemas.axtro.ai/v2/meeting_terminal_notification_command.schema.json; version: 2.0.0. */
@@ -1704,6 +1723,12 @@ export const CONTRACT_METADATA = {
     "schema_version": "2.0.0",
     "source_hash": "641554550db45bed0f891b726e5b92344d23be5d51308183b136dbb36090bac8",
     "source_schema": "contracts/schemas/interaction_session_state.schema.json"
+  },
+  "KnowledgeSearchResult": {
+    "schema_id": "https://schemas.axtro.ai/v2/knowledge_search_result.schema.json",
+    "schema_version": "2.0.0",
+    "source_hash": "7531eb95c49c5a900f37daf5c3227cff256892912fe4f9915f4768c705afb57f",
+    "source_schema": "contracts/schemas/knowledge_search_result.schema.json"
   },
   "MeetingTerminalNotificationCommand": {
     "schema_id": "https://schemas.axtro.ai/v2/meeting_terminal_notification_command.schema.json",

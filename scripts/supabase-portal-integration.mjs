@@ -280,9 +280,11 @@ try {
   const financialRepairApplied = applySupabaseMigrations(databaseUrl, 73, 73);
   assert.deepEqual(financialRepairApplied, ["0073"]);
   assertAiUsageFinancialEvidenceRepairPhase(databaseUrl, financialHistoricalFixture, inheritedFinancialCapabilities);
+  assert.deepEqual(applySupabaseMigrations(databaseUrl, 74, 74), ["0074"]);
+  await assertHybridKnowledgePhase(databaseUrl);
   assertMigrationReceiptLineage(databaseUrl);
 
-  console.log("SUPABASE PORTAL INTEGRATION PASSED: migrations 0001-0073 in contiguous order, immutable checksums, grants, RLS, transcripts, reservations, data governance and readiness capability");
+  console.log("SUPABASE PORTAL INTEGRATION PASSED: migrations 0001-0074 in contiguous order, immutable checksums, grants, RLS, transcripts, reservations, data governance and readiness capability");
 } catch (error) {
   primaryError = error;
   throw error;
@@ -310,6 +312,144 @@ function applySupabaseMigrations(databaseUrl, firstVersion, lastVersion) {
   return applied;
 }
 
+async function assertHybridKnowledgePhase(databaseUrl) {
+  const tenant = "019f0000-0074-7000-8000-000000000001";
+  const uid = (n) => `019f0000-0074-7000-8000-${String(n).padStart(12,"0")}`;
+  const service = (sql) => asRoleSql("service_role",null,sql);
+  const query = (text, vector=null, limit=6, scope=tenant) => `SELECT public.portal_search_knowledge_hybrid_service('${scope}','${sqlLiteral(text)}',${vector===null ? 'null' : `'${JSON.stringify(vector)}'::jsonb`},${limit});`;
+  const vec = (first,second=0) => [first,second,...Array(1534).fill(0)];
+  const fixtures = [
+    [10, "lexical", "hibridofixture garantia premium", "active",null,null, null],
+    [20, "semantic", "Cobertura ampliada para seu investimento", "active",null,null,vec(1,0)],
+    [30, "expired", "hibridofixture garantia premium", "active",null,"now()-interval '1 second'",vec(1,0)],
+    [40, "future", "hibridofixture garantia premium", "active","now()+interval '1 day'",null,vec(1,0)],
+    [50, "disabled", "hibridofixture garantia premium", "disabled",null,null,vec(1,0)],
+    [60, "zero", "hibridofixture zero", "active",null,null,vec(0,0)],
+    [70, "extreme-positive", "Magnitude positiva", "active",null,null,vec(1e30,0)],
+    [80, "extreme-negative", "Magnitude negativa", "active",null,null,vec(-1e30,0)],
+    [90, "opaque-policy", "hibridofixture garantia premium", "active",null,null,vec(1,0)],
+  ];
+  assertSucceeded(runSql(databaseUrl,`INSERT INTO public.tenants(id,slug,legal_name,status,home_region,default_language,default_timezone)
+    VALUES('${tenant}','hybrid-fixture','Hybrid synthetic fixture','trial','us-east-1','pt-BR','UTC');`),"hybrid tenant fixture");
+  for (const [n,name,text,status,from,to,vector] of fixtures) {
+    assertSucceeded(runSql(databaseUrl,`INSERT INTO public.knowledge_sources(tenant_id,id,source_type,display_name,data_classification,status,access_policy)
+      VALUES('${tenant}','${uid(n)}','document','${name}','internal','${status}',${n===90 ? `' {"roles":["restricted"]}'::jsonb` : `'{}'::jsonb`});
+      INSERT INTO public.knowledge_versions(tenant_id,id,source_id,version,content_hash,valid_from,valid_to)
+      VALUES('${tenant}','${uid(n+1)}','${uid(n)}','1','${"a".repeat(64)}',${from??'null'},${to??'null'});
+      INSERT INTO public.knowledge_chunks(tenant_id,id,version_id,chunk_index,content_text)
+      VALUES('${tenant}','${uid(n+2)}','${uid(n+1)}',0,'${sqlLiteral(text)}');
+      ${vector===null ? '' : `INSERT INTO public.knowledge_embeddings(tenant_id,id,chunk_id,embedding_model,embedding_dimensions,embedding)
+        VALUES('${tenant}','${uid(n+3)}','${uid(n+2)}','openai/text-embedding-3-small',1536,'${JSON.stringify(vector)}'::vector);`}`),"hybrid corpus fixture");
+  }
+  const signature="public.portal_search_knowledge_hybrid_service(app.uuid_v7,text,jsonb,integer)";
+  for (const role of ["anon","authenticated"]) assert.equal(queryScalar(databaseUrl,`SELECT has_function_privilege('${role}','${signature}','EXECUTE');`),"f");
+  assert.equal(queryScalar(databaseUrl,`SELECT has_function_privilege('service_role','${signature}','EXECUTE');`),"t");
+  assert.equal(queryScalar(databaseUrl,"SELECT has_function_privilege('anon','public.portal_search_knowledge_hybrid(text,jsonb,integer)','EXECUTE');"),"f");
+  assertFailed(runSql(databaseUrl,asRoleSql("authenticated",null,"SELECT public.portal_search_knowledge_hybrid('garantia');")),"hybrid authentication required",/authentication required/);
+  const lexical=queryJson(databaseUrl,service(query("hibridofixture garantia premium")));
+  assert.equal(lexical.schema_version,"2.0.0"); assert.equal(lexical.tenant_id,tenant);
+  assert.deepEqual(lexical.matches.map(m=>m.source_name),["lexical"]);
+  assert.equal(lexical.matches[0].similarity,null); assert.equal(lexical.matches[0].match_kind,"lexical");
+  assert.equal(lexical.matches[0].trusted,false); assert.equal(lexical.matches[0].chunk_id,uid(12));
+  const hybrid=queryJson(databaseUrl,service(query("hibridofixture garantia premium",vec(1,0),12)));
+  assert.equal(hybrid.matches.length,3,"only lexical + semantic + positive extreme survive scope, validity, policy and vector floor");
+  assert.ok(hybrid.matches.every(m=>Number.isFinite(m.score) && m.score>0 && m.score<=1 && (m.similarity===null || Number.isFinite(m.similarity))));
+  assert.equal(hybrid.matches.find(m=>m.source_name==="extreme-positive").similarity,1);
+  const negative=queryJson(databaseUrl,service(query("no lexical match",vec(-1e30,0),12)));
+  assert.deepEqual(negative.matches.map(m=>m.source_name),["extreme-negative"],"extreme opposite vectors never clamp NaN to a perfect match");
+  const tiny=queryJson(databaseUrl,service(query("no lexical match",vec(1e-300,0),12)));
+  assert.ok(tiny.matches.some(m=>m.source_name==="semantic"),"normalize before float cast avoids subnormal query collapse");
+  const repeat=queryJson(databaseUrl,service(query("hibridofixture garantia premium",vec(1,0),12)));
+  assert.deepEqual(repeat,hybrid,"synthetic rankings and citation identities reproduce exactly");
+  assert.deepEqual(queryJson(databaseUrl,service(query("no lexical match"))).matches,[]);
+  assert.deepEqual(queryJson(databaseUrl,service(query("hibridofixture",null,12,fixture.tenantBeta))).matches,[]);
+  const authenticated=queryJson(databaseUrl,asRoleSql("authenticated",fixture.userAlpha,"SELECT public.portal_search_knowledge_hybrid('hibridofixture');"));
+  assert.equal(authenticated.tenant_id,fixture.tenantAlpha); assert.deepEqual(authenticated.matches,[]);
+  for (const bad of [query("x",vec(0,0)),query("x",[1]),query("é".repeat(1001)),query("x",null,0),query("x",null,13)]) {
+    assertFailed(runSql(databaseUrl,service(bad)),"bounded hybrid query rejects malformed input",/invalid hybrid query bounds|embedding must/);
+  }
+  const malformed=vec(1,0); malformed[2]="NaN";
+  assertFailed(runSql(databaseUrl,service(query("x",malformed))),"non-numeric embedding rejected",/embedding components must/);
+  // Same lexical term must survive even when orthogonal to the query vector.
+  assertSucceeded(runSql(databaseUrl,`INSERT INTO public.knowledge_embeddings(tenant_id,id,chunk_id,embedding_model,embedding_dimensions,embedding)
+    VALUES('${tenant}','${uid(13)}','${uid(12)}','openai/text-embedding-3-small',1536,'${JSON.stringify(vec(0,1))}'::vector);`),"orthogonal lexical embedding");
+  assert.equal(queryJson(databaseUrl,service(query("garantia",vec(1,0)))).matches.find(m=>m.source_name==="lexical").match_kind,"lexical");
+
+  const questionCases=[
+    [140,"Quanto custa SKU-42?","SKU-42: valor BRL 500 por unidade","Quanto custa um item sem cadastro?"],
+    [150,"How much does SKU-43 cost?","SKU-43: USD 100 per unit","How much does a service cost?"],
+    [160,"Cuánto cuesta SKU-44?","SKU-44: EUR 200 por unidad","Cuánto cuesta una consulta?"],
+  ];
+  for (const [n,question,content,distractor] of questionCases) {
+    for(const [offset,text] of [[0,content],[5,distractor]]) {
+      assertSucceeded(runSql(databaseUrl,`INSERT INTO public.knowledge_sources(tenant_id,id,source_type,display_name,data_classification,status)
+        VALUES('${tenant}','${uid(n+offset)}','document','Question fixture ${n+offset}','internal','active');
+        INSERT INTO public.knowledge_versions(tenant_id,id,source_id,version,content_hash)
+        VALUES('${tenant}','${uid(n+offset+1)}','${uid(n+offset)}','1','${"a".repeat(64)}');
+        INSERT INTO public.knowledge_chunks(tenant_id,id,version_id,chunk_index,content_text)
+        VALUES('${tenant}','${uid(n+offset+2)}','${uid(n+offset+1)}',0,'${sqlLiteral(text)}');`),"multilingual natural question fixture");
+    }
+    const results=queryJson(databaseUrl,service(query(question,null,6)));
+    assert.ok(results.matches.some(m=>m.chunk_id===uid(n+2)),"unpaid natural PT/EN/ES question recalls canonical SKU chunk");
+    assert.equal(results.matches[0].chunk_id,uid(n+2),"catalog match ranks above question-only distractors");
+    assert.deepEqual(queryJson(databaseUrl,service(query(question,null,6,fixture.tenantBeta))).matches,[]);
+  }
+  assertFailed(runSql(databaseUrl,service(query("x",null,0,uid(9999)))),"unknown tenant rejected before query bounds",/unknown tenant/);
+  const user=uid(120); const actor=uid(121);
+  assertSucceeded(runSql(databaseUrl,`INSERT INTO auth.users(id,email,raw_app_meta_data) VALUES('${user}','hybrid-fixture@example.invalid','{}'::jsonb);
+    INSERT INTO public.user_tenant_memberships(user_id,tenant_id,actor_id,role) VALUES('${user}','${tenant}','${actor}','tenant_admin');`),"hybrid authenticated membership");
+  const legacyService=queryJson(databaseUrl,service(`SELECT public.portal_search_knowledge_service('${tenant}','${JSON.stringify(vec(1e30,0))}'::jsonb,12);`));
+  assert.deepEqual(legacyService.map(m=>m.source_name),["semantic","extreme-positive"],"legacy service shares validity, policy and numerical fences");
+  const legacyAuth=queryJson(databaseUrl,asRoleSql("authenticated",user,`SELECT public.portal_search_knowledge('${JSON.stringify(vec(1,0))}'::jsonb,12);`));
+  assert.deepEqual(legacyAuth,legacyService,"authenticated legacy wire shape remains compatible and safe");
+  const legacyForeign=queryJson(databaseUrl,asRoleSql("authenticated",fixture.userBeta,`SELECT public.portal_search_knowledge('${JSON.stringify(vec(1,0))}'::jsonb,12);`));
+  assert.ok(legacyForeign.every(m=>!fixtures.some(f=>f[1]===m.source_name)),"legacy authenticated path cannot cross tenant");
+  const digest=queryJson(databaseUrl,asRoleSql("authenticated",user,"SELECT public.portal_knowledge_digest(6000);"));
+  for (const name of ["expired","future","disabled","opaque-policy"]) assert.ok(!digest.sources.includes(name),`${name} excluded from callable digest`);
+  assert.ok(digest.sources.includes("lexical"));
+  const source=uid(110);
+  assertSucceeded(runSql(databaseUrl,`INSERT INTO public.knowledge_sources(tenant_id,id,source_type,display_name,data_classification,status)
+    VALUES('${tenant}','${source}','document','Admission fixture','internal','pending');`),"source admission fixture");
+  const begin=(n,scope=tenant,src=source) => `SELECT public.portal_begin_ai_usage_reservation_service('${uid(n)}','${uid(n+1000)}','${scope}',null,'${src}',
+    'hybrid-ingestion-${n}','knowledge_ingestion_embedding',20000,0,0.01);`;
+  const dispatch=(n) => `SELECT public.portal_mark_ai_usage_in_flight_service('${uid(n)}');`;
+  const status=(value) => assertSucceeded(runSql(databaseUrl,`UPDATE public.knowledge_sources SET status='${value}' WHERE tenant_id='${tenant}' AND id='${source}';`),"source status transition");
+  const release=(n) => queryScalar(databaseUrl,service(`SELECT public.portal_release_ai_usage_service('${uid(n)}','not_dispatched');`));
+  assert.equal(queryJson(databaseUrl,service(begin(200))).outcome,"reserved");
+  status("disabled");
+  assert.deepEqual(queryJson(databaseUrl,service(dispatch(200))),{acquired:false,state:"released"});
+  assert.equal(queryScalar(databaseUrl,`SELECT release_evidence FROM public.ai_usage_reservations WHERE id='${uid(200)}';`),"not_dispatched");
+  assert.equal(queryScalar(databaseUrl,`SELECT count(*) FROM public.cost_events WHERE tenant_id='${tenant}';`),"0");
+  assert.equal(queryJson(databaseUrl,service(begin(201))).outcome,"unavailable");
+  status("deleted"); assert.equal(queryJson(databaseUrl,service(begin(202))).outcome,"unavailable");
+  assertFailed(runSql(databaseUrl,service(begin(203,fixture.tenantBeta))),"source wrong tenant",/source not found for tenant/);
+  assertFailed(runSql(databaseUrl,service(begin(204,tenant,uid(999)))),"source missing",/source not found for tenant/);
+  status("stale"); assert.equal(queryJson(databaseUrl,service(begin(205))).outcome,"reserved");
+  assert.equal(queryJson(databaseUrl,service(dispatch(205))).acquired,true);
+  status("disabled");
+  assert.equal(release(205),"f","source revocation after dispatch is not a no-charge receipt");
+  assert.equal(queryJson(databaseUrl,service(dispatch(205))).state,"provider_in_flight");
+  assert.equal(queryJson(databaseUrl,service(`SELECT public.portal_commit_ai_usage_service('${uid(205)}',123,0,0.000012345678);`)).committed,true);
+  assert.equal(queryJson(databaseUrl,service(begin(205))).state,"committed","historical receipt replay remains valid after revocation");
+  assert.equal(queryScalar(databaseUrl,`SELECT reported_cost_usd::text FROM public.ai_usage_reservations WHERE id='${uid(205)}';`),"0.00001235","v73 canonical reported financial precision is preserved");
+  status("active"); assert.equal(queryJson(databaseUrl,service(begin(206))).outcome,"reserved");
+  assert.equal(queryJson(databaseUrl,service(dispatch(206))).acquired,true);
+  assert.equal(queryScalar(databaseUrl,service(`SELECT public.portal_mark_ai_usage_unknown_service('${uid(206)}','ambiguous_timeout');`)),"t");
+  status("disabled"); assert.equal(queryJson(databaseUrl,service(dispatch(206))).state,"unknown"); assert.equal(release(206),"f");
+  assert.equal(queryJson(databaseUrl,service(`SELECT public.portal_reconcile_ai_usage_service('${uid(207)}','${uid(206)}','provider_invoice_no_charge','synthetic-invoice-no-charge');`)).state,"released");
+  status("pending");
+  for (const n of [210,211]) assert.equal(queryJson(databaseUrl,service(begin(n))).outcome,"reserved");
+  status("disabled");
+  const denied=await Promise.all([210,211].map(n=>runSqlAsync(databaseUrl,service(dispatch(n)))));
+  denied.forEach((r)=>{assertSucceeded(r,"concurrent source-fenced dispatch");assert.deepEqual(parseLastJson(r.stdout),{acquired:false,state:"released"});});
+  status("active");
+  for (const n of [212,213]) assert.equal(queryJson(databaseUrl,service(begin(n))).outcome,"reserved");
+  const competed=await Promise.all([212,213].map(n=>runSqlAsync(databaseUrl,service(dispatch(n)))));
+  competed.forEach(r=>assertSucceeded(r,"concurrent paid dispatch"));
+  assert.equal(competed.map(r=>parseLastJson(r.stdout)).filter(r=>r.acquired).length,1,"existing tenant single-flight fence remains intact");
+  console.log(`HYBRID SYNTHETIC RECALL PASSED: pgvector ${queryScalar(databaseUrl,"SELECT extversion FROM pg_extension WHERE extname='vector';")}, corpus=${fixtures.length+6}, lexical Recall@6=1/1, natural-question Recall@6=3/3, vector Recall@12=2/2, exclusions=5/5, RRF score=${lexical.matches[0].score}; fixture evidence only`);
+}
+
 function migrationChecksum(filename) {
   return createHash("sha256")
     .update(readFileSync(join(supabaseMigrationDirectory, filename)))
@@ -320,11 +460,11 @@ function supabaseMigrationInventory() {
   const migrations = readdirSync(supabaseMigrationDirectory)
     .filter((name) => /^\d{4}_.+\.sql$/.test(name))
     .sort();
-  assert.equal(migrations.length, 73, "the harness must cover every Supabase-only migration through 0073");
+  assert.equal(migrations.length, 74, "the harness must cover every Supabase-only migration through 0074");
   assert.deepEqual(
     migrations.map((migration) => Number(migration.slice(0, 4))),
-    Array.from({ length: 73 }, (_, index) => index + 1),
-    "Supabase-only migration versions must be contiguous and unique from 0001 through 0073",
+    Array.from({ length: 74 }, (_, index) => index + 1),
+    "Supabase-only migration versions must be contiguous and unique from 0001 through 0074",
   );
   assert.equal(migrations[48], "0049_portal_text_preview_admission.sql");
   assert.equal(migrations[49], "0050_meeting_terminal_notification_claim.sql");
@@ -344,6 +484,7 @@ function supabaseMigrationInventory() {
   assert.equal(migrations[70], "0071_data_governance_write_fence_repair.sql");
   assert.equal(migrations[71], "0072_agent_video_asset_assignment_governance.sql");
   assert.equal(migrations[72], "0073_ai_usage_financial_evidence_repair.sql");
+  assert.equal(migrations[73], "0074_portal_hybrid_knowledge_retrieval.sql");
   assert.equal(migrationChecksum(migrations[48]), "79b24e7fdc768a30b02d3596b71799fae484043e37561ddfcd435f46076b3100");
   assert.equal(migrationChecksum(migrations[49]), "262e033328175f704f8cfef1cafdcb0a2ef9b9aac7e4cc86f2b33890044c7224");
   return migrations;

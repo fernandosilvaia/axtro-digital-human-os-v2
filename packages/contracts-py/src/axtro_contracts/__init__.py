@@ -495,6 +495,12 @@ class InteractionSessionState(TypedDict):
     started_at: str | None
     updated_at: str
 
+# Source: contracts/schemas/knowledge_search_result.schema.json; schema: https://schemas.axtro.ai/v2/knowledge_search_result.schema.json; version: 2.0.0.
+class KnowledgeSearchResult(TypedDict):
+    schema_version: Literal['2.0.0']
+    tenant_id: str
+    matches: list[(Any) & (Any)]
+
 # Source: contracts/schemas/meeting_terminal_notification_command.schema.json; schema: https://schemas.axtro.ai/v2/meeting_terminal_notification_command.schema.json; version: 2.0.0.
 class _MeetingTerminalNotificationCommandPayloadFrozenTrue(TypedDict):
     schema_version: Literal['2.0.0']
@@ -1493,6 +1499,12 @@ CONTRACT_METADATA: dict[str, dict[str, str]] = {
     "source_hash": "641554550db45bed0f891b726e5b92344d23be5d51308183b136dbb36090bac8",
     "source_schema": "contracts/schemas/interaction_session_state.schema.json"
   },
+  "KnowledgeSearchResult": {
+    "schema_id": "https://schemas.axtro.ai/v2/knowledge_search_result.schema.json",
+    "schema_version": "2.0.0",
+    "source_hash": "7531eb95c49c5a900f37daf5c3227cff256892912fe4f9915f4768c705afb57f",
+    "source_schema": "contracts/schemas/knowledge_search_result.schema.json"
+  },
   "MeetingTerminalNotificationCommand": {
     "schema_id": "https://schemas.axtro.ai/v2/meeting_terminal_notification_command.schema.json",
     "schema_version": "2.0.0",
@@ -1788,6 +1800,7 @@ __all__ = [
     'HandoffPacket',
     'InteractionQualityState',
     'InteractionSessionState',
+    'KnowledgeSearchResult',
     'MeetingTerminalNotificationCommand',
     'MeetingTerminalNotificationDeliveryReceipt',
     'OperatorReconciliationReceipt',
