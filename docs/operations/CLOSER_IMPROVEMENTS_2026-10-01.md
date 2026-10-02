@@ -11,7 +11,7 @@ M6-04 remains in progress. Experiments do not select or activate a production pr
 |---|---|---|
 | IMP-01 receipt-based closer lab and Promptfoo | done | 105 goldens; real CLI 10 assertions; full isolated audit 0/633; independent architecture/security approval |
 | IMP-02 pgvector hybrid retrieval | done | SQL 0001-0074; 15 fixtures; 94 focused Node, independent 109; 12 Python; 71 contracts; three reviews |
-| IMP-03 LiveKit and whisper.cpp lab | pending | pending |
+| IMP-03 LiveKit and whisper.cpp lab | done | 27 tests + 5 subtests; real SDK lifecycle; 12 CPU audio runs; zero/88 Python advisories; two reviews |
 | IMP-05 typed turn redaction | pending | pending |
 | IMP-04 integrated review | pending | pending |
 
@@ -156,3 +156,81 @@ patch. The optional readonly search has a maximum two-second response deadline a
 Postgrest abortSignal when available; never-settling PromiseLike fakes degrade safely too.
 This deadline does not race mutating usage receipts or prove server-side query cancellation.
 Build, Portal typecheck, lint, diff check and all nine validators pass.
+
+### IMP-03 local asset provenance
+
+Installed whisper.cpp is 1.9.2, distinct from upstream 1.9.4. The resolved Homebrew binary
+has SHA-256 `40bca494d49af736058eb3f33cbcebaa020eacf6d0087b623f334946e1ab2128`.
+Runtime assets are supplied explicitly and never downloaded by an adapter. The parent fetched
+immutable official model files and independently checked LFS pointers, sizes and SHA-256:
+
+| Model | Bytes | SHA-256 |
+|---|---:|---|
+| [tiny](https://huggingface.co/ggerganov/whisper.cpp/raw/5359861c739e955e79d9a303bcbc70fb988958b1/ggml-tiny.bin) | 77,691,713 | `be07e048e1e599ad46341c8d2a135645097a538221678b7acdd1b1919c6e1b21` |
+| [base](https://huggingface.co/ggerganov/whisper.cpp/raw/5359861c739e955e79d9a303bcbc70fb988958b1/ggml-base.bin) | 147,951,465 | `60ed5bc3dd14eea856493d334349b405782ddcaf0028d4b5df4088345fba2efe` |
+
+Six disclosure/meeting phrases were synthesized locally with installed macOS voices: Eddy
+PT/EN/ES and Luciana/Samantha/Mónica. PCM16 mono 16kHz WAVs, model binaries and source audio
+stay in ignored `artifacts/local/realtime-lab`. Corpus metadata records fixture ID, voice,
+reference, waveform hash and duration. No real customer recording or transcript is involved.
+The preliminary Portuguese CLI probe completed in 1.069s (tiny) and 1.033s (base), with CPU
+flags, but both made errors on Eddy; these probes are not the final adapter benchmark.
+Retaining these difficult cases prevents reporting only favorable synthetic voices.
+
+The real SDK source confirms that omitted turn/VAD defaults can infer cloud engines and that
+an injected LLM object can immediately prewarm. Explicit None/manual settings and a reviewed
+local factory are required. An interrupt Future establishes SDK processing, not physical silence.
+
+### IMP-03 native CPU experiment
+
+The owner-authorized local experiment additionally builds the official whisper.cpp v1.9.4
+[tag](https://github.com/ggml-org/whisper.cpp/releases/tag/v1.9.4) at immutable commit
+`927cfce34f31707e17f2bff35c349632fb9e2c3a`. The explicit isolated build disables Metal,
+dynamic backend loading and shared libraries; WHISPER_BUILD_IS_DEV=OFF yields the measured
+version string 1.9.4. Apple Clang 21.0.0 and transient CMake Python distribution 4.4.3 were
+used. [CMake](https://cmake.org/licensing/) is BSD-3-Clause upstream; its
+[Python distribution](https://pypi.org/project/cmake/4.4.3/) reports Apache-2.0 packaging.
+Reason: avoid the measured backend initialization in a CPU-only experiment. Alternative:
+retain the installed 1.9.2 runtime, or alter global Homebrew, which this task does not do.
+No production dependency or executable was replaced.
+
+The local release binary SHA-256 is
+`86cac73d92558f15c60f3f08f32ade47cd6ea87ca15aeab89dbb2de65e2ee6af`.
+Build provenance records source archive checksum, compiler and flags. Temporary source
+extraction and CMake cache were removed after building; the immutable archive, models,
+provenance and byte-identical relocated executable remain ignored local assets. The build emits a known upstream
+stb_vorbis pointer-comparison warning; the adapter only stages validated PCM WAV inputs.
+Python advisory scans do not certify the entire native toolchain.
+
+The preliminary real adapter/CLI comparison uses identical six synthetic WAVs per model,
+78 reference tokens per model, measured frame duration, four CPU threads and no fallback
+sampling. Reports contain metrics and asset hashes, not transcripts or references:
+
+| Binary/configuration | Model | Errors/tokens | Pooled WER | Median latency | Maximum latency |
+|---|---|---:|---:|---:|---:|
+| Installed 1.9.2 | tiny | 19/78 | 24.36% | 629 ms | 18,072 ms |
+| Installed 1.9.2 | base | 10/78 | 12.82% | 1,038 ms | 1,099 ms |
+| Local CPU 1.9.4 | tiny | 19/78 | 24.36% | 330 ms | 454 ms |
+| Local CPU 1.9.4 | base | 10/78 | 12.82% | 589 ms | 860 ms |
+
+These measurements include asset validation and process startup. The initial 1.9.2 outlier
+is retained; repeated timings need independent cold/warm and load trials. The CPU build
+removes that outlier in this experiment, not a universal latency guarantee. Base has fewer
+errors in this tiny synthetic corpus and is slower/larger. No acoustic fairness, customer
+satisfaction, physical interruption or production-provider selection follows from this table.
+Final frozen-source reports and independent review are required before closing IMP-03.
+
+### IMP-03 completed frozen-source evidence
+
+27 deterministic tests plus five subtests pass. Architecture and security reviews approve
+local commit. The final fake CLI, sanitized actual LiveKit 1.8.3 SDK lifecycle CLI and twelve
+CPU whisper.cpp 1.9.4 audio runs pass. Five adapter/entry source hashes are identical before
+and after execution. SDK start, force interrupt and close are real; no inference engine,
+room media input or media output is connected. Physical silence remains unverified.
+
+Final CPU timings on the same six WAVs are tiny median 230ms/max252ms and base median
+391ms/max411ms, with unchanged 19/78 versus 10/78 errors. The preliminary table is retained
+to expose timing variation and the original startup outlier. The isolated SDK full advisory
+scan covers 88 packages with zero known findings; a separate current scan of CMake Python
+4.4.3 finds zero. These scans do not certify native dependencies or acoustic quality.
+Nine validators, lint and diff check pass. No production dependency/default changed.

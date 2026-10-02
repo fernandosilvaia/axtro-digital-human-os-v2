@@ -1,0 +1,12 @@
+[project]
+name = "axtro-realtime-lab"
+version = "0.1.0"
+description = "Opt-in local LiveKit and whisper.cpp controls and benchmark"
+requires-python = ">=3.11,<3.14"
+dependencies = ["livekit-agents==1.8.3"]
+
+[dependency-groups]
+audit = ["pip-audit==2.10.1"]
+
+[tool.uv.workspace]
+members = []
