@@ -1,0 +1,20 @@
+{
+  "tag": "v1.9.4",
+  "commit": "927cfce34f31707e17f2bff35c349632fb9e2c3a",
+  "source_archive_sha256": "41b664fee09e79176ac277b5237debec34f8d74af3c7d71f333f1ec67989ecde",
+  "cmake_python_distribution": "4.4.3",
+  "flags": {
+    "GGML_METAL": false,
+    "GGML_BACKEND_DL": false,
+    "BUILD_SHARED_LIBS": false,
+    "WHISPER_BUILD_IS_DEV": false
+  },
+  "binary_path": "artifacts/local/realtime-lab/native/whisper-cli-v1.9.4-cpu",
+  "binary_sha256": "86cac73d92558f15c60f3f08f32ade47cd6ea87ca15aeab89dbb2de65e2ee6af",
+  "version_probe": {
+    "returncode": 0,
+    "elapsed_ms": 307.4084578547627,
+    "output": "whisper.cpp version: 1.9.4"
+  },
+  "temporary_source_and_build_cache_removed": true
+}

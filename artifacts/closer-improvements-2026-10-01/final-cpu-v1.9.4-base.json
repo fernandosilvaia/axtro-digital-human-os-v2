@@ -1,0 +1,98 @@
+{
+  "binary_sha256": "86cac73d92558f15c60f3f08f32ade47cd6ea87ca15aeab89dbb2de65e2ee6af",
+  "cleanup_complete": true,
+  "cost": {
+    "local_compute_usd": null,
+    "pricing_status": "unpriced",
+    "provider_requests": 0
+  },
+  "evidence_kind": "synthetic_audio_local_model",
+  "latency_includes_asset_validation_and_process_startup": true,
+  "model_label": "base",
+  "model_sha256": "60ed5bc3dd14eea856493d334349b405782ddcaf0028d4b5df4088345fba2efe",
+  "physicalSilenceVerified": false,
+  "productionPromotionAllowed": false,
+  "requiresHumanReview": true,
+  "samples": [
+    {
+      "audio_duration_ms": 6398.438,
+      "distance": 4,
+      "elapsed_ms": 398.637,
+      "fixture_id": "pt-eddy",
+      "hypothesis_tokens": 11,
+      "language": "pt",
+      "real_time_factor": 0.062302,
+      "reference_tokens": 12,
+      "synthetic_audio": true,
+      "wav_sha256": "74fc32c80a2f9be57cc2b8b898a524e6e2904cbfbf3a914cb4cf369366f270eb",
+      "wer": 0.3333333333333333
+    },
+    {
+      "audio_duration_ms": 6590.562,
+      "distance": 1,
+      "elapsed_ms": 406.27,
+      "fixture_id": "en-eddy",
+      "hypothesis_tokens": 13,
+      "language": "en",
+      "real_time_factor": 0.061644,
+      "reference_tokens": 13,
+      "synthetic_audio": true,
+      "wav_sha256": "4ec9c5c23331620ef6a2fa0f7d2be4f045c99340f622b441635e69eda7855795",
+      "wer": 0.07692307692307693
+    },
+    {
+      "audio_duration_ms": 5998.438,
+      "distance": 1,
+      "elapsed_ms": 410.696,
+      "fixture_id": "es-eddy",
+      "hypothesis_tokens": 14,
+      "language": "es",
+      "real_time_factor": 0.068467,
+      "reference_tokens": 14,
+      "synthetic_audio": true,
+      "wav_sha256": "fe9c2723c32124205974b3092ea00bd1df2131ad8a854659aee8f3a71e95fceb",
+      "wer": 0.07142857142857142
+    },
+    {
+      "audio_duration_ms": 5489.812,
+      "distance": 2,
+      "elapsed_ms": 373.751,
+      "fixture_id": "pt-standard",
+      "hypothesis_tokens": 13,
+      "language": "pt",
+      "real_time_factor": 0.068081,
+      "reference_tokens": 12,
+      "synthetic_audio": true,
+      "wav_sha256": "626b01e89354c629aee6178f63316af8e1212534501e5f5324bf41994ae3981c",
+      "wer": 0.16666666666666666
+    },
+    {
+      "audio_duration_ms": 4791.125,
+      "distance": 1,
+      "elapsed_ms": 368.537,
+      "fixture_id": "en-standard",
+      "hypothesis_tokens": 13,
+      "language": "en",
+      "real_time_factor": 0.076921,
+      "reference_tokens": 13,
+      "synthetic_audio": true,
+      "wav_sha256": "8b10255f01520e1b450bac303520b04bcac8658ec34e5ba8bca5067810fd9942",
+      "wer": 0.07692307692307693
+    },
+    {
+      "audio_duration_ms": 4802.688,
+      "distance": 1,
+      "elapsed_ms": 383.484,
+      "fixture_id": "es-standard",
+      "hypothesis_tokens": 14,
+      "language": "es",
+      "real_time_factor": 0.079848,
+      "reference_tokens": 14,
+      "synthetic_audio": true,
+      "wav_sha256": "57c015652d5b42440e0a9f0e2e18a699c43118716151839738c9835720151d26",
+      "wer": 0.07142857142857142
+    }
+  ],
+  "schema_version": "1.0.0",
+  "threads": 4
+}

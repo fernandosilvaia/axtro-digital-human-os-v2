@@ -8,6 +8,11 @@ Auditoria local de 2026-10-01: [relatório e 24 achados](docs/operations/AUDIT_2
 Gates: 1.977 Node + 35 Python, 31 cenários de browser e PostgreSQL até 0073.
 Correções permanecem locais; M6-04 e homologação audiovisual continuam pendentes.
 
+Melhorias implementadas depois da auditoria: [busca híbrida, avaliação por receipts e labs open source](docs/operations/CLOSER_IMPROVEMENTS_2026-10-01.md).
+Gates atuais: 2.119 Node + 63 Python, 14 E2E públicos, teste manual Chrome desktop/mobile e PostgreSQL até 0075.
+A busca híbrida já possui consumidor no brain; Promptfoo, LiveKit e whisper.cpp ficam em labs isolados.
+[Artefatos locais](artifacts/closer-improvements-2026-10-01/README.md) distinguem dados sintéticos, execução real de SDK/CLI e limites de produção.
+
 ## Estado real da entrega
 
 **Duas camadas com níveis distintos de evidência.** O kernel M0-M3 (fundação genérica de
@@ -29,7 +34,7 @@ testes de navegador e hipóteses de evolução open source.
 O repositório já contém:
 
 - fundação modular, gates locais e CI (kernel + build/typecheck do portal);
-- 70 contratos com code generation determinístico;
+- 71 contratos com code generation determinístico;
 - tenancy, RLS, autenticação real (Supabase) e audit trail;
 - lifecycle, Session Actor, turnos textuais, contexto bounded, ações governadas, timeline, relay e workflow pós-call (fake no kernel; real no portal via OpenRouter/Tavus);
 - portal Next.js completo: dashboard, agentes, conhecimento (RAG real), equipe, chat e vídeo com o Cérebro Método Silva;
@@ -45,6 +50,19 @@ pnpm m1:e2e   # ou pnpm m2:e2e
 **Comece pelo estado atual, não por este resumo:** `docs/HANDOFF.md` (como
 operar/desenvolver agora), `PROGRESS.md` (histórico completo por tarefa),
 `docs/PROJECT_AUDIT.md` + `TASKS.md` (o que falta, priorizado).
+
+## Avaliar melhorias do closer
+
+```bash
+pnpm quality:closer
+```
+
+O relatório compara candidatos por evidências e aponta regressões. Seu corpus contém falhas
+intencionais, portanto aggregate blocked é esperado e não autoriza promover agente.
+O [lab de avaliação](experiments/closer-lab/README.md) documenta o Promptfoo opcional;
+o [lab realtime](experiments/realtime-lab/README.md) documenta LiveKit e whisper.cpp.
+Na amostra sintética local, base teve 10 erros em 78 tokens contra 19 do tiny, com maior
+latência e tamanho. Esse resultado ainda não mede conversa humana, ruído ou satisfação.
 
 ## Auditoria final
 
@@ -119,7 +137,7 @@ ficam fora do caminho crítico de áudio para áudio.
 apps/portal/           produto em produção: Next.js + Supabase, cérebro, RAG, vídeo Tavus
 apps/                  demais aplicações e workers do kernel M0-M3
 packages/               domínio, contratos, segurança, providers e UI
-contracts/             70 JSON Schemas + OpenAPI + AsyncAPI + exemplos
+contracts/             71 JSON Schemas + OpenAPI + AsyncAPI + exemplos
 backlog/               task graph executável e workstreams do kernel
 database/migrations/    schema portátil, RLS e matriz de tenancy
 database/supabase-only/ SQL específico do projeto Supabase hospedado (auth.users)

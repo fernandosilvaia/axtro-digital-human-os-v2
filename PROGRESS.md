@@ -1,11 +1,11 @@
 # Progresso de implementação
 
-## Melhorias do closer de 2026-10-01, ciclo iniciado
+## Melhorias do closer de 2026-10-01, ciclo concluido
 
 - Autorizacao do proprietario para implementar melhorias e experimentos open source com autonomia local.
 - Baseline `72ab1e9`, branch `codex/audit-2026-10-01`; nove validadores verdes antes de editar. Alteracao preexistente de `apps/portal/next-env.d.ts` preservada.
 - Ordem fechada: IMP-01 laboratorio por receipts/Promptfoo; IMP-02 busca hibrida pgvector; IMP-03 adapters LiveKit/whisper.cpp; IMP-05 projector tipado de turnos; IMP-04 revisao integrada e evidencias.
-- Tarefa em execucao: IMP-05 concluida, pronta para commit. IMP-01 fechado em `f1555d9`; IMP-02 em `74e8805`; IMP-03 em `87a1364`. Cada tarefa termina com testes, revisao independente, evidencia e commit antes da seguinte. M6-04 permanece em progresso, sem alterar gates de producao.
+- Ciclo IMP-01 a IMP-05 concluido localmente. IMP-05 fechado em `ef15716`. IMP-01 fechado em `f1555d9`; IMP-02 em `74e8805`; IMP-03 em `87a1364`. Cada tarefa termina com testes, revisao independente, evidencia e commit antes da seguinte. M6-04 permanece em progresso, sem alterar gates de producao.
 - Regra de parada: cinco incrementos locais executaveis e revisados, sem provider definitivo, chamada paga, dados reais destruidos, migration remota ou publicacao implicita.
 
 | ID | Marco | Estado | Entrega | Dependencias | Evidencia |
@@ -14,7 +14,7 @@
 | `IMP-02` | Improvements | done | Busca hibrida pgvector | `IMP-01`, `M3-02` | 94 focados; review 109; 12 Python; SQL 0001-0074, 15 fixtures; 71 contratos e tres revisoes aprovadas |
 | `IMP-03` | Improvements | done | LiveKit e whisper.cpp isolados | `IMP-02`, `M2-13` | 27 testes + 5 subtests, SDK real, CPU 1.9.4/12 runs, audit zero/88 e duas revisoes |
 | `IMP-05` | Improvements | done | Projector tipado de conversation_turns | `IMP-03`, `M6-00` | SQL 0001-0075, lineage 10, authority/NULL/catalog/holds e verificacao fisica |
-| `IMP-04` | Improvements | pending | Revisao e evidencias integradas | `IMP-03`, `IMP-05` | Ainda nao iniciada |
+| `IMP-04` | Improvements | done | Revisao e evidencias integradas | `IMP-03`, `IMP-05` | 2.119 Node + 63 Python, SQL75, browser14 + manual, hashes e review final aprovados |
 
 
 ## Auditoria autônoma de 2026-10-01, incremento local concluído
@@ -1403,3 +1403,17 @@ Relatório reconcilia 24 achados, scopes de evidência, gates e limites. JSON de
 - Catalogo mantem provas v71 e exige trigger ativo/version/fingerprint. Apply/verify rejeitam NULL lease/fence, snapshot stale, tenant errado, hold e GUC sem autoridade. Verificacao independente/final exige linha presente e ambos conteudos NULL; receipts nao substituem leitura fisica.
 - PostgreSQL 0001-0075 passou com checksums imutaveis, regressao financeira/RAG e negativos de restauracao, alteracao estrutural, schema drift, holds e verificacao adulterada. Lineage 10, database validator, typecheck e contratos verdes; suite integrada 2.119 Node + 63 Python e pytest 63 passaram.
 - Capability bundle permanece 73; canonical readiness=false e M6-04 em progresso. Duas revisoes independentes aprovadas, lint/diff e nove validadores verdes. Nenhum banco remoto ou dado real apagado. Proxima tarefa: IMP-04.
+
+### 2026-10-01, IMP-04 iniciado
+
+- IMP-05 fechado em ef15716 depois de dados/seguranca aprovados. Write set fechado: README, Progress, report/decisions e artifacts/closer-improvements-2026-10-01. Preexisting next-env sera restaurado exatamente sem stage.
+- Gates finais ja executados no codigo atual: 2.119 Node + 63 unittest, pytest63, typecheck/build/contract drift, SQL0001-0075 e Promptfoo CLI10. Browser atual: build Portal87a1364, fontes Portal identicas a ef15716, 14 E2E publicos e percurso manual Chrome desktop/mobile390 sem overflow ou erro de console.
+- Relatorios somente com metricas/hashes e screenshots sinteticas; WAV/modelos/binarios ficam ignorados. Sem provider pago, deploy, migration remota ou certificado comercial.
+
+### 2026-10-01, IMP-04 concluido localmente
+
+- Evidencia versionada em artifacts/closer-improvements-2026-10-01: codigo validado ef15716, reports tipados, dez hashes de artifacts e cinco fontes realtime verificados independentemente, proveniencia nativa e duas capturas JPEG sem transformacao.
+- Revisao final de arquitetura aprovada, sem blocker no write set. RAG tem consumidor real, enquanto Promptfoo/LiveKit/whisper.cpp seguem isolados; modelo/audio sintetico/ACK nao viram qualidade humana, silencio fisico ou provider promovido.
+- Gates: 2.119 Node sem skips, 63 unittest/63 pytest, typecheck/build, Portal production build com paridade, contratos/lint/diff e nove validadores. SQL0001-0075 passou com catalog/grants/RLS/financial/RAG/projector. Browser publico14 passou em48.4s; manual Chrome desktop/mobile390 passou, sem overflow e zero warn/error.
+- Audits atuais Node workspace zero, Promptfoo zero/633, Python zero/11 aplicaveis; SDK zero/88 e CMake packaging zero/1 neste ciclo. Compute local permanece sem preco, nativo nao certificado por pip-audit.
+- README/report reconciliados. Alteracao preexisting next-env preservada sem stage. Nenhum push/deploy/migration remota/provider pago/exclusao real. M6-04 em progresso, canonicalfalse/capability73; outbox/ledgers/restore/human-role race/financeiro/Portalreceiptadapter e media real permanecem pendentes.

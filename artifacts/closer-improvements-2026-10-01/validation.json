@@ -1,0 +1,183 @@
+{
+  "schemaVersion": "1.0.0",
+  "validatedImplementationCommit": "ef15716bfb6b6c96105cf06bb0b53c6e4dcb3de2",
+  "date": "2026-10-01",
+  "scope": "local-only",
+  "gates": {
+    "node": {
+      "passed": 2119,
+      "skipped": 0
+    },
+    "unittest": {
+      "passed": 63
+    },
+    "pytest": {
+      "passed": 63
+    },
+    "typecheck": "passed",
+    "build": "passed via pnpm test",
+    "contractDrift": "passed",
+    "lint": "passed",
+    "validators": {
+      "passed": 9
+    },
+    "sql": {
+      "lineage": "0001-0075",
+      "passed": true,
+      "installedPgvector": "0.8.5",
+      "capabilityBundle": 73,
+      "canonicalReadiness": false
+    },
+    "promptfoo": {
+      "version": "0.116.7",
+      "realCliAssertions": 10,
+      "expectedAggregate": "blocked_critical_violation"
+    }
+  },
+  "browser": {
+    "portalBuiltAtCommit": "87a1364",
+    "sourceParityWithValidatedImplementation": true,
+    "publicE2E": {
+      "passed": 14,
+      "durationSeconds": 48.4
+    },
+    "manual": {
+      "browser": "Chrome",
+      "surfaces": [
+        "overview",
+        "agent",
+        "knowledge",
+        "conversation"
+      ],
+      "controls": [
+        "start",
+        "advance",
+        "restart",
+        "quit"
+      ],
+      "mobileViewportWidth": 390,
+      "documentWidth": 390,
+      "consoleWarningsAndErrors": 0,
+      "evidence": "synthetic demo, no connected model or audio"
+    },
+    "nativeScreenshots": [
+      "manual-mobile.jpg",
+      "manual-closed.jpg"
+    ]
+  },
+  "audits": {
+    "node-workspace": {
+      "metadata": {
+        "vulnerabilities": {
+          "info": 0,
+          "low": 0,
+          "moderate": 0,
+          "high": 0,
+          "critical": 0
+        },
+        "dependencies": 42,
+        "devDependencies": 6,
+        "optionalDependencies": 40,
+        "totalDependencies": 88
+      },
+      "knownVulnerabilities": 0
+    },
+    "promptfoo-isolated": {
+      "metadata": {
+        "vulnerabilities": {
+          "info": 0,
+          "low": 0,
+          "moderate": 0,
+          "high": 0,
+          "critical": 0,
+          "total": 0
+        },
+        "dependencies": {
+          "prod": 1,
+          "dev": 633,
+          "optional": 63,
+          "peer": 268,
+          "peerOptional": 0,
+          "total": 633
+        }
+      },
+      "knownVulnerabilities": 0
+    },
+    "python-workspace": {
+      "checked_dependencies": 11,
+      "known_vulnerabilities": 0,
+      "input_sha256": "c1f4f1f239936dc6f7e6dc99d19d0ef07fca72134f04b62c902b9e6d0b443729"
+    },
+    "livekit-lab": {
+      "checked_dependencies": 88,
+      "known_vulnerabilities": 0,
+      "input_sha256": "25cb97800b21d4adb0a358793cb706c5499705dcdcba11cad662ff623925dc7a"
+    },
+    "cmake-python-distribution": {
+      "checked_dependencies": 1,
+      "known_vulnerabilities": 0,
+      "input_sha256": "48cbbb405bdd15fccddeb600cf645edf425a6fa1ced97d545353bc6fafe76a7c"
+    }
+  },
+  "reviews": {
+    "IMP01": [
+      "architecture",
+      "security"
+    ],
+    "IMP02": [
+      "architecture",
+      "data",
+      "security"
+    ],
+    "IMP03": [
+      "architecture",
+      "security"
+    ],
+    "IMP05": [
+      "data",
+      "security"
+    ],
+    "IMP04": {
+      "approved": true,
+      "reviewer": "architecture",
+      "independentlyVerified": [
+        "10 artifact hashes",
+        "5 realtime source hashes",
+        "WER and latency calculations",
+        "Portal source parity",
+        "SQL and validator logs",
+        "native browser screenshots"
+      ],
+      "fullSuiteAndRegistryCountsExecutedBy": "parent"
+    }
+  },
+  "production": {
+    "deployed": false,
+    "remoteMigrationApplied": false,
+    "providerSelected": false,
+    "physicalSilenceVerified": false,
+    "commerciallyValidated": false,
+    "productionPromotionAllowed": false
+  },
+  "remaining": [
+    "M6-04 canonical SQL ledgers and atomic outbox",
+    "external data adapters and independent backup/PITR restore proof",
+    "authenticated actor binding and role revocation race",
+    "Portal adapter for canonical receipt projection",
+    "physical media cancellation and real customer conversation bakeoff",
+    "financial quantization, historical adjustments and unknown reconciliation"
+  ],
+  "artifactSha256": {
+    "closer-report.json": "33a4616954143e39dde6861a069107e47dc3d76655815e78d3081989afccf106",
+    "final-cpu-v1.9.4-base.json": "f966e9fb74d7ec5803a9e36d4f50312af2d788ea837ffbace1b41eb6d345cb64",
+    "final-cpu-v1.9.4-tiny.json": "f73889acb0f631184c22b180f6528d1c12d2326917c08b7afc642e50e3daad7f",
+    "final-fake.json": "c4f9a226942e9134a859dc2980080a3c735d4f4996212db28e7ac9c26784539b",
+    "final-sdk-smoke.json": "cc1d82c5848f55420a11c310862fda0be0d4e1f3c0f11c0d8e791de3fa495bae",
+    "final-source-evidence.json": "11edfe5603dcad99a4217a683f3cce0bda8c92c557a2d1ea7d33bd22bb91ecfc",
+    "manual-closed.jpg": "2d54d80275d7a08fb6f5643479707ce5f788af88240dd205f2a0f69c692b026c",
+    "manual-mobile.jpg": "44ccbb43070ed2a38aff0302162461dfd4d0f1d4dde032e9d42b0932c4b62de0",
+    "native-build-provenance.json": "428e6d34696756ec96ef6a8e11fb652a9f1ae28d17f957bee71b30a3794cfb58",
+    "promptfoo-smoke-report.json": "33a4616954143e39dde6861a069107e47dc3d76655815e78d3081989afccf106"
+  },
+  "preexistingChangePreserved": "apps/portal/next-env.d.ts, original two development type imports"
+}

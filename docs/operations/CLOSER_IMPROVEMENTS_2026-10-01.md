@@ -1,6 +1,6 @@
 # Closer improvements, 2026-10-01
 
-Status: local implementation in progress after audit baseline `72ab1e9`.
+Status: local implementation and integrated review complete after audit baseline `72ab1e9`.
 
 The owner authorized IMP-01 through IMP-05. ADR-049 defines reversible boundaries.
 M6-04 remains in progress. Experiments do not select or activate a production provider.
@@ -13,7 +13,7 @@ M6-04 remains in progress. Experiments do not select or activate a production pr
 | IMP-02 pgvector hybrid retrieval | done | SQL 0001-0074; 15 fixtures; 94 focused Node, independent 109; 12 Python; 71 contracts; three reviews |
 | IMP-03 LiveKit and whisper.cpp lab | done | 27 tests + 5 subtests; real SDK lifecycle; 12 CPU audio runs; zero/88 Python advisories; two reviews |
 | IMP-05 typed turn redaction | done | SQL 0001-0075; lineage 10; exact two-field projection, lease/hold/catalog fences and physical verification |
-| IMP-04 integrated review | pending | pending |
+| IMP-04 integrated review | done | 2,119 Node + 63 Python; SQL75; 14 browser + manual; hashes and architecture evidence review approved |
 
 ## Evidence boundaries
 
@@ -255,3 +255,49 @@ is claimed. SQL head is 75, capability bundle stays 73 and canonical readiness s
 
 Data and security reviewers approve the frozen IMP-05 patch. Lint, diff check and all nine
 validators pass. No actual customer data or hosted schema was changed.
+
+### IMP-04 integrated evidence
+
+Validated implementation commit is `ef15716`. The final suite passes 2,119 Node tests without
+skips and 63 Python unittest tests; independent pytest also passes 63. Typecheck/build,
+contract drift, lint and nine validators pass. The full PostgreSQL 0001-0075 replay includes
+older financial/retrieval cases and new turn projection negatives. Portal production build
+at `87a1364` has identical app sources through `ef15716`; no rebuild-only source claim is made.
+
+Current browser proof includes 14 public E2E tests in 48.4 seconds with axe checks for active
+and closed demo at 1280/390 px. The manual Chrome pass starts the demo, opens all four surfaces,
+advances, restarts and exits. Mobile viewport and document width both measure 390 px; captured
+console warnings/errors are zero. These pages use synthetic state and explicit provider masks.
+The previous audit's 17 authenticated browser cases were not rerun in this improvement cycle.
+Neither browser pass invokes the new RAG RPC or proves a physical audiovisual conversation.
+
+The real guarded Promptfoo CLI again passes all ten expected assertions. Root Node registry
+metadata reports zero known vulnerabilities; isolated Promptfoo reports zero across 633 packages;
+root Python checks 11 currently applicable packages with zero findings. The earlier current
+SDK scan covers 88 packages with zero, and CMake packaging covers one with zero. Optional
+SDK/model reports retain their evidence labels, fixed hashes and unpriced compute fields.
+[Saved evidence](../../artifacts/closer-improvements-2026-10-01/README.md) contains bounded JSON,
+source/build provenance and native JPEG screenshots, excluding raw audio, models and transcripts.
+
+### Next measured product increments
+
+The implemented foundations enable three experiments: receipt-driven conversion comparison,
+permission-aware knowledge comparisons, and local transcription/SDK cancellation benchmarks.
+The next closer-quality increment should connect the Portal receipt shape through an audited
+adapter and collect consented human reviews on fixed PT/EN/ES conversations. Real-time latency,
+physical interruption, acoustic variation and commercial outcomes need separate measurements.
+No fake score or six synthetic utterances establishes superiority for real sales.
+
+Before any hosted activation, verify current schema parity and execute the canonical M6-04
+ledger/outbox work, external reconciliation and independent restore verification. Financial
+operator reconciliation, historical append-only adjustment evidence and authenticated actor
+revocation fences remain distinct backlog work. No production provider, migration or paid
+external effect was selected or executed in this improvement cycle.
+
+IMP-04 closes locally after independent architecture/evidence approval. The reviewer verifies
+ten saved artifact hashes, five current realtime source hashes, recalculates WER/latency,
+confirms Portal source parity and inspects both native browser screenshots. Full-suite and
+registry counts are parent-executed evidence, not claimed as independently rerun by that
+reviewer. The preexisting next-env development imports are restored exactly and remain
+unstaged. This completes the authorized bounded improvement cycle, preserving all named
+production and commercial dependencies.

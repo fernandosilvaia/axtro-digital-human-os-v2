@@ -1,0 +1,18 @@
+{
+  "accepted_marker_count": 2,
+  "cleanup_complete": true,
+  "cost": {
+    "local_compute_usd": null,
+    "pricing_status": "unpriced",
+    "provider_requests": 0
+  },
+  "elapsed_ms": 0.71,
+  "evidence_kind": "fake_control_only",
+  "late_marker_denied": true,
+  "outcome": "completed",
+  "physicalSilenceVerified": false,
+  "productionPromotionAllowed": false,
+  "real_audio_evaluated": false,
+  "requiresHumanReview": true,
+  "schema_version": "1.0.0"
+}

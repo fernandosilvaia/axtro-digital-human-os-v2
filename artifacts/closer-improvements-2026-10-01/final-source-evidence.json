@@ -1,0 +1,21 @@
+{
+  "source_sha256": {
+    "realtime_lab.py": "1d413f368ba1e442182a02325020c1ccd039eb667979e8b0d4c8f64cdf24d8f7",
+    "whisper_adapter.py": "a2325e4b56586c9b40fdf561550b29ab6308c6510f5868017c05ed5d39db6613",
+    "livekit_adapter.py": "d7f3a80348aa8db088fafd3dd13234d35d61a3e507380d5bab6931b4771dfcad",
+    "run.py": "efe82df656c95a5ccc04b38f369618c54816a694eb0f0bd68915567fe6cabd39",
+    "sdk_smoke_child.py": "7f0934d966de88e7e9ce27fba4edb562d99af6f135aadef65340bb285b7c51ab"
+  },
+  "reports": [
+    "final-fake.json",
+    "final-sdk-smoke.json",
+    "final-cpu-v1.9.4-tiny.json",
+    "final-cpu-v1.9.4-base.json"
+  ],
+  "unchanged_during_execution": true,
+  "native_version": "1.9.4",
+  "provider_requests": 0,
+  "model_downloaded_by_runtime": false,
+  "physicalSilenceVerified": false,
+  "productionPromotionAllowed": false
+}
