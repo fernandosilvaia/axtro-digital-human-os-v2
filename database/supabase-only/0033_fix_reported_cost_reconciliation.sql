@@ -11,26 +11,26 @@
 -- Isso viola `cost_events_amount_reconciliation_check` (0009:
 -- `CHECK (amount_usd = round(quantity * unit_cost_usd, 8))`) em ~90% das
 -- chamadas reais (simulado com 200k trials de custo/token realistas de
--- Haiku 4.5: 90,3% de falha) — o erro de arredondar `x/n` pra 10 casas
+-- Haiku 4.5: 90,3% de falha). O erro de arredondar `x/n` pra 10 casas
 -- decimais, multiplicado de volta por n≈200-3000, produz um erro de até
 -- ~1.5e-7 em relação ao amount original, maior que a precisão de 1e-8 que o
 -- CHECK exige. `NOT VALID` na constraint só isenta linhas PRÉ-EXISTENTES da
--- validação — todo INSERT novo continua sendo checado.
+-- validação: todo INSERT novo continua sendo checado.
 --
 -- Efeito em produção: toda vez que o chat de teste (agent-preview.ts, único
 -- chamador que passa `p_reported_cost_usd`, vindo de `usage.cost` real do
 -- OpenRouter) gera uma resposta real, há ~90% de chance da linha de custo
--- ser SILENCIOSAMENTE descartada — a exceção do CHECK aborta o INSERT, o
+-- ser SILENCIOSAMENTE descartada: a exceção do CHECK aborta o INSERT, o
 -- caller só faz `trackError(...)` sem lançar nem bloquear a resposta ao
 -- usuário. Isso corrói (1) o ledger de custo exato que a 0027 foi construída
 -- pra entregar, (2) o teto diário de segurança (`portal_ai_tokens_today`,
--- DAILY_TOKEN_CAP=500k) — subconta uso real, enfraquecendo o mesmo tipo de
+-- DAILY_TOKEN_CAP=500k). Subconta uso real, enfraquecendo o mesmo tipo de
 -- proteção que a 0025 tratou como P0 pra vídeo, e (3) o painel de uso real
 -- mostrado ao tenant_admin (`portal_usage_summary`).
 --
 -- Correção: mesmo padrão que os outros dois branches da própria função (e
 -- que 0017 já documentava como obrigatório: "amount_usd é SEMPRE derivado
--- de unit_cost_usd*quantity... por isso nunca viola a constraint") — deriva
+-- de unit_cost_usd*quantity... por isso nunca viola a constraint"). Deriva
 -- `v_amount` de `v_unit_cost` pela MESMA fórmula do CHECK, nunca arredonda
 -- os dois independentemente. `v_unit_cost` continua vindo do custo real
 -- reportado pelo provider (fonte 'provider_reported' preservada); só a
@@ -80,7 +80,7 @@ begin
   if p_reported_cost_usd is not null then
     -- Custo faturado reportado pelo próprio provider (usage.cost do
     -- OpenRouter): fonte mais forte que estimativa de tabela. Teto de
-    -- sanidade: uma única chamada de chat nunca custa USD 10 — valor acima
+    -- sanidade: uma única chamada de chat nunca custa USD 10, valor acima
     -- disso é bug do caller, não fato.
     if p_reported_cost_usd < 0 or p_reported_cost_usd > 10 then
       raise exception 'reported cost out of range' using errcode = '22023';
@@ -91,7 +91,7 @@ begin
       v_unit_cost := 0; v_amount := 0;
     else
       -- FIX (achado P0 da auditoria 2026-08-11): amount_usd DERIVADO de
-      -- unit_cost_usd pela mesma fórmula do CHECK — nunca as duas
+      -- unit_cost_usd pela mesma fórmula do CHECK, nunca as duas
       -- arredondadas independentemente do valor de origem (bug original:
       -- round(p_reported_cost_usd,8) vs round(p_reported_cost_usd/v_total,10)
       -- divergem em ~90% dos casos reais).

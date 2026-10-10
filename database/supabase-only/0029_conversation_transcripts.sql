@@ -1,42 +1,42 @@
--- Histórico de conversa (chat/vídeo/reunião externa) — o gap de maior valor
+-- Histórico de conversa (chat/vídeo/reunião externa): o gap de maior valor
 -- deixado de propósito de fora da onda W5 (DECISIONS_LOG D-V2-105): até
 -- aqui, NENHUMA conversa que o agente conduz fica registrada pro dono
--- revisar depois — nem o chat de teste, nem uma call de vídeo, nem uma
+-- revisar depois: nem o chat de teste, nem uma call de vídeo, nem uma
 -- reunião externa real. D-V2-106 fecha isso.
 --
 -- Uma linha por conversa (não por turno): `turns` é jsonb com o histórico
--- inteiro — mesmo desenho que os 3 providers já devolvem naturalmente
+-- inteiro: mesmo desenho que os 3 providers já devolvem naturalmente
 -- (Tavus: array de {role,content,timestamp}; chat sandbox: mesmo shape;
 -- Recall: blocos por participante). Evita modelar uma segunda tabela
 -- turno-a-turno só pra reescrever a mesma informação que já chega pronta.
 --
 -- Chave de idempotência: (tenant_id, surface, external_ref). external_ref é
--- o id que cada superfície já tem — client-gerado (uuid) pro chat, o
+-- o id que cada superfície já tem: client-gerado (uuid) pro chat, o
 -- tavus conversation_id pro vídeo, o recall bot_id pra reunião externa.
 -- Todo upsert (chat incremental, webhook do Tavus/Recall) escreve por essa
 -- chave, nunca duplica.
 --
--- Conteúdo é potencialmente PII do lead — mesma disciplina de RLS de toda
+-- Conteúdo é potencialmente PII do lead. Mesma disciplina de RLS de toda
 -- tabela nova do projeto: FORCE ROW LEVEL SECURITY sem NENHUMA policy,
 -- acesso só via RPC SECURITY DEFINER (leitura: auth.uid(); escrita webhook:
 -- service_role, resolve a linha só por surface+external_ref).
 --
 -- ACHADO CRÍTICO da revisão adversarial 2026-08-10 (P0/P1 confirmado por 3
 -- dimensões independentes): o índice único original era só
--- (tenant_id, surface, external_ref) — a UPDATE que os webhooks do
+-- (tenant_id, surface, external_ref): a UPDATE que os webhooks do
 -- Tavus/Recall chamam (`portal_append_transcript_turns_service`) resolve a
 -- linha SEM tenant_id no WHERE, contando com a suposição de que só existe
 -- UMA linha por (surface, external_ref) no mundo inteiro. Sem um índice
 -- único GLOBAL garantindo isso, dois tenants podiam (por corrida, ou por
 -- um tenant mal-intencionado chamando a RPC autenticada com um
--- external_ref adivinhado/vazado) acabar com linhas colidindo — um único
+-- external_ref adivinhado/vazado) acabar com linhas colidindo: um único
 -- webhook então sobrescreveria as duas em silêncio, vazando o histórico de
 -- um lead pro painel do tenant errado. `meeting_bot_sessions` (0021) já
 -- tinha a disciplina certa pra essa MESMA classe de id (índice único
--- GLOBAL em recall_bot_id, não por tenant) — esta tabela não seguia o
+-- GLOBAL em recall_bot_id, não por tenant). Esta tabela não seguia o
 -- próprio padrão do projeto. Corrigido abaixo: índice único global parcial
 -- pra vídeo/reunião (os ids vêm de provider com UM ÚNICO par de chaves de
--- API compartilhado — genuinamente globais, nunca escolhidos pelo tenant)
+-- API compartilhado: genuinamente globais, nunca escolhidos pelo tenant)
 -- + guarda que RECUSA (não silencia) qualquer match ambíguo.
 
 BEGIN;
@@ -62,11 +62,11 @@ create unique index if not exists conversation_transcripts_tenant_surface_ref_id
   on public.conversation_transcripts (tenant_id, surface, external_ref);
 -- Índice único GLOBAL (sem tenant_id) pra vídeo/reunião: o external_ref
 -- dessas duas superfícies é gerado pelo provider (Tavus conversation_id,
--- Recall bot_id) sob uma ÚNICA chave de API compartilhada da plataforma —
+-- Recall bot_id) sob uma ÚNICA chave de API compartilhada da plataforma,
 -- é genuinamente global, nunca escolhido pelo tenant. A superfície 'chat'
 -- fica de fora de propósito: seu external_ref é um uuid gerado no client
 -- (crypto.randomUUID()) e a escrita já é 100% tenant-scoped via auth.uid()
--- em portal_upsert_conversation_transcript — não passa pelo caminho
+-- em portal_upsert_conversation_transcript. Não passa pelo caminho
 -- tenant-less do webhook, não precisa da mesma garantia.
 create unique index if not exists conversation_transcripts_global_surface_ref_idx
   on public.conversation_transcripts (surface, external_ref)
@@ -81,7 +81,7 @@ alter table public.conversation_transcripts force row level security;
 -- sem isso, um provider malformado ou uma chamada direta da RPC
 -- autenticada podia gravar lixo que quebraria a tela de detalhe (dado
 -- não-validado renderizado direto). Compartilhada pelas duas RPCs de
--- escrita — mesmo teto de tamanho dos parsers de app (Tavus MAX_TURN_CHARS
+-- escrita: mesmo teto de tamanho dos parsers de app (Tavus MAX_TURN_CHARS
 -- e o teto de turno do brain), com folga.
 create or replace function app.validate_transcript_turns(p_turns jsonb)
 returns void
@@ -106,7 +106,7 @@ $$;
 
 -- Escrita autenticada: usada pelo chat sandbox (a única superfície onde o
 -- conteúdo passa pela nossa sessão de usuário, não por webhook). Upsert
--- substitui `turns` por inteiro a cada chamada — o chamador (server action)
+-- substitui `turns` por inteiro a cada chamada: o chamador (server action)
 -- já manda o histórico completo, mesma disciplina de idempotência do resto.
 create or replace function public.portal_upsert_conversation_transcript(
   p_id app.uuid_v7,
@@ -159,13 +159,13 @@ grant execute on function public.portal_upsert_conversation_transcript to authen
 
 -- Escrita service-role: usada pelos webhooks do Tavus e do Recall.ai (sem
 -- auth.uid(), sem sessão nenhuma). Deliberadamente NÃO recebe tenant_id do
--- chamador — um webhook externo não é fonte confiável de qual tenant é
+-- chamador: um webhook externo não é fonte confiável de qual tenant é
 -- dono da conversa (Art. 9). Em vez disso resolve a linha SÓ por
 -- (surface, external_ref): a linha PRECISA já existir, criada no momento
 -- em que a conversa/bot nasceu (contexto autenticado, tenant conhecido de
--- verdade) — vídeo em video-conversation.ts, reunião em meeting-bot.ts,
+-- verdade): vídeo em video-conversation.ts, reunião em meeting-bot.ts,
 -- ambos chamando portal_upsert_conversation_transcript acima na criação.
--- Sem linha prévia, o webhook não tem como inventar o tenant — found=false,
+-- Sem linha prévia, o webhook não tem como inventar o tenant: found=false,
 -- fica visível no log do caller, nunca grava um tenant adivinhado.
 create or replace function public.portal_append_transcript_turns_service(
   p_surface text,
@@ -195,7 +195,7 @@ begin
   where surface = p_surface and external_ref = p_external_ref;
 
   get diagnostics v_row_count = row_count;
-  -- Nunca deveria acontecer com o índice único global acima — mas se
+  -- Nunca deveria acontecer com o índice único global acima, mas se
   -- acontecer (corrida, dado legado, bug futuro), RECUSA em vez de
   -- escrever o mesmo conteúdo em cima de mais de uma linha/tenant em
   -- silêncio (achado P0/P1 da revisão adversarial 2026-08-10).
@@ -211,7 +211,7 @@ revoke all on function public.portal_append_transcript_turns_service from public
 grant execute on function public.portal_append_transcript_turns_service to service_role;
 
 -- Resolve o nome do agente a partir do recall_bot_id (join com
--- meeting_bot_sessions, 0021) — usado pelo webhook de transcrição da
+-- meeting_bot_sessions, 0021), usado pelo webhook de transcrição da
 -- Recall.ai pra distinguir a fala do AGENTE (bot, casa com o nome) da fala
 -- do lead/outros participantes reais nos blocos que a Recall devolve por
 -- participante (não há role explícito como no Tavus, só nome).
@@ -240,7 +240,7 @@ revoke all on function public.portal_get_meeting_bot_agent_service from public, 
 grant execute on function public.portal_get_meeting_bot_agent_service to service_role;
 
 -- Leitura: lista as conversas do tenant (mais recentes primeiro), sem o
--- conteúdo de `turns` (fica pesado pra lista) — só o resumo pra escolher
+-- conteúdo de `turns` (fica pesado pra lista): só o resumo pra escolher
 -- qual abrir. Filtro opcional por agente.
 create or replace function public.portal_list_conversation_transcripts(
   p_agent_id app.uuid_v7 default null,

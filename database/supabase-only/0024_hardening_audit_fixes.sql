@@ -2,15 +2,15 @@
 -- confirmados no banco:
 --
 -- 1. portal_set_agent_video_config (0022) aceitava presentation_kind
---    'platform' de QUALQUER tenant_admin — combinado com a resolução da
+--    'platform' de QUALQUER tenant_admin, combinado com a resolução da
 --    persona institucional em /api/leads/video-session, um tenant hostil
 --    conseguia sequestrar a Raissa institucional (e receber o resumo/PII do
 --    lead na persona dele). Linhas 'platform' são criação exclusiva do
---    operador da plataforma (SQL direto/migration) — a RPC self-service só
+--    operador da plataforma (SQL direto/migration): a RPC self-service só
 --    grava 'sales' a partir de agora.
 --
 -- 2. portal_update_meeting_bot_session_status_service aceitava QUALQUER
---    transição — um retry/entrega fora de ordem do webhook regressava
+--    transição: um retry/entrega fora de ordem do webhook regressava
 --    sessão 'ended' para 'in_call' (estado corrompido: ativa e encerrada ao
 --    mesmo tempo). Estados terminais agora são pegajosos.
 --
@@ -116,7 +116,7 @@ grant execute on function public.portal_update_meeting_bot_session_status_servic
 
 -- Log de custo de vídeo para caminhos servidor-a-servidor (sem auth.uid()).
 -- Mesmo evento de portal_log_video_usage (0017): quantity=1, custo 0 no
--- evento (duração real não medida — o piso entra na leitura), source
+-- evento (duração real não medida: o piso entra na leitura), source
 -- 'estimated' por honestidade estrutural (Art. 16).
 create or replace function public.portal_log_video_usage_service(
   p_tenant_id app.uuid_v7,

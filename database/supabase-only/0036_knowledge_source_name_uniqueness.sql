@@ -1,16 +1,16 @@
 -- Fecha achado P2 confirmado da onda 5 de auditoria autônoma (2026-08-12,
 -- dimensão concurrency-idempotency-audit): `portal_create_knowledge_source`
 -- não tinha NENHUM UNIQUE constraint (além de tenant_id+id gerado no
--- cliente) — diferente de `portal_create_agent`, que já é protegido por
+-- cliente), diferente de `portal_create_agent`, que já é protegido por
 -- `UNIQUE(tenant_id, name)` (`agents_tenant_id_name_key`, confirmado no
 -- schema vivo) com um exception handler dedicado.
 --
--- Cenário: duplo-clique/duas abas no form "Nova fonte" com o mesmo nome —
+-- Cenário: duplo-clique/duas abas no form "Nova fonte" com o mesmo nome:
 -- cada submissão gera um `p_id` novo no cliente, então nada no banco
 -- rejeitava a segunda chamada. Duas fontes de conhecimento distintas eram
 -- criadas, cada uma consumindo uma vaga do limite de 50/tenant e, se havia
 -- conteúdo, cada uma disparando embeddings reais via OpenRouter (custo
--- duplicado) e entrando ativa na busca/digest — duplicando o mesmo conteúdo
+-- duplicado) e entrando ativa na busca/digest, duplicando o mesmo conteúdo
 -- nas respostas do agente.
 --
 -- Verificado ao vivo antes de escrever esta migration: ZERO linhas

@@ -1,25 +1,25 @@
 -- Rate card de custos (T8, execução autônoma 2026-07-22): preenche
 -- unit_cost_usd/amount_usd com preços PÚBLICOS de tabela (list price, não
--- taxa negociada) em vez de 0. source permanece 'estimated' — honestidade
+-- taxa negociada) em vez de 0. source permanece 'estimated', honestidade
 -- estrutural (Art. 16): isto é uma estimativa datada e citável, nunca
 -- 'measured'/'provider_reported' (essas exigiriam o valor faturado real).
 --
 -- Fontes consultadas em 2026-07-22 (rate_card_ref/rate_card_as_of citam a
 -- mesma data; revisar quando o Fernando tiver a taxa negociada real):
---   openrouter.chat.haiku-4.5  — https://openrouter.ai/anthropic/claude-haiku-4.5
+--   openrouter.chat.haiku-4.5: https://openrouter.ai/anthropic/claude-haiku-4.5
 --     USD 1.00 / 1M tokens de entrada · USD 5.00 / 1M tokens de saída
---   openrouter.embedding.3-small — https://openrouter.ai/openai/text-embedding-3-small/pricing
+--   openrouter.embedding.3-small: https://openrouter.ai/openai/text-embedding-3-small/pricing
 --     USD 0.02 / 1M tokens de entrada (sem custo de saída)
---   tavus.conversation.floor — https://www.tavus.io/blog/conversational-ai-pricing
+--   tavus.conversation.floor: https://www.tavus.io/blog/conversational-ai-pricing
 --     USD 0.32-0.37/min de overage conforme plano; usamos USD 0.35/min como
 --     ponto médio, aplicado ao mínimo de cobrança de 30s (USD 0.175/conversa)
---     como um PISO — a duração real de cada chamada não é capturada hoje,
+--     como um PISO: a duração real de cada chamada não é capturada hoje,
 --     então o valor por conversa é sempre um mínimo, nunca o custo exato.
 
 BEGIN;
 
 -- portal_log_ai_usage: agora recebe já o input/output reais (a assinatura
--- não muda — os dois parâmetros já existiam) e grava o custo exato daquele
+-- não muda: os dois parâmetros já existiam) e grava o custo exato daquele
 -- evento, nunca 0. amount_usd é SEMPRE derivado de unit_cost_usd*quantity
 -- com o mesmo round() do CHECK da 0009 (cost_events_amount_reconciliation_check),
 -- por isso nunca viola a constraint.
@@ -95,12 +95,12 @@ grant execute on function public.portal_log_ai_usage to authenticated;
 
 -- portal_log_video_usage: a duração real da chamada não é capturada hoje
 -- (a conversa é registrada na criação, antes de saber quanto vai durar), e
--- Tavus cobra por minuto — cravar um valor "exato" aqui seria inventar um
+-- Tavus cobra por minuto: cravar um valor "exato" aqui seria inventar um
 -- dado. Mantém quantity=1/unit_cost=0/amount=0 no EVENTO; o piso estimado
 -- por conversa entra só na leitura (portal_usage_summary), claramente
 -- rotulado como mínimo. Corrige source de 'measured' (afirmava saber o
 -- custo real) para 'estimated' (honesto: é 0 porque não medimos, não
--- porque o custo é zero) — nada mais depende do valor 'measured' aqui.
+-- porque o custo é zero). Nada mais depende do valor 'measured' aqui.
 create or replace function public.portal_log_video_usage(
   p_id app.uuid_v7
 ) returns jsonb
@@ -136,8 +136,8 @@ revoke all on function public.portal_log_video_usage from public, anon;
 grant execute on function public.portal_log_video_usage to authenticated;
 
 -- portal_usage_summary: soma amount_usd real (AI, exato) + piso estimado de
--- vídeo (conversas × USD 0,175/conversa, o mínimo de cobrança do Tavus) —
--- os dois FICAM SEPARADOS na resposta para a UI nunca somar um número exato
+-- vídeo (conversas × USD 0,175/conversa, o mínimo de cobrança do Tavus).
+-- Os dois FICAM SEPARADOS na resposta para a UI nunca somar um número exato
 -- com um piso e apresentar como se fosse tudo preciso.
 create or replace function public.portal_usage_summary()
 returns jsonb

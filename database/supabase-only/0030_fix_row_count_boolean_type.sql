@@ -1,10 +1,10 @@
 -- Achado menor durante o trabalho de histórico de conversa (D-V2-106):
 -- portal_upsert_tenant_subscription_service (0026, JÁ APLICADA em
 -- produção) declara `v_applied boolean` e faz
--- `get diagnostics v_applied = row_count` — ROW_COUNT é bigint, e Postgres
+-- `get diagnostics v_applied = row_count`: ROW_COUNT é bigint, e Postgres
 -- só aceita atribuir isso numa variável boolean via cast de TEXTO ('0'/'1'
 -- viram false/true). Funciona por acidente pro caso de uso real (upsert
--- por tenant_id, único, sempre afeta 0 ou 1 linha) — mas QUALQUER row_count
+-- por tenant_id, único, sempre afeta 0 ou 1 linha), mas QUALQUER row_count
 -- >= 2 (ex.: se a lógica do upsert mudar um dia) quebra com
 -- "22P02: invalid input syntax for type boolean" (confirmado ao vivo com
 -- um teste isolado). Corrigido pro tipo certo (integer) antes que a

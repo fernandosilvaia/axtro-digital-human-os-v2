@@ -2,7 +2,7 @@
 -- risco #4). Mesmo padrão do teto diário de tokens (0008): contador por
 -- `occurred_at`/`created_at >= date_trunc('day', now())`, falha fechada com
 -- mensagem clara. `create or replace` preserva 100% do comportamento
--- existente das duas RPCs — só adiciona a guarda de limite.
+-- existente das duas RPCs. Só adiciona a guarda de limite.
 
 BEGIN;
 
@@ -72,7 +72,7 @@ revoke all on function public.portal_invite_member from public, anon;
 grant execute on function public.portal_invite_member to authenticated;
 
 -- Ingestão de conhecimento: no máximo 30 ingestões (criação ou re-ingestão)
--- por dia por tenant — o custo real é o embedding, mas o volume de escrita
+-- por dia por tenant. O custo real é o embedding, mas o volume de escrita
 -- em si já merece um teto contra abuso/erro em loop.
 create or replace function public.portal_ingest_knowledge(
   p_source_id app.uuid_v7,

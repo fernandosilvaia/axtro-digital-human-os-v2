@@ -1,7 +1,7 @@
 -- Ledger de uso de IA do portal sobre cost_events (tabela de M0, primeiro uso
 -- real por código de aplicação) + teto diário consultável. unit_cost 0 e
 -- source 'estimated' de propósito: tokens são medidos, o rating em USD por
--- modelo fica para o rate card real (D-V2-064) — nunca inventar custo.
+-- modelo fica para o rate card real (D-V2-064). Nunca inventar custo.
 
 BEGIN;
 

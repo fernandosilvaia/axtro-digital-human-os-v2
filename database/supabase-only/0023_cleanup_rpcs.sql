@@ -1,9 +1,9 @@
 -- Limpeza pelo operador (onda de produção 2): usuários criam agentes e
--- fontes mas não tinham como remover NADA — os limites (20/50) entopem sem
+-- fontes mas não tinham como remover NADA: os limites (20/50) entopem sem
 -- saída. Exclusão real (não soft): libera o limite naturalmente e é a
 -- operação LGPD-amigável para conteúdo de fonte. Guardas de segurança:
 -- agente só se ainda for rascunho E sem sessões; fonte só se já estiver
--- revogada (disabled) ou nunca ingerida (pending) — excluir fonte ativa
+-- revogada (disabled) ou nunca ingerida (pending): excluir fonte ativa
 -- exigiria revogar antes, mantendo a promessa de revogação explícita.
 
 BEGIN;

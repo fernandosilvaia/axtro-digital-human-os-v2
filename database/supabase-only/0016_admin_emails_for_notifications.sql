@@ -1,6 +1,6 @@
 -- RPC de leitura para notificações por e-mail (T9): devolve o e-mail dos
 -- tenant_admin do chamador, para avisar "agente ativado" etc. Restrita a
--- admin (mesma classe de quem já pode ativar agente/convidar) — não expõe
+-- admin (mesma classe de quem já pode ativar agente/convidar). Não expõe
 -- e-mail de admin para operador comum.
 
 BEGIN;

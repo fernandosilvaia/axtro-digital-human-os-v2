@@ -1,24 +1,24 @@
 -- Cobrança real dos planos do Digital Human OS (D-V2-101). Uma assinatura
--- Stripe por tenant (upgrade/downgrade troca a linha via upsert — a troca
+-- Stripe por tenant (upgrade/downgrade troca a linha via upsert: a troca
 -- de plano em si acontece no Customer Portal da Stripe, não aqui: preço
 -- combinado fixo+metered não é algo que a UI própria deva reimplementar
 -- quando a Stripe já resolve isso nativamente no Portal).
 --
 -- Unidade cobrada é CONVERSA de vídeo (não minuto): o produto não mede
 -- duração real de chamada hoje (gap já declarado em
--- docs/COST_OPTIMIZATION.md) — cobrar por minuto seria prometer uma
+-- docs/COST_OPTIMIZATION.md): cobrar por minuto seria prometer uma
 -- precisão que o sistema não entrega (Art. 16).
 --
 -- Mesmo padrão de RLS de todo o projeto: FORCE ROW LEVEL SECURITY sem
--- nenhuma policy — a tabela fica ilegível/inescrevível direto; todo acesso
+-- nenhuma policy: a tabela fica ilegível/inescrevível direto; todo acesso
 -- passa por RPC SECURITY DEFINER que resolve o tenant via auth.uid() (leitura,
 -- authenticated) ou é exclusivo de service_role (escrita, chamada pelo
--- webhook da Stripe — sem sessão de usuário).
+-- webhook da Stripe, sem sessão de usuário).
 --
 -- last_event_created_at é a guarda contra entrega fora de ordem: a Stripe
 -- não garante ordem de entrega de webhook, e retry de um evento MAIS VELHO
 -- não pode regredir o status/plano por cima de um evento mais novo já
--- aplicado (achado da revisão adversarial 2026-08-03) — o upsert só aplica
+-- aplicado (achado da revisão adversarial 2026-08-03). O upsert só aplica
 -- quando o evento recebido é igual ou mais novo que o último já gravado.
 
 BEGIN;
@@ -50,7 +50,7 @@ alter table public.tenant_subscriptions force row level security;
 
 -- Leitura: o próprio tenant vê o próprio estado de cobrança + contagem de
 -- conversas do dia (segurança) e do período de faturamento (plano). Sem
--- assinatura ativa, current_period_start cai pro início do mês corrente —
+-- assinatura ativa, current_period_start cai pro início do mês corrente,
 -- mesma semântica de "período" pra quem ainda não assinou ou já cancelou
 -- (usada só se BILLING_TRIAL_LIMIT_ENABLED estiver ligado no app; nunca
 -- herda o período congelado de uma assinatura cancelada).
@@ -106,11 +106,11 @@ revoke all on function public.portal_billing_status from public, anon;
 grant execute on function public.portal_billing_status to authenticated;
 
 -- Escrita: só o webhook da Stripe (service_role, sem auth.uid()). Upsert por
--- tenant_id — uma linha por tenant; trocar de plano substitui a linha (o
+-- tenant_id: uma linha por tenant; trocar de plano substitui a linha (o
 -- Customer Portal da Stripe já resolve pró-rata e period boundaries).
 -- p_event_created_at é a guarda monotônica: NULL sempre aplica (compat com
 -- caller sem essa informação); quando presente, só aplica se for >= o
--- último evento já gravado — retry/entrega fora de ordem de um evento mais
+-- último evento já gravado: retry/entrega fora de ordem de um evento mais
 -- velho vira no-op silencioso (found=true, applied=false).
 create or replace function public.portal_upsert_tenant_subscription_service(
   p_id app.uuid_v7,

@@ -1,7 +1,7 @@
 -- Convites de equipe por tenant. Convite pendente é honrado pelo
 -- provisionamento (ver 0004): quem cria conta com um e-mail convidado entra
 -- no tenant do convite com o papel definido, em vez de criar tenant próprio.
--- Sem acesso direto via PostgREST (RLS forçado, zero policies) — toda
+-- Sem acesso direto via PostgREST (RLS forçado, zero policies): toda
 -- leitura/escrita passa pelas RPCs abaixo.
 
 BEGIN;

@@ -1,7 +1,7 @@
 -- Fecha achado P3 da auto-revisão do código novo desta sessão (2026-08-12,
 -- D-V2-114): `portal_set_agent_status` (0014) repete a MESMA classe de
--- check-then-act sem lock já corrigida em `portal_ingest_knowledge` (0035)
--- — lê `agents.status` sem `FOR UPDATE`, depois faz `UPDATE` sem nenhum
+-- check-then-act sem lock já corrigida em `portal_ingest_knowledge` (0035).
+-- Lê `agents.status` sem `FOR UPDATE`, depois faz `UPDATE` sem nenhum
 -- lock entre a leitura e a escrita.
 --
 -- Cenário: duas requisições de ativação genuinamente concorrentes pro MESMO
@@ -10,12 +10,12 @@
 -- passarem da guarda de no-op, e as duas retornarem `changed:true` mesmo
 -- só uma sendo uma transição real. `resources.ts` (fix irmão desta mesma
 -- onda, D-V2-114) agora confia em `changed` pra decidir se reenvia o
--- e-mail "Agente ativado" — sem esse lock, a segunda chamada concorrente
+-- e-mail "Agente ativado": sem esse lock, a segunda chamada concorrente
 -- ainda dispararia um e-mail duplicado, o mesmo sintoma que o fix de
 -- `changed` tentou eliminar (agora só pro caso sequencial, não pro
 -- genuinamente concorrente).
 --
--- Correção: mesmo padrão de `0035_fix_ingest_knowledge_concurrency.sql` —
+-- Correção: mesmo padrão de `0035_fix_ingest_knowledge_concurrency.sql`:
 -- `SELECT ... FOR UPDATE` na leitura do status atual. Serializa duas
 -- chamadas concorrentes: a segunda bloqueia até a primeira commitar, então
 -- lê o status JÁ atualizado e cai corretamente no branch de no-op
@@ -53,7 +53,7 @@ begin
   end if;
 
   -- FIX (achado P3 da auto-revisão 2026-08-12): FOR UPDATE serializa
-  -- ativações concorrentes do MESMO agente — sem isso, duas chamadas
+  -- ativações concorrentes do MESMO agente: sem isso, duas chamadas
   -- simultâneas liam o mesmo status e as duas podiam retornar changed:true.
   select status, disclosure_profile_id into v_current, v_disclosure
   from public.agents where tenant_id = v_tenant and id = p_agent_id

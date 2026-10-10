@@ -1,6 +1,6 @@
 -- Corrige um acoplamento frágil: o código do portal decidia se um agente
 -- apresenta o deck institucional (a própria Axtro) ou o deck de vendas (o
--- negócio do tenant) checando `agent.name.startsWith("Aurora")` — quebraria
+-- negócio do tenant) checando `agent.name.startsWith("Aurora")`, quebraria
 -- silenciosamente ao renomear o agente (D-V2-08x, rename Aurora -> Raissa).
 -- `presentation_kind` é um campo explícito e estável, na mesma tabela que já
 -- guarda config de vídeo por agente (0009).
@@ -15,7 +15,7 @@ alter table public.agent_video_config
   check (presentation_kind in ('sales', 'platform'));
 
 -- Backfill: o único agente institucional hoje é o que responde por "Aurora"
--- (renomeado para "Raissa" nesta mesma sessão) — ele apresenta o deck da
+-- (renomeado para "Raissa" nesta mesma sessão). Ele apresenta o deck da
 -- própria plataforma Axtro, não o deck de vendas de um negócio de tenant.
 update public.agent_video_config
 set presentation_kind = 'platform'
