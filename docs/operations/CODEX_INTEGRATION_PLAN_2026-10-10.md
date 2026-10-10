@@ -205,8 +205,10 @@ Branch local `integration/codex-2026-10`, criada a partir da pilha, sem push. At
 | P0.1 integrar `49394b2` e `af90f21` | feito | Conflito só no harness, resolvido mantendo o fixture de efeitos do Codex e o de 3 admins; PostgreSQL 0001 a 0076 passou no branch mesclado |
 | P0.2 migration 0077 | feito | `0077_schema_capability_publication.sql`: `version` 77 e três flags calculadas do catálogo; o harness prova que cada flag cai quando o objeto some (mutação com rollback) e que as outras 9 capabilities da cadeia estão publicadas |
 | P0.3 portão | feito | `route.ts` e `production-readiness-bootstrap.mjs` exigem as 12 capabilities de integração e aceitam v77; a v58 hospedada hoje e as versões 59 a 76 e 78 são recusadas; mutação (remover uma capability do portão) derruba 2 testes |
-| P0.4 perfil `hosted-without-governance` | em validação | Primeira execução expôs asserções que esperavam a versão 59 depois da 0060 e da 0061; corrigidas para o perfil |
+| P0.4 perfil `hosted-without-governance` | feito | Passa em PG17: 0001 a 0058, 0060 a 0068, 0074 e 0076 sobre o schema que espelha o hospedado, fase de recall híbrido incluída, versão publicada ainda 58. A primeira execução expôs asserções que esperavam a versão 59 depois da 0060 e da 0061; corrigidas para o perfil |
 | P0.5 sondas do preflight | pendente | Revisar o anexo B com o operador de banco |
-| P0.6 runbook da janela | pendente | Derivar da seção 5 |
+| P0.6 runbook da janela | dispensado por ora | A seção 5 já é o roteiro; vira checklist de execução com datas e responsáveis quando D1 a D5 forem respondidas |
 
 Decisão de projeto do portão: o build novo passa a recusar o schema v58 de propósito. Se a janela falhar entre as migrations e o deploy, o build antigo continua no ar (o Railway não o derruba), mas o build novo não sobe contra um schema sem a busca híbrida. Isso troca "RAG vazio em silêncio" por "deploy bloqueado com erro explícito".
+
+Evidência do branch `integration/codex-2026-10` no commit `57b6419`: gate completo (lint, tipos, 2.136 testes Node, 63 Python, `validate_all` 9/9, build do portal); PostgreSQL 0001 a 0077; perfil hospedado; Playwright autenticado 17/17 contra um stack Supabase local já no schema 77 (aplicadas 0076 e 0077 nele, que é infraestrutura descartável); Playwright público 14/14 em build de produção. O guard de auto-aprovação da 0059 não foi aplicado nesse stack local (só no harness); o E2E não o exercita.
