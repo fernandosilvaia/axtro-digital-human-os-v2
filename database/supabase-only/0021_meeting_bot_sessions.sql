@@ -1,14 +1,14 @@
 -- Rastreia bots do Recall.ai que colocam um agente numa reunião externa de
--- verdade (Zoom/Meet/Teams) — capacidade central do produto (D-V2-089): o
+-- verdade (Zoom/Meet/Teams), capacidade central do produto (D-V2-089): o
 -- agente do cliente "empresta" a câmera de um bot dentro da reunião alheia.
 -- Tenant-scoped, RLS forçada, mesmo padrão de agent_video_config (0009).
 --
 -- O bot em si é criado pela aplicação chamando a API do Recall.ai
--- diretamente (packages/provider-recall) — esta tabela só registra o
+-- diretamente (packages/provider-recall). Esta tabela só registra o
 -- recibo/estado, nunca o segredo do provider. Duas vias de escrita:
 -- portal_record_meeting_bot_session (usuário autenticado, cria o registro
 -- logo após criar o bot de verdade) e portal_update_meeting_bot_session_status
--- (service role, chamada pelo webhook do Recall.ai — sem auth.uid()).
+-- (service role, chamada pelo webhook do Recall.ai, sem auth.uid()).
 
 BEGIN;
 
@@ -30,7 +30,7 @@ create table if not exists public.meeting_bot_sessions (
 );
 
 -- Lookup pelo webhook (service role, sem RLS, sem auth.uid()): o id do bot
--- do Recall.ai é a chave de correlação — precisa ser único.
+-- do Recall.ai é a chave de correlação: precisa ser único.
 create unique index if not exists meeting_bot_sessions_recall_bot_id_idx
   on public.meeting_bot_sessions (recall_bot_id);
 create index if not exists meeting_bot_sessions_tenant_idx
@@ -40,7 +40,7 @@ alter table public.meeting_bot_sessions enable row level security;
 alter table public.meeting_bot_sessions force row level security;
 
 -- Registra o recibo logo após a aplicação criar o bot de verdade via API do
--- Recall.ai — nunca antes (Art. 7: execução idempotente antes do recibo).
+-- Recall.ai, nunca antes (Art. 7: execução idempotente antes do recibo).
 create or replace function public.portal_record_meeting_bot_session(
   p_id app.uuid_v7,
   p_agent_id app.uuid_v7,
@@ -85,7 +85,7 @@ $$;
 revoke all on function public.portal_record_meeting_bot_session from public, anon;
 grant execute on function public.portal_record_meeting_bot_session to authenticated;
 
--- Atualiza status a partir do webhook do Recall.ai — sem auth.uid(), só
+-- Atualiza status a partir do webhook do Recall.ai, sem auth.uid(), só
 -- service_role. Nunca revela dado de tenant no retorno (o webhook não
 -- precisa disso, só confirmação de que achou a sessão).
 create or replace function public.portal_update_meeting_bot_session_status_service(

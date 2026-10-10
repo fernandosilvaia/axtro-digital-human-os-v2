@@ -1,6 +1,6 @@
 -- Ativação/pausa de agente pelo portal (T1, docs/PROJECT_AUDIT.md).
 -- D-V2-062 criou agentes sempre 'draft' porque ativação exigia provedores
--- conectados — hoje o ambiente TEM provider de texto (OpenRouter), vídeo
+-- conectados: hoje o ambiente TEM provider de texto (OpenRouter), vídeo
 -- (Tavus por persona) e RAG; a checagem de provider vive no server action
 -- (é conhecimento do ambiente, não do banco). Aqui ficam as guardas de
 -- dado: admin do tenant, transições explícitas draft<->active e disclosure

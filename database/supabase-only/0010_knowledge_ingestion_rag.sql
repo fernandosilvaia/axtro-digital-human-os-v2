@@ -1,6 +1,6 @@
 -- Conhecimento REAL: ingestão de chunks + embeddings e busca vetorial (RAG).
 -- Embeddings gerados no portal via OpenRouter (`openai/text-embedding-3-small`,
--- 1536 dims) — o banco só recebe vetores prontos; nenhuma chave entra aqui.
+-- 1536 dims). O banco só recebe vetores prontos; nenhuma chave entra aqui.
 -- Escrita restrita a tenant_admin; leitura para qualquer membro do tenant.
 -- search_path = 'public' (não ''): os operadores do pgvector vivem em public
 -- neste projeto, e é o mesmo requisito do trigger de reconciliação (0008).

@@ -1,6 +1,6 @@
 -- Resumo de uso de IA do tenant para o dashboard: tokens de hoje (contra o
 -- teto diário aplicado no app), conversas de vídeo de hoje e o agregado dos
--- últimos 7 dias por serviço. Leitura para qualquer membro do tenant — é o
+-- últimos 7 dias por serviço. Leitura para qualquer membro do tenant: é o
 -- consumo da própria conta, sem valores monetários (unit_cost ainda é 0 até
 -- existir rate card; mostrar "R$ 0" seria mentira de precisão).
 

@@ -1,7 +1,7 @@
 -- Onda W5 (achados da auditoria 2026-08-06):
 --
 -- 1) portal_remove_member: não existia NENHUMA forma de revogar o acesso de
---    um membro já aceito na equipe — só convites pendentes tinham "Revogar"
+--    um membro já aceito na equipe. Só convites pendentes tinham "Revogar"
 --    (portal_revoke_invite, 0006). Um colaborador desligado só perdia acesso
 --    se alguém mexesse direto no banco. Mesma disciplina de
 --    portal_revoke_invite: exige tenant_admin, escopado por tenant_id.
@@ -9,13 +9,13 @@
 --    remove o último tenant_admin (evitaria conta órfã sem administrador).
 --
 -- 2) portal_list_admin_emails_service: variante service-role de
---    portal_list_admin_emails (0016), que exige auth.uid() — o webhook do
+--    portal_list_admin_emails (0016), que exige auth.uid(): o webhook do
 --    Recall.ai (servidor-a-servidor, sem sessão de usuário) precisa notificar
 --    os admins quando uma reunião externa termina e não tem como chamar a
 --    versão autenticada. Mesmo padrão de portal_log_video_usage_service
 --    (0024): sem grant pra authenticated/anon, só service_role.
 --
--- 3) portal_list_team (0006) ganha user_id em cada membro — o botão de
+-- 3) portal_list_team (0006) ganha user_id em cada membro: o botão de
 --    remover precisa de um identificador estável pra chamar
 --    portal_remove_member; email não serve porque não é a chave da RPC.
 

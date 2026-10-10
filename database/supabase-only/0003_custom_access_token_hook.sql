@@ -1,7 +1,7 @@
 -- Custom Access Token Hook: injeta app_metadata.tenant_id / actor_id /
 -- tenant_role no JWT a partir de user_tenant_memberships. A função fica
 -- publicada aqui; HABILITAR o hook é passo manual no dashboard
--- (Authentication > Hooks), gate humano — ver D-V2-057.
+-- (Authentication > Hooks), gate humano, ver D-V2-057.
 
 BEGIN;
 

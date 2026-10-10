@@ -2,19 +2,19 @@
 -- autônoma (2026-08-12, dimensão concurrency-idempotency-audit):
 -- `portal_ingest_knowledge` (0015) repete o mesmo padrão check-then-act sem
 -- lock do achado JÁ CONHECIDO (não corrigido, aguardando migration própria)
--- em `provision_self_serve_tenant` — lê `knowledge_sources.status` sem
+-- em `provision_self_serve_tenant`: lê `knowledge_sources.status` sem
 -- `FOR UPDATE`, depois faz `DELETE + INSERT` em `knowledge_versions` sem
 -- nenhum lock entre a leitura e a escrita.
 --
 -- Cenário real: usuário clica "Reingerir" em duas abas, ou o form reenvia
 -- após timeout de rede (source-actions.tsx). Cada submissão gera um
 -- `p_version` com granularidade de 1 SEGUNDO (`v${Math.floor(Date.now()/1000)}`,
--- resources.ts) e um `p_version_id` sempre novo — então nenhuma colide no
+-- resources.ts) e um `p_version_id` sempre novo, então nenhuma colide no
 -- `UNIQUE(tenant_id, source_id, version)`. Sob READ COMMITTED (default),
 -- reconstruído passo a passo pelos verificadores: TxA deleta a versão
 -- anterior (se houver) e insere a nova; o DELETE de TxB, que via a MESMA
 -- linha antes de TxA committar, é reavaliado via EvalPlanQual e afeta 0
--- linhas (a linha já sumiu, deletada por TxA) — TxB NÃO revarre a tabela
+-- linhas (a linha já sumiu, deletada por TxA). TxB NÃO revarre a tabela
 -- pra achar a linha nova de TxA (fora do snapshot do statement). TxB segue
 -- pro INSERT com sua própria versão. Resultado: DUAS `knowledge_versions`
 -- "ativas" pra mesma fonte, cada uma com seus chunks/embeddings via cascade.
@@ -22,12 +22,12 @@
 -- `portal_search_knowledge`/`portal_search_knowledge_service` (0010/0032) e
 -- `portal_knowledge_digest` (0027) juntam por `source_id` filtrado só por
 -- `knowledge_sources.status = 'active'`, sem filtro de "versão mais
--- recente" (`valid_to` nunca é setado em nenhuma RPC de ingestão) — as DUAS
+-- recente" (`valid_to` nunca é setado em nenhuma RPC de ingestão). As DUAS
 -- versões entram na busca/digest, quebrando o invariante já documentado no
 -- comentário original da própria função ("a busca nunca vê duas versões da
 -- mesma fonte") e fazendo o agente citar conteúdo duplicado/desatualizado.
 -- Efeito colateral: `embedChunks` (custo real OpenRouter) roda no server
--- action ANTES da RPC — duas submissões concorrentes pagam por embeddings
+-- action ANTES da RPC: duas submissões concorrentes pagam por embeddings
 -- duas vezes, independente de qual "vence" no banco.
 --
 -- Correção: `SELECT ... FOR UPDATE` na leitura do status da fonte, mesmo
@@ -36,7 +36,7 @@
 -- própria função faz um `UPDATE knowledge_sources SET status = 'active'`
 -- nessa MESMA linha no final, o lock serializa corretamente chamadas
 -- concorrentes: a segunda transação bloqueia até a primeira commitar, e
--- então lê o estado já atualizado — sem mudar nenhum outro comportamento da
+-- então lê o estado já atualizado, sem mudar nenhum outro comportamento da
 -- função (mesmos limites, mesma validação, mesma substituição atômica
 -- dentro de uma única transação).
 
@@ -82,7 +82,7 @@ begin
   end if;
 
   -- FIX (achado P1 da auditoria 2026-08-12): FOR UPDATE serializa
-  -- re-ingestões concorrentes da MESMA fonte — sem isso, duas chamadas
+  -- re-ingestões concorrentes da MESMA fonte: sem isso, duas chamadas
   -- simultâneas liam o mesmo status e cada uma fazia seu próprio
   -- DELETE+INSERT em knowledge_versions, produzindo duas versões "ativas".
   select status into v_status

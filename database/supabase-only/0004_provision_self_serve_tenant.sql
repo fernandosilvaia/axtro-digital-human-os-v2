@@ -1,5 +1,5 @@
 -- Provisionamento self-serve: cadastro cria o próprio tenant (decisão de
--- produto confirmada) — exceto quando há convite pendente para o e-mail do
+-- produto confirmada), exceto quando há convite pendente para o e-mail do
 -- usuário (ver 0006_tenant_invites.sql): nesse caso ele entra no tenant do
 -- convite com o papel definido. SECURITY DEFINER para não depender da chave
 -- service_role, que fica reservada pro fim da fase. Idempotente: usuário já

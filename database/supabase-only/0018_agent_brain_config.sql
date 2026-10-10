@@ -5,7 +5,7 @@
 --
 -- Mesmo padrão de agent_video_config (0009): tenant-scoped, RLS forçada,
 -- RPCs SECURITY DEFINER resolvidas por auth.uid() para todo acesso do
--- portal. O segredo BRUTO nunca é gerado nem lido em SQL — o hash sha256 é
+-- portal. O segredo BRUTO nunca é gerado nem lido em SQL. O hash sha256 é
 -- calculado na aplicação (crypto.randomBytes + createHash, mesma disciplina
 -- de nunca gerar material aleatório sensível no banco já usada no resto do
 -- projeto) e só o hash entra aqui; a rotação devolve o segredo bruto ao
@@ -26,7 +26,7 @@ create table if not exists public.agent_brain_config (
 );
 
 -- Lookup pelo endpoint HTTP (service role, sem RLS, sem auth.uid()): o hash
--- do bearer recebido é a única credencial — precisa ser único e indexado.
+-- do bearer recebido é a única credencial: precisa ser único e indexado.
 create unique index if not exists agent_brain_config_secret_hash_idx
   on public.agent_brain_config (secret_hash);
 
@@ -34,7 +34,7 @@ alter table public.agent_brain_config enable row level security;
 alter table public.agent_brain_config force row level security;
 
 -- Gera/rotaciona: recebe o hash já calculado na aplicação, nunca o segredo
--- bruto. Requer tenant_admin — habilitar um LLM externo na persona é uma
+-- bruto. Requer tenant_admin: habilitar um LLM externo na persona é uma
 -- mudança de superfície de risco, não uma preferência de UI.
 create or replace function public.portal_rotate_agent_brain_secret(p_agent_id app.uuid_v7, p_secret_hash text)
 returns jsonb

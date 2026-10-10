@@ -1,6 +1,6 @@
 -- Auto-provisão de vídeo (P1, execução autônoma 2026-07-31): até aqui, toda
 -- linha de agent_video_config foi inserida à mão (0013 e sessões via SQL
--- direto) — só os agentes demo tinham vídeo. Para clientes novos terem
+-- direto). Só os agentes demo tinham vídeo. Para clientes novos terem
 -- vídeo ao ativar um agente, o portal precisa gravar a config via RPC.
 -- Admin do tenant, upsert idempotente, formatos validados como no CHECK
 -- da própria tabela (0009/0020).

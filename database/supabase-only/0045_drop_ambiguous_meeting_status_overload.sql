@@ -1,6 +1,6 @@
 -- Forward-only fix for a live production bug found while investigating the
 -- M5-03 media-boundary P0 (2026-08-18): portal_update_meeting_bot_session_status_service
--- exists as TWO overloads —
+-- exists as TWO overloads:
 --   (p_recall_bot_id text, p_status text)                                     -- 0021, replaced by 0024
 --   (p_recall_bot_id text, p_status text, p_delivery_id text default null,
 --    p_claim_token app.uuid_v7 default null)                                  -- 0040
@@ -9,7 +9,7 @@
 -- it takes the exact same path as the 2024 2-arg version, plus advisory
 -- locking, tenant handling and terminal billing logic the old one never had),
 -- but never dropped the old 2-arg signature. Postgres keeps both as distinct
--- overloads, and PostgREST's RPC calling convention (named JSON keys — no
+-- overloads, and PostgREST's RPC calling convention (named JSON keys: no
 -- p_delivery_id/p_claim_token keys sent at all for a non-terminal status,
 -- since apps/portal/src/app/api/recall/webhook/route.ts only includes them
 -- when status is 'ended'/'failed') makes every non-terminal call ambiguous:
@@ -23,7 +23,7 @@
 -- bot.in_call_recording / bot.in_call_not_recording / bot.call_ended /
 -- bot.done event that reaches the Recall webhook handler with a non-terminal
 -- (or, per the sampled log lines, even some terminal-looking) status update
--- fails this RPC and falls into releaseForRetry("internal_error") — meaning
+-- fails this RPC and falls into releaseForRetry("internal_error"), meaning
 -- meeting_bot_sessions.status is silently NOT being kept in sync with real,
 -- currently-active external meetings, and the in_call branch that attaches
 -- the Sentinel camera (Tavus video relayed into the real meeting via Recall's

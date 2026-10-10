@@ -1,13 +1,13 @@
--- M4-04: RPCs "_service" — variantes das RPCs existentes que recebem o
+-- M4-04: RPCs "_service", variantes das RPCs existentes que recebem o
 -- tenant/agente EXPLICITAMENTE em vez de resolver por auth.uid(), porque o
 -- Tavus chamando nosso endpoint de LLM (layers.llm.base_url) é uma chamada
 -- servidor-a-servidor sem sessão de Supabase Auth. Concedidas SOMENTE a
--- service_role — nunca a authenticated/anon — e chamadas de dentro do route
+-- service_role (nunca a authenticated/anon) e chamadas de dentro do route
 -- handler com o service-role client (apps/portal/src/lib/supabase/service.ts),
 -- nunca expostas ao navegador.
 --
 -- IMPORTANTE: o rate card (preços do 0017_rate_card.sql) está DUPLICADO
--- aqui de propósito, não compartilhado por refatoração — preferi não tocar
+-- aqui de propósito, não compartilhado por refatoração. Preferi não tocar
 -- a portal_log_ai_usage já validada em produção com dólares reais
 -- (D-V2-078) para adicionar esta variante. Atualizar preço aqui exige
 -- atualizar as DUAS funções (portal_log_ai_usage em 0017 e esta).
@@ -54,7 +54,7 @@ revoke all on function public.portal_resolve_agent_brain_config_service from pub
 grant execute on function public.portal_resolve_agent_brain_config_service to service_role;
 
 -- Log de custo de geração para o caminho Tavus. Preço de tabela duplicado
--- de 0017 (ver nota no topo do arquivo) — sempre serviço 'portal.agent_brain'.
+-- de 0017 (ver nota no topo do arquivo): sempre serviço 'portal.agent_brain'.
 create or replace function public.portal_log_ai_usage_service(
   p_tenant_id app.uuid_v7,
   p_id app.uuid_v7,

@@ -1,14 +1,14 @@
 -- Fecho do backlog da auditoria 2026-08-02 que dependia de SQL (W4):
 --
 -- 1) portal_knowledge_digest: a versão de 0010 percorria `order by
---    s.created_at, s.id, chunk_index` e parava no teto — com 2+ fontes o
+--    s.created_at, s.id, chunk_index` e parava no teto, com 2+ fontes o
 --    digest inteiro era o COMEÇO da fonte mais ANTIGA, e o prompt de vídeo
 --    trata esse recorte como "sua única fonte de fatos": a closer ficava
 --    proibida de citar preço/condição que vive em qualquer outra fonte.
 --    Agora: orçamento dividido por fonte (mínimo 600 chars pra não virar
 --    confete com muitas fontes), fontes mais RECENTES primeiro.
 --
--- 2) portal_log_ai_usage: ganha p_reported_cost_usd opcional — quando o
+-- 2) portal_log_ai_usage: ganha p_reported_cost_usd opcional, quando o
 --    OpenRouter reporta o custo faturado real (usage.cost, pedido via
 --    usage.include no adapter), o evento vira source='provider_reported'
 --    com o valor exato, em vez de estimativa por tabela do Haiku. Isso
@@ -19,7 +19,7 @@
 --
 -- 3) portal_record_meeting_bot_session: reunião externa agora deixa
 --    TAMBÉM um cost_event do bot ('recall', flat, source estimated, custo
---    0 no evento — mesma convenção da conversa Tavus: precificação na
+--    0 no evento, mesma convenção da conversa Tavus: precificação na
 --    leitura; rate_card_ref pronto pro summary precificar depois). Antes,
 --    o provider mais caro por sessão não existia no ledger.
 
@@ -63,7 +63,7 @@ begin
   end if;
 
   -- Orçamento por fonte: divide o teto entre as fontes, com piso de 600
-  -- chars — com muitas fontes entram só as ~(teto/600) mais recentes, cada
+  -- chars, com muitas fontes entram só as ~(teto/600) mais recentes, cada
   -- uma com conteúdo suficiente pra ser utilizável (não confete).
   v_source_budget := greatest(600, p_max_chars / v_source_count);
 
@@ -144,7 +144,7 @@ begin
   if p_reported_cost_usd is not null then
     -- Custo faturado reportado pelo próprio provider (usage.cost do
     -- OpenRouter): fonte mais forte que estimativa de tabela. Teto de
-    -- sanidade: uma única chamada de chat nunca custa USD 10 — valor acima
+    -- sanidade: uma única chamada de chat nunca custa USD 10, valor acima
     -- disso é bug do caller, não fato.
     if p_reported_cost_usd < 0 or p_reported_cost_usd > 10 then
       raise exception 'reported cost out of range' using errcode = '22023';
@@ -204,7 +204,7 @@ create function public.portal_record_meeting_bot_session(
   p_meeting_url text,
   p_tavus_conversation_id text,
   -- id do cost_event do bot, gerado pela APLICAÇÃO (app.uuid_v7 é domain,
-  -- não função — D-V2-010: UUID nasce no app). null = não registra custo
+  -- não função, D-V2-010: UUID nasce no app). null = não registra custo
   -- (compat com caller antigo durante a janela de deploy).
   p_cost_event_id app.uuid_v7 default null
 ) returns jsonb
@@ -239,7 +239,7 @@ begin
   values (p_id, v_tenant, p_agent_id, p_recall_bot_id, p_meeting_url, p_tavus_conversation_id, 'created');
 
   -- Rastro de custo do bot (o provider mais caro por sessão): mesma
-  -- convenção da conversa Tavus — evento com custo 0 e source 'estimated'
+  -- convenção da conversa Tavus: evento com custo 0 e source 'estimated'
   -- (duração real não medida na criação), precificação na leitura via
   -- rate_card_ref.
   if p_cost_event_id is not null then

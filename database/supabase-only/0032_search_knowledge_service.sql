@@ -3,15 +3,15 @@
 -- pelo Tavus servidor-a-servidor, sem sessão de usuário) nunca conseguia
 -- buscar conhecimento autorizado porque `portal_search_knowledge` (0010)
 -- exige `auth.uid()`. Resultado prático: um agente citava fontes no chat de
--- teste mas "esquecia" tudo numa call de vídeo real — a mesma pergunta tinha
+-- teste mas "esquecia" tudo numa call de vídeo real. A mesma pergunta tinha
 -- resposta com fonte numa superfície e sem fonte na outra.
 --
 -- Variante service-role, mesmo padrão de portal_log_ai_usage_service (0019)
 -- e portal_get_meeting_bot_agent_service (0028): tenant resolvido por
 -- p_tenant_id explícito (validado contra public.tenants) em vez de
--- auth.uid(). Corpo da busca idêntico ao de portal_search_knowledge —
+-- auth.uid(). Corpo da busca idêntico ao de portal_search_knowledge:
 -- mesmo filtro de fonte ativa, mesmo modelo de embedding, mesmo teto de
--- resultados — só a resolução de identidade muda.
+-- resultados. Só a resolução de identidade muda.
 
 BEGIN;
 

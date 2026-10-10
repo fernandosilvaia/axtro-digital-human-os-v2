@@ -3,30 +3,30 @@
 --
 -- 1) `apps/portal/src/app/privacidade/page.tsx` promete, em produção, que
 --    qualquer pessoa pode "solicitar acesso, correção ou exclusão dos seus
---    dados — incluindo o histórico de conversas — a qualquer momento pelo
+--    dados (incluindo o histórico de conversas) a qualquer momento pelo
 --    e-mail fernando@axtroai.com". A migration 0029 (conversation_transcripts)
---    nunca ganhou uma RPC de exclusão — as únicas RPCs de delete do schema
+--    nunca ganhou uma RPC de exclusão. As únicas RPCs de delete do schema
 --    inteiro (portal_delete_draft_agent, portal_delete_knowledge_source,
 --    0023) removem CONFIGURAÇÃO de tenant, não dado pessoal de conversa. Sem
 --    RPC nem UI, cumprir o pedido hoje exigiria um operador escrever um
 --    DELETE cru direto em produção, sem trilha de auditoria e sem guarda
 --    contra apagar a linha errada.
 --
--- 2) `conversation_transcripts` não tem NENHUM mecanismo de retenção/expurgo
---    — o texto integral de qualquer conversa (até 1000 turnos x 8000 chars,
+-- 2) `conversation_transcripts` não tem NENHUM mecanismo de retenção/expurgo:
+--    o texto integral de qualquer conversa (até 1000 turnos x 8000 chars,
 --    app.validate_transcript_turns) fica pra sempre, contradizendo
 --    docs/adr/ADR-016-data-retention-deletion.md ("dados... default to the
 --    shortest configured period"). O v1 legado tinha um job diário de purga
 --    (legacy/v1/docs/architecture/DATA_MODEL.md) que nunca foi carregado
---    pro v2 — legacy/v1 é explicitamente não-normativo (AGENTS.md:15).
+--    pro v2: legacy/v1 é explicitamente não-normativo (AGENTS.md:15).
 --
 -- Duas RPCs de exclusão pontual (mesmo padrão de portal_delete_knowledge_source):
 --   - portal_delete_conversation_transcript: autenticada, tenant_admin,
---     escopada ao próprio tenant — dá ao tenant_admin uma forma real de
+--     escopada ao próprio tenant, dá ao tenant_admin uma forma real de
 --     cumprir um pedido de exclusão sem precisar de acesso a produção. Wired
 --     na UI de /conversas na mesma mudança.
 --   - portal_delete_conversation_transcript_service: variante service-role
---     (mesmo padrão de portal_log_ai_usage_service etc.) — é o caminho real
+--     (mesmo padrão de portal_log_ai_usage_service etc.). É o caminho real
 --     que o Fernando usa hoje pra cumprir um pedido que chega por e-mail
 --     (ele não tem sessão de tenant_admin de cada tenant), via script pontual
 --     com a service_role key, nunca exposta ao app.
@@ -36,11 +36,11 @@
 --     mais antigas que N dias (contados a partir do fim da conversa, ou do
 --     início se nunca foi marcada como encerrada). N é OBRIGATÓRIO e tem um
 --     piso de segurança de 30 dias (contra um erro de digitação que apagaria
---     quase tudo) — DELIBERADAMENTE não escolhe um período de retenção real
+--     quase tudo). DELIBERADAMENTE não escolhe um período de retenção real
 --     nem agenda execução automática (não existe infra de cron neste repo,
 --     confirmado pela própria auditoria). O período de retenção real e a
 --     decisão de automatizar (pg_cron, GitHub Action agendada, etc.) são
---     decisão de produto/jurídico do Fernando — esta RPC só entrega a
+--     decisão de produto/jurídico do Fernando. Esta RPC só entrega a
 --     CAPACIDADE técnica, pronta pra ser chamada manualmente ou agendada
 --     assim que esse número for decidido.
 
