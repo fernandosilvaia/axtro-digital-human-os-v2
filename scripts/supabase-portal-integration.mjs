@@ -287,9 +287,26 @@ try {
   assertFailed(runSql(databaseUrl,`BEGIN; ALTER TABLE public.conversation_turns ADD COLUMN unexpected_preexisting_content text; ${turnShapePreflight} COMMIT;`),"v75 refuses to enroll preexisting shape drift",/known conversation turn shape required/);
   assert.deepEqual(applySupabaseMigrations(databaseUrl, 75, 75), ["0075"]);
   assertConversationTurnRedactionPhase(databaseUrl);
+  assert.equal(
+    queryScalar(databaseUrl, `
+      SELECT count(*)
+      FROM (VALUES
+        ('public.portal_begin_ai_usage_reservation_service(app.uuid_v7,app.uuid_v7,app.uuid_v7,app.uuid_v7,app.uuid_v7,text,text,integer,integer,numeric)'::regprocedure),
+        ('public.portal_mark_ai_usage_in_flight_service(app.uuid_v7)'::regprocedure),
+        ('public.portal_commit_ai_usage_service(app.uuid_v7,integer,integer,numeric)'::regprocedure)
+      ) AS expected(oid)
+      JOIN pg_proc p ON p.oid=expected.oid
+      WHERE coalesce(p.proconfig,'{}'::text[])
+        @> ARRAY['lock_timeout=2s','statement_timeout=15s'];
+    `),
+    "0",
+    "v75 still carries the timeout loss that v76 repairs (begin, mark and commit lost their SET)",
+  );
+  assert.deepEqual(applySupabaseMigrations(databaseUrl, 76, 76), ["0076"]);
+  assertAiLedgerTimeoutsSurviveLaterRedefinitions(databaseUrl);
   assertMigrationReceiptLineage(databaseUrl);
 
-  console.log("SUPABASE PORTAL INTEGRATION PASSED: migrations 0001-0075 in contiguous order, immutable checksums, grants, RLS, transcripts, reservations, data governance and readiness capability");
+  console.log("SUPABASE PORTAL INTEGRATION PASSED: migrations 0001-0076 in contiguous order, immutable checksums, grants, RLS, transcripts, reservations, data governance and readiness capability");
 } catch (error) {
   primaryError = error;
   throw error;
@@ -565,11 +582,11 @@ function supabaseMigrationInventory() {
   const migrations = readdirSync(supabaseMigrationDirectory)
     .filter((name) => /^\d{4}_.+\.sql$/.test(name))
     .sort();
-  assert.equal(migrations.length, 75, "the harness must cover every Supabase-only migration through 0075");
+  assert.equal(migrations.length, 76, "the harness must cover every Supabase-only migration through 0076");
   assert.deepEqual(
     migrations.map((migration) => Number(migration.slice(0, 4))),
-    Array.from({ length: 75 }, (_, index) => index + 1),
-    "Supabase-only migration versions must be contiguous and unique from 0001 through 0075",
+    Array.from({ length: 76 }, (_, index) => index + 1),
+    "Supabase-only migration versions must be contiguous and unique from 0001 through 0076",
   );
   assert.equal(migrations[48], "0049_portal_text_preview_admission.sql");
   assert.equal(migrations[49], "0050_meeting_terminal_notification_claim.sql");
@@ -591,6 +608,7 @@ function supabaseMigrationInventory() {
   assert.equal(migrations[72], "0073_ai_usage_financial_evidence_repair.sql");
   assert.equal(migrations[73], "0074_portal_hybrid_knowledge_retrieval.sql");
   assert.equal(migrations[74], "0075_conversation_turn_redaction_projector.sql");
+  assert.equal(migrations[75], "0076_ai_usage_ledger_timeout_repair.sql");
   assert.equal(migrationChecksum(migrations[48]), "79b24e7fdc768a30b02d3596b71799fae484043e37561ddfcd435f46076b3100");
   assert.equal(migrationChecksum(migrations[49]), "262e033328175f704f8cfef1cafdcb0a2ef9b9aac7e4cc86f2b33890044c7224");
   return migrations;
@@ -10880,6 +10898,27 @@ async function assertAiUsageConcurrencyCap(databaseUrl) {
   assert.equal(replay.reservationId, winner.id, "AI replay keeps the original reservation identity");
   assert.equal(queryScalar(databaseUrl, `SELECT count(*) FROM public.ai_usage_reservations WHERE tenant_id='${fixture.tenantGamma}' AND idempotency_key IN ('ai-cap-parallel-a','ai-cap-parallel-b');`), "1",
     "AI token cap cannot be oversubscribed by concurrent begins");
+}
+
+// CREATE OR REPLACE FUNCTION troca a configuração por função (proconfig) pela
+// que a nova definição declara. A 0049 publicou lock_timeout/statement_timeout
+// nas cinco RPCs de mutação do ledger de IA; 0067, 0073 e 0074 redefiniram
+// begin, commit e mark sem repetir o SET. Esta asserção roda no fim, depois de
+// todas as redefinições, para que a próxima omissão falhe aqui e não em produção.
+function assertAiLedgerTimeoutsSurviveLaterRedefinitions(databaseUrl) {
+  assert.equal(queryScalar(databaseUrl, `
+    SELECT count(*)
+    FROM (VALUES
+      ('public.portal_begin_ai_usage_reservation_service(app.uuid_v7,app.uuid_v7,app.uuid_v7,app.uuid_v7,app.uuid_v7,text,text,integer,integer,numeric)'::regprocedure),
+      ('public.portal_mark_ai_usage_in_flight_service(app.uuid_v7)'::regprocedure),
+      ('public.portal_commit_ai_usage_service(app.uuid_v7,integer,integer,numeric)'::regprocedure),
+      ('public.portal_release_ai_usage_service(app.uuid_v7,text)'::regprocedure),
+      ('public.portal_mark_ai_usage_unknown_service(app.uuid_v7,text)'::regprocedure)
+    ) AS expected(oid)
+    JOIN pg_proc p ON p.oid=expected.oid
+    WHERE coalesce(p.proconfig,'{}'::text[])
+      @> ARRAY['lock_timeout=2s','statement_timeout=15s'];
+  `), "5", "all AI ledger mutation RPCs still publish bounded server-side timeouts after the latest migration");
 }
 
 function dailyCostFixturesSql(count) {
