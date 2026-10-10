@@ -60,6 +60,35 @@ let testDatabaseName;
 let primaryError;
 let cleanupStarted = false;
 
+// Perfil que espelha o hospedado: 0058 mais 0060 a 0068, sem a cadeia de governança
+// (0059, 0069 a 0073) nem o que depende dela (0075, 0077). Prova que 0074 e 0076
+// aplicam sobre o schema real de produção e que o portão atual continua verde.
+const hostedProfile = process.env.AXTRO_HARNESS_PROFILE === "hosted-without-governance";
+const HOSTED_PROFILE_SKIPPED_MIGRATIONS = new Set([59, 69, 70, 71, 72, 73, 75, 77]);
+
+// Capabilities que 0074 a 0076 entregam sem publicar e que a 0077 calcula do catálogo.
+const SCHEMA_PUBLICATION_CAPABILITIES = Object.freeze([
+  "hybridKnowledgeRetrieval",
+  "conversationTurnRedactionProjector",
+  "aiLedgerTimeoutsBounded",
+]);
+
+// O portão de prontidão (route.ts e production-readiness-bootstrap.mjs) exige a
+// união abaixo. A lista fica aqui para o harness provar que o schema final a
+// publica inteira, e não só as três flags novas.
+const READINESS_INTEGRATION_CAPABILITIES = Object.freeze([
+  "dataGovernanceCatalogComplete",
+  "dataGovernanceCatalogOnboardingRepaired",
+  "dataGovernanceWriteFenceRepaired",
+  "businessActionCheckoutConnections",
+  "businessActionCheckoutProducts",
+  "businessActionCheckoutReservations",
+  "businessActionCheckoutStripeEventReceipts",
+  "videoAssetAssignmentGoverned",
+  "aiUsageFinancialEvidenceRepair",
+  ...SCHEMA_PUBLICATION_CAPABILITIES,
+]);
+
 for (const signal of ["SIGINT", "SIGTERM"]) {
   process.once(signal, () => {
     const cleanupErrors = cleanupResources();
@@ -212,12 +241,14 @@ try {
   assertBusinessActionCalendarCredentialRead(databaseUrl);
   assertBusinessActionLiveCallContext(databaseUrl);
 
-  const v58Capabilities = queryJson(databaseUrl, asRoleSql("service_role", null,
-    "SELECT public.portal_schema_capabilities_service();"));
-  const dataGovernanceApplied = applySupabaseMigrations(databaseUrl, 59, 59);
-  assert.deepEqual(dataGovernanceApplied, ["0059"]);
-  assertDataGovernanceDispositionPhase(databaseUrl, v58Capabilities);
-  assertSchemaLineageCapabilities(databaseUrl, 59, { textPreview: true, terminalNotification: false, businessActions: true });
+  if (!hostedProfile) {
+    const v58Capabilities = queryJson(databaseUrl, asRoleSql("service_role", null,
+      "SELECT public.portal_schema_capabilities_service();"));
+    const dataGovernanceApplied = applySupabaseMigrations(databaseUrl, 59, 59);
+    assert.deepEqual(dataGovernanceApplied, ["0059"]);
+    assertDataGovernanceDispositionPhase(databaseUrl, v58Capabilities);
+    assertSchemaLineageCapabilities(databaseUrl, 59, { textPreview: true, terminalNotification: false, businessActions: true });
+  }
 
   const meetingSlotLookupApplied = applySupabaseMigrations(databaseUrl, 60, 60);
   assert.deepEqual(meetingSlotLookupApplied, ["0060"]);
@@ -255,38 +286,42 @@ try {
   assert.deepEqual(videoConfigSelfServiceApplied, ["0068"]);
   assertAgentVideoConfigSelfServicePhase(databaseUrl);
 
-  const checkoutStripeConnectApplied = applySupabaseMigrations(databaseUrl, 69, 69);
-  assert.deepEqual(checkoutStripeConnectApplied, ["0069"]);
-  assertBusinessActionCheckoutStripeConnectPhase(databaseUrl);
+  if (!hostedProfile) {
+    const checkoutStripeConnectApplied = applySupabaseMigrations(databaseUrl, 69, 69);
+    assert.deepEqual(checkoutStripeConnectApplied, ["0069"]);
+    assertBusinessActionCheckoutStripeConnectPhase(databaseUrl);
 
-  const catalogRepairApplied = applySupabaseMigrations(databaseUrl, 70, 70);
-  assert.deepEqual(catalogRepairApplied, ["0070"]);
-  assert.equal(queryScalar(databaseUrl, "SELECT app.data_governance_catalog_complete();"), "t");
-  const fenceRepairApplied = applySupabaseMigrations(databaseUrl, 71, 71);
-  assert.deepEqual(fenceRepairApplied, ["0071"]);
-  assertDataGovernanceFenceRepairPhase(databaseUrl);
-  // v59 structural and privilege checks remain at their historical phase.
-  // End-to-end flows run at v71 to cover the six onboarded tables and their
-  // installed write fences, including real calendar and checkout reservations.
-  assertDataSubjectGovernanceRedaction(databaseUrl);
-  assertTenantGovernanceDeletion(databaseUrl);
-  assertDataGovernanceActiveRequestCancelLifecycle(databaseUrl);
-  const videoAssetGovernanceApplied = applySupabaseMigrations(databaseUrl, 72, 72);
-  assert.deepEqual(videoAssetGovernanceApplied, ["0072"]);
-  await assertVideoAssetAssignmentGovernancePhase(databaseUrl);
-  const financialHistoricalFixture = seedHistoricalAiTimeoutReceipt(databaseUrl);
-  const inheritedFinancialCapabilities = queryJson(databaseUrl, asRoleSql("service_role", null,
-    "SELECT public.portal_schema_capabilities_service();"));
-  const financialRepairApplied = applySupabaseMigrations(databaseUrl, 73, 73);
-  assert.deepEqual(financialRepairApplied, ["0073"]);
-  assertAiUsageFinancialEvidenceRepairPhase(databaseUrl, financialHistoricalFixture, inheritedFinancialCapabilities);
+    const catalogRepairApplied = applySupabaseMigrations(databaseUrl, 70, 70);
+    assert.deepEqual(catalogRepairApplied, ["0070"]);
+    assert.equal(queryScalar(databaseUrl, "SELECT app.data_governance_catalog_complete();"), "t");
+    const fenceRepairApplied = applySupabaseMigrations(databaseUrl, 71, 71);
+    assert.deepEqual(fenceRepairApplied, ["0071"]);
+    assertDataGovernanceFenceRepairPhase(databaseUrl);
+    // v59 structural and privilege checks remain at their historical phase.
+    // End-to-end flows run at v71 to cover the six onboarded tables and their
+    // installed write fences, including real calendar and checkout reservations.
+    assertDataSubjectGovernanceRedaction(databaseUrl);
+    assertTenantGovernanceDeletion(databaseUrl);
+    assertDataGovernanceActiveRequestCancelLifecycle(databaseUrl);
+    const videoAssetGovernanceApplied = applySupabaseMigrations(databaseUrl, 72, 72);
+    assert.deepEqual(videoAssetGovernanceApplied, ["0072"]);
+    await assertVideoAssetAssignmentGovernancePhase(databaseUrl);
+    const financialHistoricalFixture = seedHistoricalAiTimeoutReceipt(databaseUrl);
+    const inheritedFinancialCapabilities = queryJson(databaseUrl, asRoleSql("service_role", null,
+      "SELECT public.portal_schema_capabilities_service();"));
+    const financialRepairApplied = applySupabaseMigrations(databaseUrl, 73, 73);
+    assert.deepEqual(financialRepairApplied, ["0073"]);
+    assertAiUsageFinancialEvidenceRepairPhase(databaseUrl, financialHistoricalFixture, inheritedFinancialCapabilities);
+  }
   assert.deepEqual(applySupabaseMigrations(databaseUrl, 74, 74), ["0074"]);
   await assertHybridKnowledgePhase(databaseUrl);
-  const turnMigration = readFileSync(join(supabaseMigrationDirectory,"0075_conversation_turn_redaction_projector.sql"),"utf8");
-  const turnShapePreflight = turnMigration.slice(turnMigration.indexOf("do $known_turn_shape$"),turnMigration.indexOf("$known_turn_shape$;")+"$known_turn_shape$;".length);
-  assertFailed(runSql(databaseUrl,`BEGIN; ALTER TABLE public.conversation_turns ADD COLUMN unexpected_preexisting_content text; ${turnShapePreflight} COMMIT;`),"v75 refuses to enroll preexisting shape drift",/known conversation turn shape required/);
-  assert.deepEqual(applySupabaseMigrations(databaseUrl, 75, 75), ["0075"]);
-  assertConversationTurnRedactionPhase(databaseUrl);
+  if (!hostedProfile) {
+    const turnMigration = readFileSync(join(supabaseMigrationDirectory,"0075_conversation_turn_redaction_projector.sql"),"utf8");
+    const turnShapePreflight = turnMigration.slice(turnMigration.indexOf("do $known_turn_shape$"),turnMigration.indexOf("$known_turn_shape$;")+"$known_turn_shape$;".length);
+    assertFailed(runSql(databaseUrl,`BEGIN; ALTER TABLE public.conversation_turns ADD COLUMN unexpected_preexisting_content text; ${turnShapePreflight} COMMIT;`),"v75 refuses to enroll preexisting shape drift",/known conversation turn shape required/);
+    assert.deepEqual(applySupabaseMigrations(databaseUrl, 75, 75), ["0075"]);
+    assertConversationTurnRedactionPhase(databaseUrl);
+  }
   assert.equal(
     queryScalar(databaseUrl, `
       SELECT count(*)
@@ -299,14 +334,33 @@ try {
       WHERE coalesce(p.proconfig,'{}'::text[])
         @> ARRAY['lock_timeout=2s','statement_timeout=15s'];
     `),
-    "0",
-    "v75 still carries the timeout loss that v76 repairs (begin, mark and commit lost their SET)",
+    // Sem a 0073 (perfil do hospedado) o commit ainda tem o SET da 0049.
+    hostedProfile ? "1" : "0",
+    "the timeout loss that v76 repairs (begin and mark always, commit when 0073 ran)",
   );
   assert.deepEqual(applySupabaseMigrations(databaseUrl, 76, 76), ["0076"]);
   assertAiLedgerTimeoutsSurviveLaterRedefinitions(databaseUrl);
-  assertMigrationReceiptLineage(databaseUrl);
+  if (!hostedProfile) {
+    const capabilitiesBefore077 = queryJson(databaseUrl, asRoleSql("service_role", null, "SELECT public.portal_schema_capabilities_service();"));
+    assert.equal(capabilitiesBefore077.version, 73, "0074 to 0076 do not move the published schema version");
+    for (const name of SCHEMA_PUBLICATION_CAPABILITIES) {
+      assert.equal(capabilitiesBefore077[name], undefined, `${name} is invisible to the readiness gate before 0077`);
+    }
+    assert.deepEqual(applySupabaseMigrations(databaseUrl, 77, 77), ["0077"]);
+    assertSchemaCapabilityPublicationPhase(databaseUrl);
+  } else {
+    // Opção C do plano de integração: 0074 e 0076 sobre o schema hospedado (0058 mais 0060 a 0068,
+    // sem a cadeia de governança) não mudam a versão publicada, então o portão atual segue verde.
+    const hostedGate = queryJson(databaseUrl, asRoleSql("service_role", null, "SELECT public.portal_schema_capabilities_service();"));
+    assert.equal(hostedGate.version, 58, "0074 and 0076 leave the published schema version at the hosted value");
+    assert.equal(hostedGate.portalTextPreviewAuthorityRepair, true);
+    assert.equal(hostedGate.hybridKnowledgeRetrieval, undefined, "no capability promotion without 0077");
+  }
+  assertMigrationReceiptLineage(databaseUrl, hostedProfile ? HOSTED_PROFILE_SKIPPED_MIGRATIONS : new Set());
 
-  console.log("SUPABASE PORTAL INTEGRATION PASSED: migrations 0001-0076 in contiguous order, immutable checksums, grants, RLS, transcripts, reservations, data governance and readiness capability");
+  console.log(hostedProfile
+    ? "SUPABASE PORTAL INTEGRATION PASSED (hosted-without-governance profile): 0001-0058, 0060-0068, 0074 and 0076 over the hosted schema, published version unchanged"
+    : "SUPABASE PORTAL INTEGRATION PASSED: migrations 0001-0077 in contiguous order, immutable checksums, grants, RLS, transcripts, reservations, data governance and readiness capability");
 } catch (error) {
   primaryError = error;
   throw error;
@@ -582,11 +636,11 @@ function supabaseMigrationInventory() {
   const migrations = readdirSync(supabaseMigrationDirectory)
     .filter((name) => /^\d{4}_.+\.sql$/.test(name))
     .sort();
-  assert.equal(migrations.length, 76, "the harness must cover every Supabase-only migration through 0076");
+  assert.equal(migrations.length, 77, "the harness must cover every Supabase-only migration through 0077");
   assert.deepEqual(
     migrations.map((migration) => Number(migration.slice(0, 4))),
-    Array.from({ length: 76 }, (_, index) => index + 1),
-    "Supabase-only migration versions must be contiguous and unique from 0001 through 0076",
+    Array.from({ length: 77 }, (_, index) => index + 1),
+    "Supabase-only migration versions must be contiguous and unique from 0001 through 0077",
   );
   assert.equal(migrations[48], "0049_portal_text_preview_admission.sql");
   assert.equal(migrations[49], "0050_meeting_terminal_notification_claim.sql");
@@ -609,6 +663,7 @@ function supabaseMigrationInventory() {
   assert.equal(migrations[73], "0074_portal_hybrid_knowledge_retrieval.sql");
   assert.equal(migrations[74], "0075_conversation_turn_redaction_projector.sql");
   assert.equal(migrations[75], "0076_ai_usage_ledger_timeout_repair.sql");
+  assert.equal(migrations[76], "0077_schema_capability_publication.sql");
   assert.equal(migrationChecksum(migrations[48]), "79b24e7fdc768a30b02d3596b71799fae484043e37561ddfcd435f46076b3100");
   assert.equal(migrationChecksum(migrations[49]), "262e033328175f704f8cfef1cafdcb0a2ef9b9aac7e4cc86f2b33890044c7224");
   return migrations;
@@ -641,7 +696,7 @@ function assertBusinessActionMeetingSlotLookupPhase(databaseUrl) {
     "an unknown proposal id resolves to the declared not_found outcome");
 
   assert.equal(queryScalar(databaseUrl, asRoleSql("service_role", null,
-    "SELECT public.portal_schema_capabilities_service() ->> 'version';")), "59",
+    "SELECT public.portal_schema_capabilities_service() ->> 'version';")), hostedProfile ? "58" : "59",
   "0060 deliberately does not bump the schema capability version");
 }
 
@@ -726,7 +781,7 @@ function assertBusinessActionSessionMeetingSlotPhase(databaseUrl) {
   }
 
   assert.equal(queryScalar(databaseUrl, asRoleSql("service_role", null,
-    "SELECT public.portal_schema_capabilities_service() ->> 'version';")), "59",
+    "SELECT public.portal_schema_capabilities_service() ->> 'version';")), hostedProfile ? "58" : "59",
   "0061 deliberately does not bump the schema capability version");
 }
 
@@ -1918,10 +1973,10 @@ function assertBusinessActionCheckoutStripeConnectPhase(databaseUrl) {
   // agentAlpha fixture is never deleted for the same reason.
 }
 
-function assertMigrationReceiptLineage(databaseUrl) {
+function assertMigrationReceiptLineage(databaseUrl, skippedVersions = new Set()) {
   const expected = supabaseMigrationInventory().map((filename, index) => (
-    `${index + 1}|${filename}|${migrationChecksum(filename)}`
-  ));
+    skippedVersions.has(index + 1) ? null : `${index + 1}|${filename}|${migrationChecksum(filename)}`
+  )).filter((row) => row !== null);
   const actual = queryRows(databaseUrl, `
     SELECT version::text || '|' || filename || '|' || checksum_sha256
     FROM public.axtro_supabase_test_migrations
@@ -10917,6 +10972,48 @@ async function assertAiUsageConcurrencyCap(databaseUrl) {
   assert.equal(replay.reservationId, winner.id, "AI replay keeps the original reservation identity");
   assert.equal(queryScalar(databaseUrl, `SELECT count(*) FROM public.ai_usage_reservations WHERE tenant_id='${fixture.tenantGamma}' AND idempotency_key IN ('ai-cap-parallel-a','ai-cap-parallel-b');`), "1",
     "AI token cap cannot be oversubscribed by concurrent begins");
+}
+
+function assertSchemaCapabilityPublicationPhase(databaseUrl) {
+  const capabilities = queryJson(databaseUrl, asRoleSql("service_role", null, "SELECT public.portal_schema_capabilities_service();"));
+  assert.equal(capabilities.version, 77);
+  for (const name of READINESS_INTEGRATION_CAPABILITIES) {
+    assert.equal(capabilities[name], true, `${name} must be published true by the final schema`);
+  }
+  assert.equal(capabilities.portalTextPreviewAuthorityRepair, true, "the authority repair proof is inherited");
+  assert.equal(capabilities.aiUsageTimeoutSettlementEnabled, false, "inherited flags keep their values");
+  assert.equal(queryScalar(databaseUrl, `
+    SELECT count(*) FROM pg_proc p JOIN pg_namespace n ON n.oid=p.pronamespace
+    WHERE n.nspname='app' AND p.proname='portal_schema_capabilities_v73';
+  `), "1", "the previous capability function stays chained under the app schema");
+  assert.equal(queryScalar(databaseUrl, `
+    SELECT count(*) FROM information_schema.routine_privileges
+    WHERE specific_schema='public' AND routine_name='portal_schema_capabilities_service'
+      AND grantee IN ('PUBLIC','anon','authenticated');
+  `), "0", "only service_role may read the published capabilities");
+  // Cada flag cai quando o objeto que ela prova some. A mutação roda numa
+  // transação que sempre termina em ROLLBACK, então o catálogo não muda.
+  const flagWithin = (mutation, flag) => queryRows(databaseUrl, `
+    BEGIN; ${mutation} SELECT public.portal_schema_capabilities_service()->>'${flag}'; ROLLBACK;
+  `).filter((line) => line === "true" || line === "false").at(-1);
+  assert.equal(flagWithin("DROP INDEX public.knowledge_chunks_simple_fts;", "hybridKnowledgeRetrieval"), "false",
+    "hybridKnowledgeRetrieval falls when the FTS index is gone");
+  assert.equal(flagWithin("DROP FUNCTION public.portal_search_knowledge_hybrid_service(app.uuid_v7,text,jsonb,integer);", "hybridKnowledgeRetrieval"), "false",
+    "hybridKnowledgeRetrieval falls when the service RPC is gone");
+  assert.equal(flagWithin("ALTER TABLE public.conversation_turns DISABLE TRIGGER conversation_turns_append_only;", "conversationTurnRedactionProjector"), "false",
+    "conversationTurnRedactionProjector falls when the append-only guard is disabled");
+  for (const signature of [
+    "public.portal_begin_ai_usage_reservation_service(app.uuid_v7,app.uuid_v7,app.uuid_v7,app.uuid_v7,app.uuid_v7,text,text,integer,integer,numeric)",
+    "public.portal_mark_ai_usage_in_flight_service(app.uuid_v7)",
+    "public.portal_commit_ai_usage_service(app.uuid_v7,integer,integer,numeric)",
+    "public.portal_release_ai_usage_service(app.uuid_v7,text)",
+    "public.portal_mark_ai_usage_unknown_service(app.uuid_v7,text)",
+  ]) {
+    assert.equal(flagWithin(`ALTER FUNCTION ${signature} RESET lock_timeout;`, "aiLedgerTimeoutsBounded"), "false", `aiLedgerTimeoutsBounded falls when ${signature} loses its lock_timeout`);
+  }
+  for (const name of SCHEMA_PUBLICATION_CAPABILITIES) {
+    assert.equal(queryJson(databaseUrl, asRoleSql("service_role", null, "SELECT public.portal_schema_capabilities_service();"))[name], true, `${name} is intact after the rolled-back mutations`);
+  }
 }
 
 // CREATE OR REPLACE FUNCTION troca a configuração por função (proconfig) pela

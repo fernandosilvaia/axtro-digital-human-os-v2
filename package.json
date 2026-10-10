@@ -24,6 +24,7 @@
     "db:test": "pnpm build && node scripts/database-integration.mjs",
     "db:rls": "pnpm build && node scripts/rls-integration.mjs",
     "db:portal:test": "pnpm build && node scripts/supabase-portal-integration.mjs",
+    "db:portal:test:hosted-profile": "pnpm build && AXTRO_HARNESS_PROFILE=hosted-without-governance node scripts/supabase-portal-integration.mjs",
     "production:bootstrap": "node scripts/production-readiness-bootstrap.mjs",
     "quality:closer": "pnpm build && node experiments/closer-lab/run.mjs"
   },
