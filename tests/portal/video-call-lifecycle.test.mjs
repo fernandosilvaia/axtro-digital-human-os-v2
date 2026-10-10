@@ -356,6 +356,16 @@ for (const mode of ["video", "presentation"]) {
     await h.start();
     assert.equal(h.starts.length, 2); assert.equal(h.calls.length, 2); assert.ok(h.button(/^Encerrar$/)); h.unmount();
   });
+  test(`${mode}: a join that never settles ends in recovery with a stop option instead of hanging in starting`, async () => {
+    const join = deferred(), h = harness(mode, {join});
+    await h.start();
+    assert.equal(h.starts.length, 1); assert.equal(h.button(/^Tentar encerrar/), undefined);
+    h.fireTimers(); await h.settle();
+    assert.ok(h.button(/^Tentar encerrar/), "the paid room is committed, so the user must be able to stop it");
+    assert.equal(h.calls[0].leaves, 1); assert.equal(h.calls[0].destroys, 1);
+    assert.equal(h.stored.values.size, 1, "the intent is preserved for stop or reconciliation");
+    join.resolve(); await flush(); assert.equal(h.calls[0].destroys, 1); h.unmount();
+  });
   test(`${mode}: unmounting while the previous teardown is pending never reaches the paid action`, async () => {
     const leave = deferred(), h = harness(mode, {strictRegistry: true, leave}); await h.start();
     h.click(/^Encerrar$/); await h.settle(); h.click(/^Nova/); await h.settle();

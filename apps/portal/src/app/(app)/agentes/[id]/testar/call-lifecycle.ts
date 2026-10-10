@@ -49,6 +49,14 @@ const completionSubscribers = new Map<string, Set<(commandId: string) => void>>(
 // any paid effect, for the previous teardown to settle, and refuses if it does not.
 const TEARDOWN_WAIT_MS = 4_000;
 let previousTeardown: Promise<unknown> = Promise.resolve();
+// join() can hang (blocked network, stalled call machine) with the paid room already
+// committed. Without a deadline the screen stays in "starting" with no way to stop it.
+const JOIN_TIMEOUT_MS = 30_000;
+function withDeadline<T>(operation: Promise<T>, milliseconds: number): Promise<T> {
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const deadline = new Promise<never>((_resolve, reject) => { timer = setTimeout(() => reject(new Error("call join deadline exceeded")), milliseconds); });
+  return Promise.race([operation, deadline]).finally(() => { if (timer !== undefined) clearTimeout(timer); });
+}
 const PREVIOUS_CALL_STILL_CLOSING = "A chamada anterior ainda está sendo encerrada neste navegador. Aguarde alguns segundos e tente de novo.";
 async function previousCallReleased(): Promise<boolean> {
   let timer: ReturnType<typeof setTimeout> | undefined;
@@ -312,7 +320,7 @@ export function useCallLifecycle<T extends StartResult>({ tenantId, agentId, mod
           setPhase("recovery");
           setError("A sala foi desconectada nesta tela. Confirme o pedido de encerramento para liberar uma nova chamada.");
         }) as never);
-        await call.join({ url: result.url });
+        await withDeadline(call.join({ url: result.url }), JOIN_TIMEOUT_MS);
         if (currentCall(attempt, call)) setPhase("live");
         else dispose(attempt);
       } catch {
