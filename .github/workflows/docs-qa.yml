@@ -247,3 +247,8 @@ jobs:
           AXTRO_LOCAL_DATABASE_URL: postgresql://postgres@127.0.0.1:5432/postgres
           AXTRO_ALLOW_LOCAL_DATABASE_URL: "1"
         run: pnpm db:portal:test
+      - name: Apply and test the hosted-without-governance profile (0058, 0060-0068, 0074, 0076)
+        env:
+          AXTRO_LOCAL_DATABASE_URL: postgresql://postgres@127.0.0.1:5432/postgres
+          AXTRO_ALLOW_LOCAL_DATABASE_URL: "1"
+        run: pnpm db:portal:test:hosted-profile
