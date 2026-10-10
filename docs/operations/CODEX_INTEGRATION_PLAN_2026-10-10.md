@@ -109,7 +109,17 @@ Registro de evidência (modelo no fim do M5-01), atualização de `PROGRESS.md`,
 
 Aplica só 0074 e 0076 no hospedado e publica um recorte do código. O schema continua com `version` 58, então o portão atual segue verde com o build antigo e com o novo.
 
-O recorte de código precisa **sem** a troca dos botões de exclusão (`agent-delete-button.tsx`, `source-actions.tsx`, texto em `conhecimento/page.tsx`), que dependem da 0059. As demais mudanças de aplicação não dependem da cadeia: `setAgentVideoConfig` relê a persona armazenada e a reenvia, e funciona com a RPC antiga e com a da 0072 [V]. Custo da C: manter dois recortes até a governança entrar, e a cadeia 0059 a 0073 continua pendente. Pré-requisito: P0.4.
+**A Opção C custa mais do que parecia.** O código da pilha trocou três telas por versões que só fazem sentido com a governança aplicada, e as três precisam ser revertidas no recorte [V, leitura do diff]:
+
+| Tela | O que o código novo faz | Efeito num hospedado sem a cadeia |
+|---|---|---|
+| `agent-delete-button.tsx` | Troca o botão de excluir agente por texto "indisponível" | Perde a exclusão que ainda funciona |
+| `source-actions.tsx` e `conhecimento/page.tsx` | Remove a exclusão de fonte | Idem |
+| `video-config.tsx` e `agent-video-config.ts` | Remove o formulário de persona e réplica (self-service da D-V2-179) e mostra "onboarding governado pendente" | Perde o cadastro de persona que a 0068 liberou; só a 0072 faz o servidor recusar |
+
+As demais mudanças de aplicação funcionam nos dois schemas (`setAgentVideoConfig` relê a persona armazenada e a reenvia, aceita pela RPC antiga e pela da 0072) [V]. O custo da C é manter um recorte divergente da pilha até a governança entrar, e a cadeia 0059 a 0073 continua pendente. Por isso a recomendação continua sendo a B; a C só vale se D1 for "não agora".
+
+Prova disponível: o perfil `hosted-without-governance` do harness (`pnpm db:portal:test:hosted-profile`) aplica 0001 a 0058, 0060 a 0068, 0074 e 0076 e confirma que a versão publicada continua 58 [ver seção 10].
 
 ## 7. Rollback e modos de falha
 
@@ -185,3 +195,18 @@ pnpm lint && pnpm typecheck && pnpm test && pnpm build
 pnpm db:portal:test        # PostgreSQL 0001 a 0076
 git merge-tree --write-tree --name-only HEAD claude/awesome-hermann-bacade   # conflito só no harness
 ```
+
+## 10. Andamento da preparação (Fase 0)
+
+Branch local `integration/codex-2026-10`, criada a partir da pilha, sem push. Atualizado em 2026-10-10.
+
+| Item | Estado | Evidência |
+|---|---|---|
+| P0.1 integrar `49394b2` e `af90f21` | feito | Conflito só no harness, resolvido mantendo o fixture de efeitos do Codex e o de 3 admins; PostgreSQL 0001 a 0076 passou no branch mesclado |
+| P0.2 migration 0077 | feito | `0077_schema_capability_publication.sql`: `version` 77 e três flags calculadas do catálogo; o harness prova que cada flag cai quando o objeto some (mutação com rollback) e que as outras 9 capabilities da cadeia estão publicadas |
+| P0.3 portão | feito | `route.ts` e `production-readiness-bootstrap.mjs` exigem as 12 capabilities de integração e aceitam v77; a v58 hospedada hoje e as versões 59 a 76 e 78 são recusadas; mutação (remover uma capability do portão) derruba 2 testes |
+| P0.4 perfil `hosted-without-governance` | em validação | Primeira execução expôs asserções que esperavam a versão 59 depois da 0060 e da 0061; corrigidas para o perfil |
+| P0.5 sondas do preflight | pendente | Revisar o anexo B com o operador de banco |
+| P0.6 runbook da janela | pendente | Derivar da seção 5 |
+
+Decisão de projeto do portão: o build novo passa a recusar o schema v58 de propósito. Se a janela falhar entre as migrations e o deploy, o build antigo continua no ar (o Railway não o derruba), mas o build novo não sobe contra um schema sem a busca híbrida. Isso troca "RAG vazio em silêncio" por "deploy bloqueado com erro explícito".
