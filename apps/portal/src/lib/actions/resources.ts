@@ -13,6 +13,8 @@ import {
 import { sendAgentActivatedEmail } from "@/lib/email";
 import {
   assertEmbeddingInputsWithinReservedBudget,
+  assertEmbeddingProviderConfigured,
+  assertKnowledgeChunksDispatchable,
   chunkContent,
   contentSha256,
   embedChunks,
@@ -153,12 +155,22 @@ async function ingestContentForSource(
     // caracteres poderia gastar acima dos 20k tokens e só falhar no commit.
     if (!fakeMode) {
       try {
+        assertKnowledgeChunksDispatchable(texts);
+      } catch {
+        return "o conteúdo não tem texto aproveitável ou excede o limite de uma ingestão; revise o conteúdo antes de tentar novamente.";
+      }
+      try {
         assertEmbeddingInputsWithinReservedBudget(
           texts,
           AI_USAGE_LIMITS.knowledge_ingestion_embedding.maxInputTokens,
         );
       } catch {
         return "o conteúdo excede o limite seguro de ingestão para esta conta; reduza-o antes de tentar novamente.";
+      }
+      try {
+        assertEmbeddingProviderConfigured(process.env.OPENROUTER_API_KEY ?? "");
+      } catch {
+        return "o provedor de embeddings não está configurado nesta conta; nenhum custo foi gerado.";
       }
     }
     const embedded = fakeMode

@@ -64,6 +64,11 @@ test("paid outliers stay closed and enabled AI surfaces validate before dispatch
   const ingestReservation = resourceActions.indexOf("executeReservedAiUsage({");
   assert.equal(ingestPreflight >= 0 && ingestPreflight < ingestReservation, true,
     "knowledge input must be bounded before its reservation can reach OpenRouter");
+  for (const validator of ["assertKnowledgeChunksDispatchable(", "assertEmbeddingProviderConfigured("]) {
+    const position = resourceActions.lastIndexOf(validator);
+    assert.equal(position >= 0 && position < ingestReservation, true,
+      `${validator} must run before the reservation: a local provider refusal after the fence would leave the tenant blocked`);
+  }
   assert.match(
     agentPreview,
     /return Object\.freeze\(\{[\s\S]*outcome: "failure"[\s\S]*reply: null[\s\S]*error: PORTAL_TEXT_PREVIEW_RECOVERY_MESSAGE[\s\S]*stateToken: null[\s\S]*persistence: "disabled"/,

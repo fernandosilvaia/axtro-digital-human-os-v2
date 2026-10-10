@@ -20,7 +20,13 @@ export const EMBEDDING_DIMENSIONS = 1536;
 export const MAX_CONTENT_CHARS = 80_000;
 export const MAX_EMBEDDING_QUERY_CHARS = 4_000;
 const TARGET_CHUNK_CHARS = 1200;
-const EMBED_BATCH_SIZE = 32;
+// Igual ao teto de entradas por requisição do adapter OpenRouter. Uma reserva
+// paga é UMA tentativa ao provider: com o envelope de 20k bytes um documento
+// nunca passa de ~34 chunks, então um único POST cobre qualquer conteúdo
+// admitido. Dois POSTs sob a mesma reserva deixariam o primeiro cobrado sem
+// registro se o segundo falhasse (COST-04: uma tentativa paga por reserva).
+export const EMBED_BATCH_SIZE = 64;
+const MAX_CHUNK_CHARS_FOR_PROVIDER = 8_000;
 
 /** Modo demonstração sem chaves (T3): providers viram fakes determinísticos. */
 export function fakeProvidersEnabled(): boolean {
@@ -77,7 +83,10 @@ export function chunkContent(content: string): string[] {
     if (paragraph.length > TARGET_CHUNK_CHARS) {
       flush();
       for (let offset = 0; offset < paragraph.length; offset += TARGET_CHUNK_CHARS) {
-        chunks.push(paragraph.slice(offset, offset + TARGET_CHUNK_CHARS));
+        const slice = paragraph.slice(offset, offset + TARGET_CHUNK_CHARS);
+        // Uma sequência longa de espaços dentro do parágrafo gera uma fatia em
+        // branco, que o provider recusaria depois de a reserva cruzar a fence.
+        if (slice.trim().length > 0) chunks.push(slice);
       }
       continue;
     }
@@ -96,6 +105,28 @@ export function chunkContent(content: string): string[] {
 
 export function contentSha256(content: string): string {
   return createHash("sha256").update(content, "utf8").digest("hex");
+}
+
+/**
+ * Prova, antes da fence de dispatch, tudo o que o adapter do provider recusaria
+ * localmente: lote vazio ou acima de uma requisição, chunk em branco ou acima do
+ * limite por entrada. Um erro local depois da fence deixaria a reserva `unknown`
+ * sem nenhuma chamada ao provider, e o tenant ficaria bloqueado até reconciliação.
+ */
+export function assertKnowledgeChunksDispatchable(texts: readonly string[]): void {
+  if (texts.length === 0 || texts.length > EMBED_BATCH_SIZE) {
+    throw new Error(`knowledge ingestion needs 1..${EMBED_BATCH_SIZE} chunks, got ${texts.length}`);
+  }
+  for (const text of texts) {
+    if (text.trim().length === 0 || text.length > MAX_CHUNK_CHARS_FOR_PROVIDER) {
+      throw new Error("knowledge chunk is blank or exceeds the provider input limit");
+    }
+  }
+}
+
+/** A mesma regra de credencial do adapter, sem rede, para falhar antes da fence. */
+export function assertEmbeddingProviderConfigured(apiKey: string): void {
+  createOpenRouterEmbeddingPort({ apiKey, appUrl: "https://portal-production-b43e.up.railway.app", appTitle: "Axtro Digital Human OS" });
 }
 
 /**

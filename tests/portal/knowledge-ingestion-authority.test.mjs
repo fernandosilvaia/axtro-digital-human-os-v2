@@ -26,6 +26,8 @@ function load(options = {}) {
       MAX_CONTENT_CHARS: 10000, fakeProvidersEnabled: () => options.fake === true,
       contentSha256: () => 'a'.repeat(64), chunkContent: () => ['synthetic content'],
       assertEmbeddingInputsWithinReservedBudget() {},
+      assertKnowledgeChunksDispatchable() {if (options.blankChunks) throw new Error('blank chunk');},
+      assertEmbeddingProviderConfigured() {if (options.noProvider) throw new Error('no provider key');},
       async embedChunks() {calls.push('provider'); return {chunks: [], inputTokens: 10};},
     }],
     ['@/lib/ai-budget/reservations', {
@@ -53,6 +55,19 @@ for (const fake of [false, true]) {
     assert.ok(h.calls.indexOf('portal_list_knowledge_sources') < h.calls.indexOf('provider'));
     assert.ok(h.calls.includes('portal_ingest_knowledge'));
     assert.equal(h.calls.includes('reserve'), !fake);
+  });
+}
+
+// Qualquer erro local do adapter depois da fence deixaria a reserva `unknown` sem
+// chamada de rede e bloquearia o tenant: o que o provider recusaria é provado antes.
+for (const [label, options] of [['blank chunk', {blankChunks: true}], ['missing provider key', {noProvider: true}]]) {
+  test(`${label} is refused before any reservation or provider call`, async () => {
+    const h = load({...options, fake: false, sources: [{id, status: 'pending'}]});
+    const result = await h.run();
+    assert.equal(result.done, false);
+    assert.equal(h.calls.includes('reserve'), false);
+    assert.equal(h.calls.includes('provider'), false);
+    assert.equal(h.calls.includes('portal_ingest_knowledge'), false);
   });
 }
 

@@ -81,6 +81,55 @@ test("chunkContent: nunca produz chunk vazio, mesmo com múltiplas quebras de li
   assert.deepEqual(chunks, ["p1\n\np2\n\np3"]);
 });
 
+test("chunkContent: sequência longa de espaços dentro de um parágrafo não gera fatia em branco", () => {
+  // O provider recusa entrada em branco. Depois da fence isso deixaria a reserva
+  // `unknown` sem nenhuma chamada de rede e bloquearia o tenant.
+  const content = `Politica de precos A${" ".repeat(2600)}fim do paragrafo.`;
+  const chunks = knowledge.chunkContent(content);
+  assert.ok(chunks.length >= 2, "o parágrafo longo continua sendo fatiado");
+  for (const chunk of chunks) assert.ok(chunk.trim().length > 0, "nenhuma fatia pode ser só espaço");
+  assert.doesNotThrow(() => knowledge.assertKnowledgeChunksDispatchable(chunks));
+});
+
+test("assertKnowledgeChunksDispatchable: recusa o que o adapter recusaria depois da fence", () => {
+  assert.doesNotThrow(() => knowledge.assertKnowledgeChunksDispatchable(["texto normal"]));
+  assert.throws(() => knowledge.assertKnowledgeChunksDispatchable([]), /needs 1\.\./);
+  assert.throws(() => knowledge.assertKnowledgeChunksDispatchable(["ok", "   \n\t "]), /blank/);
+  assert.throws(() => knowledge.assertKnowledgeChunksDispatchable(["x".repeat(8001)]), /exceeds/);
+  const tooMany = Array.from({ length: knowledge.EMBED_BATCH_SIZE + 1 }, (_, index) => `chunk ${index}`);
+  assert.throws(() => knowledge.assertKnowledgeChunksDispatchable(tooMany), /needs 1\.\./);
+});
+
+test("assertEmbeddingProviderConfigured: chave ausente ou curta falha sem rede", () => {
+  assert.throws(() => knowledge.assertEmbeddingProviderConfigured(""), /not configured/);
+  assert.throws(() => knowledge.assertEmbeddingProviderConfigured("1234567"), /not configured/);
+  assert.doesNotThrow(() => knowledge.assertEmbeddingProviderConfigured("sk-or-v1-aaaaaaaa"));
+});
+
+test("embedChunks: o maior documento admitido pelo envelope sai em UM único POST", withRealProviders(async () => {
+  // 33 parágrafos de 601 caracteres: nenhum par cabe junto, então são 33 chunks.
+  // Com lotes de 32 eram 2 POSTs sob a mesma reserva; se o segundo falhasse, o
+  // primeiro já estaria cobrado sem nenhum registro.
+  const content = Array.from({ length: 33 }, (_, index) => String.fromCharCode(97 + (index % 26)).repeat(601)).join("\n\n");
+  const texts = knowledge.chunkContent(content);
+  assert.equal(texts.length, 33);
+  assert.doesNotThrow(() => knowledge.assertKnowledgeChunksDispatchable(texts));
+  assert.doesNotThrow(() => knowledge.assertEmbeddingInputsWithinReservedBudget(texts, 20000));
+  let posts = 0;
+  globalThis.fetch = async (_url, init) => {
+    posts += 1;
+    const body = JSON.parse(init.body);
+    return new Response(JSON.stringify({
+      model: "openai/text-embedding-3-small",
+      data: body.input.map((_, index) => ({ index, embedding: new Array(1536).fill(0.01) })),
+      usage: { prompt_tokens: 100 * body.input.length, cost: 0.000002 * body.input.length },
+    }), { status: 200 });
+  };
+  const result = await knowledge.embedChunks("sk-or-v1-aaaaaaaaaaaa", texts, 20000);
+  assert.equal(posts, 1);
+  assert.equal(result.chunks.length, 33);
+}));
+
 // ---------------------------------------------------------------------------
 // contentSha256
 // ---------------------------------------------------------------------------
@@ -196,7 +245,7 @@ test("embedChunks (real): chama o endpoint de embeddings e devolve vetores na or
   assert.deepEqual(result.chunks[1].e, new Array(1536).fill(2));
 }));
 
-test("embedChunks (real): mais textos que o tamanho de lote (32) disparam múltiplas chamadas, todas somadas na ordem certa", withRealProviders(async () => {
+test("embedChunks (real): até o tamanho de lote (64) vai em uma chamada; acima disso (só scripts) divide e soma na ordem certa", withRealProviders(async () => {
   const calls = [];
   globalThis.fetch = async (url, init) => {
     calls.push(init);
@@ -207,11 +256,17 @@ test("embedChunks (real): mais textos que o tamanho de lote (32) disparam múlti
       usage: { prompt_tokens: 5, total_tokens: 5 },
     }), { status: 200 });
   };
-  const texts = Array.from({ length: 40 }, (_, i) => `chunk-${i}`);
+  const within = Array.from({ length: knowledge.EMBED_BATCH_SIZE }, (_, i) => `chunk-${i}`);
+  const single = await knowledge.embedChunks("test-openrouter-key-0000000000000000", within);
+  assert.equal(calls.length, 1, "um lote cheio deve ser uma única chamada");
+  assert.equal(single.chunks.length, knowledge.EMBED_BATCH_SIZE);
+
+  calls.length = 0;
+  const texts = Array.from({ length: knowledge.EMBED_BATCH_SIZE + 6 }, (_, i) => `chunk-${i}`);
   const result = await knowledge.embedChunks("test-openrouter-key-0000000000000000", texts);
-  assert.equal(calls.length, 2, "40 textos com lote de 32 deveria disparar 2 chamadas");
+  assert.equal(calls.length, 2, "acima do lote a biblioteca ainda divide (a ingestão paga recusa isso antes da fence)");
   assert.equal(result.inputTokens, 10, "tokens das 2 chamadas devem ser somados");
-  assert.equal(result.chunks.length, 40);
+  assert.equal(result.chunks.length, texts.length);
   result.chunks.forEach((chunk, index) => {
     assert.equal(chunk.i, index);
     assert.equal(chunk.t, texts[index]);
