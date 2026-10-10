@@ -1670,6 +1670,11 @@ begin
   if not found then
     raise exception 'request is not approval pending' using errcode='55000';
   end if;
+  if p_decision='approve' and v_request.scope='tenant'
+     and v_request.requested_by_actor_id is not null
+     and v_member.actor_id=v_request.requested_by_actor_id then
+    raise exception 'the request author cannot approve their own tenant deletion request' using errcode='42501';
+  end if;
   select * into v_existing from public.data_governance_approvals
   where tenant_id=v_member.tenant_id and request_id=p_request_id and id=p_approval_id;
   if found then

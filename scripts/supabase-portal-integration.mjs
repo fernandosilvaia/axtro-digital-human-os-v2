@@ -2302,8 +2302,10 @@ function assertTenantGovernanceDeletion(databaseUrl) {
   const tenantId = governanceUuid(900);
   const adminOne = "20000000-0000-4000-8000-000000000001";
   const adminTwo = "20000000-0000-4000-8000-000000000002";
+  const adminThree = "20000000-0000-4000-8000-000000000004";
   const actorOne = governanceUuid(901);
   const actorTwo = governanceUuid(902);
+  const actorThree = governanceUuid(911);
   const usageId = governanceUuid(903);
   const inviteId = "24013b44-df35-4a46-a4d7-09307693aee4";
   const ids = Object.freeze({
@@ -2311,13 +2313,15 @@ function assertTenantGovernanceDeletion(databaseUrl) {
     policyDecision: governanceUuid(905),
     approvalOne: governanceUuid(906),
     approvalTwo: governanceUuid(907),
+    selfApproval: governanceUuid(912),
     worker: governanceUuid(908),
     finalReceipt: governanceUuid(909),
   });
   assertSucceeded(runSql(databaseUrl, `
     INSERT INTO auth.users(id,email) VALUES
       ('${adminOne}','m6-04-tenant-admin-one@example.test'),
-      ('${adminTwo}','m6-04-tenant-admin-two@example.test');
+      ('${adminTwo}','m6-04-tenant-admin-two@example.test'),
+      ('${adminThree}','m6-04-tenant-admin-three@example.test');
     INSERT INTO public.tenants(
       id,slug,legal_name,status,home_region,default_language,default_timezone
     ) VALUES(
@@ -2325,7 +2329,8 @@ function assertTenantGovernanceDeletion(databaseUrl) {
     );
     INSERT INTO public.user_tenant_memberships(user_id,tenant_id,actor_id,role) VALUES
       ('${adminOne}','${tenantId}','${actorOne}','tenant_admin'),
-      ('${adminTwo}','${tenantId}','${actorTwo}','tenant_admin');
+      ('${adminTwo}','${tenantId}','${actorTwo}','tenant_admin'),
+      ('${adminThree}','${tenantId}','${actorThree}','tenant_admin');
     INSERT INTO public.usage_ledger(
       tenant_id,id,period_start,period_end,metric,quantity,source_event_count
     ) VALUES(
@@ -2338,7 +2343,7 @@ function assertTenantGovernanceDeletion(databaseUrl) {
       '${inviteId}','${tenantId}','m6-04-pending-invite@example.test',
       'tenant_operator','pending','${adminOne}'
     );
-  `), "seed an isolated two-admin tenant with retained-source history");
+  `), "seed an isolated three-admin tenant (requester plus two distinct approvers) with retained-source history");
   const untouchedBeta = queryJson(databaseUrl, `
     SELECT jsonb_build_object(
       'state',data_governance_state,'status',status,'writeEpoch',data_write_epoch,
@@ -2391,7 +2396,7 @@ function assertTenantGovernanceDeletion(databaseUrl) {
       '${prepared.inventoryVersion}','${prepared.inventoryFingerprint}','${fingerprints.commandFingerprint}'
     );
   `)).state, "requested");
-  for (const userId of [adminOne, adminTwo]) {
+  for (const userId of [adminOne, adminTwo, adminThree]) {
     assert.equal(queryJson(databaseUrl, asRoleSql("authenticated", userId, `
       SELECT public.portal_data_governance_active_request_authenticated();
     `)).requestId, ids.request, "either tenant_admin must be able to discover the active request, not only the one who opened it");
@@ -2414,8 +2419,22 @@ function assertTenantGovernanceDeletion(databaseUrl) {
   assert.equal(statusAfterPolicy.requiredApprovals, 2, "tenant-scope disposition always requires two distinct current tenant_admin approvals");
   assert.equal(statusAfterPolicy.approvedCount, 0);
   assert.equal(statusAfterPolicy.deniedCount, 0);
+  // Separation of duties (ADR-046): the admin who opened an irreversible tenant
+  // closure can never be one of the two approvers, even though they are a
+  // current tenant_admin. The rejection must leave no approval row behind.
+  assertFailed(runSql(databaseUrl, asRoleSql("authenticated", adminOne, `
+    SELECT public.portal_approve_data_governance_authenticated(
+      '${ids.request}','${ids.selfApproval}','approve','${fingerprints.commandFingerprint}'
+    );
+  `)), "the request author cannot approve their own tenant deletion request", /the request author cannot approve their own tenant deletion request/);
+  assert.equal(queryScalar(databaseUrl,
+    `SELECT count(*) FROM public.data_governance_approvals WHERE request_id='${ids.request}';`), "0",
+  "a rejected self-approval records nothing");
+  assert.equal(queryScalar(databaseUrl,
+    `SELECT state FROM public.data_governance_requests WHERE id='${ids.request}';`), "approval_pending",
+  "a rejected self-approval has no state side effect");
   let approvedSoFar = 0;
-  for (const [userId, approvalId] of [[adminOne, ids.approvalOne], [adminTwo, ids.approvalTwo]]) {
+  for (const [userId, approvalId] of [[adminTwo, ids.approvalOne], [adminThree, ids.approvalTwo]]) {
     assert.equal(queryJson(databaseUrl, asRoleSql("authenticated", userId, `
       SELECT public.portal_approve_data_governance_authenticated(
         '${ids.request}','${approvalId}','approve','${fingerprints.commandFingerprint}'
