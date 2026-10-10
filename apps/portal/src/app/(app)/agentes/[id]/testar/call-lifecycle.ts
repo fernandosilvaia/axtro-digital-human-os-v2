@@ -41,6 +41,24 @@ const COMMAND_UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0
 
 // Only a typed completion, never storage absence, releases another mounted owner.
 const completionSubscribers = new Map<string, Set<(commandId: string) => void>>();
+
+// daily-js 0.91 keeps one global registry of call objects. destroy() awaits leave()
+// and only then frees the entry, so while a previous teardown is pending (or its
+// leave never settles) createCallObject() throws "Duplicate DailyIframe instances".
+// That throw would land AFTER the paid start. The next start therefore waits, before
+// any paid effect, for the previous teardown to settle, and refuses if it does not.
+const TEARDOWN_WAIT_MS = 4_000;
+let previousTeardown: Promise<unknown> = Promise.resolve();
+const PREVIOUS_CALL_STILL_CLOSING = "A chamada anterior ainda está sendo encerrada neste navegador. Aguarde alguns segundos e tente de novo.";
+async function previousCallReleased(): Promise<boolean> {
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const timeout = new Promise<boolean>((resolve) => { timer = setTimeout(() => resolve(false), TEARDOWN_WAIT_MS); });
+  try {
+    return await Promise.race([previousTeardown.then(() => true, () => true), timeout]);
+  } finally {
+    if (timer !== undefined) clearTimeout(timer);
+  }
+}
 function closedEffect(result: StartResult) {
   const effect = result.effect;
   if (effect?.schema_version !== "2.0.0" || Object.keys(effect).length !== 2) return null;
@@ -98,9 +116,11 @@ export function useCallLifecycle<T extends StartResult>({ tenantId, agentId, mod
     const call = attempt.call;
     if (!call) return;
     // Both operations are attempted once, including when leave rejects or throws.
-    // Destroy must not wait for a leave promise that may never settle.
-    void (async () => { try { await call.leave(); } catch { /* local cleanup remains best effort */ } })();
-    void (async () => { try { await call.destroy(); } catch { /* remote recovery remains independent */ } })();
+    // destroy() itself awaits leave() in daily-js, so the registry entry is only
+    // freed once the pair settles: the next start waits on previousTeardown.
+    const leaving = (async () => { try { await call.leave(); } catch { /* local cleanup remains best effort */ } })();
+    const destroying = (async () => { try { await call.destroy(); } catch { /* remote recovery remains independent */ } })();
+    previousTeardown = Promise.all([previousTeardown, leaving, destroying]);
   }, []);
 
   const clearCommand = useCallback((commandId: string) => {
@@ -220,18 +240,30 @@ export function useCallLifecycle<T extends StartResult>({ tenantId, agentId, mod
     setMuted(false);
     setPhase("starting");
     void (async () => {
+      const forgetNotStartedCommand = () => {
+        const storage = storageRef.current;
+        if (storage) clearCommand(commandId);
+        else {
+          const recoveryStorage = window.sessionStorage;
+          if (recoveryStorage.getItem(key) === commandId) recoveryStorage.removeItem(key);
+        }
+        for (const listener of completionSubscribers.get(key) ?? []) listener(commandId);
+      };
       try {
+        // Nothing paid has been dispatched yet, so every early exit may forget the intent.
+        const released = await previousCallReleased();
+        if (!released || !current(attempt)) {
+          forgetNotStartedCommand();
+          if (current(attempt)) {
+            attemptRef.current = null;
+            setError(released ? "A chamada não foi iniciada." : PREVIOUS_CALL_STILL_CLOSING);
+            setPhase("idle");
+          }
+          return;
+        }
         const result = await startAction(agentId, commandId, consent);
         // An explicit predispatch denial can be forgotten even after unmount.
-        if (isProvenNotStarted(result)) {
-          const storage = storageRef.current;
-          if (storage) clearCommand(commandId);
-          else {
-            const recoveryStorage = window.sessionStorage;
-            if (recoveryStorage.getItem(key) === commandId) recoveryStorage.removeItem(key);
-          }
-          for (const listener of completionSubscribers.get(key) ?? []) listener(commandId);
-        }
+        if (isProvenNotStarted(result)) forgetNotStartedCommand();
         if (!current(attempt)) return;
         if (result.simulated && isProvenNotStarted(result) && acceptResult?.(result)) {
           attempt.simulated = true;

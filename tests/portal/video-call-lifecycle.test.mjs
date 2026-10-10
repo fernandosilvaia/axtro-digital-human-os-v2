@@ -20,7 +20,9 @@ function harness(mode, options = {}) {
   const hooks = [], nodes = new Map(), effects = [];
   let index = 0, dirty = false, mounted = true, tree, commands = 0;
   const stored = options.storage ?? storage();
-  const state = { calls: [], starts: [], stops: [], dispatches: [], imports: 0, logs: [], tree: () => tree, stored };
+  const state = { calls: [], starts: [], stops: [], dispatches: [], imports: 0, logs: [], timers: [], registry: new Set(), tree: () => tree, stored };
+  // Deterministic timers: nothing fires on its own, the test decides when the wait expires.
+  state.fireTimers = () => { const due = state.timers.splice(0); for (const timer of due) if (!timer.cleared) timer.callback(); };
   let props = {tenantId, agentId, agentName: "Synthetic agent", ...options.props};
   const same = (left, right) => left && right && left.length === right.length && left.every((entry, position) => Object.is(entry, right[position]));
   const react = {
@@ -37,17 +39,24 @@ function harness(mode, options = {}) {
   const all = (node) => !node || typeof node !== "object" ? (typeof node === "string" ? [node] : []) : Array.isArray(node) ? node.flatMap(all) : [node, ...all(node.props?.children)];
   const daily = {createCallObject() {
     if (options.createThrows) throw new Error("Synthetic create failure");
+    if (options.strictRegistry && state.registry.size > 0) throw new Error("Duplicate DailyIframe instances are not allowed");
     const handlers = new Map();
     const call = {handlers, messages: [], leaves: 0, destroys: 0,
       on: (name, handler) => {if (options.onThrows) throw new Error("Synthetic event subscription failure"); handlers.set(name, handler);},
       emit: (name, event = {}) => handlers.get(name)?.(event),
       join() { options.onJoin?.(call); return options.join?.promise ?? Promise.resolve(); },
       leave() { call.leaves++; return options.leave?.promise ?? Promise.resolve(); },
-      destroy() { call.destroys++; return options.destroy?.promise ?? Promise.resolve(); },
+      destroy() {
+        call.destroys++;
+        if (!options.strictRegistry) return options.destroy?.promise ?? Promise.resolve();
+        // daily-js 0.91: destroy() awaits leave() and only then frees the global registry entry.
+        return (async () => { try { await (options.leave?.promise ?? Promise.resolve()); } catch { /* leave errors are swallowed */ } state.registry.delete(call); })();
+      },
       sendAppMessage(message) { call.messages.push(message); },
       setLocalAudio() {},
     };
     state.calls.push(call);
+    if (options.strictRegistry) state.registry.add(call);
     return call;
   }};
   const actions = {
@@ -60,6 +69,8 @@ function harness(mode, options = {}) {
     window: {get sessionStorage() { if (options.storageAccessError) throw new Error("Synthetic unavailable storage"); return stored; }},
     crypto: {randomUUID: () => `00000000-0000-4000-8000-${String(++commands).padStart(12, "0")}`},
     MediaStream: class {constructor(tracks) { this.tracks = tracks; }},
+    setTimeout: (callback) => { const timer = {callback, cleared: false}; state.timers.push(timer); return timer; },
+    clearTimeout: (timer) => { if (timer) timer.cleared = true; },
     loadDailyForTest: () => { state.imports++; return options.importDaily?.promise ?? Promise.resolve({default: daily}); },
   });
   const cache = new Map();
@@ -317,6 +328,42 @@ test("presentation: simulated deck remains manual without Daily or stop dispatch
   await h.start(); assert.equal(h.calls.length, 0); assert.equal(h.imports, 0); assert.equal(h.stored.values.size, 0); assert.match(h.text(), /Modo demonstração/);
   h.click(/^Próximo/); h.click(/^Encerrar$/); await h.settle(); assert.equal(h.stops.length, 0); assert.ok(h.button(/^Nova/)); h.unmount();
 });
+for (const mode of ["video", "presentation"]) {
+  // daily-js 0.91: destroy() awaits leave() and only then frees the global registry, so a
+  // second createCallObject() throws while the previous teardown is pending. That throw
+  // used to land after the paid start; the next start now waits before any paid effect.
+  test(`${mode}: a new call after a normal stop waits for the Daily registry and starts`, async () => {
+    const h = harness(mode, {strictRegistry: true}); await h.start();
+    h.click(/^Encerrar$/); await h.settle();
+    assert.equal(h.calls[0].destroys, 1);
+    h.click(/^Nova/); await h.settle();
+    await h.start();
+    assert.equal(h.starts.length, 2); assert.equal(h.calls.length, 2);
+    assert.ok(h.button(/^Encerrar$/)); h.unmount();
+  });
+  test(`${mode}: a hung leave refuses the next start before any paid effect and allows it once released`, async () => {
+    const leave = deferred(), h = harness(mode, {strictRegistry: true, leave}); await h.start();
+    h.click(/^Encerrar$/); await h.settle();
+    h.click(/^Nova/); await h.settle();
+    h.consent(); h.click(/^Iniciar/); await flush(); h.render();
+    assert.equal(h.starts.length, 1, "the paid action must not run while the previous teardown is pending");
+    h.fireTimers(); await h.settle();
+    assert.equal(h.starts.length, 1); assert.equal(h.calls.length, 1);
+    assert.match(h.text(), /ainda está sendo encerrada/);
+    assert.equal(h.stored.values.size, 0, "nothing was dispatched, so the intent is forgotten");
+    assert.ok(h.button(/^Iniciar/)); assert.equal(h.button(/^Tentar encerrar/), undefined);
+    leave.resolve(); await flush();
+    await h.start();
+    assert.equal(h.starts.length, 2); assert.equal(h.calls.length, 2); assert.ok(h.button(/^Encerrar$/)); h.unmount();
+  });
+  test(`${mode}: unmounting while the previous teardown is pending never reaches the paid action`, async () => {
+    const leave = deferred(), h = harness(mode, {strictRegistry: true, leave}); await h.start();
+    h.click(/^Encerrar$/); await h.settle(); h.click(/^Nova/); await h.settle();
+    h.consent(); h.click(/^Iniciar/); await flush(); h.render();
+    h.unmount(); leave.resolve(); await flush();
+    assert.equal(h.starts.length, 1); assert.equal(h.calls.length, 1); assert.equal(h.stored.values.size, 0);
+  });
+}
 test("presentation: missing deck with committed effect keeps recovery", async () => {
   const h = harness("presentation", {start: async () => ({url: "https://tavus.daily.co/synthetic", conversationId: "created", deck: null, error: null, effect: effect()})});
   await h.start(); assert.ok(h.button(/^Tentar encerrar/)); assert.equal(h.calls.length, 0); assert.equal(h.stored.values.size, 1); h.unmount();
