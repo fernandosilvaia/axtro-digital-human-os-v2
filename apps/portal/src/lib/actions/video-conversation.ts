@@ -282,8 +282,11 @@ export async function startVideoConversation(agentId: string, commandId: string,
   }
   const dispatchFailure = await claimTavusRuntimeDispatch(runtimeGrant);
   if (dispatchFailure) {
-    await releaseProviderEffect(reservation.reservationId, "not_dispatched").catch(() => undefined);
-    return { effect: { schema_version: "2.0.0", remoteEffect: "possible" }, url: null, conversationId: null, error: runtimeAdmissionError(dispatchFailure) };
+    // Só a transição durável reserved -> released prova que nada foi despachado.
+    // Com a prova, a aba pode esquecer a intenção; sem ela (release recusado ou
+    // indisponível), a ambiguidade continua e a intenção é preservada.
+    const released = await releaseProviderEffect(reservation.reservationId, "not_dispatched").then(() => true, () => false);
+    return { effect: { schema_version: "2.0.0", remoteEffect: released ? "not_started" : "possible" }, url: null, conversationId: null, error: runtimeAdmissionError(dispatchFailure) };
   }
   let callbackUrl: string;
   try {
@@ -459,8 +462,8 @@ export async function startPresentationConversation(agentId: string, commandId: 
   }
   const dispatchFailure = await claimTavusRuntimeDispatch(runtimeGrant);
   if (dispatchFailure) {
-    await releaseProviderEffect(reservation.reservationId, "not_dispatched").catch(() => undefined);
-    return { effect: { schema_version: "2.0.0", remoteEffect: "possible" }, url: null, conversationId: null, deck: null, error: runtimeAdmissionError(dispatchFailure) };
+    const released = await releaseProviderEffect(reservation.reservationId, "not_dispatched").then(() => true, () => false);
+    return { effect: { schema_version: "2.0.0", remoteEffect: released ? "not_started" : "possible" }, url: null, conversationId: null, deck: null, error: runtimeAdmissionError(dispatchFailure) };
   }
   let callbackUrl: string;
   try {

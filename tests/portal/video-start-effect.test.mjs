@@ -18,11 +18,11 @@ function load(options = {}) {
     ['@/lib/video-config',{async resolveAgentVideoConfig(){return {ok:true,config:{configured:true,persona_id:'pfixture',replica_id:null,language:'portuguese',spoken_languages:null}};},async fetchKnowledgeDigest(){return null;},providerLanguageCodes(){return undefined;}}],
     ['@/lib/presentation/deck',{buildSalesDeck:()=>({slides:[]}),buildPlatformDeck:()=>({slides:[]}),buildDeckContext:()=>''}],
     ['@/lib/transcripts/register',{async prepareTavusWebhookCallback(){if(options.callbackFailure)throw Error('synthetic bind ambiguity');return {callbackUrl:'https://callback.invalid'};},async registerTranscriptPlaceholder(){return true;}}],
-    ['@/lib/runtime/portal-channel-runtime-bridge',{async admitPortalChannel(){return options.admissionDenied ? {outcome:'rejected',code:'bridge_disabled'} : {outcome:'admitted',grant:{}};},async assertPortalProviderDispatchActive(){return {outcome:'consumed'};},async bindPortalProviderChannel(){return options.bindingFailure ? {outcome:'rejected',code:'bridge_disabled'} : {outcome:'bound'};}}],
+    ['@/lib/runtime/portal-channel-runtime-bridge',{async admitPortalChannel(){return options.admissionDenied ? {outcome:'rejected',code:'bridge_disabled'} : {outcome:'admitted',grant:{}};},async assertPortalProviderDispatchActive(){return options.dispatchDenied ? {outcome:'rejected',code:'bridge_disabled'} : {outcome:'consumed'};},async bindPortalProviderChannel(){return options.bindingFailure ? {outcome:'rejected',code:'bridge_disabled'} : {outcome:'bound'};}}],
     ['@/lib/paid-effects',{
       isPaidEffectCommandId:()=>true,paidEffectIntentKey:()=> 'fixture-key',providerCorrelationLabel:()=> 'fixture-label',
       async beginProviderEffect(){calls.push('reserve');return reservation;},async retryReleasedProviderEffect(_input,result){return result;},
-      async commitProviderEffectOrCompensate(){calls.push('commit');},async releaseProviderEffect(){},async fenceProviderFailure(){calls.push('unknown');},
+      async commitProviderEffectOrCompensate(){calls.push('commit');},async releaseProviderEffect(){calls.push('release'); if(options.releaseFailure) throw Error('synthetic release refusal');},async fenceProviderFailure(){calls.push('unknown');},
       async compensateCommittedProviderEffect(input){return input.terminate();},async terminateProviderEffectForOperator(){return {outcome:'accepted'};},
     }],
   ]);
@@ -35,6 +35,8 @@ for(const mode of ['video','presentation']) for(const [label,options,expected] o
   ['admission denied',{admissionDenied:true},'not_started'],
   ['cap denied',{reservation:{outcome:'capped',reservationId:null}},'not_started'],
   ['prior unknown',{reservation:{outcome:'blocked_unknown',reservationId:null}},'possible'],
+  ['dispatch claim denied and released',{dispatchDenied:true},'not_started'],
+  ['dispatch claim denied but release refused',{dispatchDenied:true,releaseFailure:true},'possible'],
   ['callback ambiguity',{callbackFailure:true},'possible'],
   ['provider ambiguity',{providerFailure:true},'possible'],
   ['compensation ambiguity',{bindingFailure:true,compensationFailure:true},'possible'],
