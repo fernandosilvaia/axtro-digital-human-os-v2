@@ -9,15 +9,15 @@ async function sha256(filename) {
   return createHash("sha256").update(await readFile(new URL(filename, migrationDirectory))).digest("hex");
 }
 
-test("Supabase lineage is contiguous through v76 and immutable historical blobs keep their checksums", async () => {
+test("Supabase lineage is contiguous through v77 and immutable historical blobs keep their checksums", async () => {
   const migrations = (await readdir(migrationDirectory))
     .filter((name) => /^\d{4}_.+\.sql$/.test(name))
     .sort();
 
-  assert.equal(migrations.length, 76);
+  assert.equal(migrations.length, 77);
   assert.deepEqual(
     migrations.map((name) => Number(name.slice(0, 4))),
-    Array.from({ length: 76 }, (_, index) => index + 1),
+    Array.from({ length: 77 }, (_, index) => index + 1),
   );
   assert.equal(migrations[48], "0049_portal_text_preview_admission.sql");
   assert.equal(migrations[49], "0050_meeting_terminal_notification_claim.sql");
@@ -49,6 +49,7 @@ test("Supabase lineage is contiguous through v76 and immutable historical blobs 
   assert.equal(migrations[73], "0074_portal_hybrid_knowledge_retrieval.sql");
   assert.equal(migrations[74], "0075_conversation_turn_redaction_projector.sql");
   assert.equal(migrations[75], "0076_ai_usage_ledger_timeout_repair.sql");
+  assert.equal(migrations[76], "0077_schema_capability_publication.sql");
 });
 
 test("v60 resolves a proposal's slotIndex to slot_id through a read-only, service_role-only, anti-oracle lookup", async () => {
@@ -312,4 +313,20 @@ test("v76 only re-applies bounded timeouts on the AI ledger RPCs and changes no 
   }
   assert.match(migration,/errcode = '55000'/);
   assert.doesNotMatch(migration,/create or replace function|\bgrant\b|\brevoke\b|portal_schema_capabilities_service|disable trigger/i);
+});
+
+test("v77 publishes the 0074 to 0076 capabilities computed from the catalog and keeps the chain", async () => {
+  const source = await readFile(new URL("0077_schema_capability_publication.sql",migrationDirectory),"utf8");
+  const migration = source.split("\n").filter((line) => !line.trimStart().startsWith("--")).join("\n");
+  assert.match(migration,/rename to portal_schema_capabilities_v73;/);
+  assert.match(migration,/app\.portal_schema_capabilities_v73\(\)-'version'/);
+  assert.match(migration,/'version',77/);
+  for (const flag of ["hybridKnowledgeRetrieval","conversationTurnRedactionProjector","aiLedgerTimeoutsBounded"]) {
+    assert.match(migration,new RegExp(`'${flag}'`),flag);
+  }
+  // Calculadas do catálogo, nunca constantes: uma flag `true` literal não prova nada.
+  assert.doesNotMatch(migration,/'(hybridKnowledgeRetrieval|conversationTurnRedactionProjector|aiLedgerTimeoutsBounded)',\s*true/);
+  assert.match(migration,/revoke all on function public\.portal_schema_capabilities_service\(\) from public,anon,authenticated;/);
+  assert.match(migration,/grant execute on function public\.portal_schema_capabilities_service\(\) to service_role;/);
+  assert.doesNotMatch(migration,/\bcreate table\b|\bdrop\b|\bdisable trigger\b/i);
 });
