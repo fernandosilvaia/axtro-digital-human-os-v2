@@ -9,7 +9,7 @@ Gates: 1.977 Node + 35 Python, 31 cenários de browser e PostgreSQL até 0073.
 Correções permanecem locais; M6-04 e homologação audiovisual continuam pendentes.
 
 Melhorias implementadas depois da auditoria: [busca híbrida, avaliação por receipts e labs open source](docs/operations/CLOSER_IMPROVEMENTS_2026-10-01.md).
-Gates atuais: 2.119 Node + 63 Python, 14 E2E públicos, teste manual Chrome desktop/mobile e PostgreSQL até 0075.
+Gates atuais: 2.144 Node + 63 Python, 14 E2E públicos e 17 autenticados locais, teste manual Chrome desktop/mobile, PostgreSQL até 0077 e o perfil `hosted-without-governance` do harness.
 A busca híbrida já possui consumidor no brain; Promptfoo, LiveKit e whisper.cpp ficam em labs isolados.
 [Artefatos locais](artifacts/closer-improvements-2026-10-01/README.md) distinguem dados sintéticos, execução real de SDK/CLI e limites de produção.
 
