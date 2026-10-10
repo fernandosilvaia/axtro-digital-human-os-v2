@@ -45,6 +45,24 @@
         "0.35.3"
       ],
       "severity": "high"
+    },
+    {
+      "id": "GHSA-CJQ9-62Q9-8JV4",
+      "ecosystem": "npm",
+      "package": "next",
+      "affected_versions": [
+        "16.3.6"
+      ],
+      "severity": "high"
+    },
+    {
+      "id": "GHSA-68FV-2MGG-JV7Q",
+      "ecosystem": "npm",
+      "package": "source-map-js",
+      "affected_versions": [
+        "1.2.1"
+      ],
+      "severity": "high"
     }
   ]
 }

@@ -22,12 +22,19 @@ class DependencyScanTests(unittest.TestCase):
             self.assertNotEqual(0, completed.returncode)
             self.assertIn("cannot be empty", completed.stdout)
 
-    def test_committed_corpus_blocks_vulnerable_next_and_sharp_versions(self) -> None:
+    def test_committed_corpus_blocks_known_vulnerable_versions(self) -> None:
         with tempfile.TemporaryDirectory() as temporary_directory:
             fixture = Path(temporary_directory)
             self._write_locks(fixture)
             advisory_path = ROOT / "security" / "dependency-advisories.json"
-            for package, vulnerable, patched in (("next", "16.3.0", "16.3.6"), ("sharp", "0.35.3", "0.35.4")):
+            # 16.3.6 deixou de ser "limpo" quando o advisory de SSRF na
+            # otimização de imagem (GHSA-cjq9-62q9-8jv4) saiu, corrigido em 16.3.8.
+            for package, vulnerable, patched in (
+                ("next", "16.3.0", "16.3.8"),
+                ("next", "16.3.6", "16.3.8"),
+                ("sharp", "0.35.3", "0.35.4"),
+                ("source-map-js", "1.2.1", "1.2.2"),
+            ):
                 for version, expected_clean in ((vulnerable, False), (patched, True)):
                     (fixture / "pnpm-lock.yaml").write_text(
                         f"lockfileVersion: '9.0'\n\npackages:\n  '{package}@{version}':\n    resolution: {{integrity: sha512-test}}\n",

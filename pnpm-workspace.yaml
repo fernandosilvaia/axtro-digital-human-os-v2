@@ -41,5 +41,10 @@ overrides:
   # ninguém nesse projeto pediu para atualizar. >=3.3.17 <4 pega só o patch
   # que corrige a CVE, sem mudar de major.
   nanoid: '>=3.3.17 <4'
+  # GHSA-68fv-2mgg-jv7q (high): source-map-js <1.2.2 permite negação de
+  # serviço no event loop via offsets de seção de source-map indexado.
+  # Transitivo via next > postcss, mesmo caminho do nanoid acima. Faixa
+  # fechada em <2 pelo mesmo motivo: só o patch, sem mudar de major.
+  source-map-js: '>=1.2.2 <2'
 strictPeerDependencies: true
 verifyDepsBeforeRun: false
