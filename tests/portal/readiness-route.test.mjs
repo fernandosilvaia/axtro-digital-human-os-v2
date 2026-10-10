@@ -99,6 +99,18 @@ const ENV = Object.freeze({
 
 const CAPABILITIES = Object.freeze({
   version: 50,
+  dataGovernanceCatalogComplete: true,
+  dataGovernanceCatalogOnboardingRepaired: true,
+  dataGovernanceWriteFenceRepaired: true,
+  businessActionCheckoutConnections: true,
+  businessActionCheckoutProducts: true,
+  businessActionCheckoutReservations: true,
+  businessActionCheckoutStripeEventReceipts: true,
+  videoAssetAssignmentGoverned: true,
+  aiUsageFinancialEvidenceRepair: true,
+  hybridKnowledgeRetrieval: true,
+  conversationTurnRedactionProjector: true,
+  aiLedgerTimeoutsBounded: true,
   providerEffectReservations: true,
   providerEffectTerminationFence: true,
   tavusStageExpiryConcurrencyFence: true,
@@ -168,6 +180,28 @@ const AUTHORITY_REPAIR_CAPABILITIES = Object.freeze({
   ...MEETING_NOTIFICATION_CAPABILITIES,
   version: 58,
   portalTextPreviewAuthorityRepair: true,
+});
+
+// Capabilities que só o schema final publica (0059 a 0077): sem elas o build
+// serviria RAG vazio em silêncio contra o schema v58 hospedado.
+const INTEGRATION_CAPABILITIES = Object.freeze([
+  "dataGovernanceCatalogComplete",
+  "dataGovernanceCatalogOnboardingRepaired",
+  "dataGovernanceWriteFenceRepaired",
+  "businessActionCheckoutConnections",
+  "businessActionCheckoutProducts",
+  "businessActionCheckoutReservations",
+  "businessActionCheckoutStripeEventReceipts",
+  "videoAssetAssignmentGoverned",
+  "aiUsageFinancialEvidenceRepair",
+  "hybridKnowledgeRetrieval",
+  "conversationTurnRedactionProjector",
+  "aiLedgerTimeoutsBounded"
+]);
+
+const FINAL_CAPABILITIES = Object.freeze({
+  ...AUTHORITY_REPAIR_CAPABILITIES,
+  version: 77,
 });
 
 const FRESH_WORKERS = Object.freeze({
@@ -306,6 +340,53 @@ test("readiness rejects unknown or malformed schema versions and never probes wo
     assert.equal(body.checks.schema, false, `version:${String(version)}`);
     assert.equal(body.checks.workers, false, `version:${String(version)}`);
     assert.deepEqual(calls, ["portal_schema_capabilities_service"], `version:${String(version)}`);
+  }
+});
+
+async function readinessFor(schema) {
+  const calls = [];
+  const response = await handleReadiness({
+    env: { ...ENV },
+    createClient: () => clientWith({ data: { ...CAPABILITIES, ...schema }, error: null }, { data: FRESH_WORKERS, error: null }, calls),
+    logError: () => {},
+  });
+  return { response, calls };
+}
+
+test("readiness aceita o schema final v77 com todas as capabilities de integração", async () => {
+  const { response } = await readinessFor(FINAL_CAPABILITIES);
+  assert.equal(response.status, 200);
+  const body = await assertNoStore(response);
+  assert.equal(body.checks.schema, true);
+});
+
+test("readiness recusa o schema v77 quando falta qualquer capability de integração", async () => {
+  for (const capability of INTEGRATION_CAPABILITIES) {
+    for (const absentValue of [false, undefined]) {
+      const { response, calls } = await readinessFor({ ...FINAL_CAPABILITIES, [capability]: absentValue });
+      assert.equal(response.status, 503, `${capability}:${String(absentValue)}`);
+      const body = await assertNoStore(response);
+      assert.equal(body.checks.schema, false, capability);
+      assert.deepEqual(calls, ["portal_schema_capabilities_service"], capability);
+    }
+  }
+});
+
+test("readiness recusa o schema v58 hospedado hoje e as versões intermediárias da cadeia 59 a 76", async () => {
+  const hostedToday = Object.fromEntries(
+    Object.entries({ ...CAPABILITIES, ...AUTHORITY_REPAIR_CAPABILITIES }).filter(([name]) => !INTEGRATION_CAPABILITIES.includes(name)),
+  );
+  const cases = [{ label: "58 sem capabilities de integração", schema: hostedToday }];
+  for (const version of [59, 69, 70, 71, 72, 73, 74, 75, 76, 78]) cases.push({ label: String(version), schema: { ...FINAL_CAPABILITIES, version } });
+  for (const { label, schema } of cases) {
+    // O fixture base já traz as capabilities de integração; para o v58 real elas somem.
+    const response = await handleReadiness({
+      env: { ...ENV },
+      createClient: () => clientWith({ data: schema, error: null }, { data: FRESH_WORKERS, error: null }),
+      logError: () => {},
+    });
+    assert.equal(response.status, 503, label);
+    assert.equal((await assertNoStore(response)).checks.schema, false, label);
   }
 });
 

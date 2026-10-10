@@ -21,8 +21,11 @@ import {
 export const dynamic = "force-dynamic";
 
 const READINESS_DATABASE_TIMEOUT_MS = 3_000;
-const MAXIMUM_COMPATIBLE_SCHEMA_VERSION = 58;
-const MEETING_NOTIFICATION_SCHEMA_VERSIONS = new Set([57, MAXIMUM_COMPATIBLE_SCHEMA_VERSION]);
+const MAXIMUM_COMPATIBLE_SCHEMA_VERSION = 77;
+// A partir da v58 o schema publica portalTextPreviewAuthorityRepair; as versões
+// seguintes herdam essa capability pela união que cada migration preserva.
+const AUTHORITY_REPAIR_SCHEMA_VERSION = 58;
+const MEETING_NOTIFICATION_SCHEMA_VERSIONS = new Set([57, AUTHORITY_REPAIR_SCHEMA_VERSION, MAXIMUM_COMPATIBLE_SCHEMA_VERSION]);
 const COMPATIBLE_SCHEMA_VERSIONS = new Set([50, 56, ...MEETING_NOTIFICATION_SCHEMA_VERSIONS]);
 
 const BASE_SCHEMA_CAPABILITIES = Object.freeze([
@@ -64,6 +67,22 @@ const BASE_SCHEMA_CAPABILITIES = Object.freeze([
   "runtimeKillSwitches",
   "runtimeDualOperatorReconciliation",
   "runtimeBridgeReceiptIntegrity",
+  // Este build chama a busca híbrida da 0074 sem fallback, substituiu a exclusão
+  // direta pela governança da 0059 e depende dos reparos 0070 a 0076. Exigir as
+  // capabilities, e não só o número da versão, impede que ele suba contra um
+  // schema anterior: o portão ficaria verde com o RAG vazio em silêncio.
+  "dataGovernanceCatalogComplete",
+  "dataGovernanceCatalogOnboardingRepaired",
+  "dataGovernanceWriteFenceRepaired",
+  "businessActionCheckoutConnections",
+  "businessActionCheckoutProducts",
+  "businessActionCheckoutReservations",
+  "businessActionCheckoutStripeEventReceipts",
+  "videoAssetAssignmentGoverned",
+  "aiUsageFinancialEvidenceRepair",
+  "hybridKnowledgeRetrieval",
+  "conversationTurnRedactionProjector",
+  "aiLedgerTimeoutsBounded",
 ] as const);
 
 const MEETING_NOTIFICATION_SCHEMA_CAPABILITIES = Object.freeze([
@@ -213,7 +232,7 @@ export function schemaReadinessOk(value: unknown, env: NodeJS.ProcessEnv): boole
   const isLegacyNotificationSchema = (version === 50 || version === 56)
     && capabilities.meetingTerminalNotificationClaim === true;
   if (!isNotificationOutboxSchema && !isLegacyNotificationSchema) return false;
-  if (version === MAXIMUM_COMPATIBLE_SCHEMA_VERSION && capabilities.portalTextPreviewAuthorityRepair !== true) {
+  if (Number(version) >= AUTHORITY_REPAIR_SCHEMA_VERSION && capabilities.portalTextPreviewAuthorityRepair !== true) {
     return false;
   }
   if (readinessMeetingTerminalNotificationsEnabled(env) && !isNotificationOutboxSchema) return false;

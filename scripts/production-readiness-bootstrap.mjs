@@ -8,9 +8,12 @@ export const FINANCIAL_WORKER_HEARTBEAT_VERSION = "m5-02-v1";
 export const MEETING_TERMINAL_NOTIFICATION_WORKER_HEARTBEAT_VERSION = "m6-01-v1";
 export const PUBLIC_DEMO_EDGE_POLICY_ATTESTATION =
   "axtro-public-demo-edge/v3;scope=global;post-start=120/60s;post-command-end=600/60s;get-head-demo=900/60s;concurrency=32;queue=0;reject=429";
-export const REQUIRED_SCHEMA_VERSION = 58;
+export const REQUIRED_SCHEMA_VERSION = 77;
 const MINIMUM_BUSINESS_ACTION_SCHEMA_VERSION = 56;
-const MEETING_NOTIFICATION_SCHEMA_VERSIONS = new Set([57, REQUIRED_SCHEMA_VERSION]);
+// A partir da v58 o schema publica portalTextPreviewAuthorityRepair; as versões
+// seguintes herdam essa capability pela união que cada migration preserva.
+const AUTHORITY_REPAIR_SCHEMA_VERSION = 58;
+const MEETING_NOTIFICATION_SCHEMA_VERSIONS = new Set([57, AUTHORITY_REPAIR_SCHEMA_VERSION, REQUIRED_SCHEMA_VERSION]);
 const COMPATIBLE_SCHEMA_VERSIONS = new Set([
   50,
   MINIMUM_BUSINESS_ACTION_SCHEMA_VERSION,
@@ -66,6 +69,19 @@ const REQUIRED_CAPABILITIES = Object.freeze([
   "runtimeKillSwitches",
   "runtimeDualOperatorReconciliation",
   "runtimeBridgeReceiptIntegrity",
+  // Mesmo conjunto que apps/portal/src/app/api/ready/route.ts exige de /api/ready.
+  "dataGovernanceCatalogComplete",
+  "dataGovernanceCatalogOnboardingRepaired",
+  "dataGovernanceWriteFenceRepaired",
+  "businessActionCheckoutConnections",
+  "businessActionCheckoutProducts",
+  "businessActionCheckoutReservations",
+  "businessActionCheckoutStripeEventReceipts",
+  "videoAssetAssignmentGoverned",
+  "aiUsageFinancialEvidenceRepair",
+  "hybridKnowledgeRetrieval",
+  "conversationTurnRedactionProjector",
+  "aiLedgerTimeoutsBounded",
 ]);
 
 const REQUIRED_MEETING_NOTIFICATION_CAPABILITIES = Object.freeze([
@@ -429,7 +445,7 @@ function validateSchema(value, businessActionsEnabled, meetingTerminalNotificati
     || !COMPATIBLE_SCHEMA_VERSIONS.has(version)
     || !REQUIRED_CAPABILITIES.every((capability) => capabilities[capability] === true)
     || !meetingNotificationSchemaReady
-    || (version === REQUIRED_SCHEMA_VERSION && capabilities.portalTextPreviewAuthorityRepair !== true)
+    || (version >= AUTHORITY_REPAIR_SCHEMA_VERSION && capabilities.portalTextPreviewAuthorityRepair !== true)
     || (meetingTerminalNotificationsEnabled && !MEETING_NOTIFICATION_SCHEMA_VERSIONS.has(version))
     || (businessActionsEnabled && (
       version < MINIMUM_BUSINESS_ACTION_SCHEMA_VERSION

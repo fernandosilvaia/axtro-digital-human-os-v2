@@ -9,6 +9,7 @@ import {
   PRODUCTION_BOOTSTRAP_VERSION,
   PUBLIC_DEMO_EDGE_POLICY_ATTESTATION,
   ProductionReadinessBootstrapError,
+  REQUIRED_SCHEMA_VERSION,
   financialWorkerIdentity,
   meetingTerminalNotificationWorkerIdentity,
   runProductionReadinessBootstrap,
@@ -47,6 +48,18 @@ const ENV = Object.freeze({
 
 const SCHEMA = Object.freeze({
   version: 50,
+  dataGovernanceCatalogComplete: true,
+  dataGovernanceCatalogOnboardingRepaired: true,
+  dataGovernanceWriteFenceRepaired: true,
+  businessActionCheckoutConnections: true,
+  businessActionCheckoutProducts: true,
+  businessActionCheckoutReservations: true,
+  businessActionCheckoutStripeEventReceipts: true,
+  videoAssetAssignmentGoverned: true,
+  aiUsageFinancialEvidenceRepair: true,
+  hybridKnowledgeRetrieval: true,
+  conversationTurnRedactionProjector: true,
+  aiLedgerTimeoutsBounded: true,
   providerEffectReservations: true,
   providerEffectTerminationFence: true,
   tavusStageExpiryConcurrencyFence: true,
@@ -127,6 +140,28 @@ const AUTHORITY_REPAIR_SCHEMA = Object.freeze({
   ...OUTBOX_SCHEMA,
   version: 58,
   portalTextPreviewAuthorityRepair: true,
+});
+
+// Capabilities que só o schema final publica (0059 a 0077). O build exige todas,
+// não apenas o número da versão, para nunca subir contra o schema v58 hospedado.
+const INTEGRATION_CAPABILITIES = Object.freeze([
+  "dataGovernanceCatalogComplete",
+  "dataGovernanceCatalogOnboardingRepaired",
+  "dataGovernanceWriteFenceRepaired",
+  "businessActionCheckoutConnections",
+  "businessActionCheckoutProducts",
+  "businessActionCheckoutReservations",
+  "businessActionCheckoutStripeEventReceipts",
+  "videoAssetAssignmentGoverned",
+  "aiUsageFinancialEvidenceRepair",
+  "hybridKnowledgeRetrieval",
+  "conversationTurnRedactionProjector",
+  "aiLedgerTimeoutsBounded"
+]);
+
+const FINAL_SCHEMA = Object.freeze({
+  ...AUTHORITY_REPAIR_SCHEMA,
+  version: 77,
 });
 
 const BILLING_BACKLOG = Object.freeze({
@@ -338,6 +373,31 @@ test("v57 requires every outbox capability and the disabled legacy claim contrac
     const { calls, promise } = run({ schema: { ...OUTBOX_SCHEMA, [capability]: invalidValue } });
     await assert.rejects(promise, isCode("SCHEMA_CAPABILITY_MISMATCH"), capability);
     assert.equal(calls.length, 1, capability);
+  }
+});
+
+test("o schema final v77 é o exigido e cada capability de integração é obrigatória", async () => {
+  assert.equal(REQUIRED_SCHEMA_VERSION, 77);
+  assert.equal((await run({ schema: FINAL_SCHEMA }).promise).schemaVersion, 77);
+  for (const capability of INTEGRATION_CAPABILITIES) {
+    for (const absentValue of [false, undefined]) {
+      const { calls, promise } = run({ schema: { ...FINAL_SCHEMA, [capability]: absentValue } });
+      await assert.rejects(promise, isCode("SCHEMA_CAPABILITY_MISMATCH"), `${capability}:${String(absentValue)}`);
+      assert.equal(calls.length, 1, capability);
+    }
+  }
+});
+
+test("o schema v58 hospedado hoje e as versões intermediárias da cadeia 59 a 76 são recusados", async () => {
+  const hostedToday = Object.fromEntries(
+    Object.entries(AUTHORITY_REPAIR_SCHEMA).filter(([name]) => !INTEGRATION_CAPABILITIES.includes(name)),
+  );
+  const rejected = [{ schema: hostedToday }];
+  for (const version of [59, 69, 70, 71, 72, 73, 74, 75, 76, 78]) rejected.push({ schema: { ...FINAL_SCHEMA, version } });
+  for (const input of rejected) {
+    const { calls, promise } = run(input);
+    await assert.rejects(promise, isCode("SCHEMA_CAPABILITY_MISMATCH"), String(input.schema.version));
+    assert.equal(calls.length, 1, String(input.schema.version));
   }
 });
 
