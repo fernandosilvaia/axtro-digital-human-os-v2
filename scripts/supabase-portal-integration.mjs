@@ -11233,7 +11233,14 @@ function sqlLiteral(value) {
 }
 
 function childEnvironment() {
-  return database.createSanitizedPsqlEnvironment(process.env);
+  // No macOS o postmaster aborta com "became multithreaded during startup" quando
+  // nenhum locale válido está definido (shell sem LANG/LC_ALL, como os do
+  // agente), e o pg_ctl só devolve "não pode iniciar o servidor". Só afeta o
+  // cluster temporário local; o CI usa AXTRO_LOCAL_DATABASE_URL.
+  const source = process.platform === "darwin" && !process.env.LC_ALL
+    ? { ...process.env, LC_ALL: "en_US.UTF-8" }
+    : process.env;
+  return database.createSanitizedPsqlEnvironment(source);
 }
 
 function resolvePostgresBin() {
