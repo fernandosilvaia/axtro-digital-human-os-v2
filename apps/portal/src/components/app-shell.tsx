@@ -20,6 +20,9 @@ export interface AppShellProps {
   readonly children: React.ReactNode;
 }
 
+/** About half a second at 60 fps: long enough for a slow paint, short enough to never fight the person. */
+const MENU_FOCUS_MAX_FRAMES = 30;
+
 export function AppShell({ email, roleLabel, children }: AppShellProps) {
   const pathname = usePathname();
   const [menuOpen, setMenuOpen] = useState(false);
@@ -85,15 +88,26 @@ export function AppShell({ email, roleLabel, children }: AppShellProps) {
     if (!isMobileNavigation || !menuOpen) return;
     // The sidebar's visibility:hidden->visible transition flips at 0% of the
     // CSS transition per spec, but Chromium doesn't treat descendants as
-    // focusable until the browser has actually painted that style change:
-    // one requestAnimationFrame (before paint) is still too early, so this
-    // waits for the frame after paint instead.
-    const raf1 = window.requestAnimationFrame(() => {
-      window.requestAnimationFrame(() => {
-        navigationRef.current?.querySelector<HTMLAnchorElement>("a[href]")?.focus();
-      });
-    });
-    return () => window.cancelAnimationFrame(raf1);
+    // focusable until the browser has actually painted that style change.
+    // A fixed two-frame wait was not enough on a loaded or slow device (the
+    // focus silently stayed on the page), so this retries frame by frame
+    // until the focus sticks. It stops as soon as the person has moved focus
+    // somewhere else, so it never steals it back.
+    let frame = 0;
+    let attempts = 0;
+    const focusFirstLink = () => {
+      const link = navigationRef.current?.querySelector<HTMLAnchorElement>("a[href]");
+      const active = document.activeElement;
+      const focusStillOutside = active === null || active === document.body || active === menuToggleRef.current;
+      if (link === null || link === undefined || !focusStillOutside) return;
+      link.focus();
+      attempts += 1;
+      if (document.activeElement !== link && attempts < MENU_FOCUS_MAX_FRAMES) {
+        frame = window.requestAnimationFrame(focusFirstLink);
+      }
+    };
+    frame = window.requestAnimationFrame(focusFirstLink);
+    return () => window.cancelAnimationFrame(frame);
   }, [isMobileNavigation, menuOpen]);
 
   const toggleMenu = () => {
