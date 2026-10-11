@@ -31,22 +31,49 @@ test("embedding preflight rejects Unicode that can exceed its reservation before
   }
 });
 
-test("generation preflight rejects an oversized video context before deps.generate", async () => {
-  let providerCalls = 0;
+test("an oversized video history is trimmed to the reserved envelope before deps.generate", async () => {
+  // Antes da D-V2-196 este caso era recusado inteiro e virava fallback em todo
+  // turno seguinte (o histórico só cresce). Agora os turnos mais antigos saem e
+  // o provedor nunca recebe mais do que a reserva cobre.
   const history = Array.from({ length: 20 }, (_, index) => ({
     role: index % 2 === 0 ? "user" : "assistant",
-    content: "🙂".repeat(2_000),
+    content: `turno ${index} ${"🙂".repeat(600)}`,
   }));
+  const sent = [];
+  await brain.runBrainChatCompletion(
+    { agentName: "Camila", tenantName: "Axtro", surface: "video", knowledgeMatches: [], history, userMessage: "Pode continuar?" },
+    {
+      generate: async (messages) => {
+        sent.push(messages);
+        return { text: "Claro.", model: "fake", usage: { inputTokens: 1, outputTokens: 1 } };
+      },
+      logGenerationUsage: async () => {},
+    },
+  );
+  assert.equal(sent.length, 1);
+  assert.ok(envelope.generationInputTokenUpperBound(sent[0]) <= 20_000, "never more input than the reservation covers");
+  const kept = sent[0].filter((message) => message.content.startsWith("turno ")).map((message) => Number(message.content.split(" ")[1]));
+  assert.ok(kept.length > 0 && kept.length < history.length);
+  assert.equal(kept.at(-1), 19, "the newest turn stays");
+});
 
+test("generation preflight still fails closed when the fixed part alone exceeds the envelope", async () => {
+  // Prompt da vertical, schemas das quatro tools e uma fala atual de 2.000
+  // emojis (8 mil bytes) não cabem em 20 mil. Nada disso é cortável: o
+  // provedor nunca é chamado.
+  let providerCalls = 0;
   await assert.rejects(
     () => brain.runBrainChatCompletion(
       {
-        agentName: "Camila",
+        agentName: "Priscila",
         tenantName: "Axtro",
         surface: "video",
+        language: "portuguese",
+        closerVertical: "life_insurance_qualification",
         knowledgeMatches: [],
-        history,
-        userMessage: "Pode continuar?",
+        history: [],
+        userMessage: "🙂".repeat(2_000),
+        availableTools: ["register_lead", "propose_meeting_slots", "confirm_meeting_slot", "estimate_coverage_need"],
       },
       {
         generate: async () => {

@@ -1,6 +1,6 @@
 # Lançamento da Priscila, closer de Life Insurance
 
-Estado: **pronto no código, nada criado em produção.** Escrito em 2026-10-10. Cada passo que toca conta real (Tavus, Supabase hospedado, Railway, OpenRouter) é ação de operador com autorização do Fernando.
+Estado: **pronto no código, nada criado em produção.** Escrito em 2026-10-10, atualizado no mesmo dia com a ponte de tools (D-V2-196). Cada passo que toca conta real (Tavus, Supabase hospedado, Railway, OpenRouter) é ação de operador com autorização do Fernando.
 
 ## O que a Priscila é
 
@@ -16,11 +16,16 @@ Uma closer de vídeo com IA para seguro de vida americano, servida pelo cérebro
 | Peça | Onde |
 |---|---|
 | Doutrina da vertical (compliance, bússola de produto, momentos sensíveis) | `apps/portal/src/lib/brain/life-insurance.ts` |
-| Prompt de vídeo sem promessa de tools que o cérebro não chama | `apps/portal/src/lib/brain/metodo-silva.ts` (`toolCalling: false`) |
+| Prompt de vídeo que só promete as tools que a persona tem de fato | `apps/portal/src/lib/brain/metodo-silva.ts` |
+| Ponte de tool calling do cérebro (D-V2-196) | `apps/portal/src/lib/brain/brain-tools.ts`, `completion-stream.ts` e `tavus-request.ts` |
+| Calculadora de cobertura (DIME) mostrada na tela | `apps/portal/src/lib/insurance/coverage-need.ts` e `coverage-estimate-card.tsx` |
+| Trace por turno no Langfuse, só metadado | `apps/portal/src/lib/observability/brain-trace.ts` |
 | Sentinela de compliance depois da geração | `apps/portal/src/lib/brain/compliance-sentinel.ts` |
 | Base de conhecimento (13 fontes) | `knowledge/life-insurance/priscila/` |
 | Criação da persona na Tavus | `scripts/provision-tavus-brain-persona.mjs` |
 | Banco de cenários de avaliação | `experiments/priscila-eval/` |
+| Conversa inteira (DeepEval) e busca (Ragas) | `experiments/conversation-eval/` |
+| Laboratório de voz e turno (Pipecat, teste cego) | `experiments/voice-lab/` |
 
 ## Passo a passo
 
@@ -39,14 +44,25 @@ Uma closer de vídeo com IA para seguro de vida americano, servida pelo cérebro
    - `agent_video_config`: `tavus_persona_id`, `tavus_replica_id`, `language = 'english'`, `spoken_languages = {english,spanish,portuguese}` e `closer_vertical = 'life_insurance_qualification'`.
    - Antes da 0072 (o hospedado de hoje), a própria tela ainda aceita o vínculo.
 7. **Ingerir a base de conhecimento:** `railway run -- node scripts/ingest-knowledge-bulk.mjs knowledge/life-insurance/priscila --dry-run`, revisar e repetir com `--apply`.
-8. **Ligar o cérebro e ativar o agente** na tela Testar.
-9. **Avaliar antes de liberar:**
+8. **Anexar as tools à persona** (opcional, mas é o que permite agendar de verdade). Primeiro em dry-run:
+   ```bash
+   TAVUS_API_KEY=... node scripts/provision-tavus-business-tools.mjs --persona-id=<persona> --with-coverage-calculator --dry-run
+   ```
+   Depois com `TAVUS_BUSINESS_TOOL_PROVISION_CONFIRM=PROVISION-REAL-TAVUS-ACCOUNT`.
+   - As três tools de negócio só agem com `PORTAL_BUSINESS_ACTION_BRIDGE_ENABLED` ligada para o tenant.
+   - A calculadora roda no navegador e não precisa de flag.
+   - O cérebro só oferece ao modelo o que a persona tem anexado e está na lista fechada. A descrição e o schema que o modelo vê são sempre os nossos.
+9. **Ligar o cérebro e ativar o agente** na tela Testar.
+10. **Avaliar antes de liberar:**
    - Rodar o banco de cenários (`experiments/priscila-eval`) em modo ao vivo, que gasta crédito do OpenRouter e exige autorização.
    - Fazer uma chamada de vídeo de teste, que gasta crédito da Tavus e exige autorização.
+   - Rodar a conversa inteira (`experiments/conversation-eval`): primeiro o ensaio, que é grátis; depois o modo ao vivo e o juiz, que exigem autorização.
    - Critério: zero violação de compliance antes da sentinela, divulgação de IA no primeiro turno e idioma espelhado em todos os cenários.
+   - Na chamada paga, conferir que a Tavus repassa as tool calls do cérebro ao navegador (`conversation.tool_call`) e devolve o resultado como mensagem `tool`. É o formato que a ponte espera e que ainda não foi visto ao vivo.
 
 ## Limites que continuam valendo
 
-- **Sem agendamento automático:** o cérebro não devolve tool_calls, então a Priscila não marca horário sozinha. Ela captura nome, contato e janela de horário de forma verbal, e o time licenciado confirma. Ligar tools no cérebro é trabalho futuro e precisa de teste pago na Tavus.
+- **Agendamento depende das tools anexadas:** sem tools na persona, a Priscila captura nome, contato e janela de forma verbal, e o time licenciado confirma. Com as tools anexadas e a ponte validada no teste pago, ela propõe e confirma horários reais.
+- **Teto de entrada de 20 mil:** com as quatro tools e a base cheia, o cérebro encaixa o contexto por prioridade. Ficam os turnos recentes, depois os melhores trechos da base, depois o histórico mais antigo. Em conversa longa, a Priscila lembra menos do começo. Subir o teto exige migration coordenada com deploy (ver `docs/NEEDS_CONNECTION.md`).
 - **Crédito:** a Priscila só responde com a doutrina se houver crédito no OpenRouter. Sem crédito, a chamada degrada para a frase de recuo.
 - **Encerrar:** o botão "Encerrar" continua inerte enquanto `PORTAL_PROVIDER_TERMINATION_ENABLED=false`.

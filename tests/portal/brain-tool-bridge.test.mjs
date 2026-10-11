@@ -209,3 +209,10 @@ test("a short call without tools is composed exactly as before: every turn and t
   assert.deepEqual(sent.filter((message) => message.content.startsWith("short turn")).map((message) => message.content), history.map((turn) => turn.content));
   assert.equal(sent.find((message) => message.content.startsWith("DADOS DE REFERÊNCIA NÃO CONFIÁVEIS: RAG")).content, core.buildKnowledgeBlock(matches));
 });
+
+test("the coverage calculator is provisioned only on request, from the brain's own definition", () => {
+  const script = readFileSync(new URL("../../scripts/provision-tavus-business-tools.mjs", import.meta.url), "utf8");
+  assert.match(script, /"--with-coverage-calculator"/);
+  assert.match(script, /brainToolDefinitions\(\["estimate_coverage_need"\]\)/, "no copied schema that could drift");
+  assert.match(script, /args\.withCoverageCalculator \? \[\.\.\.BUSINESS_TOOLS, await loadCoverageCalculatorTool\(\)\] : BUSINESS_TOOLS/, "opt-in, the default stays the 3 business tools");
+});

@@ -52,7 +52,16 @@
 // Usage:
 //   TAVUS_API_KEY=... node scripts/provision-tavus-business-tools.mjs \
 //     --persona-id=pXXXXXXXXXXXX [--persona-id=pYYYYYYYYYYYY ...] \
-//     [--dry-run]
+//     [--with-coverage-calculator] [--dry-run]
+//
+// --with-coverage-calculator (opt-in, D-V2-196) also creates/attaches
+// estimate_coverage_need, the educational DIME calculator of the Life
+// Insurance closer. It runs in the browser (call-lifecycle.ts) with no cost
+// and no stored data, and only brain-served personas in the qualification
+// vertical offer it to the model. Its definition is loaded from
+// apps/portal/src/lib/brain/brain-tools.ts, the same one the brain sends to
+// the model, so the two can never drift. Never attach it to a persona outside
+// that vertical.
 //
 // --dry-run lists which of the 3 tools already exist on the account and
 // prints what would be created/attached, without creating or attaching
@@ -140,7 +149,10 @@ function usage() {
   return `Usage:
   TAVUS_API_KEY=... node scripts/provision-tavus-business-tools.mjs \\
     --persona-id=<personaId> [--persona-id=<personaId> ...] \\
-    [--dry-run]
+    [--with-coverage-calculator] [--dry-run]
+
+--with-coverage-calculator also creates/attaches estimate_coverage_need (only
+for Life Insurance qualification personas served by the brain).
 
 --dry-run lists which of the 3 business tools already exist on the account
 and prints what would be created/attached, without mutating anything and
@@ -153,10 +165,14 @@ Required environment variables for a real (non-dry-run) run:
 }
 
 function parseArgs(argv) {
-  const args = { personaIds: [], dryRun: false };
+  const args = { personaIds: [], dryRun: false, withCoverageCalculator: false };
   for (const raw of argv) {
     if (raw === "--dry-run") {
       args.dryRun = true;
+      continue;
+    }
+    if (raw === "--with-coverage-calculator") {
+      args.withCoverageCalculator = true;
       continue;
     }
     const match = /^--persona-id=(.+)$/.exec(raw);
@@ -196,6 +212,13 @@ async function loadProviderTavus() {
   return import(new URL("../packages/provider-tavus/dist/index.js", import.meta.url));
 }
 
+/** Só com --with-coverage-calculator: a definição vem do catálogo do cérebro, sem cópia. */
+async function loadCoverageCalculatorTool() {
+  const { brainToolDefinitions } = await import(new URL("../apps/portal/src/lib/brain/brain-tools.ts", import.meta.url));
+  const [tool] = brainToolDefinitions(["estimate_coverage_need"]);
+  return Object.freeze({ name: tool.name, description: tool.description, parameters: tool.parameters });
+}
+
 async function ensureTool(provider, options, tool) {
   const existing = await provider.findTavusToolByExactName(options, tool.name);
   if (existing) {
@@ -224,10 +247,11 @@ async function main() {
   const { apiKey } = runGate(args);
   const provider = await loadProviderTavus();
   const options = { apiKey };
+  const tools = args.withCoverageCalculator ? [...BUSINESS_TOOLS, await loadCoverageCalculatorTool()] : BUSINESS_TOOLS;
 
   if (args.dryRun) {
     console.log("Modo --dry-run: só leitura, nada será criado ou anexado.\n");
-    for (const tool of BUSINESS_TOOLS) {
+    for (const tool of tools) {
       const existing = await provider.findTavusToolByExactName(options, tool.name);
       console.log(existing
         ? `✓ ${tool.name}: já existe na conta (${existing.toolId})`
@@ -241,9 +265,9 @@ async function main() {
     return;
   }
 
-  console.log(`Provisionando as 3 tools de negócio na conta Tavus (ADR-041)...\n`);
+  console.log(`Provisionando ${tools.length} tools na conta Tavus (ADR-041${args.withCoverageCalculator ? ", mais a calculadora da D-V2-196" : ""})...\n`);
   const toolIds = [];
-  for (const tool of BUSINESS_TOOLS) {
+  for (const tool of tools) {
     toolIds.push(await ensureTool(provider, options, tool));
   }
 
