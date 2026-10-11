@@ -33,6 +33,12 @@ export interface ResourceActionState {
   readonly warning?: string;
 }
 
+// Erro de banco sem tradução conhecida nunca vai cru pro cliente (mensagem em
+// inglês e detalhe técnico): a UI recebe esta frase e o original vai pra
+// telemetria. Só o caminho não mapeado é registrado, para não inflar o alerta
+// de taxa de erro com recusas de negócio esperadas.
+const UNEXPECTED_ERROR_MESSAGE = "Não foi possível concluir agora. Tente de novo em instantes; se continuar, fale com o suporte.";
+
 const CREATE_ERROR_MESSAGES: Readonly<Record<string, string>> = {
   "an agent with this name already exists": "Já existe um agente com esse nome.",
   "a knowledge source with this name already exists": "Já existe uma fonte de conhecimento com esse nome.",
@@ -55,7 +61,9 @@ export async function createAgent(_prevState: ResourceActionState, formData: For
     p_role_type: "sales",
   });
   if (error) {
-    return { error: CREATE_ERROR_MESSAGES[error.message] ?? `Não foi possível criar: ${error.message}`, done: false };
+    const known = CREATE_ERROR_MESSAGES[error.message];
+    if (!known) trackError("agent_create_failed", new Error(error.message));
+    return { error: known ?? UNEXPECTED_ERROR_MESSAGE, done: false };
   }
 
   revalidatePath("/agentes");
@@ -110,7 +118,9 @@ export async function createKnowledgeSource(
     p_data_classification: classification,
   });
   if (error) {
-    return { error: CREATE_ERROR_MESSAGES[error.message] ?? `Não foi possível cadastrar: ${error.message}`, done: false };
+    const known = CREATE_ERROR_MESSAGES[error.message];
+    if (!known) trackError("knowledge_source_create_failed", new Error(error.message), { source_id: sourceId });
+    return { error: known ?? UNEXPECTED_ERROR_MESSAGE, done: false };
   }
 
   // Ingestão real: chunking + embeddings via OpenRouter + RPC de ingestão.
@@ -222,7 +232,10 @@ async function ingestContentForSource(
       if (ingestError.message === "daily knowledge ingestion limit reached for this account") {
         return "o limite diário de ingestões da conta foi atingido. Tente novamente amanhã.";
       }
-      return `a ingestão falhou (${ingestError.message}).`;
+      trackError("knowledge_ingestion_rpc_failed", new Error(ingestError.message), { source_id: sourceId });
+      // Fragmento: completa "A fonte foi registrada, mas ..." e "Não foi possível atualizar: ...".
+      // Não sugere reenviar o formulário de cadastro, que criaria uma fonte duplicada.
+      return "a ingestão não pôde ser concluída agora.";
     }
     return null;
   } catch (embedError) {
@@ -296,7 +309,8 @@ export async function setAgentStatus(
     if (error.message === "agent status cannot be changed from its current state") {
       return { error: "Este agente está num estado que não permite alteração pelo portal.", done: false };
     }
-    return { error: `Não foi possível alterar o status: ${error.message}`, done: false };
+    trackError("agent_status_change_failed", new Error(error.message), { agent_id: agentId, status });
+    return { error: UNEXPECTED_ERROR_MESSAGE, done: false };
   }
 
   // Ativação dispara dois efeitos best-effort que nunca desfazem a mudança
@@ -366,7 +380,8 @@ export async function deleteDraftAgent(agentId: string): Promise<ResourceActionS
     if (error.message === "direct deletion disabled; submit a governed data disposition request") {
       return { error: "Exclusão direta de agentes não está mais disponível. Solicite a exclusão dos dados da conta em Configurações, ou fale com o suporte.", done: false };
     }
-    return { error: `Não foi possível excluir: ${error.message}`, done: false };
+    trackError("agent_delete_failed", new Error(error.message), { agent_id: agentId });
+    return { error: UNEXPECTED_ERROR_MESSAGE, done: false };
   }
   revalidatePath("/agentes");
   revalidatePath("/dashboard");
@@ -387,7 +402,8 @@ export async function deleteKnowledgeSource(sourceId: string): Promise<ResourceA
     if (error.message === "direct deletion disabled; submit a governed data disposition request") {
       return { error: "Exclusão direta de fontes não está mais disponível. Revogar continua com efeito imediato; para excluir os dados de fato, solicite a exclusão da conta em Configurações, ou fale com o suporte.", done: false };
     }
-    return { error: `Não foi possível excluir: ${error.message}`, done: false };
+    trackError("knowledge_source_delete_failed", new Error(error.message), { source_id: sourceId });
+    return { error: UNEXPECTED_ERROR_MESSAGE, done: false };
   }
   revalidatePath("/conhecimento");
   revalidatePath("/dashboard");
@@ -414,7 +430,8 @@ export async function setKnowledgeSourceStatus(
     if (error.message === "only a tenant_admin can change knowledge sources") {
       return { error: "Somente administradores podem alterar fontes.", done: false };
     }
-    return { error: `Não foi possível alterar o status: ${error.message}`, done: false };
+    trackError("knowledge_source_status_change_failed", new Error(error.message), { source_id: sourceId, status });
+    return { error: UNEXPECTED_ERROR_MESSAGE, done: false };
   }
   revalidatePath("/conhecimento");
   revalidatePath("/dashboard");

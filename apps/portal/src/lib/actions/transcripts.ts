@@ -14,6 +14,9 @@ const DELETE_TRANSCRIPT_ERROR_MESSAGES: Readonly<Record<string, string>> = {
     "Exclusão direta de conversas não está mais disponível. Solicite a exclusão dos dados da conta em Configurações, ou fale com o suporte pelo e-mail informado no Aviso de Privacidade.",
 };
 
+// Erro de banco sem tradução conhecida nunca vai cru pro cliente.
+const UNEXPECTED_ERROR_MESSAGE = "Não foi possível concluir agora. Tente de novo em instantes; se continuar, fale com o suporte.";
+
 /**
  * Exclusão sob pedido de uma conversa (achado P1 confirmado, auditoria
  * 2026-08-12): a /privacidade promete exclusão de histórico a qualquer
@@ -23,7 +26,7 @@ export async function deleteConversationTranscript(id: string): Promise<DeleteTr
   const supabase = await createClient();
   const { error } = await supabase.rpc("portal_delete_conversation_transcript", { p_id: id });
   if (error) {
-    return { error: DELETE_TRANSCRIPT_ERROR_MESSAGES[error.message] ?? `Não foi possível excluir: ${error.message}` };
+    return { error: DELETE_TRANSCRIPT_ERROR_MESSAGES[error.message] ?? UNEXPECTED_ERROR_MESSAGE };
   }
   return { error: null };
 }
