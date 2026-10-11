@@ -31,7 +31,7 @@ import json
 import os
 import re
 import sys
-from dataclasses import asdict, dataclass
+from dataclasses import asdict, dataclass, field
 from typing import Any, Mapping
 from urllib.parse import urlparse
 
@@ -48,16 +48,17 @@ class LabConfigError(ValueError):
 
 @dataclass(frozen=True)
 class LabConfig:
+    # repr=False: um print ou log acidental do objeto nunca mostra segredo.
     brain_base_url: str
-    brain_secret: str
-    tavus_api_key: str
+    brain_secret: str = field(repr=False)
+    tavus_api_key: str = field(repr=False)
     tavus_replica_id: str
     daily_room_url: str
-    daily_token: str | None
+    daily_token: str | None = field(repr=False)
     language: str
     tts: str
     tts_voice: str
-    elevenlabs_api_key: str | None
+    elevenlabs_api_key: str | None = field(repr=False)
     tts_base_url: str | None
     whisper_model: str
 

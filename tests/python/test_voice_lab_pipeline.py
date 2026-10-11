@@ -63,6 +63,12 @@ class VoiceLabPipelineTest(unittest.TestCase):
         self.assertEqual(json.loads(output)["config"]["brain_secret"], "set")
         self.assertNotIn("pipecat", sys.modules, "the plan never imports the SDK")
 
+    def test_an_accidental_print_of_the_config_shows_no_secret(self) -> None:
+        text = repr(pipeline.config_from_env(ENV))
+        for secret in ("synthetic-brain-secret", "synthetic-tavus-key", "synthetic-eleven-key"):
+            self.assertNotIn(secret, text)
+        self.assertIn("brain_base_url", text)
+
     def test_errors_never_echo_a_secret(self) -> None:
         with self.assertRaises(pipeline.LabConfigError) as raised:
             pipeline.config_from_env({**ENV, "VOICE_LAB_DAILY_ROOM_URL": "ftp://synthetic-tavus-key@room"})
