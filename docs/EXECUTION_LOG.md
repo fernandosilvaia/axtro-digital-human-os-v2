@@ -3,6 +3,24 @@
 Registro por ciclo do loop (auditar → priorizar → implementar → testar → mergear).
 Detalhe técnico por decisão: `docs/operations/DECISIONS_LOG.md`.
 
+## Ciclo de integração · 2026-10-10/11: Codex, Priscila e ponte de tools
+
+Branch `integration/codex-2026-10`, 22 commits de código desde `96fd61e` mais os de documentação, sem PR e sem nada aplicado
+em hospedado. Cada decisão em `docs/operations/DECISIONS_LOG.md` (D-V2-193 a D-V2-197); a
+estrutural no ADR-050.
+
+- **Método:** implementar, testar, revisar com agente independente, corrigir, repetir. Duas
+  revisões de código da ponte acharam 5 e 4 problemas (todos corrigidos), e um red team da
+  sentinela achou 13 falas de risco que chegavam ao áudio.
+- **Achados que mudaram o desenho:** o teto de entrada de 20 mil (fixado no banco) estourava com
+  as 4 tools e a base cheia; uma tool malformada depois de resposta paga travava o tenant
+  inteiro; o rótulo de resultado de tool podia ser falado pela pessoa.
+- **Validação no fechamento:** 2.237 testes Node e 80 Python, `validate_all` 9/9, build,
+  Playwright local 17/17 e público 14/14. DeepEval 4.2.8, Ragas 0.4.3 e Pipecat 1.12.0 foram
+  conferidos contra as bibliotecas reais em ambientes isolados, sem chamada paga.
+- **Não verificado ao vivo:** formato das tool calls da Tavus, envio ao Langfuse, laboratório de
+  voz contra Tavus e Daily, e qualidade da Priscila com um modelo real.
+
 ## Ciclo 3 · 2026-07-19/20: "produto operável de ponta a ponta"
 
 - **Auditoria:** `docs/PROJECT_AUDIT.md` criado; backlog priorizado em `TASKS.md`.

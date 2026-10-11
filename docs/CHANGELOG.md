@@ -1,5 +1,31 @@
 # CHANGELOG (resumo por onda, detalhes em PROGRESS.md e DECISIONS_LOG.md)
 
+## 2026-10-11, Branch de integração: Priscila, ponte de tools e laboratórios (D-V2-193 a D-V2-197)
+
+Branch `integration/codex-2026-10`, não mesclado e nada aplicado em hospedado. Detalhe por
+decisão em `docs/operations/DECISIONS_LOG.md`; decisão estrutural no ADR-050.
+
+- **feat(brain):** o cérebro próprio devolve `tool_calls` no formato OpenAI por SSE e aceita
+  mensagens `tool`. Da Tavus só se usa o nome da tool, numa lista fechada; resultado de tool é
+  dado rotulado, nunca fala da pessoa. Uma tool malformada não trava mais a IA do tenant.
+- **feat(testar):** calculadora de cobertura (método DIME) no navegador, com a decomposição na
+  tela nos três idiomas.
+- **feat(brain):** persona em espanhol fala espanhol, inclusive nas frases fixas; prompt só
+  promete as tools que a persona tem; cache do prompt de sistema em modelos Anthropic.
+- **fix(brain):** o contexto passa a caber no teto de entrada de 20 mil por prioridade (com as 4
+  tools e a base cheia o primeiro turno já estourava e virava recuo), e o corte aparece no log e
+  no trace.
+- **feat(compliance):** sentinela determinística da vertical de seguro de vida em três idiomas,
+  ampliada por red team: IA dizendo ter licença, benefício do governo, promessa de aprovação no
+  futuro, recomendação de produto, garantia de imposto.
+- **feat(observability):** trace por turno no Langfuse via OTLP, só metadado, desligado sem
+  variáveis e sem host padrão.
+- **feat(eval) e feat(voice-lab):** avaliação de conversa inteira (DeepEval) e de busca (Ragas)
+  e laboratório Pipecat com teste cego de voz; ambos em ensaio por padrão e com trava de gasto.
+- **fix(a11y):** foco entra no menu móvel mesmo em aparelho lento; cartão da cobertura com id
+  único e sinal de menos de verdade.
+- **docs:** guia de lançamento da Priscila, roteiro disruptivo, ADR-050.
+
 ## 2026-08-06, Onda W5: hardening de billing, acessibilidade e equipe
 
 - **fix(billing):** checkout Stripe ganha idempotência (janela de 1min) + botão "Assinar"

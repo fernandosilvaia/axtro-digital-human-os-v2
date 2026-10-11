@@ -19,6 +19,26 @@
 - **Conhecimento demo:** 4 fontes da conta + 10 manuais Método Silva (438 chunks RAG).
 - **Ledger:** tokens, embeddings e conversas de vídeo registrados por tenant.
 
+## Branch de integração do Codex e da Priscila (não está no ar)
+
+Branch `integration/codex-2026-10`, sem PR e não mesclado na `main`. **Nada dele foi aplicado em
+hospedado, Railway, Tavus, Langfuse ou OpenRouter.** O que ele contém, por decisão:
+
+- **D-V2-193 a D-V2-194:** integração da rodada do Codex (migrations 0076 e 0077, portão de
+  prontidão no schema 77, harness com perfil hospedado, espera do `daily-js`).
+- **D-V2-195:** Priscila, closer de Life Insurance (doutrina, base de 13 fontes, sentinela de
+  compliance, banco de 12 cenários, script de persona). Guia: `docs/operations/PRISCILA_LAUNCH.md`.
+- **D-V2-196 e ADR-050:** ponte de tool calling do cérebro próprio, calculadora de cobertura na
+  tela, cache do prompt, trace por turno no Langfuse (só metadado), avaliação de conversa
+  (DeepEval) e de busca (Ragas), laboratório de voz (Pipecat).
+- **D-V2-197:** persona em espanhol e sentinela ampliada por red team.
+
+Como retomar: ler `docs/operations/PRISCILA_LAUNCH.md` e o ADR-050. Suítes que valem para este
+branch: `pnpm -s test` (Node e Python), `scripts/validate_all.py`, build do portal, e os dois
+Playwright (`playwright.local.config.ts` contra a stack local no schema 77, e o público).
+Cuidado conhecido: com a máquina muito carregada o Playwright local falha por tempo, não por
+regressão (ver a memória de E2E local); confira `uptime` antes de investigar.
+
 ## Como operar (conta demo)
 
 1. Login com o usuário demo (credenciais em `apps/portal/.env.local` / Doppler).
@@ -50,6 +70,14 @@ Testes: `docs/TESTING.md`. Deploy: `docs/DEPLOYMENT.md`. Pendências suas: `docs
 - `database/migrations/` continua portátil (nada que referencie `auth.users`).
 
 ## Gates que continuam humanos
+
+Do branch `integration/codex-2026-10`: chamada de teste paga na Tavus (única forma de confirmar o
+formato das tool calls ao vivo) · escolher réplica e voz da Priscila, criar a persona, anexar as
+tools (`--with-coverage-calculator`) e ingerir a base · escolher onde hospedar o Langfuse
+(residência de dado) · autorizar o gasto da avaliação ao vivo, do juiz e do laboratório de voz ·
+migration do teto de entrada do cérebro, aplicada antes do deploy que muda a constante ·
+aplicar em produção as migrations 0059 a 0077 (janela bloqueada até liberar as ferramentas do
+Supabase nas configurações) · merge na `main`. Os demais:
 
 Bake-off de provider · piloto real M3-10 · DPIA/jurisdição (percepção emocional) ·
 Stripe Connect do zero (ADR-040) · credenciais reais Google Calendar/Telnyx ·
