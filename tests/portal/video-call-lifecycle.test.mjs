@@ -5,6 +5,7 @@ import test from "node:test";
 import ts from "typescript";
 
 const directory = new URL("../../apps/portal/src/app/(app)/agentes/[id]/testar/", import.meta.url);
+const coverageNeed = await import("../../apps/portal/src/lib/insurance/coverage-need.ts");
 const tenantId = "019f0000-0000-7000-8000-000000000001";
 const agentId = "019f0000-0000-7000-8000-000000000002";
 const deck = { title: "Synthetic deck", slides: [{ kind: "cover", title: "One", bullets: [] }, {kind: "next", title: "Two", bullets: []}] };
@@ -86,7 +87,9 @@ function harness(mode, options = {}) {
       if (name === "react/jsx-runtime") return {jsx, jsxs: jsx, Fragment: "fragment"};
       if (name === "@axtro/provider-tavus") return {isTrustedTavusConversationUrl: (url) => url === "https://tavus.daily.co/synthetic"};
       if (name === "@/lib/actions/video-conversation") return actions;
-      if (name === "@/lib/runtime/tool-call-names") return {classifyToolCallName: (name) => name === "register_lead" ? "business_action" : name === "next_slide" ? "scene" : "unknown"};
+      if (name === "@/lib/runtime/tool-call-names") return {classifyToolCallName: (name) => name === "register_lead" ? "business_action" : name === "next_slide" ? "scene" : name === "estimate_coverage_need" ? "calculation" : "unknown"};
+      if (name === "@/lib/insurance/coverage-need") return coverageNeed;
+      if (name === "./coverage-estimate-card") return {CoverageEstimateCard: (props) => ({type: "coverage-estimate", props: {children: [`gap ${props.estimate.roundedGap}`, props.language]}})};
       if (name === "./tool-call-dispatcher") return {dispatchToolCall(args) { state.dispatches.push(args); return options.tool?.promise ?? Promise.resolve({toolCallId: "tool", output: "Receipt confirmed", status: "success"}); }};
       if (name === "./call-lifecycle") return load("call-lifecycle.ts");
       throw new Error(`Unmocked module ${name}`);
@@ -374,6 +377,45 @@ for (const mode of ["video", "presentation"]) {
     assert.equal(h.starts.length, 1); assert.equal(h.calls.length, 1); assert.equal(h.stored.values.size, 0);
   });
 }
+function findNode(node, predicate) {
+  if (!node || typeof node !== "object") return undefined;
+  if (Array.isArray(node)) {
+    for (const child of node) { const found = findNode(child, predicate); if (found) return found; }
+    return undefined;
+  }
+  if (predicate(node)) return node;
+  return findNode(node.props?.children, predicate);
+}
+
+for (const mode of ["video", "presentation"]) {
+  test(`${mode}: the coverage calculator runs in the browser, shows the breakdown and answers the persona`, async () => {
+    const h = harness(mode); await h.start();
+    const message = toolMessage("conversation-1", "estimate_coverage_need");
+    message.data.properties.arguments = JSON.stringify({ annualIncome: 50000, yearsOfIncome: 10, mortgageBalance: 200000, debts: 20000, existingCoverage: 100000 });
+    h.calls[0].emit("app-message", message); await h.settle();
+    assert.equal(h.dispatches.length, 0, "a calculation never reaches the business action server");
+    const result = h.calls[0].messages.at(-1);
+    assert.equal(result.event_type, "conversation.tool_result");
+    assert.equal(result.properties.status, "success");
+    assert.match(result.properties.output, /Educational estimate/);
+    assert.match(result.properties.output, /gap of about \$620,000/);
+    const card = findNode(h.tree(), (node) => node.props?.estimate !== undefined);
+    assert.ok(card, "the breakdown is rendered on screen");
+    assert.equal(card.props.estimate.roundedGap, 620000);
+    assert.equal(card.props.estimate.components.income, 500000);
+    h.unmount();
+  });
+  test(`${mode}: invalid calculator arguments answer with an error and show nothing`, async () => {
+    const h = harness(mode); await h.start();
+    const message = toolMessage("conversation-1", "estimate_coverage_need");
+    message.data.properties.arguments = "{\"annualIncome\":-5}";
+    h.calls[0].emit("app-message", message); await h.settle();
+    assert.equal(h.calls[0].messages.at(-1).properties.status, "error");
+    assert.equal(findNode(h.tree(), (node) => node.props?.estimate !== undefined), undefined);
+    h.unmount();
+  });
+}
+
 test("presentation: missing deck with committed effect keeps recovery", async () => {
   const h = harness("presentation", {start: async () => ({url: "https://tavus.daily.co/synthetic", conversationId: "created", deck: null, error: null, effect: effect()})});
   await h.start(); assert.ok(h.button(/^Tentar encerrar/)); assert.equal(h.calls.length, 0); assert.equal(h.stored.values.size, 1); h.unmount();

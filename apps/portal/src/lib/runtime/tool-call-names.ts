@@ -18,14 +18,23 @@ export type SceneToolName = (typeof SCENE_TOOL_NAMES)[number];
 export const BUSINESS_ACTION_TOOL_NAMES = ["register_lead", "propose_meeting_slots", "confirm_meeting_slot", "request_checkout"] as const;
 export type BusinessActionToolName = (typeof BUSINESS_ACTION_TOOL_NAMES)[number];
 
-export type ToolCallCategory = "scene" | "business_action" | "unknown";
+/**
+ * Conta determinística executada no próprio navegador, sem servidor, sem custo
+ * e sem dado persistido: o resultado volta ao modelo e aparece na tela.
+ */
+export const CALCULATION_TOOL_NAMES = ["estimate_coverage_need"] as const;
+export type CalculationToolName = (typeof CALCULATION_TOOL_NAMES)[number];
+
+export type ToolCallCategory = "scene" | "business_action" | "calculation" | "unknown";
 
 const SCENE_TOOL_NAME_SET: ReadonlySet<string> = new Set(SCENE_TOOL_NAMES);
 const BUSINESS_ACTION_TOOL_NAME_SET: ReadonlySet<string> = new Set(BUSINESS_ACTION_TOOL_NAMES);
+const CALCULATION_TOOL_NAME_SET: ReadonlySet<string> = new Set(CALCULATION_TOOL_NAMES);
 
 export function classifyToolCallName(name: string): ToolCallCategory {
   if (SCENE_TOOL_NAME_SET.has(name)) return "scene";
   if (BUSINESS_ACTION_TOOL_NAME_SET.has(name)) return "business_action";
+  if (CALCULATION_TOOL_NAME_SET.has(name)) return "calculation";
   return "unknown";
 }
 

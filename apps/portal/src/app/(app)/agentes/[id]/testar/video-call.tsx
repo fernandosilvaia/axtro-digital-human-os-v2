@@ -17,6 +17,7 @@ import { useState } from "react";
 
 import { startVideoConversation, stopVideoConversation, type VideoChannelConsent } from "@/lib/actions/video-conversation";
 
+import { CoverageEstimateCard } from "./coverage-estimate-card";
 import { useCallLifecycle } from "./call-lifecycle";
 
 const INITIAL_CONSENT: VideoChannelConsent = {
@@ -35,9 +36,15 @@ function allConsentConfirmed(consent: VideoChannelConsent): boolean {
 // Id fixo e distinto do de presentation-room.tsx: as duas salas aparecem na mesma página.
 const CONSENT_HINT_ID = "video-call-consent-hint";
 
-export function VideoCall({ tenantId, agentId, agentName }: { tenantId: string; agentId: string; agentName: string }) {
+export function VideoCall({ tenantId, agentId, agentName, estimateLanguage = "portuguese" }: {
+  tenantId: string;
+  agentId: string;
+  agentName: string;
+  /** Idioma da persona: a conta de cobertura aparece no idioma de quem está na chamada. */
+  estimateLanguage?: "english" | "spanish" | "portuguese";
+}) {
   const [consent, setConsent] = useState<VideoChannelConsent>(INITIAL_CONSENT);
-  const { phase, error, muted, stopping, providerStopConfirmed, storageReady, start, end, reset, toggleMute, remoteVideoRef, remoteAudioRef, localVideoRef } = useCallLifecycle({
+  const { phase, error, muted, stopping, providerStopConfirmed, storageReady, start, end, reset, toggleMute, remoteVideoRef, remoteAudioRef, localVideoRef, coverageEstimate } = useCallLifecycle({
     tenantId, agentId, mode: "video", consent, startAction: startVideoConversation, stopAction: stopVideoConversation,
   });
 
@@ -162,6 +169,7 @@ export function VideoCall({ tenantId, agentId, agentName }: { tenantId: string; 
           </p>
         </div>
       </div>
+      {coverageEstimate && <CoverageEstimateCard estimate={coverageEstimate} language={estimateLanguage} />}
     </section>
   );
 }

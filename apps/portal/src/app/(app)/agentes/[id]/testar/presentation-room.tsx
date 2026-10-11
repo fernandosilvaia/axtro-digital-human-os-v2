@@ -12,6 +12,7 @@ import { useCallback, useRef, useState } from "react";
 import type { Deck, DeckSlide, DeckSlideKind } from "@/lib/presentation/deck";
 import { startPresentationConversation, stopPresentationConversation, type VideoChannelConsent } from "@/lib/actions/video-conversation";
 
+import { CoverageEstimateCard } from "./coverage-estimate-card";
 import { useCallLifecycle } from "./call-lifecycle";
 
 const INITIAL_CONSENT: VideoChannelConsent = {
@@ -163,7 +164,13 @@ function SlideBody({ slide, accent }: { slide: DeckSlide; accent: string }) {
   );
 }
 
-export function PresentationRoom({ tenantId, agentId, agentName }: { tenantId: string; agentId: string; agentName: string }) {
+export function PresentationRoom({ tenantId, agentId, agentName, estimateLanguage = "portuguese" }: {
+  tenantId: string;
+  agentId: string;
+  agentName: string;
+  /** Idioma da persona: a conta de cobertura aparece no idioma de quem está na chamada. */
+  estimateLanguage?: "english" | "spanish" | "portuguese";
+}) {
   const [deck, setDeck] = useState<Deck | null>(null);
   const [slideIndex, setSlideIndex] = useState(0);
   const [simulated, setSimulated] = useState(false);
@@ -179,7 +186,7 @@ export function PresentationRoom({ tenantId, agentId, agentName }: { tenantId: s
     setSimulated(result.simulated === true);
     return true;
   }, []);
-  const { phase, error, muted, stopping, providerStopConfirmed, storageReady, start, end: leave, reset, toggleMute, remoteVideoRef, remoteAudioRef, localVideoRef } = useCallLifecycle({
+  const { phase, error, muted, stopping, providerStopConfirmed, storageReady, start, end: leave, reset, toggleMute, remoteVideoRef, remoteAudioRef, localVideoRef, coverageEstimate } = useCallLifecycle({
     tenantId, agentId, mode: "presentation", consent, startAction: startPresentationConversation, stopAction: stopPresentationConversation, acceptResult,
   });
 
@@ -394,6 +401,7 @@ export function PresentationRoom({ tenantId, agentId, agentName }: { tenantId: s
           </p>
         </div>
       </div>
+      {coverageEstimate && <CoverageEstimateCard estimate={coverageEstimate} language={estimateLanguage} />}
     </section>
   );
 }

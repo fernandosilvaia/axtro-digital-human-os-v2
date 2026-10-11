@@ -4,6 +4,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import type { PortalVideoStartEffect } from "@axtro/contracts-ts";
 import { isTrustedTavusConversationUrl } from "@axtro/provider-tavus";
 import type { VideoChannelConsent } from "@/lib/actions/video-conversation";
+import { coverageNeedToolOutput, estimateCoverageNeed, type CoverageNeedEstimate } from "@/lib/insurance/coverage-need";
 import { classifyToolCallName } from "@/lib/runtime/tool-call-names";
 import { dispatchToolCall, type ToolCallMessage } from "./tool-call-dispatcher";
 
@@ -74,6 +75,14 @@ function closedEffect(result: StartResult) {
 }
 function isProvenNotStarted(result: StartResult) { return closedEffect(result) === "not_started"; }
 
+/** Argumentos de tool chegam como string JSON ou objeto; qualquer outra coisa vira objeto vazio. */
+function parseToolArguments(value: unknown): unknown {
+  if (typeof value === "string") {
+    try { return JSON.parse(value); } catch { return {}; }
+  }
+  return value ?? {};
+}
+
 /** ADR-047: the stored UUID is correlation only; server actions retain authority. */
 export function callRecoveryKey(tenantId: string, agentId: string, mode: "video" | "presentation") {
   return `axtro:call:${encodeURIComponent(tenantId)}:${encodeURIComponent(agentId)}:${mode}`;
@@ -94,6 +103,8 @@ export function useCallLifecycle<T extends StartResult>({ tenantId, agentId, mod
   const [stopping, setStopping] = useState(false);
   const [providerStopConfirmed, setProviderStopConfirmed] = useState(false);
   const [storageReady, setStorageReady] = useState(false);
+  // Última conta de cobertura pedida pela persona nesta chamada: aparece na tela.
+  const [coverageEstimate, setCoverageEstimate] = useState<CoverageNeedEstimate | null>(null);
   const mounted = useRef(false);
   const epoch = useRef(0);
   const attemptRef = useRef<Attempt | null>(null);
@@ -209,6 +220,11 @@ export function useCallLifecycle<T extends StartResult>({ tenantId, agentId, mod
     const category = classifyToolCallName(message.properties?.name ?? "");
     if (category === "scene") {
       sendToolResult(attempt, call, toolCallId, "Comando de cena recusado: não há manifesto, geração e recibo validados pelo servidor.", "error");
+    } else if (category === "calculation") {
+      // Roda aqui mesmo: determinístico, sem servidor, sem custo, sem guardar dado.
+      const estimate = estimateCoverageNeed(parseToolArguments(message.properties?.arguments));
+      if (estimate.outcome === "estimated") setCoverageEstimate(estimate);
+      sendToolResult(attempt, call, toolCallId, coverageNeedToolOutput(estimate), estimate.outcome === "estimated" ? "success" : "error");
     } else if (category === "business_action") {
       void (async () => {
         try {
@@ -246,6 +262,7 @@ export function useCallLifecycle<T extends StartResult>({ tenantId, agentId, mod
     setError(null);
     setProviderStopConfirmed(false);
     setMuted(false);
+    setCoverageEstimate(null);
     setPhase("starting");
     void (async () => {
       const forgetNotStartedCommand = () => {
@@ -378,5 +395,5 @@ export function useCallLifecycle<T extends StartResult>({ tenantId, agentId, mod
     try { attempt.call.setLocalAudio(!next); setMuted(next); } catch { setError("Não foi possível alterar o microfone agora."); }
   }, [currentCall, muted]);
 
-  return { phase, error, muted, stopping, providerStopConfirmed, storageReady, start, end, reset, toggleMute, remoteVideoRef, remoteAudioRef, localVideoRef };
+  return { phase, error, muted, stopping, providerStopConfirmed, storageReady, start, end, reset, toggleMute, remoteVideoRef, remoteAudioRef, localVideoRef, coverageEstimate };
 }

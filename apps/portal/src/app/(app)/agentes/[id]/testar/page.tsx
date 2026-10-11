@@ -47,6 +47,9 @@ export default async function AgentPreviewPage({ params }: { params: Promise<{ i
   // ja degrada para "nao configurado" em qualquer falha, entao nunca derruba a pagina.
   const brainStatus = await fetchAgentBrainStatus(agent.id);
   const videoConfigStatus = await fetchAgentVideoConfigStatus(agent.id);
+  const estimateLanguage = videoConfigStatus.language === "english" || videoConfigStatus.language === "spanish"
+    ? videoConfigStatus.language
+    : "portuguese";
   // Base URL, nao o endpoint completo: a Tavus acrescenta /chat/completions
   // sozinha ("Do not include route extensions in the base_url", docs da
   // Tavus). Mostrar o endpoint completo levava o operador a configurar
@@ -91,8 +94,8 @@ export default async function AgentPreviewPage({ params }: { params: Promise<{ i
       />
       <ExternalMeeting agentId={agent.id} agentName={agent.name} timeZone={timeZone} />
       <MeetingSessions agentId={agent.id} timeZone={timeZone} />
-      <PresentationRoom tenantId={tenantId} agentId={agent.id} agentName={agent.name} />
-      <VideoCall tenantId={tenantId} agentId={agent.id} agentName={agent.name} />
+      <PresentationRoom tenantId={tenantId} agentId={agent.id} agentName={agent.name} estimateLanguage={estimateLanguage} />
+      <VideoCall tenantId={tenantId} agentId={agent.id} agentName={agent.name} estimateLanguage={estimateLanguage} />
       <div style={{ height: 16 }} />
       <PreviewChat agentId={agent.id} agentName={agent.name} />
       <ClosingProposal agentId={agent.id} agentName={agent.name} />
