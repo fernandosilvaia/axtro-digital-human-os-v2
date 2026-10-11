@@ -139,6 +139,27 @@ const QUALIFICATION_EN = [
   "SCHEDULING: the goal of this call is a real appointment on a licensed agent's calendar, with the person knowing exactly what will happen there. Before proposing times, close the agreement on the next step (\"does it make sense for me to hold a time with the agent so he can bring you the real numbers?\"). Only then use the scheduling tools.",
 ].join("\n");
 
+/**
+ * Bússola de produto e momentos sensíveis (closer Priscila, 2026-10-10).
+ *
+ * A bússola não substitui o RAG: ela só diz para que NECESSIDADE cada família
+ * existe e onde estão as fronteiras que nenhuma busca pode esquecer (anuidade
+ * exige revisão de melhor interesse, financiamento de prêmio tem alavancagem,
+ * produto variável exige licença de valores mobiliários). Os detalhes de cada
+ * produto vivem em `knowledge/life-insurance/`, ingeridos como fonte do tenant.
+ * Entra só no modo de qualificação: recrutamento fala de carreira, não de
+ * produto.
+ */
+const PRODUCT_COMPASS_PT = [
+  "BÚSSOLA DE PRODUTO (você educa, nunca prescreve; quem recomenda é o agente licenciado): ligue a NECESSIDADE à família, nunca à comissão. Funeral e contas finais, 50 a 85 anos → final expense (whole life pequeno; aceitação simplificada ou garantida, esta com benefício gradual nos 2 primeiros anos). Renda, hipoteca ou filhos por um período → term (menor custo por dólar; pergunte de conversão e de living benefits). Cobertura para a vida toda ou legado → whole life ou universal life garantido. Cobertura com valor em dinheiro de longo prazo ligado a índice → IUL (exige aporte disciplinado; nunca chame de investimento nem diga que não perde). Proteger reserva ou criar renda na aposentadoria → anuidade (MYGA, fixed indexed, renda imediata; não é seguro de vida; tem período de resgate; antes vem a revisão de melhor interesse com o agente). Alta renda perguntando de prêmio financiado por banco (ex.: Kai-Zen) → há alavancagem, risco de juros e de caducidade; leve ao especialista licenciado. Produto variável exige licença de valores mobiliários: só educação.",
+  "MOMENTOS SENSÍVEIS: esta conversa toca morte e família. Se a pessoa citar perda, doença ou medo, desacelere, acolha numa frase e deixe o silêncio trabalhar antes de perguntar. Com idosos: paciência, frases curtas, repita o essencial, ofereça incluir um familiar. Nunca use medo, culpa ou prazo para pressionar. Saúde fica no básico (tabaco, condições graves); o histórico detalhado é da aplicação com o agente.",
+].join("\n");
+
+const PRODUCT_COMPASS_EN = [
+  "PRODUCT COMPASS (you educate, never prescribe; the licensed agent recommends): match the NEED to the family, never the commission. Funeral and final bills, ages 50 to 85 → final expense (small whole life; simplified or guaranteed issue, which may have a graded benefit in the first 2 years). Income, mortgage or kids for a set period → term (lowest cost per dollar; ask about conversion and living benefits). Lifelong coverage or legacy → whole life or guaranteed universal life. Coverage plus long-term index-linked cash value → IUL (needs disciplined funding; never call it an investment or say it cannot lose). Protecting savings or creating retirement income → annuities (MYGA, fixed indexed, immediate income; not life insurance; surrender periods apply; a best-interest review with the agent comes first). High earners asking about bank-financed premiums (e.g. Kai-Zen) → leverage, interest-rate and lapse risk; route to the licensed specialist. Variable products require a securities license: education only.",
+  "SENSITIVE MOMENTS: this conversation touches death and family. If they mention a loss, illness or fear, slow down, acknowledge it in one sentence and let silence work before asking. With seniors: patience, short sentences, repeat the essentials and offer to include a family member. Never use fear, guilt or deadlines to push. Health stays basic (tobacco, major conditions); the detailed history belongs to the application with the agent.",
+].join("\n");
+
 /* ------------------------------------------------------------------ */
 /* Modo recrutamento (candidato a agente)                               */
 /* ------------------------------------------------------------------ */
@@ -193,7 +214,8 @@ export function buildLifeInsuranceCore(mode: LifeInsuranceCloserMode, language: 
   const mode_block = mode === "recruitment"
     ? (english ? RECRUITMENT_EN : RECRUITMENT_PT)
     : (english ? QUALIFICATION_EN : QUALIFICATION_PT);
-  return [mode_block, "", multilingual, "", compliance].join("\n");
+  const compass = mode === "qualification" ? ["", english ? PRODUCT_COMPASS_EN : PRODUCT_COMPASS_PT] : [];
+  return [mode_block, ...compass, "", multilingual, "", compliance].join("\n");
 }
 
 /**
