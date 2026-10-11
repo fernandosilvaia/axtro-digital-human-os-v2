@@ -70,7 +70,7 @@ test("landing positions the verified Closer AI Human experience without fabricat
 
   assert.match(landing, /title: "Axtro Closer AI Human \| Closer de IA em vídeo com controle"/);
   assert.match(landing, /<h1 id="closer-hero-title">Seu melhor closer não deveria caber na agenda\.<\/h1>/);
-  assert.match(landing, /<DemoSubmitButton className="btn btn-primary btn-large">Assistir à demonstração <ArrowIcon \/><\/DemoSubmitButton>/);
+  assert.match(landing, /<DemoSubmitButton className="btn btn-primary btn-large">Explorar a demonstração <ArrowIcon \/><\/DemoSubmitButton>/);
   assert.match(landing, /IA sempre identificada/);
   assert.match(landing, /IA IDENTIFICADA/);
   assert.match(landing, /src="\/assets\/digital-human\/raissa-closer-hero\.png"/);

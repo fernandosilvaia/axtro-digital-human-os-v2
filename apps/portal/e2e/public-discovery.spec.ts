@@ -26,7 +26,7 @@ async function expectNoHorizontalOverflow(page: Page) {
 }
 
 async function expectKeyboardReachableCta(page: Page) {
-  const demoCta = page.getByRole("button", { name: "Assistir à demonstração" });
+  const demoCta = page.getByRole("button", { name: "Explorar a demonstração" });
   await page.locator("body").focus();
 
   for (let index = 0; index < 20; index += 1) {
@@ -85,7 +85,7 @@ for (const viewport of [
       await expect(page).toHaveTitle("Axtro Closer AI Human | Closer de IA em vídeo com controle");
       await expect(page.locator('meta[property="og:title"]')).toHaveAttribute("content", "Axtro Closer AI Human | Closer de IA em vídeo com controle");
       await expect(page.getByRole("heading", { name: "Seu melhor closer não deveria caber na agenda." })).toBeVisible();
-      await expect(page.getByRole("button", { name: "Assistir à demonstração" })).toBeVisible();
+      await expect(page.getByRole("button", { name: "Explorar a demonstração" })).toBeVisible();
       await expect(page.getByText("IA sempre identificada", { exact: true })).toBeVisible();
       const raissa = page.getByAltText("Raissa no estúdio Axtro, identidade visual da experiência Closer AI Human");
       await expect(raissa).toBeVisible();
@@ -207,7 +207,7 @@ test("demo pública isola contextos, não autentica e não alcança efeitos exte
 
   try {
     await pageA.goto("/");
-    await pageA.getByRole("button", { name: "Assistir à demonstração" }).click();
+    await pageA.getByRole("button", { name: "Explorar a demonstração" }).click();
     await expect(pageA).toHaveURL(/\/demo$/);
     await expect(pageA.getByRole("heading", { name: /Entenda a operação antes/i })).toBeVisible();
     await expect(pageA.getByText("Simulação isolada", { exact: true }).first()).toBeVisible();
@@ -229,7 +229,7 @@ test("demo pública isola contextos, não autentica e não alcança efeitos exte
     await expect(pageA.getByRole("heading", { name: /Raissa representa/i })).toBeVisible();
 
     await pageB.goto("/");
-    await pageB.getByRole("button", { name: "Assistir à demonstração" }).click();
+    await pageB.getByRole("button", { name: "Explorar a demonstração" }).click();
     await expect(pageB).toHaveURL(/\/demo$/);
     await expect(pageB.getByRole("heading", { name: /Entenda a operação antes/i })).toBeVisible();
     const cookiesB = await contextB.cookies();
@@ -292,7 +292,7 @@ for (const viewport of [{width: 1280, height: 900}, {width: 390, height: 844}]) 
     const page = await context.newPage();
     try {
       await page.goto("/");
-      await page.getByRole("button", {name: "Assistir à demonstração"}).click();
+      await page.getByRole("button", {name: "Explorar a demonstração"}).click();
       await expect(page.getByRole("heading", {name: /Entenda a operação antes/i})).toBeVisible();
       await expectNoHorizontalOverflow(page);
       const active = await new AxeBuilder({page}).withTags(["wcag2a", "wcag2aa", "wcag21a", "wcag21aa"]).analyze();

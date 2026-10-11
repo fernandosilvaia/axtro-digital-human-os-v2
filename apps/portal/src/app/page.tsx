@@ -170,7 +170,7 @@ export default function LandingPage() {
             </p>
             <div className="hero-ctas hero-ctas-left">
               <form action="/demo/start" method="post">
-                <DemoSubmitButton className="btn btn-primary btn-large">Assistir à demonstração <ArrowIcon /></DemoSubmitButton>
+                <DemoSubmitButton className="btn btn-primary btn-large">Explorar a demonstração <ArrowIcon /></DemoSubmitButton>
               </form>
               <a className="btn btn-ghost btn-large" href="#como-funciona">Como funciona <ChevronIcon /></a>
             </div>

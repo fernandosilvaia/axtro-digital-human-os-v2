@@ -50,7 +50,7 @@ test("landing pública renderiza e aponta para login", async ({ page }) => {
   await page.goto("/");
   await expect(page).toHaveTitle("Axtro Closer AI Human | Closer de IA em vídeo com controle");
   await expect(page.getByRole("heading", { name: "Seu melhor closer não deveria caber na agenda." })).toBeVisible();
-  await expect(page.getByRole("button", { name: "Assistir à demonstração" })).toBeVisible();
+  await expect(page.getByRole("button", { name: "Explorar a demonstração" })).toBeVisible();
   await expect(page.locator('a[href="/login"]').first()).toBeVisible();
 });
 
@@ -124,7 +124,7 @@ test("demo isolada preserva cookies, tenant e papel do cliente autenticado", asy
   expect(authCookiesBefore.length).toBeGreaterThan(0);
 
   await page.goto("/");
-  await page.getByRole("button", { name: "Assistir à demonstração" }).click();
+  await page.getByRole("button", { name: "Explorar a demonstração" }).click();
   await expect(page).toHaveURL(/\/demo$/);
   await page.getByRole("button", { name: /Agente/i }).click();
   await page.getByRole("button", { name: "Sair da demonstração" }).click();
