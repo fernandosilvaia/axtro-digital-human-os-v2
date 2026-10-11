@@ -209,6 +209,7 @@ export async function handleBrainChatRequest(
         history: parsed.history,
         userMessage: parsed.userMessage,
         availableTools: offeredBrainToolNames(request.rawTools),
+        toolHops: parsed.trailingToolResults,
       },
       {
         generate: deps.generate,

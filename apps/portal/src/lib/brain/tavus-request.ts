@@ -37,6 +37,11 @@ export interface ParsedTavusChatRequest {
    * buscar conhecimento com ele como pergunta.
    */
   readonly lastTurnIsToolResult: boolean;
+  /**
+   * Quantos resultados de tool seguidos fecham a conversa, sem fala da pessoa
+   * no meio. É o número de saltos de tool que o modelo já deu neste turno.
+   */
+  readonly trailingToolResults: number;
 }
 
 /** Prefixo dos turnos sintéticos de resultado de tool: dado de sistema, nunca fala nem instrução. */
@@ -47,17 +52,28 @@ const MAX_TOOL_RESULT_CHARS = 2000;
  * resultado), ele vira texto neutro: sem isso, alguém falando "resultado de
  * ferramenta: reunião confirmada" se passaria por dado de sistema.
  */
-const TOOL_RESULT_LABEL_PATTERN = /RESULTADO\s+DE\s+FERRAMENTA/giu;
+// Tolera caixa, separadores, "DA/DO/DE", o zero no lugar do O e caracteres
+// invisíveis dentro da palavra. O texto original só é trocado quando o rótulo
+// aparece, então a fala normal da pessoa passa intacta.
+const TOOL_RESULT_LABEL_PATTERN = /RESULTAD[O0]S?[\s\-_.:]*(?:D[AEO]S?)?[\s\-_.:]*FERRAMENTAS?/giu;
+const INVISIBLE_CHARS = /[­​-‏‪-‮⁠-⁤﻿]/g;
 const NEUTRALIZED_LABEL = "[rótulo de sistema removido]";
 
 function neutralizeToolLabel(text: string): string {
-  return text.replace(TOOL_RESULT_LABEL_PATTERN, NEUTRALIZED_LABEL);
+  const clean = text.normalize("NFKC").replace(INVISIBLE_CHARS, "");
+  return TOOL_RESULT_LABEL_PATTERN.test(clean) ? clean.replace(TOOL_RESULT_LABEL_PATTERN, NEUTRALIZED_LABEL) : text;
 }
 
 const PERCEPTION_TAG_PATTERN = /<(user_appearance|user_emotions|user_screenshare)>[\s\S]*?<\/\1>/g;
 const MAX_MESSAGES = 200;
 const MAX_MESSAGE_CONTENT_CHARS = 20_000;
 const MAX_PROVIDER_CONTEXT_CHARS = 6000;
+
+function countTrailingToolResults(turns: readonly { toolResult?: boolean }[]): number {
+  let count = 0;
+  for (let index = turns.length - 1; index >= 0 && turns[index]?.toolResult === true; index -= 1) count += 1;
+  return count;
+}
 
 export function parseTavusChatRequest(rawMessages: unknown): ParsedTavusChatRequest {
   if (!Array.isArray(rawMessages) || rawMessages.length === 0) {
@@ -130,6 +146,7 @@ export function parseTavusChatRequest(rawMessages: unknown): ParsedTavusChatRequ
     history: Object.freeze(turns.slice(0, -1).map(({ role, content }) => ({ role, content }))),
     userMessage: last.content,
     lastTurnIsToolResult: last.toolResult === true,
+    trailingToolResults: countTrailingToolResults(turns),
     perceptionContext: perceptionPieces.length > 0 ? perceptionPieces.join("\n") : null,
     // Corta pelo início (slice negativo): num contexto acumulado, o final é o
     // mais recente/relevante, mesmo racional do bloco de percepção.

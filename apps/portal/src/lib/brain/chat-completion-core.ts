@@ -90,6 +90,8 @@ export interface BrainChatRequest {
   /** Idioma falado, quando difere das instruções (hoje só espanhol, com instruções em inglês). */
   readonly spokenLanguage?: SpokenLanguage;
   readonly closerVertical?: CloserVertical;
+  /** Saltos de tool já dados neste turno da pessoa. A partir do teto, o modelo só fala. */
+  readonly toolHops?: number;
   readonly knowledgeMatches: readonly BrainKnowledgeMatch[];
   /** Bloco de percepção JÁ extraído (ex.: tags do raven-1 via Tavus); texto livre, nunca instrução. */
   readonly perceptionContext?: string | null;
@@ -217,6 +219,11 @@ export class BrainChatValidationError extends Error {
   }
 }
 
+/**
+ * Register_lead, propose e confirm em sequência são 3 saltos legítimos num mesmo
+ * turno da pessoa; o quarto já é laço.
+ */
+export const MAX_TOOL_HOPS_PER_TURN = 3;
 const MAX_HISTORY_TURNS = 10;
 const MAX_TURN_CHARS = 2000;
 const MAX_USER_MESSAGE_CHARS = 2000;
@@ -548,7 +555,12 @@ export async function runBrainChatCompletion(request: BrainChatRequest, deps: Br
 
   // Tools só existem no vídeo e só as que a persona anexou e a lista fechada
   // aceita. A calculadora de cobertura só faz sentido na vertical de seguro.
-  const offered = isVideo
+  // Cada salto de tool é uma nova requisição, com nova reserva de até US$ 0,05.
+  // Um modelo preso num laço (a calculadora devolve "dados insuficientes" e ele
+  // chama de novo com os mesmos números) gastaria o teto do tenant inteiro. No
+  // teto, as tools deixam de ser oferecidas e o modelo precisa falar.
+  const hopsExhausted = (request.toolHops ?? 0) >= MAX_TOOL_HOPS_PER_TURN;
+  const offered = isVideo && !hopsExhausted
     ? (request.availableTools ?? []).filter((name) => name !== "estimate_coverage_need" || lifeInsuranceMode === "qualification")
     : [];
   const toolDefinitions = brainToolDefinitions(offered);

@@ -279,3 +279,45 @@ test("the chat prompt never claims sources whose block did not make it in", asyn
   await core.runBrainChatCompletion({ ...REQUEST, surface: "chat", availableTools: [], knowledgeMatches: [knowledgeMatch(1)] }, roomy.deps);
   assert.match(roomy.calls[0].messages.filter((message) => message.role === "system").map((message) => message.content).join("\n"), /única fonte candidata de fatos/);
 });
+
+test("a model stuck in a tool loop is forced to speak after three hops in the same turn", async () => {
+  const hops = (count) => [
+    { role: "user", content: "I make 80 thousand a year." },
+    ...Array.from({ length: count }, () => ({ role: "tool", tool_call_id: "call_1", content: "Coverage estimate not calculated (insufficient_data)." })),
+  ];
+  const tavusRequest = await import("../../apps/portal/src/lib/brain/tavus-request.ts");
+  assert.equal(tavusRequest.parseTavusChatRequest(hops(0)).trailingToolResults, 0);
+  assert.equal(tavusRequest.parseTavusChatRequest(hops(2)).trailingToolResults, 2);
+  const reset = tavusRequest.parseTavusChatRequest([...hops(3), { role: "assistant", content: "Tell me the years." }, { role: "user", content: "Fifteen." }]);
+  assert.equal(reset.trailingToolResults, 0, "a real person turn resets the count");
+
+  for (const [toolHops, offered] of [[0, true], [2, true], [3, false], [7, false]]) {
+    const { calls, deps: d } = deps({ text: "Let me explain that." });
+    await core.runBrainChatCompletion({ ...REQUEST, availableTools: ALL, toolHops }, d);
+    assert.equal(calls[0].options.tools !== undefined, offered, `${toolHops} hops`);
+    const system = calls[0].messages.filter((message) => message.role === "system").map((message) => message.content).join("\n");
+    assert.equal(/SCHEDULING TOOLS|COVERAGE MATH/.test(system), offered, `${toolHops} hops: prompt promises tools only while they exist`);
+  }
+});
+
+test("the handler feeds the trailing tool results into the hop cap", async () => {
+  const handler = await import("../../apps/portal/src/lib/brain/handle-chat-request.ts");
+  const secret = await import("../../apps/portal/src/lib/brain/secret.ts");
+  const raw = secret.generateBrainSecret();
+  const agent = { tenantId: "t-1", agentId: "agent-1", agentName: "Priscila", tenantName: "Billion Club", enabled: true, language: "english", closerVertical: "life_insurance_qualification" };
+  const seen = [];
+  const handlerDeps = {
+    resolveConfig: async () => agent,
+    checkBudget: async () => "allowed",
+    retrieveKnowledge: async () => [],
+    generate: async (messages, _max, options) => { seen.push(options?.tools?.length ?? 0); return { text: "Here is how it works.", model: "fake", usage: { inputTokens: 1, outputTokens: 1 } }; },
+    logGenerationUsage: async () => {},
+  };
+  const rawTools = ALL.map((name) => ({ type: "function", function: { name } }));
+  const messages = (hopsCount) => [{ role: "user", content: "Run the numbers." }, ...Array.from({ length: hopsCount }, () => ({ role: "tool", content: "ok" }))];
+  for (const hopsCount of [1, 3]) {
+    await handler.handleBrainChatRequest({ authorizationHeader: `Bearer ${raw}`, agentIdFromPath: "agent-1", rawMessages: messages(hopsCount), rawTools }, handlerDeps);
+  }
+  assert.ok(seen[0] > 0, "one hop: tools still offered");
+  assert.equal(seen[1], 0, "three hops: no tools");
+});
