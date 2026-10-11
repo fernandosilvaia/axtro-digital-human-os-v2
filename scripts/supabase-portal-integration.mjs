@@ -64,6 +64,9 @@ let cleanupStarted = false;
 // (0059, 0069 a 0073) nem o que depende dela (0075, 0077). Prova que 0074 e 0076
 // aplicam sobre o schema real de produção e que o portão atual continua verde.
 const hostedProfile = process.env.AXTRO_HARNESS_PROFILE === "hosted-without-governance";
+// Ordem real de produção: o hospedado já tem 0060 a 0068 e a 0059 ainda vai entrar, depois
+// delas. O harness padrão sempre aplicou a 0059 antes da 0060, então esta ordem não era testada.
+const hostedOrder = process.env.AXTRO_HARNESS_PROFILE === "hosted-order";
 const HOSTED_PROFILE_SKIPPED_MIGRATIONS = new Set([59, 69, 70, 71, 72, 73, 75, 77]);
 
 // Capabilities que 0074 a 0076 entregam sem publicar e que a 0077 calcula do catálogo.
@@ -241,7 +244,7 @@ try {
   assertBusinessActionCalendarCredentialRead(databaseUrl);
   assertBusinessActionLiveCallContext(databaseUrl);
 
-  if (!hostedProfile) {
+  if (!hostedProfile && !hostedOrder) {
     const v58Capabilities = queryJson(databaseUrl, asRoleSql("service_role", null,
       "SELECT public.portal_schema_capabilities_service();"));
     const dataGovernanceApplied = applySupabaseMigrations(databaseUrl, 59, 59);
@@ -285,6 +288,16 @@ try {
   const videoConfigSelfServiceApplied = applySupabaseMigrations(databaseUrl, 68, 68);
   assert.deepEqual(videoConfigSelfServiceApplied, ["0068"]);
   assertAgentVideoConfigSelfServicePhase(databaseUrl);
+
+  if (hostedOrder) {
+    const v68Capabilities = queryJson(databaseUrl, asRoleSql("service_role", null,
+      "SELECT public.portal_schema_capabilities_service();"));
+    assert.equal(v68Capabilities.version, 58, "0060 to 0068 leave the published version at the hosted value");
+    const lateGovernanceApplied = applySupabaseMigrations(databaseUrl, 59, 59);
+    assert.deepEqual(lateGovernanceApplied, ["0059"]);
+    assertDataGovernanceDispositionPhase(databaseUrl, v68Capabilities);
+    assertSchemaLineageCapabilities(databaseUrl, 59, { textPreview: true, terminalNotification: false, businessActions: true });
+  }
 
   if (!hostedProfile) {
     const checkoutStripeConnectApplied = applySupabaseMigrations(databaseUrl, 69, 69);
@@ -358,7 +371,9 @@ try {
   }
   assertMigrationReceiptLineage(databaseUrl, hostedProfile ? HOSTED_PROFILE_SKIPPED_MIGRATIONS : new Set());
 
-  console.log(hostedProfile
+  console.log(hostedOrder
+    ? "SUPABASE PORTAL INTEGRATION PASSED (hosted-order profile): 0059 applied after 0060-0068, then 0069-0077, same final contract"
+    : hostedProfile
     ? "SUPABASE PORTAL INTEGRATION PASSED (hosted-without-governance profile): 0001-0058, 0060-0068, 0074 and 0076 over the hosted schema, published version unchanged"
     : "SUPABASE PORTAL INTEGRATION PASSED: migrations 0001-0077 in contiguous order, immutable checksums, grants, RLS, transcripts, reservations, data governance and readiness capability");
 } catch (error) {
@@ -696,7 +711,7 @@ function assertBusinessActionMeetingSlotLookupPhase(databaseUrl) {
     "an unknown proposal id resolves to the declared not_found outcome");
 
   assert.equal(queryScalar(databaseUrl, asRoleSql("service_role", null,
-    "SELECT public.portal_schema_capabilities_service() ->> 'version';")), hostedProfile ? "58" : "59",
+    "SELECT public.portal_schema_capabilities_service() ->> 'version';")), hostedProfile || hostedOrder ? "58" : "59",
   "0060 deliberately does not bump the schema capability version");
 }
 
@@ -781,7 +796,7 @@ function assertBusinessActionSessionMeetingSlotPhase(databaseUrl) {
   }
 
   assert.equal(queryScalar(databaseUrl, asRoleSql("service_role", null,
-    "SELECT public.portal_schema_capabilities_service() ->> 'version';")), hostedProfile ? "58" : "59",
+    "SELECT public.portal_schema_capabilities_service() ->> 'version';")), hostedProfile || hostedOrder ? "58" : "59",
   "0061 deliberately does not bump the schema capability version");
 }
 
@@ -2031,7 +2046,10 @@ function assertDataGovernanceDispositionPhase(databaseUrl, v58Capabilities) {
     assert.deepEqual(capabilities[key], value, `v59 must preserve the v58 capability ${key}`);
   }
   assert.equal(capabilities.dataGovernanceProfile, "data_governance_disposition@1.0.0");
-  assert.equal(capabilities.dataGovernanceCatalogComplete, true);
+  // Na ordem real de produção a 0065 (google_calendar_oauth_states) já existe quando a 0059
+  // entra, e a tabela só é catalogada pela 0070. Até lá o catálogo é incompleto de propósito.
+  assert.equal(capabilities.dataGovernanceCatalogComplete, !hostedOrder,
+    hostedOrder ? "hosted order: the 0065 table is uncatalogued until 0070" : "catalog is complete at v59");
   assert.match(capabilities.dataGovernanceCatalogFingerprint, /^[0-9a-f]{64}$/);
   assert.equal(capabilities.dataGovernanceHistoricalTenantRelations, true);
   assert.equal(capabilities.dataGovernanceExternalSurfaces, true);
@@ -2049,31 +2067,50 @@ function assertDataGovernanceDispositionPhase(databaseUrl, v58Capabilities) {
     GROUP BY catalog_generation
     ORDER BY catalog_generation;
   `), ["external|7", "pre_v59|86", "v59_control|12"]);
-  assert.equal(queryScalar(databaseUrl, "SELECT app.data_governance_catalog_complete();"), "t");
-  assertSucceeded(runSql(databaseUrl, "ALTER TABLE public.conversation_transcripts ADD COLUMN governance_shape_drift text;"),
-    "inject a redaction projector column drift");
-  assert.equal(queryScalar(databaseUrl, "SELECT app.data_governance_catalog_complete();"), "f",
-    "an uncataloged transcript content column fails the redaction projector gate");
-  assertSucceeded(runSql(databaseUrl, "ALTER TABLE public.conversation_transcripts DROP COLUMN governance_shape_drift;"),
-    "remove the redaction projector column drift");
-  assert.equal(queryScalar(databaseUrl, "SELECT app.data_governance_catalog_complete();"), "t");
-  assert.equal(queryScalar(databaseUrl, `
-    WITH tenant_relations AS (
-      SELECT 'public.'||table_name relation_name
-      FROM information_schema.columns
-      WHERE table_schema='public' AND column_name='tenant_id'
-      UNION ALL SELECT 'public.tenants'
-    ), catalog_relations AS (
-      SELECT relation_name
-      FROM public.data_governance_resource_catalog
-      WHERE surface='database'
-    )
-    SELECT count(*) FROM (
-      (SELECT relation_name FROM tenant_relations EXCEPT SELECT relation_name FROM catalog_relations)
-      UNION ALL
-      (SELECT relation_name FROM catalog_relations EXCEPT SELECT relation_name FROM tenant_relations)
-    ) drift;
-  `), "0", "catalog and tenant relation inventory must be a two-way exact match");
+  if (hostedOrder) {
+    // Ordem real de produção: o único desvio esperado até a 0070 é a tabela da 0065, ainda sem catálogo.
+    assert.equal(queryScalar(databaseUrl, "SELECT app.data_governance_catalog_complete();"), "f",
+      "hosted order: the catalog is incomplete until 0070 onboards the 0065 table");
+    assert.deepEqual(queryRows(databaseUrl, `
+      WITH tenant_relations AS (
+        SELECT 'public.'||table_name relation_name FROM information_schema.columns
+        WHERE table_schema='public' AND column_name='tenant_id' UNION ALL SELECT 'public.tenants'
+      ), catalog_relations AS (
+        SELECT relation_name FROM public.data_governance_resource_catalog WHERE surface='database'
+      )
+      SELECT relation_name FROM (
+        (SELECT relation_name FROM tenant_relations EXCEPT SELECT relation_name FROM catalog_relations)
+        UNION ALL
+        (SELECT relation_name FROM catalog_relations EXCEPT SELECT relation_name FROM tenant_relations)
+      ) drift ORDER BY relation_name;
+    `), ["public.google_calendar_oauth_states"], "the only uncataloged tenant relation is the 0065 table");
+  } else {
+    assert.equal(queryScalar(databaseUrl, "SELECT app.data_governance_catalog_complete();"), "t");
+    assertSucceeded(runSql(databaseUrl, "ALTER TABLE public.conversation_transcripts ADD COLUMN governance_shape_drift text;"),
+      "inject a redaction projector column drift");
+    assert.equal(queryScalar(databaseUrl, "SELECT app.data_governance_catalog_complete();"), "f",
+      "an uncataloged transcript content column fails the redaction projector gate");
+    assertSucceeded(runSql(databaseUrl, "ALTER TABLE public.conversation_transcripts DROP COLUMN governance_shape_drift;"),
+      "remove the redaction projector column drift");
+    assert.equal(queryScalar(databaseUrl, "SELECT app.data_governance_catalog_complete();"), "t");
+    assert.equal(queryScalar(databaseUrl, `
+      WITH tenant_relations AS (
+        SELECT 'public.'||table_name relation_name
+        FROM information_schema.columns
+        WHERE table_schema='public' AND column_name='tenant_id'
+        UNION ALL SELECT 'public.tenants'
+      ), catalog_relations AS (
+        SELECT relation_name
+        FROM public.data_governance_resource_catalog
+        WHERE surface='database'
+      )
+      SELECT count(*) FROM (
+        (SELECT relation_name FROM tenant_relations EXCEPT SELECT relation_name FROM catalog_relations)
+        UNION ALL
+        (SELECT relation_name FROM catalog_relations EXCEPT SELECT relation_name FROM tenant_relations)
+      ) drift;
+    `), "0", "catalog and tenant relation inventory must be a two-way exact match");
+  }
   assert.equal(queryScalar(databaseUrl, `
     SELECT count(*)
     FROM public.data_governance_resource_catalog c

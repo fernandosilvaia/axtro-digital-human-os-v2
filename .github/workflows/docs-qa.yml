@@ -252,3 +252,8 @@ jobs:
           AXTRO_LOCAL_DATABASE_URL: postgresql://postgres@127.0.0.1:5432/postgres
           AXTRO_ALLOW_LOCAL_DATABASE_URL: "1"
         run: pnpm db:portal:test:hosted-profile
+      - name: Apply and test the real production order (0059 after 0060-0068, then 0069-0077)
+        env:
+          AXTRO_LOCAL_DATABASE_URL: postgresql://postgres@127.0.0.1:5432/postgres
+          AXTRO_ALLOW_LOCAL_DATABASE_URL: "1"
+        run: pnpm db:portal:test:hosted-order

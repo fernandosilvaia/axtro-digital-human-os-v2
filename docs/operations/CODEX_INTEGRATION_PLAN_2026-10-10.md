@@ -212,3 +212,27 @@ Branch local `integration/codex-2026-10`, criada a partir da pilha, sem push. At
 Decisão de projeto do portão: o build novo passa a recusar o schema v58 de propósito. Se a janela falhar entre as migrations e o deploy, o build antigo continua no ar (o Railway não o derruba), mas o build novo não sobe contra um schema sem a busca híbrida. Isso troca "RAG vazio em silêncio" por "deploy bloqueado com erro explícito".
 
 Evidência do branch `integration/codex-2026-10` no commit `57b6419`: gate completo (lint, tipos, 2.136 testes Node, 63 Python, `validate_all` 9/9, build do portal); PostgreSQL 0001 a 0077; perfil hospedado; Playwright autenticado 17/17 contra um stack Supabase local já no schema 77 (aplicadas 0076 e 0077 nele, que é infraestrutura descartável); Playwright público 14/14 em build de produção. O guard de auto-aprovação da 0059 não foi aplicado nesse stack local (só no harness); o E2E não o exercita.
+
+## 11. Execução da janela (autorizada em 2026-10-10: D1 "aplica governança e segue com a janela")
+
+Projeto hospedado: `digital-human-os`, id `ovctadcrvnfpgxzplupp` [V: é o host de `NEXT_PUBLIC_SUPABASE_URL` no ambiente de produção do portal e o id registrado em `PROGRESS.md`].
+
+**Prova da ordem real antes de tocar produção [V].** O hospedado já tem 0060 a 0068, então a 0059 entra depois delas, ordem que o harness nunca tinha exercitado. O perfil `hosted-order` (`pnpm db:portal:test:hosted-order`) aplica 0001 a 0058, 0060 a 0068, depois 0059 e 0069 a 0077, e chega ao mesmo contrato final do harness padrão. Único desvio, esperado e afirmado no teste: entre a 0059 e a 0070 o catálogo de governança fica incompleto porque `public.google_calendar_oauth_states` (0065) só é catalogada pela 0070. Nenhuma função da 0059 é redefinida por 0060 a 0068 [V, análise estática], então aplicar a 0059 depois delas não reverte nada.
+
+**Bloqueio atual.** O classificador de segurança do modo automático recusou até a leitura somente leitura do hospedado (`list_migrations`), mesmo com a autorização no chat. Não foi contornado. Para seguir, uma destas opções:
+
+1. permitir na sessão as ferramentas do MCP Supabase usadas na janela: `list_migrations` e `execute_sql` (preflight e verificação) e `apply_migration` (as 10 migrations); ou
+2. o operador aplica pelo SQL Editor do Supabase, arquivo por arquivo, na ordem abaixo, e eu sigo do passo 4.
+
+**Roteiro.**
+
+| Passo | Ação | Verificação que libera o próximo |
+|---|---|---|
+| 1 | Preflight somente leitura (anexo B) | `version` = 58; `m0059` e `m0069` falsos; `m0060` a `m0067` verdadeiros; zero reservas `provider_in_flight` e `unknown` |
+| 2 | Aplicar, uma por transação: 0059, 0069, 0070, 0071, 0072, 0073, 0074, 0075, 0076, 0077 | Depois de cada uma, `portal_schema_capabilities_service()->>'version'`: 59, 69, 70, 71, 72, 73, 73, 73, 73, 77. Depois da 0070, `dataGovernanceCatalogComplete` = true. Depois da 0077, as 12 capabilities do portão = true |
+| 3 | Parar na primeira divergência | Nada de editar migration durante a janela; forward-only |
+| 4 | Fast-forward da `main` para `integration/codex-2026-10` e push | Railway roda o bootstrap com o portão v77 e só promove com `/api/ready` 200 |
+| 5 | Smokes sem custo (seção 5, passo 6) | Login, ingestão de fonte de teste e busca, brain em texto, `/configuracoes`, zero `unknown` |
+
+Fica de fora desta janela: provisionar as autoridades de atestação (D4, chaves aleatórias no Doppler) e o executor dos pedidos de exclusão (D2). Sem elas a tela de governança mostra "indisponível neste ambiente" e falha fechada.
+
