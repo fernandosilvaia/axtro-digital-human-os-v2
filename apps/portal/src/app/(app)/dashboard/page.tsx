@@ -149,7 +149,7 @@ export default async function DashboardPage() {
         {METRICS.map((metric) => (
           <div key={metric.key} className="card card-hover">
             <span className="metric-label">{metric.label}</span>
-            <div className="metric-value">{counts ? counts[metric.key] : "—"}</div>
+            <div className="metric-value" style={counts ? undefined : { fontSize: "1.25rem" }}>{counts ? counts[metric.key] : "Sem dados"}</div>
             <div className="metric-hint">{counts ? metric.hint : "Dado indisponível no momento"}</div>
           </div>
         ))}
@@ -231,7 +231,7 @@ export default async function DashboardPage() {
         <div className="workspace-readiness-steps">
           {readiness.map((item) => (
             <div key={item.label} className={`workspace-readiness-step${item.state === "done" ? " is-done" : ""}${item.state === "unknown" ? " is-unknown" : ""}`}>
-              <span className="workspace-readiness-icon" aria-hidden="true">{item.state === "done" ? "✓" : item.state === "unknown" ? "—" : "○"}</span>
+              <span className="workspace-readiness-icon" aria-hidden="true">{item.state === "done" ? "✓" : item.state === "unknown" ? "?" : "○"}</span>
               <span>{item.label}</span>
             </div>
           ))}
