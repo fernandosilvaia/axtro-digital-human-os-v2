@@ -554,9 +554,10 @@ function parseCompletion(payload: unknown, offeredTools: ReadonlySet<string> = n
   });
   // Só conta como cobrança informada se o provedor mandou os dois números.
   // Sem eles o custo segue desconhecido e o chamador reconcilia.
-  const billedUsage = typeof usageRecord.prompt_tokens === "number" && typeof usageRecord.completion_tokens === "number"
-    ? usage
-    : undefined;
+  // Número infinito ou negativo é provedor com defeito: o custo segue
+  // desconhecido em vez de virar um commit subcontado.
+  const reported = (value: unknown): boolean => typeof value === "number" && Number.isFinite(value) && value >= 0;
+  const billedUsage = reported(usageRecord.prompt_tokens) && reported(usageRecord.completion_tokens) ? usage : undefined;
   const rawText = message?.content;
   if (rawText !== undefined && rawText !== null && typeof rawText !== "string") {
     throw new TextGenerationError("malformed_provider_response", "completion text content must be a string", billedUsage);

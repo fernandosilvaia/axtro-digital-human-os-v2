@@ -106,6 +106,25 @@ export interface BrainChatRequest {
   readonly availableTools?: readonly BrainToolName[];
 }
 
+/**
+ * O que o encaixe no teto de entrada manteve. Degradação nunca pode parecer
+ * saúde (Art. 16): quando algo é cortado, a rota registra e o trace mostra.
+ * Só contagens e estados, nunca conteúdo.
+ */
+export interface ContextFitReport {
+  readonly knowledge: { readonly offered: number; readonly used: number };
+  readonly perception: "none" | "full" | "trimmed" | "dropped";
+  readonly providerContext: "none" | "full" | "trimmed" | "dropped";
+  readonly history: { readonly offered: number; readonly kept: number };
+}
+
+export function contextWasTrimmed(report: ContextFitReport): boolean {
+  return report.knowledge.used < report.knowledge.offered
+    || report.perception === "trimmed" || report.perception === "dropped"
+    || report.providerContext === "trimmed" || report.providerContext === "dropped"
+    || report.history.kept < report.history.offered;
+}
+
 export interface BrainChatResult {
   readonly reply: string;
   readonly usage: { readonly inputTokens: number; readonly outputTokens: number };
@@ -113,6 +132,7 @@ export interface BrainChatResult {
   readonly guardrailFlags: readonly string[];
   /** Tools que o modelo pediu, só entre as oferecidas. Vazio quando a resposta é só fala. */
   readonly toolCalls: readonly TextGenerationToolCall[];
+  readonly contextFit: ContextFitReport;
 }
 
 /**
@@ -172,6 +192,22 @@ export function sanitizeSpokenReply(text: string): string {
     .replace(MARKDOWN_BULLET_PATTERN, "");
   const withoutEmDash = withoutMarkdown.replace(EM_DASH_PATTERN, ", ");
   return withoutEmDash.replace(TRAILING_COMMA_PATTERN, ".$1").trim();
+}
+
+/**
+ * O modelo pediu tool, mas nenhuma chamada era aproveitável (argumento truncado,
+ * nome não oferecido). Falar só o preâmbulo ("deixa eu checar a agenda") deixaria
+ * a pessoa esperando horários que nunca vêm. Quem chama degrada para o recuo, a
+ * pessoa repete e o modelo tenta de novo. O custo já foi registrado antes do lançamento.
+ */
+export class BrainToolCallUnusableError extends Error {
+  readonly dropped: number;
+
+  constructor(dropped: number) {
+    super(`model requested ${dropped} tool call(s) and none was usable`);
+    this.name = "BrainToolCallUnusableError";
+    this.dropped = dropped;
+  }
 }
 
 export class BrainChatValidationError extends Error {
@@ -365,6 +401,7 @@ function fitContextToEnvelope(input: EnvelopeFitInput): {
   perceptionBlock: string | null;
   providerContextBlock: string | null;
   historyMessages: TextGenerationMessage[];
+  report: ContextFitReport;
 } {
   const emptyBound = generationInputTokenUpperBound([]);
   // O papel também conta bytes ("assistant" é mais longo que "user").
@@ -401,21 +438,24 @@ function fitContextToEnvelope(input: EnvelopeFitInput): {
   takeHistory(Math.min(HISTORY_FLOOR_TURNS, historySlots(3)));
 
   let knowledgeBlock: string | null = null;
+  let knowledgeUsed = 0;
   for (let count = input.knowledgeMatches.length; count > 0; count -= 1) {
     const candidate = buildKnowledgeBlock(input.knowledgeMatches.slice(0, count));
     if (candidate !== null && cost(candidate) <= room) {
       knowledgeBlock = candidate;
+      knowledgeUsed = count;
       room -= cost(candidate);
       break;
     }
   }
 
-  const fitTail = (raw: string | null | undefined, build: (text: string) => string | null): string | null => {
+  type FitState = ContextFitReport["perception"];
+  const fitTail = (raw: string | null | undefined, build: (text: string) => string | null): { block: string | null; state: FitState } => {
     const full = build(raw ?? "");
-    if (full === null) return null;
+    if (full === null) return { block: null, state: "none" };
     if (cost(full) <= room) {
       room -= cost(full);
-      return full;
+      return { block: full, state: "full" };
     }
     const text = (raw ?? "").trim();
     let low = MIN_TRIMMED_CONTEXT_CHARS;
@@ -432,16 +472,29 @@ function fitContextToEnvelope(input: EnvelopeFitInput): {
       }
     }
     if (best !== null) room -= cost(best);
-    return best;
+    return { block: best, state: best === null ? "dropped" : "trimmed" };
   };
-  const perceptionBlock = fitTail(input.perceptionContext, buildPerceptionBlock);
-  const providerContextBlock = fitTail(input.providerContext, buildProviderContextBlock);
+  const perception = fitTail(input.perceptionContext, buildPerceptionBlock);
+  const providerContext = fitTail(input.providerContext, buildProviderContextBlock);
+  const perceptionBlock = perception.block;
+  const providerContextBlock = providerContext.block;
 
   takeHistory(historySlots([knowledgeBlock, perceptionBlock, providerContextBlock].filter((block) => block !== null).length));
   const historyMessages = recentHistory
     .slice(recentHistory.length - keptTurns)
     .map((turn) => ({ role: turn.role, content: turn.content }));
-  return { knowledgeBlock, perceptionBlock, providerContextBlock, historyMessages };
+  return {
+    knowledgeBlock,
+    perceptionBlock,
+    providerContextBlock,
+    historyMessages,
+    report: Object.freeze({
+      knowledge: Object.freeze({ offered: input.knowledgeMatches.length, used: knowledgeUsed }),
+      perception: perception.state,
+      providerContext: providerContext.state,
+      history: Object.freeze({ offered: recentHistory.length, kept: keptTurns }),
+    }),
+  };
 }
 
 export async function runBrainChatCompletion(request: BrainChatRequest, deps: BrainChatDeps): Promise<BrainChatResult> {
@@ -499,7 +552,7 @@ export async function runBrainChatCompletion(request: BrainChatRequest, deps: Br
     ? (request.availableTools ?? []).filter((name) => name !== "estimate_coverage_need" || lifeInsuranceMode === "qualification")
     : [];
   const toolDefinitions = brainToolDefinitions(offered);
-  const systemContents = isVideo
+  let systemContents = isVideo
     ? splitSystemPrompt(buildCloserVideoSystemPrompt({
       agentName: request.agentName,
       tenantName: request.tenantName,
@@ -521,7 +574,7 @@ export async function runBrainChatCompletion(request: BrainChatRequest, deps: Br
   const toolBudgetMessages: TextGenerationMessage[] = toolDefinitions.length === 0
     ? []
     : [{ role: "system", content: JSON.stringify(toolDefinitions) }];
-  const { knowledgeBlock, perceptionBlock, providerContextBlock, historyMessages } = fitContextToEnvelope({
+  const { knowledgeBlock, perceptionBlock, providerContextBlock, historyMessages, report: contextFit } = fitContextToEnvelope({
     systemMessages: systemContents.map((content) => ({ role: "system" as const, content })),
     toolBudgetMessages,
     userMessage,
@@ -530,6 +583,12 @@ export async function runBrainChatCompletion(request: BrainChatRequest, deps: Br
     providerContext: request.providerContext,
     history,
   });
+  // O prompt de chat diz que há fontes quando há conhecimento. Se o bloco não
+  // coube (ou veio vazio), o prompt não pode afirmar isso. O prompt sem fontes
+  // é mais curto, então continua cabendo.
+  if (!isVideo && knowledgeBlock === null && request.knowledgeMatches.length > 0) {
+    systemContents = buildCloserChatSystemMessages({ agentName: request.agentName, tenantName: request.tenantName, hasKnowledge: false });
+  }
 
   const messages: TextGenerationMessage[] = [
     ...systemContents.map((content) => ({ role: "system" as const, content })),
@@ -567,10 +626,12 @@ export async function runBrainChatCompletion(request: BrainChatRequest, deps: Br
   const offeredNames = new Set<string>(offered);
   // Defesa em profundidade: o adapter já descarta tool não oferecida.
   const toolCalls = (result.toolCalls ?? []).filter((call) => offeredNames.has(call.name));
+  const droppedToolCalls = (result.droppedToolCalls ?? 0) + (result.toolCalls?.length ?? 0) - toolCalls.length;
   await deps.logGenerationUsage(result.usage.inputTokens, result.usage.outputTokens, result.usage.reportedCostUsd);
+  if (toolCalls.length === 0 && droppedToolCalls > 0) throw new BrainToolCallUnusableError(droppedToolCalls);
   const sanitized = sanitizeSpokenReply(result.text);
   if (lifeInsuranceMode === undefined) {
-    return { reply: sanitized, usage: result.usage, guardrailFlags: detectGuardrailRisk(sanitized), toolCalls };
+    return { reply: sanitized, usage: result.usage, guardrailFlags: detectGuardrailRisk(sanitized), toolCalls, contextFit };
   }
   // Vertical regulada: a frase que cria exposição regulatória não chega ao
   // áudio, mesmo que o modelo ignore a instrução do prompt.
@@ -579,6 +640,7 @@ export async function runBrainChatCompletion(request: BrainChatRequest, deps: Br
   return {
     // Resposta só de tool não tem fala: a sentinela não inventa recuo para o vazio.
     reply: sanitized.length === 0 ? "" : guarded.reply,
+    contextFit,
     usage: result.usage,
     guardrailFlags: [...detectGuardrailRisk(guarded.reply), ...guarded.violations],
     toolCalls,

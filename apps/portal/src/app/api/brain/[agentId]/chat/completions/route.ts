@@ -2,7 +2,7 @@ import { after, NextRequest, NextResponse } from "next/server";
 
 import { createOpenRouterTextGenerationPort, TextGenerationError } from "@axtro/provider-openrouter";
 
-import { parseCloserVertical, type BrainKnowledgeMatch } from "@/lib/brain/chat-completion-core";
+import { contextWasTrimmed, parseCloserVertical, type BrainKnowledgeMatch, type ContextFitReport } from "@/lib/brain/chat-completion-core";
 import { buildCompletionStream } from "@/lib/brain/completion-stream";
 import { authenticateBrainRequest, brainLanguagesFromVideoConfig, BrainHttpError, handleBrainChatRequest, type BudgetVerdict, type ResolvedBrainAgent } from "@/lib/brain/handle-chat-request";
 import {
@@ -64,6 +64,10 @@ function isRateLimited(agentId: string): boolean {
     if (oldest !== undefined && oldest !== agentId) requestTimestampsByAgent.delete(oldest);
   }
   return false;
+}
+
+function describeContextFit(fit: ContextFitReport): string {
+  return `knowledge ${fit.knowledge.used}/${fit.knowledge.offered}, perception ${fit.perception}, provider ${fit.providerContext}, history ${fit.history.kept}/${fit.history.offered}`;
 }
 
 async function resolveConfig(secretHash: string): Promise<ResolvedBrainAgent | null> {
@@ -231,7 +235,7 @@ export async function POST(
       throw new Error("AI usage commit failed after provider success");
     }
   };
-  const scheduleTurnTrace = (outcome: { degradedReason?: string; guardrailFlags?: readonly string[]; toolCallNames?: readonly string[] }) => {
+  const scheduleTurnTrace = (outcome: { degradedReason?: string; guardrailFlags?: readonly string[]; toolCallNames?: readonly string[]; contextFit?: ContextFitReport }) => {
     const config = langfuseConfigFromEnv(process.env);
     if (config === null) return;
     const turn: BrainTurnTrace = {
@@ -243,6 +247,10 @@ export async function POST(
       endedAtMs: Date.now(),
       guardrailFlags: outcome.guardrailFlags ?? [],
       toolCallNames: outcome.toolCallNames ?? [],
+      ...(outcome.contextFit === undefined ? {} : {
+        contextFit: describeContextFit(outcome.contextFit),
+        contextTrimmed: contextWasTrimmed(outcome.contextFit),
+      }),
       ...(outcome.degradedReason === undefined ? {} : { degradedReason: outcome.degradedReason }),
       ...(retrievalStep === undefined ? {} : { retrieval: retrievalStep }),
       ...(generationStep === undefined ? {} : { generation: generationStep }),
@@ -358,6 +366,19 @@ export async function POST(
       // Nunca loga o conteúdo da fala em si (redação de PII/conversa).
       logEvent("brain_guardrail_risk_detected", { agent_id: agentId, flags: result.guardrailFlags.join(",") });
     }
+    if (result.contextFit !== undefined && contextWasTrimmed(result.contextFit)) {
+      // O encaixe no teto cortou contexto: degradação nunca pode parecer saúde
+      // (Art. 16). Só contagens e estados, nunca o conteúdo cortado.
+      logEvent("brain_context_trimmed", {
+        agent_id: agentId,
+        knowledge_used: result.contextFit.knowledge.used,
+        knowledge_offered: result.contextFit.knowledge.offered,
+        perception: result.contextFit.perception,
+        provider_context: result.contextFit.providerContext,
+        history_kept: result.contextFit.history.kept,
+        history_offered: result.contextFit.history.offered,
+      });
+    }
     if (result.toolCalls.length > 0) {
       // Só nomes: argumentos podem carregar contato do prospect.
       logEvent("brain_tool_calls", { agent_id: agentId, tools: result.toolCalls.map((call) => call.name).join(",") });
@@ -366,6 +387,7 @@ export async function POST(
       ...(result.degradedReason === undefined ? {} : { degradedReason: result.degradedReason }),
       guardrailFlags: result.guardrailFlags,
       toolCallNames: result.toolCalls.map((call) => call.name),
+      ...(result.contextFit === undefined ? {} : { contextFit: result.contextFit }),
     });
     return new Response(buildCompletionStream(result.reply, model, result.toolCalls), {
       status: 200,

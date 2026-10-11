@@ -75,6 +75,9 @@ export interface BrainTurnTrace extends TimedStep {
   /** Códigos da sentinela e do detector de risco, nunca a frase. */
   readonly guardrailFlags: readonly string[];
   readonly toolCallNames: readonly string[];
+  /** Resumo do que coube no teto de entrada, só contagens (ex.: "knowledge 1/4, perception trimmed, history 6/12"). */
+  readonly contextFit?: string;
+  readonly contextTrimmed?: boolean;
   readonly retrieval?: TimedStep & { readonly matches: number; readonly failed: boolean };
   readonly generation?: TimedStep & {
     readonly model: string;
@@ -124,6 +127,7 @@ export function brainTurnToOtlp(turn: BrainTurnTrace, config: Pick<LangfuseConfi
   if (degraded) tags.push("degraded");
   if (turn.toolCallNames.length > 0) tags.push("tool_call");
   if (turn.guardrailFlags.length > 0) tags.push("guardrail");
+  if (turn.contextTrimmed === true) tags.push("context_trimmed");
 
   const root = {
     traceId: ids.traceId,
@@ -143,6 +147,7 @@ export function brainTurnToOtlp(turn: BrainTurnTrace, config: Pick<LangfuseConfi
       text("langfuse.trace.metadata.degraded_reason", turn.degradedReason ?? "none"),
       text("langfuse.trace.metadata.guardrail_flags", turn.guardrailFlags.join(",")),
       text("langfuse.trace.metadata.tool_calls", turn.toolCallNames.join(",")),
+      ...(turn.contextFit === undefined ? [] : [text("langfuse.trace.metadata.context_fit", turn.contextFit)]),
       ...(degraded ? [text("langfuse.observation.level", "WARNING"), text("langfuse.observation.status_message", turn.degradedReason ?? "")] : []),
     ],
     status: { code: degraded ? 2 : 1 },

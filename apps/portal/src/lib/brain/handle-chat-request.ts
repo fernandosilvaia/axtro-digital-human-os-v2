@@ -22,7 +22,7 @@
 import type { TextGenerationToolCall } from "@axtro/provider-openrouter";
 import { offeredBrainToolNames } from "./brain-tools.ts";
 import { promptLanguageFor, type BrainLanguage, type SpokenLanguage } from "./metodo-silva.ts";
-import { runBrainChatCompletion, type BrainKnowledgeMatch, type CloserVertical } from "./chat-completion-core.ts";
+import { runBrainChatCompletion, type BrainKnowledgeMatch, type CloserVertical, type ContextFitReport } from "./chat-completion-core.ts";
 import { hashBrainSecret } from "./secret.ts";
 import { parseTavusChatRequest, TavusRequestParseError } from "./tavus-request.ts";
 
@@ -94,6 +94,8 @@ export interface BrainChatHttpResult {
   readonly guardrailFlags: readonly string[];
   /** Tools pedidas pelo modelo (só entre as oferecidas). Sempre vazio em fallback degradado. */
   readonly toolCalls: readonly TextGenerationToolCall[];
+  /** O que coube no teto de entrada. Ausente quando não houve geração. */
+  readonly contextFit?: ContextFitReport;
 }
 
 const FALLBACK_REPLY_PT = "Peço desculpa, deixa eu reorganizar isso rapidinho. Pode repetir a última parte pra mim?";
@@ -214,7 +216,7 @@ export async function handleBrainChatRequest(
           deps.logGenerationUsage(agent.tenantId, agent.agentId, inputTokens, outputTokens),
       },
     );
-    return { reply: result.reply, degraded: false, guardrailFlags: result.guardrailFlags, toolCalls: result.toolCalls };
+    return { reply: result.reply, degraded: false, guardrailFlags: result.guardrailFlags, toolCalls: result.toolCalls, contextFit: result.contextFit };
   } catch (error) {
     return { reply: fallbackReply(agent), degraded: true, degradedReason: "generation_failed", cause: error, guardrailFlags: [], toolCalls: [] };
   }

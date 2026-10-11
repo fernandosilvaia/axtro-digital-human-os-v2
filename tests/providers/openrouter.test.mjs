@@ -582,3 +582,17 @@ test("cached input tokens are reported only when coherent with the input total",
     assert.equal("cachedInputTokens" in (await port.generate(request({ cacheSystemPrompt: true }))).usage, false);
   }
 });
+
+test("billed usage requires finite, non-negative numbers, otherwise the cost stays unknown", async () => {
+  // JSON cru: JSON.stringify trocaria 1e999 por null antes do parser ver o número.
+  for (const promptTokens of ["1e999", "-5", "\"900\""]) {
+    const raw = `{"model":"m","choices":[{"message":{"role":"assistant","content":""}}],"usage":{"prompt_tokens":${promptTokens},"completion_tokens":512}}`;
+    const { implementation } = fakeFetch(async () => new Response(raw, { status: 200 }));
+    const port = provider.createOpenRouterTextGenerationPort({ apiKey: API_KEY, fetchImplementation: implementation });
+    await assert.rejects(
+      () => port.generate(request()),
+      (error) => error.code === "malformed_provider_response" && error.billedUsage === undefined,
+      `prompt_tokens ${promptTokens}`,
+    );
+  }
+});

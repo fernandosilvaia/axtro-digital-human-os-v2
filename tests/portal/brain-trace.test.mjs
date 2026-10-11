@@ -126,3 +126,12 @@ test("trace ids are random lowercase hex of the OTLP sizes", () => {
   for (const key of ["rootSpanId", "retrievalSpanId", "generationSpanId"]) assert.match(ids[key], /^[0-9a-f]{16}$/);
   assert.notEqual(trace.newTraceIds().traceId, ids.traceId);
 });
+
+test("a trimmed context is tagged and summarized with counts only", () => {
+  const body = trace.brainTurnToOtlp({ ...TURN, contextFit: "knowledge 1/4, perception trimmed, provider none, history 2/6", contextTrimmed: true }, { environment: "production" }, IDS);
+  const root = attributes(body.resourceSpans[0].scopeSpans[0].spans[0]);
+  assert.ok(root["langfuse.trace.tags"].includes("context_trimmed"));
+  assert.equal(root["langfuse.trace.metadata.context_fit"], "knowledge 1/4, perception trimmed, provider none, history 2/6");
+  const untouched = attributes(trace.brainTurnToOtlp(TURN, { environment: "production" }, IDS).resourceSpans[0].scopeSpans[0].spans[0]);
+  assert.ok(!untouched["langfuse.trace.tags"].includes("context_trimmed"));
+});

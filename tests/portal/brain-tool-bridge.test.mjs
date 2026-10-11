@@ -78,10 +78,23 @@ test("a tool call with no speech passes through with an empty reply, never a fal
   assert.equal(result.toolCalls.length, 1);
 });
 
-test("a tool the request did not offer never leaves the brain", async () => {
-  const { deps: d } = deps({ text: "Sure.", toolCalls: [{ id: "call_3", name: "confirm_meeting_slot", argumentsJson: "{}" }] });
-  const result = await core.runBrainChatCompletion({ ...REQUEST, availableTools: ["register_lead"] }, d);
-  assert.deepEqual(result.toolCalls, []);
+test("a tool the request did not offer never leaves the brain, and the preamble is never spoken alone", async () => {
+  const logged = [];
+  const { deps: d } = deps({ text: "Sure, let me check the calendar.", toolCalls: [{ id: "call_3", name: "confirm_meeting_slot", argumentsJson: "{}" }] });
+  d.logGenerationUsage = async (...args) => { logged.push(args); };
+  await assert.rejects(
+    () => core.runBrainChatCompletion({ ...REQUEST, availableTools: ["register_lead"] }, d),
+    (error) => error instanceof core.BrainToolCallUnusableError && error.dropped === 1,
+  );
+  assert.equal(logged.length, 1, "the paid generation is recorded before degrading");
+});
+
+test("a malformed tool call dropped by the adapter degrades instead of leaving the person waiting", async () => {
+  const { deps: d } = deps({ text: "Let me check the calendar.", droppedToolCalls: 1 });
+  await assert.rejects(() => core.runBrainChatCompletion({ ...REQUEST, availableTools: ALL }, d), core.BrainToolCallUnusableError);
+  const kept = deps({ text: "Let me check.", droppedToolCalls: 1, toolCalls: [{ id: "call_9", name: "propose_meeting_slots", argumentsJson: "{\"durationMinutes\":30}" }] });
+  const result = await core.runBrainChatCompletion({ ...REQUEST, availableTools: ALL }, kept.deps);
+  assert.equal(result.toolCalls.length, 1, "one usable call is enough to go ahead");
 });
 
 test("the coverage calculator is offered only in the life insurance vertical", async () => {
@@ -234,4 +247,35 @@ test("a Spanish life insurance persona gets the Spanish directive, still fits th
   const result = await core.runBrainChatCompletion({ ...REQUEST, availableTools: [], language: "english", spokenLanguage: "spanish", userMessage: "¿Me aprueban?" }, d);
   assert.ok(result.guardrailFlags.includes("li_federal_license"));
   assert.match(result.reply, /^Permítame ser precisa/, "the retreat speaks the persona's language");
+});
+
+test("what the envelope trimmed is reported, never silent", async () => {
+  const { deps: tight } = deps({ text: "Got it." });
+  const trimmed = await core.runBrainChatCompletion({ ...REQUEST, availableTools: ALL, knowledgeMatches: Array.from({ length: 12 }, (_, index) => knowledgeMatch(index + 1)) }, tight);
+  assert.equal(trimmed.contextFit.knowledge.offered, 12);
+  assert.ok(trimmed.contextFit.knowledge.used < 12);
+  assert.equal(core.contextWasTrimmed(trimmed.contextFit), true);
+
+  const { deps: roomy } = deps({ text: "Got it." });
+  const full = await core.runBrainChatCompletion({ ...REQUEST, availableTools: [], knowledgeMatches: [knowledgeMatch(1)], history: [{ role: "user", content: "hi" }, { role: "assistant", content: "hello" }], perceptionContext: "<user_emotions>calm</user_emotions>" }, roomy);
+  assert.deepEqual({ ...full.contextFit, knowledge: { ...full.contextFit.knowledge }, history: { ...full.contextFit.history } }, {
+    knowledge: { offered: 1, used: 1 }, perception: "full", providerContext: "none", history: { offered: 2, kept: 2 },
+  });
+  assert.equal(core.contextWasTrimmed(full.contextFit), false);
+});
+
+test("the chat prompt never claims sources whose block did not make it in", async () => {
+  // Fala atual longa e os dois turnos recentes ocupam o espaço: nenhum trecho cabe.
+  const history = [{ role: "assistant", content: "🙂".repeat(2_000) }];
+  const { calls, deps: d } = deps({ text: "Ok." });
+  const result = await core.runBrainChatCompletion({
+    ...REQUEST, surface: "chat", availableTools: [], history, userMessage: "🙂".repeat(1_000), knowledgeMatches: [knowledgeMatch(1), knowledgeMatch(2)],
+  }, d);
+  assert.equal(result.contextFit.knowledge.used, 0, "fixture: no knowledge fits");
+  const system = calls[0].messages.filter((message) => message.role === "system").map((message) => message.content).join("\n");
+  assert.doesNotMatch(system, /única fonte candidata de fatos/);
+
+  const roomy = deps({ text: "Ok." });
+  await core.runBrainChatCompletion({ ...REQUEST, surface: "chat", availableTools: [], knowledgeMatches: [knowledgeMatch(1)] }, roomy.deps);
+  assert.match(roomy.calls[0].messages.filter((message) => message.role === "system").map((message) => message.content).join("\n"), /única fonte candidata de fatos/);
 });
