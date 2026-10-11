@@ -78,7 +78,7 @@ test("public demo route has a separate shell and no customer or paid-effect impo
   assert.match(component, /action="\/demo\/end" method="post"/);
   assert.doesNotMatch(sources, /["']use server["']/);
   assert.doesNotMatch(sources, /Next-Action/);
-  assert.match(component, /Sem Supabase Auth/);
+  assert.match(component, /Sem cadastro/);
   assert.match(component, /Sem efeitos reais/);
   assert.match(component, /Um agente fictício/);
   assert.match(component, /Três fontes sintéticas/);

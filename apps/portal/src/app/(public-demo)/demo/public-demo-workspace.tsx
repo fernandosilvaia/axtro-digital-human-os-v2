@@ -55,7 +55,7 @@ const SURFACES: readonly Readonly<{
     label: "Conversa",
     eyebrow: "Histórico demonstrativo",
     title: "Uma linha do tempo fictícia explica o próximo passo.",
-    description: "A experiência não gera fala, transcript, lead, reunião ou receipt. Ela apenas demonstra a estrutura da jornada.",
+    description: "A experiência não gera fala, transcrição, lead, reunião ou comprovante. Ela apenas demonstra a estrutura da jornada.",
     facts: ["Disclosure apresentado", "Contexto sintético consultado", "Handoff demonstrativo"],
   },
 ]);
@@ -158,7 +158,7 @@ export function PublicDemoWorkspace({ initialView }: { initialView: PublicDemoVi
         <section className={styles.entryPanel} aria-labelledby="demo-ended-title">
           <p className={styles.kicker}>Estado descartado</p>
           <h1 id="demo-ended-title">A simulação terminou sem persistir dados.</h1>
-          <p className={styles.entryLead}>Inicie outra sessão isolada para voltar à fixture original.</p>
+          <p className={styles.entryLead}>Inicie uma nova sessão para recomeçar o percurso do início.</p>
           <div className={styles.entryActions}>
             <form action="/demo/start" method="post">
               <button className={styles.primaryButton} type="submit">Iniciar nova sessão</button>
@@ -188,7 +188,7 @@ export function PublicDemoWorkspace({ initialView }: { initialView: PublicDemoVi
       <section className={styles.disclosure} aria-label="Limites da demonstração">
         <strong>Simulação isolada</strong>
         <span>Dados sintéticos</span>
-        <span>Sem Supabase Auth</span>
+        <span>Sem cadastro</span>
         <span>Sem efeitos reais</span>
       </section>
 
@@ -210,7 +210,7 @@ export function PublicDemoWorkspace({ initialView }: { initialView: PublicDemoVi
             ))}
           </nav>
           <div className={styles.sessionBudget}>
-            <span>Transições locais restantes</span>
+            <span>Cliques restantes</span>
             <strong>{view.commandsRemaining}</strong>
           </div>
           <button

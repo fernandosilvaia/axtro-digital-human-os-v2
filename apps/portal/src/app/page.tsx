@@ -58,7 +58,7 @@ const FAQ_ITEMS = [
   {
     question: "O que é o Axtro Closer AI Human?",
     answer:
-      "É o role pack comercial do Axtro Digital Human OS. Ele organiza uma experiência de closer de IA em vídeo para empresas que querem conduzir conversas com mais consistência, contexto autorizado e supervisão operacional.",
+      "É o pacote comercial do Axtro Digital Human OS. Ele organiza uma experiência de closer de IA em vídeo para empresas que querem conduzir conversas com mais consistência, contexto autorizado e supervisão operacional.",
   },
   {
     question: "A Raissa é uma pessoa entrando na chamada?",
@@ -73,12 +73,12 @@ const FAQ_ITEMS = [
   {
     question: "Como a empresa mantém o controle da conversa?",
     answer:
-      "Cada experiência usa contexto autorizado, consentimentos aplicáveis e políticas explícitas. A plataforma mantém eventos e receipts operacionais para que a equipe possa revisar a interação e conduzir o próximo passo com clareza.",
+      "Cada experiência usa contexto autorizado, consentimentos aplicáveis e políticas explícitas. A plataforma mantém eventos e comprovantes operacionais para que a equipe possa revisar a interação e conduzir o próximo passo com clareza.",
   },
   {
     question: "Como funciona a demonstração?",
     answer:
-      "A demonstração usa uma simulação isolada com dados sintéticos e estado temporário por visitante. Ela não cria conta, tenant, cobrança ou chamada de provider; recursos reais dependem da configuração, do consentimento e da aprovação da empresa.",
+      "A demonstração usa uma simulação isolada com dados sintéticos e estado temporário por visitante. Ela não cria conta, cobrança ou chamada ao fornecedor de vídeo; recursos reais dependem da configuração, do consentimento e da aprovação da empresa.",
   },
 ] as const;
 
@@ -199,7 +199,7 @@ export default function LandingPage() {
             <div className="hero-floating-card hero-floating-card-bottom closer-control-card">
               <span className="floating-label">OPERAÇÃO NO CONTROLE</span>
               <strong>Contexto antes da conversa</strong>
-              <span className="floating-signal"><span /> Disclosure <span /> Consentimento <span /> Receipt</span>
+              <span className="floating-signal"><span /> Disclosure <span /> Consentimento <span /> Comprovante</span>
             </div>
             <div className="hero-visual-caption"><span>01</span><span>Axtro Closer AI Human</span></div>
           </div>
@@ -298,7 +298,7 @@ export default function LandingPage() {
             <div className="closer-governance-list" aria-label="Princípios de governança do sistema">
               <article><span>01</span><strong>Disclosure</strong><p>A IA se apresenta antes de participar.</p></article>
               <article><span>02</span><strong>Contexto</strong><p>Fontes e limites pertencem à sua operação.</p></article>
-              <article><span>03</span><strong>Receipts</strong><p>Ações sensíveis pedem confirmação e deixam rastro.</p></article>
+              <article><span>03</span><strong>Comprovantes</strong><p>Ações sensíveis pedem confirmação e deixam rastro.</p></article>
             </div>
           </RevealOnScroll>
         </section>
@@ -332,7 +332,7 @@ export default function LandingPage() {
             <form action="/demo/start" method="post">
               <DemoSubmitButton className="btn btn-light btn-large">Abrir demonstração <ArrowIcon /></DemoSubmitButton>
             </form>
-            <span className="closing-note">Sessão isolada, dados sintéticos, sem cadastro, provider ou cartão.</span>
+            <span className="closing-note">Sessão isolada, dados sintéticos, sem cadastro, sem cartão e sem fornecedor de vídeo.</span>
           </RevealOnScroll>
         </section>
       </main>

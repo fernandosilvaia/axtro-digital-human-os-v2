@@ -136,7 +136,7 @@ test("login da fixture de cliente leva à central com progresso e custos explici
   await expect(page.getByRole("progressbar", { name: "Prontidão operacional confirmada" })).toHaveAttribute("aria-valuenow", /\d+/);
   // T8: painel de custo (ledger de efeitos pagos, M5-01 renomeou de "estimado" para "atribuído").
   await expect(page.getByText("Custo atribuído hoje")).toBeVisible();
-  await expect(page.getByText("Ledger estimado/reportado: não é a fatura conciliada")).toBeVisible();
+  await expect(page.getByText("Consumo registrado hoje (não é a fatura)")).toBeVisible();
   fixtureAuthCookies = (await page.context().cookies()).filter((cookie) => cookie.name.startsWith("sb-"));
   expect(fixtureAuthCookies.length > 0, "login real deve produzir sessão da fixture").toBe(true);
 });

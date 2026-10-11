@@ -160,5 +160,5 @@ test("dashboard exposes a data-backed operational next step", () => {
   assert.match(dashboard, /aria-valuenow=\{readinessPercent\}/);
   assert.match(dashboard, /aria-label="Prontidão operacional confirmada"/);
   assert.match(dashboard, /nextAction\.href/);
-  assert.match(dashboard, /Ledger estimado\/reportado: não é a fatura conciliada/);
+  assert.match(dashboard, /Consumo registrado hoje \(não é a fatura\)/);
 });

@@ -11,8 +11,8 @@ import { CreateAgentForm } from "./create-agent-form";
 export const metadata: Metadata = { title: `Agentes, ${SITE_NAME}` };
 
 const ROLE_TYPE_LABELS: Record<string, string> = {
-  sales: "Sales Closer",
-  sales_closer: "Sales Closer",
+  sales: "Closer de vendas",
+  sales_closer: "Closer de vendas",
   presenter: "Apresentador",
 };
 

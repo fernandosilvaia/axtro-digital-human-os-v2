@@ -30,7 +30,7 @@ export function CreateAgentForm() {
         <div className="field" style={{ marginBottom: 0 }}>
           <label htmlFor="agent-role">Papel</label>
           <select id="agent-role" name="role_type" defaultValue="sales" disabled>
-            <option value="sales">Sales Closer</option>
+            <option value="sales">Closer de vendas</option>
           </select>
         </div>
         <button type="submit" className="btn btn-primary" disabled={pending}>

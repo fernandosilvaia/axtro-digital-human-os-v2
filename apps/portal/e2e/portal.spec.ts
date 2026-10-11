@@ -108,7 +108,7 @@ test("login da fixture de cliente leva à central com progresso e custos explici
   await expect(page.getByRole("progressbar", { name: "Prontidão operacional confirmada" })).toHaveAttribute("aria-valuenow", /\d+/);
   // T8: painel de custo (ledger de efeitos pagos, M5-01 renomeou de "estimado" para "atribuído").
   await expect(page.getByText("Custo atribuído hoje")).toBeVisible();
-  await expect(page.getByText("Ledger estimado/reportado: não é a fatura conciliada")).toBeVisible();
+  await expect(page.getByText("Consumo registrado hoje (não é a fatura)")).toBeVisible();
 });
 
 test("demo isolada preserva cookies, tenant e papel do cliente autenticado", async ({ page, context }) => {
