@@ -19,7 +19,7 @@ export function CreateAgentForm() {
 
   return (
     <form action={formAction}>
-      <h3 style={{ fontSize: "0.85rem", color: "var(--text-muted)", margin: "0 0 10px" }}>
+      <h3 id="novo-agente" style={{ fontSize: "0.85rem", color: "var(--text-muted)", margin: "0 0 10px" }}>
         Novo agente
       </h3>
       <div className="form-row form-row-3">

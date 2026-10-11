@@ -32,6 +32,9 @@ function allConsentConfirmed(consent: VideoChannelConsent): boolean {
   return Object.values(consent).every(Boolean);
 }
 
+// Id fixo e distinto do de presentation-room.tsx: as duas salas aparecem na mesma página.
+const CONSENT_HINT_ID = "video-call-consent-hint";
+
 export function VideoCall({ tenantId, agentId, agentName }: { tenantId: string; agentId: string; agentName: string }) {
   const [consent, setConsent] = useState<VideoChannelConsent>(INITIAL_CONSENT);
   const { phase, error, muted, stopping, providerStopConfirmed, storageReady, start, end, reset, toggleMute, remoteVideoRef, remoteAudioRef, localVideoRef } = useCallLifecycle({
@@ -47,6 +50,7 @@ export function VideoCall({ tenantId, agentId, agentName }: { tenantId: string; 
   }
 
   if (phase === "idle" || phase === "starting") {
+    const consentMissing = !allConsentConfirmed(consent);
     return (
       <section className="card" style={{ marginTop: 16, display: "flex", alignItems: "center", gap: 16, flexWrap: "wrap" }}>
         <div style={{ flex: 1, minWidth: 240 }}>
@@ -93,9 +97,21 @@ export function VideoCall({ tenantId, agentId, agentName }: { tenantId: string; 
           })}
         </fieldset>
         {error && <p className="form-error" role="alert" style={{ margin: 0, width: "100%" }}>{error}</p>}
-        <button type="button" className="btn btn-primary" onClick={start} disabled={!storageReady || phase === "starting" || !allConsentConfirmed(consent)} style={{ padding: "11px 20px" }}>
+        <button
+          type="button"
+          className="btn btn-primary"
+          onClick={start}
+          disabled={!storageReady || phase === "starting" || consentMissing}
+          aria-describedby={consentMissing ? CONSENT_HINT_ID : undefined}
+          style={{ padding: "11px 20px" }}
+        >
           {phase === "starting" ? "Preparando a sala…" : "Iniciar conversa em vídeo"}
         </button>
+        {consentMissing && (
+          <p id={CONSENT_HINT_ID} style={{ margin: 0, width: "100%", color: "var(--text-muted)", fontSize: "0.78rem" }}>
+            Marque as cinco confirmações para iniciar.
+          </p>
+        )}
       </section>
     );
   }

@@ -82,6 +82,7 @@ export function SourceActions({ sourceId, sourceName, status }: SourceActionsPro
             rows={4}
             required
             maxLength={80000}
+            aria-label={`Novo conteúdo de ${sourceName}`}
             placeholder="Cole o novo conteúdo, substitui a versão anterior por completo."
             style={{ width: "100%", resize: "vertical", fontSize: "0.78rem", lineHeight: 1.45 }}
           />

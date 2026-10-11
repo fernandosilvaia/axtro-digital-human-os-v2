@@ -26,7 +26,7 @@ export function CreateSourceForm() {
 
   return (
     <form action={formAction}>
-      <h3 style={{ fontSize: "0.85rem", color: "var(--text-muted)", margin: "0 0 10px" }}>
+      <h3 id="nova-fonte" style={{ fontSize: "0.85rem", color: "var(--text-muted)", margin: "0 0 10px" }}>
         Nova fonte
       </h3>
       <div className="form-row form-row-4">
