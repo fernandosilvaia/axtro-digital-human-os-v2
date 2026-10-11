@@ -137,7 +137,7 @@ export function CustomBrain({
             só o hash dele. Se perder, gere outro.
           </p>
           <p style={{ margin: "0 0 4px", fontSize: "0.78rem", color: "var(--text-muted)" }}>
-            No provedor de vídeo, aponte o LLM da persona para:
+            No provedor de vídeo, use esta base URL no LLM da persona (ele acrescenta /chat/completions sozinho):
           </p>
           <code style={{ display: "block", fontSize: "0.76rem", wordBreak: "break-all", marginBottom: 10 }}>
             {brainUrl}

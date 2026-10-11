@@ -47,13 +47,17 @@ export default async function AgentPreviewPage({ params }: { params: Promise<{ i
   // ja degrada para "nao configurado" em qualquer falha, entao nunca derruba a pagina.
   const brainStatus = await fetchAgentBrainStatus(agent.id);
   const videoConfigStatus = await fetchAgentVideoConfigStatus(agent.id);
+  // Base URL, nao o endpoint completo: a Tavus acrescenta /chat/completions
+  // sozinha ("Do not include route extensions in the base_url", docs da
+  // Tavus). Mostrar o endpoint completo levava o operador a configurar
+  // .../chat/completions/chat/completions, que responde 404.
   let brainUrl: string;
   try {
-    brainUrl = `${portalPublicOrigin()}/api/brain/${agent.id}/chat/completions`;
+    brainUrl = `${portalPublicOrigin()}/api/brain/${agent.id}`;
   } catch {
     // Origem publica mal configurada: mostrar um caminho relativo e melhor que
     // esconder a secao, porque o operador ainda consegue montar a URL.
-    brainUrl = `/api/brain/${agent.id}/chat/completions`;
+    brainUrl = `/api/brain/${agent.id}`;
   }
 
   return (
