@@ -9,15 +9,15 @@ async function sha256(filename) {
   return createHash("sha256").update(await readFile(new URL(filename, migrationDirectory))).digest("hex");
 }
 
-test("Supabase lineage is contiguous through v77 and immutable historical blobs keep their checksums", async () => {
+test("Supabase lineage is contiguous through v78 and immutable historical blobs keep their checksums", async () => {
   const migrations = (await readdir(migrationDirectory))
     .filter((name) => /^\d{4}_.+\.sql$/.test(name))
     .sort();
 
-  assert.equal(migrations.length, 77);
+  assert.equal(migrations.length, 78);
   assert.deepEqual(
     migrations.map((name) => Number(name.slice(0, 4))),
-    Array.from({ length: 77 }, (_, index) => index + 1),
+    Array.from({ length: 78 }, (_, index) => index + 1),
   );
   assert.equal(migrations[48], "0049_portal_text_preview_admission.sql");
   assert.equal(migrations[49], "0050_meeting_terminal_notification_claim.sql");
@@ -50,6 +50,7 @@ test("Supabase lineage is contiguous through v77 and immutable historical blobs 
   assert.equal(migrations[74], "0075_conversation_turn_redaction_projector.sql");
   assert.equal(migrations[75], "0076_ai_usage_ledger_timeout_repair.sql");
   assert.equal(migrations[76], "0077_schema_capability_publication.sql");
+  assert.equal(migrations[77], "0078_business_action_grants_capability_repair.sql");
 });
 
 test("v60 resolves a proposal's slotIndex to slot_id through a read-only, service_role-only, anti-oracle lookup", async () => {
@@ -326,6 +327,24 @@ test("v77 publishes the 0074 to 0076 capabilities computed from the catalog and 
   }
   // Calculadas do catálogo, nunca constantes: uma flag `true` literal não prova nada.
   assert.doesNotMatch(migration,/'(hybridKnowledgeRetrieval|conversationTurnRedactionProjector|aiLedgerTimeoutsBounded)',\s*true/);
+  assert.match(migration,/revoke all on function public\.portal_schema_capabilities_service\(\) from public,anon,authenticated;/);
+  assert.match(migration,/grant execute on function public\.portal_schema_capabilities_service\(\) to service_role;/);
+  assert.doesNotMatch(migration,/\bcreate table\b|\bdrop\b|\bdisable trigger\b/i);
+});
+
+test("v78 republishes only businessActionGrants against the live five-argument settings RPC and keeps the version", async () => {
+  const source = await readFile(new URL("0078_business_action_grants_capability_repair.sql",migrationDirectory),"utf8");
+  const migration = source.split("\n").filter((line) => !line.trimStart().startsWith("--")).join("\n");
+  assert.match(migration,/rename to portal_schema_capabilities_v77;/);
+  assert.match(migration,/app\.portal_schema_capabilities_v77\(\)\|\|jsonb_build_object\(/);
+  // O app aceita no maximo a 77: a 0078 nao pode mover a versao publicada.
+  assert.doesNotMatch(migration,/'version'\s*,/);
+  assert.match(migration,/'businessActionGrants'/);
+  assert.match(migration,/portal_set_business_action_agent_settings_service\(app\.uuid_v7,app\.uuid_v7,app\.uuid_v7,boolean,boolean\)/);
+  // A assinatura de quatro argumentos foi removida pela 0069; provar por ela deixa a flag false.
+  assert.doesNotMatch(migration,/portal_set_business_action_agent_settings_service\(app\.uuid_v7,app\.uuid_v7,app\.uuid_v7,boolean\)/);
+  // Calculada do catalogo, nunca um literal true.
+  assert.doesNotMatch(migration,/'businessActionGrants',\s*true/);
   assert.match(migration,/revoke all on function public\.portal_schema_capabilities_service\(\) from public,anon,authenticated;/);
   assert.match(migration,/grant execute on function public\.portal_schema_capabilities_service\(\) to service_role;/);
   assert.doesNotMatch(migration,/\bcreate table\b|\bdrop\b|\bdisable trigger\b/i);

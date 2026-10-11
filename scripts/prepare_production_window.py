@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Prepara as migrations 0059 e 0069 a 0077 para aplicar no hospedado, com verificação de integridade.
+"""Prepara as migrations 0059 e 0069 a 0078 para aplicar no hospedado, com verificação de integridade.
 
     python3 scripts/prepare_production_window.py            # todas
     python3 scripts/prepare_production_window.py 0059       # só uma
@@ -23,7 +23,7 @@ REPO = Path(__file__).resolve().parents[1]
 ROOT = REPO / "database" / "supabase-only"
 OUT = REPO / "artifacts" / "local" / "production-window"
 BUDGET = 50_000
-MIGRATIONS = ["0059", "0069", "0070", "0071", "0072", "0073", "0074", "0075", "0076", "0077"]
+MIGRATIONS = ["0059", "0069", "0070", "0071", "0072", "0073", "0074", "0075", "0076", "0077", "0078"]
 TAG = re.compile(r"\$[A-Za-z_][A-Za-z0-9_]*\$|\$\$")
 
 

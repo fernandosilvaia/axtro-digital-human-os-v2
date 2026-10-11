@@ -67,7 +67,7 @@ const hostedProfile = process.env.AXTRO_HARNESS_PROFILE === "hosted-without-gove
 // Ordem real de produção: o hospedado já tem 0060 a 0068 e a 0059 ainda vai entrar, depois
 // delas. O harness padrão sempre aplicou a 0059 antes da 0060, então esta ordem não era testada.
 const hostedOrder = process.env.AXTRO_HARNESS_PROFILE === "hosted-order";
-const HOSTED_PROFILE_SKIPPED_MIGRATIONS = new Set([59, 69, 70, 71, 72, 73, 75, 77]);
+const HOSTED_PROFILE_SKIPPED_MIGRATIONS = new Set([59, 69, 70, 71, 72, 73, 75, 77, 78]);
 
 // Capabilities que 0074 a 0076 entregam sem publicar e que a 0077 calcula do catálogo.
 const SCHEMA_PUBLICATION_CAPABILITIES = Object.freeze([
@@ -361,6 +361,11 @@ try {
     }
     assert.deepEqual(applySupabaseMigrations(databaseUrl, 77, 77), ["0077"]);
     assertSchemaCapabilityPublicationPhase(databaseUrl);
+    const capabilitiesBefore078 = queryJson(databaseUrl, asRoleSql("service_role", null, "SELECT public.portal_schema_capabilities_service();"));
+    assert.equal(capabilitiesBefore078.businessActionGrants, false,
+      "0069 removed the four-argument overload that the 0056 businessActionGrants proof still names");
+    assert.deepEqual(applySupabaseMigrations(databaseUrl, 78, 78), ["0078"]);
+    assertBusinessActionGrantsCapabilityRepairPhase(databaseUrl);
   } else {
     // Opção C do plano de integração: 0074 e 0076 sobre o schema hospedado (0058 mais 0060 a 0068,
     // sem a cadeia de governança) não mudam a versão publicada, então o portão atual segue verde.
@@ -372,10 +377,10 @@ try {
   assertMigrationReceiptLineage(databaseUrl, hostedProfile ? HOSTED_PROFILE_SKIPPED_MIGRATIONS : new Set());
 
   console.log(hostedOrder
-    ? "SUPABASE PORTAL INTEGRATION PASSED (hosted-order profile): 0059 applied after 0060-0068, then 0069-0077, same final contract"
+    ? "SUPABASE PORTAL INTEGRATION PASSED (hosted-order profile): 0059 applied after 0060-0068, then 0069-0078, same final contract"
     : hostedProfile
     ? "SUPABASE PORTAL INTEGRATION PASSED (hosted-without-governance profile): 0001-0058, 0060-0068, 0074 and 0076 over the hosted schema, published version unchanged"
-    : "SUPABASE PORTAL INTEGRATION PASSED: migrations 0001-0077 in contiguous order, immutable checksums, grants, RLS, transcripts, reservations, data governance and readiness capability");
+    : "SUPABASE PORTAL INTEGRATION PASSED: migrations 0001-0078 in contiguous order, immutable checksums, grants, RLS, transcripts, reservations, data governance and readiness capability");
 } catch (error) {
   primaryError = error;
   throw error;
@@ -651,11 +656,11 @@ function supabaseMigrationInventory() {
   const migrations = readdirSync(supabaseMigrationDirectory)
     .filter((name) => /^\d{4}_.+\.sql$/.test(name))
     .sort();
-  assert.equal(migrations.length, 77, "the harness must cover every Supabase-only migration through 0077");
+  assert.equal(migrations.length, 78, "the harness must cover every Supabase-only migration through 0078");
   assert.deepEqual(
     migrations.map((migration) => Number(migration.slice(0, 4))),
-    Array.from({ length: 77 }, (_, index) => index + 1),
-    "Supabase-only migration versions must be contiguous and unique from 0001 through 0077",
+    Array.from({ length: 78 }, (_, index) => index + 1),
+    "Supabase-only migration versions must be contiguous and unique from 0001 through 0078",
   );
   assert.equal(migrations[48], "0049_portal_text_preview_admission.sql");
   assert.equal(migrations[49], "0050_meeting_terminal_notification_claim.sql");
@@ -679,6 +684,7 @@ function supabaseMigrationInventory() {
   assert.equal(migrations[74], "0075_conversation_turn_redaction_projector.sql");
   assert.equal(migrations[75], "0076_ai_usage_ledger_timeout_repair.sql");
   assert.equal(migrations[76], "0077_schema_capability_publication.sql");
+  assert.equal(migrations[77], "0078_business_action_grants_capability_repair.sql");
   assert.equal(migrationChecksum(migrations[48]), "79b24e7fdc768a30b02d3596b71799fae484043e37561ddfcd435f46076b3100");
   assert.equal(migrationChecksum(migrations[49]), "262e033328175f704f8cfef1cafdcb0a2ef9b9aac7e4cc86f2b33890044c7224");
   return migrations;
@@ -11009,6 +11015,53 @@ async function assertAiUsageConcurrencyCap(databaseUrl) {
   assert.equal(replay.reservationId, winner.id, "AI replay keeps the original reservation identity");
   assert.equal(queryScalar(databaseUrl, `SELECT count(*) FROM public.ai_usage_reservations WHERE tenant_id='${fixture.tenantGamma}' AND idempotency_key IN ('ai-cap-parallel-a','ai-cap-parallel-b');`), "1",
     "AI token cap cannot be oversubscribed by concurrent begins");
+}
+
+// O portao de prontidao do app exige a uniao inteira de capabilities de
+// route.ts, nao so as que as migrations recentes publicam. A lista e lida do
+// proprio arquivo do portao para o harness nunca divergir dele.
+function readinessGateCapabilityNames() {
+  const source = readFileSync(join(repositoryRoot, "apps", "portal", "src", "app", "api", "ready", "route.ts"), "utf8");
+  const names = [];
+  for (const match of source.matchAll(/const \w*SCHEMA_CAPABILITIES = Object\.freeze\(\[([\s\S]*?)\] as const\)/g)) {
+    const body = match[1].replace(/\/\/[^\n]*/g, "");
+    for (const name of body.matchAll(/"([A-Za-z0-9]+)"/g)) names.push(name[1]);
+  }
+  const unique = [...new Set(names)];
+  assert.ok(unique.length >= 60, `the readiness gate list must be parsed in full, got ${unique.length}`);
+  return unique;
+}
+
+function assertBusinessActionGrantsCapabilityRepairPhase(databaseUrl) {
+  const capabilities = queryJson(databaseUrl, asRoleSql("service_role", null, "SELECT public.portal_schema_capabilities_service();"));
+  assert.equal(capabilities.version, 77, "0078 keeps the published version the app accepts");
+  const failing = readinessGateCapabilityNames().filter((name) => capabilities[name] !== true);
+  assert.deepEqual(failing, [], "the final schema publishes every capability the readiness gate requires");
+  assert.equal(capabilities.businessActionGrants, true);
+  assert.equal(queryScalar(databaseUrl, `
+    SELECT app.portal_service_role_only('public.portal_set_business_action_agent_settings_service(app.uuid_v7,app.uuid_v7,app.uuid_v7,boolean,boolean)');
+  `), "t", "the proof names the live five-argument signature");
+  assert.equal(queryScalar(databaseUrl, `
+    SELECT to_regprocedure('public.portal_set_business_action_agent_settings_service(app.uuid_v7,app.uuid_v7,app.uuid_v7,boolean)') IS NULL;
+  `), "t", "the four-argument overload stays removed");
+  assert.equal(queryScalar(databaseUrl, `
+    SELECT count(*) FROM pg_proc p JOIN pg_namespace n ON n.oid=p.pronamespace
+    WHERE n.nspname='app' AND p.proname IN ('portal_schema_capabilities_v73','portal_schema_capabilities_v77');
+  `), "2", "the previous capability functions stay chained under the app schema");
+  assert.equal(queryScalar(databaseUrl, `
+    SELECT count(*) FROM information_schema.routine_privileges
+    WHERE specific_schema='public' AND routine_name='portal_schema_capabilities_service'
+      AND grantee IN ('PUBLIC','anon','authenticated');
+  `), "0", "only service_role may read the published capabilities");
+  // A flag continua provando algo: sem a funcao de cinco argumentos ela cai.
+  // A mutacao roda numa transacao que sempre termina em ROLLBACK.
+  const rows = queryRows(databaseUrl, `
+    BEGIN;
+    DROP FUNCTION public.portal_set_business_action_agent_settings_service(app.uuid_v7,app.uuid_v7,app.uuid_v7,boolean,boolean);
+    SELECT public.portal_schema_capabilities_service()->>'businessActionGrants';
+    ROLLBACK;
+  `).filter((line) => line === "true" || line === "false");
+  assert.equal(rows.at(-1), "false", "businessActionGrants falls when the live settings RPC is gone");
 }
 
 function assertSchemaCapabilityPublicationPhase(databaseUrl) {
