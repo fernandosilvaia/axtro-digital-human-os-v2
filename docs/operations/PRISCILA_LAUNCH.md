@@ -42,6 +42,7 @@ Uma closer de vídeo com IA para seguro de vida americano, servida pelo cérebro
    ```
 6. **Vínculo governado** da persona e da réplica ao agente. Depois da migration 0072, a tela do cliente só edita idioma e vertical; o vínculo de ativos é provisionamento da plataforma, feito pelo operador de banco com service role:
    - `agent_video_config`: `tavus_persona_id`, `tavus_replica_id`, `language = 'english'`, `spoken_languages = {english,spanish,portuguese}` e `closer_vertical = 'life_insurance_qualification'`.
+   - Para uma Priscila que abre em espanhol (público hispânico), use `language = 'spanish'`. O cérebro usa as instruções revisadas em inglês, fala espanhol com "usted" e manda as frases fixas em espanhol (D-V2-197). No script da persona, `--language=english` continua certo: ele só define o idioma das perguntas de percepção.
    - Antes da 0072 (o hospedado de hoje), a própria tela ainda aceita o vínculo.
 7. **Ingerir a base de conhecimento:** `railway run -- node scripts/ingest-knowledge-bulk.mjs knowledge/life-insurance/priscila --dry-run`, revisar e repetir com `--apply`.
 8. **Anexar as tools à persona** (opcional, mas é o que permite agendar de verdade). Primeiro em dry-run:
