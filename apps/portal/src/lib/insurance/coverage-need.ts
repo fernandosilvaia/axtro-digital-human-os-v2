@@ -37,7 +37,11 @@ export interface CoverageNeedEstimate {
   readonly offsets: Readonly<{ existingCoverage: number; liquidSavings: number }>;
   readonly totalNeed: number;
   readonly gap: number;
-  /** Lacuna arredondada para o múltiplo de 5 mil mais próximo, para falar em voz alta. */
+  /**
+   * Lacuna arredondada para falar em voz alta. Nunca vira zero quando existe
+   * lacuna: dizer "não falta nada" numa vertical regulada quando falta é pior
+   * que um número menos redondo. A tela mostra a lacuna exata.
+   */
   readonly roundedGap: number;
 }
 
@@ -95,8 +99,16 @@ export function estimateCoverageNeed(input: unknown): CoverageNeedResult {
     offsets,
     totalNeed,
     gap,
-    roundedGap: Math.round(gap / 5_000) * 5_000,
+    roundedGap: roundGapForSpeech(gap),
   });
+}
+
+/** Até mil, exato; até 10 mil, centena; até 100 mil, milhar; acima disso, múltiplo de 5 mil. */
+export function roundGapForSpeech(gap: number): number {
+  if (gap < 1_000) return gap;
+  if (gap < 10_000) return Math.round(gap / 100) * 100;
+  if (gap < 100_000) return Math.round(gap / 1_000) * 1_000;
+  return Math.round(gap / 5_000) * 5_000;
 }
 
 function usd(value: number): string {

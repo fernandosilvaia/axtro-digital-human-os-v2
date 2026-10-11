@@ -86,7 +86,7 @@ export function CoverageEstimateCard({ estimate, language }: { estimate: Coverag
           </div>
         )}
         <dt><strong>{label.gap}</strong></dt>
-        <dd style={{ margin: 0, textAlign: "right" }}><strong>{usd(estimate.roundedGap)}</strong></dd>
+        <dd style={{ margin: 0, textAlign: "right" }}><strong>{usd(estimate.gap)}</strong></dd>
       </dl>
       <p style={{ color: "var(--text-muted)", fontSize: "0.8rem", margin: "10px 0 0" }}>{label.note}</p>
     </section>
