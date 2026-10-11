@@ -49,8 +49,30 @@ export interface BrainAgentProfile {
    * "checaria a agenda", inventaria horários e nada seria marcado. Com false o
    * prompt troca as tools por captura verbal e handoff honesto.
    */
-  readonly toolCalling?: boolean;
+  readonly toolCalling?: boolean | BrainToolCapabilities;
 }
+
+/**
+ * Tools que o cérebro próprio de fato ofereceu ao modelo nesta requisição.
+ * As de cena não entram: o cliente recusa comando de slide sem manifesto
+ * validado, então prometê-las seria a mesma instrução falsa de antes.
+ */
+export interface BrainToolCapabilities {
+  readonly business: boolean;
+  readonly calculator?: boolean;
+}
+
+const BRAIN_SCHEDULING_EN = {
+  regulated: "SCHEDULING TOOLS (silent: say something natural like \"let me check the calendar\" while they run, never narrate the call): `register_lead` as soon as you have their name and email or phone. `propose_meeting_slots` only after they said yes to talking with the licensed agent; read the times it returns naturally and in order, and never offer any other time. When they choose, `confirm_meeting_slot` with the option number, and never declare the meeting confirmed yourself: follow the text the tool returns. If a slide deck is on screen, you cannot change slides yourself.",
+  generic: "SCHEDULING TOOLS (silent: say something natural like \"let me check the calendar\" while they run, never narrate the call): `register_lead` as soon as you have their name and email or phone. `propose_meeting_slots` only after they said yes to the next step; read the times it returns naturally and in order, and never offer any other time. When they choose, `confirm_meeting_slot` with the option number, and never declare the meeting confirmed yourself: follow the text the tool returns. If a slide deck is on screen, you cannot change slides yourself.",
+  calculator: "COVERAGE MATH: once they have shared income and how many years the family would need it, or debts, mortgage, education or existing coverage, offer to run the numbers and call `estimate_coverage_need` with ONLY the figures they said. The breakdown appears on their screen: walk them through it in one or two sentences as an educational estimate; the licensed agent refines the amount and the product.",
+} as const;
+
+const BRAIN_SCHEDULING_PT = {
+  regulated: "TOOLS DE AGENDAMENTO (silenciosas: diga algo natural como \"deixa eu ver a agenda\" enquanto rodam, nunca narre a chamada): `register_lead` assim que tiver nome e e-mail ou telefone. `propose_meeting_slots` só depois do sim para conversar com o agente licenciado; leia os horários que ela devolver com naturalidade e na ordem, e nunca ofereça outro horário. Quando a pessoa escolher, `confirm_meeting_slot` com o número da opção, e nunca declare a reunião confirmada por conta própria: siga o texto que a tool devolver. Se houver slides na tela, você não consegue trocar de slide sozinha.",
+  generic: "TOOLS DE AGENDAMENTO (silenciosas: diga algo natural como \"deixa eu ver a agenda\" enquanto rodam, nunca narre a chamada): `register_lead` assim que tiver nome e e-mail ou telefone. `propose_meeting_slots` só depois do sim para o próximo passo; leia os horários que ela devolver com naturalidade e na ordem, e nunca ofereça outro horário. Quando a pessoa escolher, `confirm_meeting_slot` com o número da opção, e nunca declare a reunião confirmada por conta própria: siga o texto que a tool devolver. Se houver slides na tela, você não consegue trocar de slide sozinha.",
+  calculator: "CONTA DA COBERTURA: quando a pessoa já tiver dito a renda e por quantos anos a família precisaria dela, ou dívidas, hipoteca, educação ou cobertura existente, ofereça fazer a conta e chame `estimate_coverage_need` SÓ com os números que ela disse. A decomposição aparece na tela dela: explique em uma ou duas frases como estimativa educativa; o agente licenciado ajusta o valor e o produto.",
+} as const;
 
 /**
  * Mapeia o `default_language` do tenant (valores livres da UI de
@@ -185,7 +207,11 @@ export function buildCloserVideoSystemPrompt(profile: BrainAgentProfile): string
   // Insurance). Derivar daqui evita um segundo sinalizador que poderia ficar
   // dessincronizado do nucleo que realmente entrou no prompt.
   const regulated = profile.domainCore !== undefined;
-  const toolCalling = profile.toolCalling !== false;
+  // true (padrão): persona com LLM da Tavus, tools de cena e de negócio.
+  // objeto: cérebro próprio com as tools que ele ofereceu nesta requisição.
+  // false: cérebro sem tools, captura verbal e handoff honesto.
+  const toolCalling = profile.toolCalling === undefined || profile.toolCalling === true;
+  const brainTools = typeof profile.toolCalling === "object" ? profile.toolCalling : null;
   if (language === "english") {
     return [
       profile.identityOverride
@@ -214,11 +240,17 @@ export function buildCloserVideoSystemPrompt(profile: BrainAgentProfile): string
           "",
           "SCHEDULING AND CONTACT: you have 3 business tools (`register_lead`, `propose_meeting_slots`, `confirm_meeting_slot`), always silent when called: say something natural like \"let me check the calendar for you\" while they run, never narrate the tool call itself. Use `register_lead` as soon as you have the prospect's name and (email OR phone), even if the call hasn't closed yet. Use `propose_meeting_slots` only after asking for and hearing a \"yes\" to the next step (Phase 5/6, never before Phase 3's value validation), when speaking the times it returns, convert them to natural speech in the order given (\"I have Tuesday at 2pm or Thursday at 10am, which works?\"), never offer a time outside what it returned, and keep track of each one's position. Once they choose, call `confirm_meeting_slot` with that position, and NEVER declare the meeting confirmed on your own: follow literally the text the tool returns (it tells you whether to offer new times or hand off to the human team).",
         ]
-        : [
+        : (brainTools !== null && brainTools.business
+          ? [
+            regulated ? BRAIN_SCHEDULING_EN.regulated : BRAIN_SCHEDULING_EN.generic,
+            ...(brainTools.calculator === true ? ["", BRAIN_SCHEDULING_EN.calculator] : []),
+          ]
+          : [
           regulated
             ? "NEXT STEP WITHOUT TOOLS: in this call you cannot see calendars, book times or register anything. Never offer specific times and never say an appointment is booked. When they agree to talk to the licensed agent, confirm their name, best phone or email and the day and time window that suits them, repeat it back once, and tell them a licensed agent from the team will reach out to confirm. If they name an exact time: \"I'll pass that exact preference to the team so they confirm it with you.\" If a slide deck is on screen, you cannot change slides yourself."
             : "NEXT STEP WITHOUT TOOLS: in this call you cannot see calendars, book times, register leads or send anything. Never offer specific times and never say a meeting is booked or something was sent. When they agree to a next step, confirm their name, best phone or email and the day and time window that suits them, repeat it back once, and tell them someone from the team will reach out to confirm. If a slide deck is on screen, you cannot change slides yourself.",
-        ]),
+          ...(brainTools?.calculator === true ? ["", BRAIN_SCHEDULING_EN.calculator] : []),
+        ])),
       "",
       "HANDOFF: explicit request for a human, emotional distress, legal/corporate topics, discount/exception requests, or the third failure on the same doubt → offer the transfer immediately: \"I'll connect you with our team; they'll already have our full context, you won't repeat anything.\"",
       "",
@@ -255,11 +287,17 @@ export function buildCloserVideoSystemPrompt(profile: BrainAgentProfile): string
         "",
         "AGENDAMENTO E CONTATO: você tem 3 tools de negócio (`register_lead`, `propose_meeting_slots`, `confirm_meeting_slot`), sempre silenciosas ao chamar: diga algo natural tipo \"deixa eu já checar sua agenda aqui\" enquanto rodam, nunca narre a chamada da tool em si. Use `register_lead` assim que tiver nome e (e-mail OU telefone) do prospect, mesmo que a call ainda não tenha fechado. Use `propose_meeting_slots` só depois de pedir e ouvir um \"sim\" pro próximo passo (Fase 5/6, nunca antes da validação de valor da Fase 3), ao falar os horários que a tool devolver, converta pra fala natural na ordem em que vieram (\"tenho terça às 14h ou quinta às 10h, qual prefere?\"), nunca ofereça um horário fora dos que ela trouxe, e guarde a posição de cada um. Assim que a pessoa escolher, use `confirm_meeting_slot` com essa posição, e NUNCA declare a reunião confirmada por conta própria: siga literalmente o texto que a tool devolver (ela mesma te diz se deve oferecer novos horários ou transferir pro time humano).",
       ]
-      : [
+      : (brainTools !== null && brainTools.business
+        ? [
+          regulated ? BRAIN_SCHEDULING_PT.regulated : BRAIN_SCHEDULING_PT.generic,
+          ...(brainTools.calculator === true ? ["", BRAIN_SCHEDULING_PT.calculator] : []),
+        ]
+        : [
         regulated
           ? "PRÓXIMO PASSO SEM TOOLS: nesta chamada você não vê agenda, não marca horário e não registra nada. Nunca ofereça horário específico e nunca diga que algo está agendado. Quando a pessoa aceitar conversar com o agente licenciado, confirme nome, melhor telefone ou e-mail e o dia e a faixa de horário que funcionam pra ela, repita uma vez para confirmar, e diga que um agente licenciado do time vai entrar em contato para confirmar. Se ela citar um horário exato: \"vou passar exatamente essa preferência pro time confirmar com você.\" Se houver slides na tela, você não consegue trocar de slide sozinha."
           : "PRÓXIMO PASSO SEM TOOLS: nesta chamada você não vê agenda, não marca horário, não registra lead e não envia nada. Nunca ofereça horário específico e nunca diga que algo está agendado ou foi enviado. Quando a pessoa aceitar um próximo passo, confirme nome, melhor telefone ou e-mail e o dia e a faixa de horário que funcionam pra ela, repita uma vez para confirmar, e diga que alguém do time vai entrar em contato para confirmar. Se houver slides na tela, você não consegue trocar de slide sozinha.",
-      ]),
+        ...(brainTools?.calculator === true ? ["", BRAIN_SCHEDULING_PT.calculator] : []),
+      ])),
     "",
     "HANDOFF: pedido explícito de humano, carga emocional, tema jurídico/societário, pedido de desconto/exceção, ou terceira falha na mesma dúvida → ofereça a transferência na hora: \"vou te conectar com nosso time; eles já estarão com todo o nosso contexto, você não vai repetir nada.\"",
     "",

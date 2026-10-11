@@ -19,6 +19,8 @@
  *   (auditoria 2026-08-02: antes o catch era vazio e uma indisponibilidade
  *   total do provider parecia 100% saudável na operação).
  */
+import type { TextGenerationToolCall } from "@axtro/provider-openrouter";
+import { offeredBrainToolNames } from "./brain-tools.ts";
 import type { BrainLanguage } from "./metodo-silva.ts";
 import { runBrainChatCompletion, type BrainKnowledgeMatch, type CloserVertical } from "./chat-completion-core.ts";
 import { hashBrainSecret } from "./secret.ts";
@@ -62,6 +64,8 @@ export interface BrainChatHttpRequest {
   readonly authorizationHeader: string | null;
   readonly agentIdFromPath: string;
   readonly rawMessages: unknown;
+  /** Campo `tools` do corpo (dado do provedor): só o nome de tool conhecida é aproveitado. */
+  readonly rawTools?: unknown;
 }
 
 export type BrainDegradedReason = "malformed_request" | "budget_exhausted" | "budget_unavailable" | "generation_failed";
@@ -75,6 +79,8 @@ export interface BrainChatHttpResult {
   readonly cause?: unknown;
   /** Padrões de risco de guardrail detectados na resposta gerada (D-V2-115); vazio em fallback degradado. A rota telemetra quando não-vazio. */
   readonly guardrailFlags: readonly string[];
+  /** Tools pedidas pelo modelo (só entre as oferecidas). Sempre vazio em fallback degradado. */
+  readonly toolCalls: readonly TextGenerationToolCall[];
 }
 
 const FALLBACK_REPLY_PT = "Peço desculpa, deixa eu reorganizar isso rapidinho. Pode repetir a última parte pra mim?";
@@ -142,6 +148,7 @@ export async function handleBrainChatRequest(
       degraded: true,
       degradedReason: budget === "exhausted" ? "budget_exhausted" : "budget_unavailable",
       guardrailFlags: [],
+      toolCalls: [],
     };
   }
 
@@ -151,14 +158,16 @@ export async function handleBrainChatRequest(
   } catch (error) {
     if (error instanceof TavusRequestParseError) {
       // Requisição chegou autenticada mas malformada: degrada, não derruba a call.
-      return { reply: fallbackReply(agent.language), degraded: true, degradedReason: "malformed_request", cause: error, guardrailFlags: [] };
+      return { reply: fallbackReply(agent.language), degraded: true, degradedReason: "malformed_request", cause: error, guardrailFlags: [], toolCalls: [] };
     }
     throw error;
   }
 
   let knowledgeMatches: readonly BrainKnowledgeMatch[] = [];
   try {
-    knowledgeMatches = await deps.retrieveKnowledge(agent.tenantId, parsed.userMessage);
+    // Resultado de tool não é pergunta da pessoa: buscar com ele pagaria um
+    // embedding para recuperar trechos sobre o próprio resultado.
+    if (!parsed.lastTurnIsToolResult) knowledgeMatches = await deps.retrieveKnowledge(agent.tenantId, parsed.userMessage);
   } catch {
     // RAG indisponível: segue sem fontes, nunca inventa (Art. 14); não é motivo pra degradar a fala inteira.
     knowledgeMatches = [];
@@ -177,6 +186,7 @@ export async function handleBrainChatRequest(
         providerContext: parsed.providerContext,
         history: parsed.history,
         userMessage: parsed.userMessage,
+        availableTools: offeredBrainToolNames(request.rawTools),
       },
       {
         generate: deps.generate,
@@ -184,8 +194,8 @@ export async function handleBrainChatRequest(
           deps.logGenerationUsage(agent.tenantId, agent.agentId, inputTokens, outputTokens),
       },
     );
-    return { reply: result.reply, degraded: false, guardrailFlags: result.guardrailFlags };
+    return { reply: result.reply, degraded: false, guardrailFlags: result.guardrailFlags, toolCalls: result.toolCalls };
   } catch (error) {
-    return { reply: fallbackReply(agent.language), degraded: true, degradedReason: "generation_failed", cause: error, guardrailFlags: [] };
+    return { reply: fallbackReply(agent.language), degraded: true, degradedReason: "generation_failed", cause: error, guardrailFlags: [], toolCalls: [] };
   }
 }

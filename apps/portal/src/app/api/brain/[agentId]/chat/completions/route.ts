@@ -1,9 +1,9 @@
 import { NextRequest, NextResponse } from "next/server";
 
-import { createUuidV7 } from "@axtro/domain";
 import { createOpenRouterTextGenerationPort } from "@axtro/provider-openrouter";
 
 import { parseCloserVertical, type BrainKnowledgeMatch } from "@/lib/brain/chat-completion-core";
+import { buildCompletionStream } from "@/lib/brain/completion-stream";
 import type { BrainLanguage } from "@/lib/brain/metodo-silva";
 import { authenticateBrainRequest, BrainHttpError, handleBrainChatRequest, type BudgetVerdict, type ResolvedBrainAgent } from "@/lib/brain/handle-chat-request";
 import {
@@ -126,36 +126,6 @@ async function retrieveKnowledge(
   });
 }
 
-function sseChunk(payload: unknown): string {
-  return `data: ${JSON.stringify(payload)}\n\n`;
-}
-
-function buildCompletionStream(reply: string, model: string): ReadableStream<Uint8Array> {
-  const id = `brain-${createUuidV7()}`;
-  const created = Math.floor(Date.now() / 1000);
-  const encoder = new TextEncoder();
-
-  return new ReadableStream({
-    start(controller) {
-      controller.enqueue(encoder.encode(sseChunk({
-        id,
-        object: "chat.completion.chunk",
-        created,
-        model,
-        choices: [{ index: 0, delta: { role: "assistant", content: reply }, finish_reason: null }],
-      })));
-      controller.enqueue(encoder.encode(sseChunk({
-        id,
-        object: "chat.completion.chunk",
-        created,
-        model,
-        choices: [{ index: 0, delta: {}, finish_reason: "stop" }],
-      })));
-      controller.enqueue(encoder.encode("data: [DONE]\n\n"));
-      controller.close();
-    },
-  });
-}
 
 export async function POST(
   request: NextRequest,
@@ -214,6 +184,7 @@ export async function POST(
     return NextResponse.json({ error: "invalid_json_body" }, { status: 400 });
   }
   const rawMessages = (body as { messages?: unknown } | null)?.messages;
+  const rawTools = (body as { tools?: unknown } | null)?.tools;
   const canonicalMessages = Array.isArray(rawMessages)
     ? rawMessages.map((message) => {
       if (message === null || typeof message !== "object") return message;
@@ -243,6 +214,7 @@ export async function POST(
         authorizationHeader: request.headers.get("authorization"),
         agentIdFromPath: agentId,
         rawMessages,
+        rawTools,
       },
       {
         resolveConfig: async () => authenticatedConfig,
@@ -261,11 +233,17 @@ export async function POST(
         },
         retrieveKnowledge: (tenantId, queryText) =>
           retrieveKnowledge(tenantId, agentId, queryText, reservationMaterial),
-        generate: async (messages, maxOutputTokens) => {
+        generate: async (messages, maxOutputTokens, options) => {
           if (generationReservation === null) throw new Error("AI usage reservation missing");
           generationDispatched = await markAiUsageInFlight(serviceClient, generationReservation);
           if (!generationDispatched) throw new Error("AI usage reservation is not executable");
-          const generated = await port.generate({ model: providerModel, messages, maxOutputTokens });
+          const generated = await port.generate({
+            model: providerModel,
+            messages,
+            maxOutputTokens,
+            ...(options?.tools === undefined ? {} : { tools: options.tools }),
+            ...(options?.cacheSystemPrompt === true ? { cacheSystemPrompt: true } : {}),
+          });
           generationReportedCostUsd = generated.usage.reportedCostUsd;
           return generated;
         },
@@ -315,7 +293,11 @@ export async function POST(
       // Nunca loga o conteúdo da fala em si (redação de PII/conversa).
       logEvent("brain_guardrail_risk_detected", { agent_id: agentId, flags: result.guardrailFlags.join(",") });
     }
-    return new Response(buildCompletionStream(result.reply, model), {
+    if (result.toolCalls.length > 0) {
+      // Só nomes: argumentos podem carregar contato do prospect.
+      logEvent("brain_tool_calls", { agent_id: agentId, tools: result.toolCalls.map((call) => call.name).join(",") });
+    }
+    return new Response(buildCompletionStream(result.reply, model, result.toolCalls), {
       status: 200,
       headers: { "Content-Type": "text/event-stream", "Cache-Control": "no-cache", Connection: "keep-alive" },
     });

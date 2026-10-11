@@ -35,10 +35,10 @@ function fakeDeps(overrides = {}) {
         calls.retrieveKnowledge.push({ tenantId, queryText });
         return overrides.retrieveKnowledge ? overrides.retrieveKnowledge() : [];
       },
-      generate: async (messages, maxOutputTokens) => {
-        calls.generate.push({ messages, maxOutputTokens });
+      generate: async (messages, maxOutputTokens, options) => {
+        calls.generate.push({ messages, maxOutputTokens, options });
         if (overrides.generateThrows) throw new Error("provider_unavailable");
-        return { text: "resposta da persona", model: "fake/model", usage: { inputTokens: 50, outputTokens: 10 } };
+        return overrides.generateResult ?? { text: "resposta da persona", model: "fake/model", usage: { inputTokens: 50, outputTokens: 10 } };
       },
       logGenerationUsage: async (tenantId, agentId, inputTokens, outputTokens) => {
         calls.logGenerationUsage.push({ tenantId, agentId, inputTokens, outputTokens });
@@ -257,4 +257,40 @@ test("agente sem vertical declarada continua na doutrina genérica", async () =>
     .filter((m) => m.role === "system").map((m) => m.content).join("\n");
   assert.ok(!joined.includes("LIMITES REGULATÓRIOS"), "vertical nenhuma pode vazar para o caminho padrão");
   assert.ok(joined.includes("FASE 5 ·"), "o caminho padrão mantém a fase de fechamento");
+});
+
+
+test("tools attached by the provider reach the generation and the model's tool calls come back", async () => {
+  const { deps, calls } = fakeDeps({ generateResult: {
+    text: "Deixa eu ver a agenda.", model: "fake/model", usage: { inputTokens: 50, outputTokens: 10 },
+    toolCalls: [{ id: "call_1", name: "propose_meeting_slots", argumentsJson: "{\"durationMinutes\":30}" }],
+  } });
+  const result = await handler.handleBrainChatRequest({
+    authorizationHeader: `Bearer ${RAW_SECRET}`, agentIdFromPath: "agent-1", rawMessages: VALID_MESSAGES,
+    rawTools: [{ type: "function", function: { name: "propose_meeting_slots" } }, { type: "function", function: { name: "drop_database" } }],
+  }, deps);
+  assert.deepEqual(calls.generate[0].options.tools.map((tool) => tool.name), ["propose_meeting_slots"]);
+  assert.equal(result.degraded, false);
+  assert.deepEqual(result.toolCalls.map((call) => call.name), ["propose_meeting_slots"]);
+});
+
+test("a turn that is only a tool result does not pay for a knowledge search", async () => {
+  const { deps, calls } = fakeDeps();
+  await handler.handleBrainChatRequest({
+    authorizationHeader: `Bearer ${RAW_SECRET}`, agentIdFromPath: "agent-1",
+    rawMessages: [
+      { role: "user", content: "Pode marcar com o agente?" },
+      { role: "assistant", content: null, tool_calls: [{ id: "c1", type: "function", function: { name: "propose_meeting_slots", arguments: "{}" } }] },
+      { role: "tool", tool_call_id: "c1", content: "1) terça 14h 2) quinta 10h" },
+    ],
+  }, deps);
+  assert.equal(calls.retrieveKnowledge.length, 0);
+  assert.equal(calls.generate.length, 1);
+});
+
+test("degraded answers never carry tool calls", async () => {
+  const { deps } = fakeDeps({ generateThrows: true });
+  const result = await handler.handleBrainChatRequest({ authorizationHeader: `Bearer ${RAW_SECRET}`, agentIdFromPath: "agent-1", rawMessages: VALID_MESSAGES }, deps);
+  assert.equal(result.degraded, true);
+  assert.deepEqual(result.toolCalls, []);
 });

@@ -13,12 +13,13 @@
  * externos viajam em mensagens `user` explicitamente delimitadas para não
  * ganhar autoridade sobre identidade, método, ferramentas ou ações.
  */
-import type { TextGenerationMessage, TextGenerationResult } from "@axtro/provider-openrouter";
+import type { TextGenerationMessage, TextGenerationResult, TextGenerationTool, TextGenerationToolCall } from "@axtro/provider-openrouter";
 
 import { assertGenerationFitsReservedInput } from "../ai-budget/envelope.ts";
 import { AI_USAGE_LIMITS } from "../ai-budget/reservations.ts";
 
 import { buildLifeInsuranceCore, buildLifeInsuranceIdentity } from "./life-insurance.ts";
+import { brainToolDefinitions, hasBusinessTools, hasCalculatorTool, type BrainToolName } from "./brain-tools.ts";
 import { enforceLifeInsuranceCompliance } from "./compliance-sentinel.ts";
 import { buildCloserChatSystemMessages, buildCloserVideoSystemPrompt, type BrainLanguage } from "./metodo-silva.ts";
 
@@ -63,8 +64,19 @@ export interface BrainKnowledgeMatch {
     readonly chunk_id: string; readonly chunk_index: number; readonly content_hash: string };
 }
 
+export interface BrainGenerateOptions {
+  /** Definições revisadas das tools que o modelo pode chamar nesta geração. */
+  readonly tools?: readonly TextGenerationTool[];
+  /** Prefixo system estático: pede cache no provedor. */
+  readonly cacheSystemPrompt?: boolean;
+}
+
 export interface BrainChatDeps {
-  readonly generate: (messages: readonly TextGenerationMessage[], maxOutputTokens: number) => Promise<TextGenerationResult>;
+  readonly generate: (
+    messages: readonly TextGenerationMessage[],
+    maxOutputTokens: number,
+    options?: BrainGenerateOptions,
+  ) => Promise<TextGenerationResult>;
   /** `reportedCostUsd` presente quando o provider reporta o custo faturado real (0027). */
   readonly logGenerationUsage: (inputTokens: number, outputTokens: number, reportedCostUsd?: number) => Promise<void>;
 }
@@ -84,6 +96,12 @@ export interface BrainChatRequest {
   readonly history: readonly BrainTurn[];
   readonly userMessage: string;
   readonly maxOutputTokens?: number;
+  /**
+   * Tools que a persona tem anexadas e que estão na lista fechada do cérebro
+   * (`offeredBrainToolNames`). Ausente ou vazio = só texto, e o prompt troca
+   * agendamento por captura verbal honesta.
+   */
+  readonly availableTools?: readonly BrainToolName[];
 }
 
 export interface BrainChatResult {
@@ -91,6 +109,8 @@ export interface BrainChatResult {
   readonly usage: { readonly inputTokens: number; readonly outputTokens: number };
   /** Padrões de risco detectados na resposta (achado P1, auditoria 2026-08-12). Ver detectGuardrailRisk. Vazio quando nenhum padrão bate. */
   readonly guardrailFlags: readonly string[];
+  /** Tools que o modelo pediu, só entre as oferecidas. Vazio quando a resposta é só fala. */
+  readonly toolCalls: readonly TextGenerationToolCall[];
 }
 
 /**
@@ -362,14 +382,21 @@ export async function runBrainChatCompletion(request: BrainChatRequest, deps: Br
       domainCore: buildLifeInsuranceCore(lifeInsuranceMode, request.language ?? "portuguese"),
     };
 
+  // Tools só existem no vídeo e só as que a persona anexou e a lista fechada
+  // aceita. A calculadora de cobertura só faz sentido na vertical de seguro.
+  const offered = isVideo
+    ? (request.availableTools ?? []).filter((name) => name !== "estimate_coverage_need" || lifeInsuranceMode === "qualification")
+    : [];
+  const toolDefinitions = brainToolDefinitions(offered);
   const systemContents = isVideo
     ? splitSystemPrompt(buildCloserVideoSystemPrompt({
       agentName: request.agentName,
       tenantName: request.tenantName,
-      // Esta rota devolve só texto (SSE de chat.completion.chunk), nunca
-      // tool_calls: a persona servida pelo cérebro não consegue disparar as
-      // tools de cena nem as de negócio, então o prompt não pode prometê-las.
-      toolCalling: false,
+      // Sem tool oferecida, o prompt não promete agendar: captura verbal e
+      // handoff honesto. Com tools, só a doutrina das que existem de fato.
+      toolCalling: offered.length === 0
+        ? false
+        : { business: hasBusinessTools(offered), calculator: hasCalculatorTool(offered) },
       ...(request.language === undefined ? {} : { language: request.language }),
       ...verticalComposition,
     }))
@@ -416,20 +443,32 @@ export async function runBrainChatCompletion(request: BrainChatRequest, deps: Br
   // rotas cruzam a fence `reserved -> provider_in_flight`. Um contexto grande
   // (sobretudo Unicode) portanto libera a reserva como `not_dispatched`, sem
   // iniciar uma chamada OpenRouter que o ledger não pode aceitar no commit.
-  assertGenerationFitsReservedInput(messages, AI_USAGE_LIMITS.brain_generation.maxInputTokens);
+  // Os schemas das tools também viram tokens de entrada: entram na prova do teto.
+  const budgetedMessages = toolDefinitions.length === 0
+    ? messages
+    : [...messages, { role: "system" as const, content: JSON.stringify(toolDefinitions) }];
+  assertGenerationFitsReservedInput(budgetedMessages, AI_USAGE_LIMITS.brain_generation.maxInputTokens);
 
-  const result = await deps.generate(messages, maxOutputTokens);
+  const result = await deps.generate(messages, maxOutputTokens, {
+    ...(toolDefinitions.length === 0 ? {} : { tools: toolDefinitions }),
+    ...(isVideo ? { cacheSystemPrompt: true } : {}),
+  });
+  const offeredNames = new Set<string>(offered);
+  // Defesa em profundidade: o adapter já descarta tool não oferecida.
+  const toolCalls = (result.toolCalls ?? []).filter((call) => offeredNames.has(call.name));
   await deps.logGenerationUsage(result.usage.inputTokens, result.usage.outputTokens, result.usage.reportedCostUsd);
   const sanitized = sanitizeSpokenReply(result.text);
   if (lifeInsuranceMode === undefined) {
-    return { reply: sanitized, usage: result.usage, guardrailFlags: detectGuardrailRisk(sanitized) };
+    return { reply: sanitized, usage: result.usage, guardrailFlags: detectGuardrailRisk(sanitized), toolCalls };
   }
   // Vertical regulada: a frase que cria exposição regulatória não chega ao
   // áudio, mesmo que o modelo ignore a instrução do prompt.
   const guarded = enforceLifeInsuranceCompliance(sanitized, request.language === "english" ? "english" : "portuguese");
   return {
-    reply: guarded.reply,
+    // Resposta só de tool não tem fala: a sentinela não inventa recuo para o vazio.
+    reply: sanitized.length === 0 ? "" : guarded.reply,
     usage: result.usage,
     guardrailFlags: [...detectGuardrailRisk(guarded.reply), ...guarded.violations],
+    toolCalls,
   };
 }
