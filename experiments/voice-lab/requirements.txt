@@ -1,0 +1,7 @@
+# Instale num ambiente separado, nunca no .venv do projeto:
+#   uv venv .voice-venv --python 3.11 && uv pip install --python .voice-venv/bin/python -r experiments/voice-lab/requirements.txt
+# Pipecat BSD-2-Clause. Extras: Daily (transporte), Tavus (rosto), Silero (VAD),
+# Smart Turn v3 local, ElevenLabs (base), OpenAI (cérebro e TTS compatível), Whisper (ouvido).
+pipecat-ai[daily,tavus,silero,local-smart-turn,elevenlabs,openai,whisper]==1.12.0
+# Vozes abertas rodam como servidor separado, compatível com a API de TTS da OpenAI,
+# e não entram aqui: Chatterbox (MIT, chatterbox-tts 0.1.7) e Qwen3-TTS (Apache-2.0, qwen-tts 0.1.1).

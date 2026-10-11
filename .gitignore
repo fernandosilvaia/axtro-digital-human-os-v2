@@ -20,6 +20,7 @@ coverage/
 # Python
 .venv/
 .eval-venv/
+.voice-venv/
 venv/
 __pycache__/
 .pytest_cache/

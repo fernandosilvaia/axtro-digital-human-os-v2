@@ -1,0 +1,23 @@
+{
+  "about": "Falas da Priscila para o teste cego de voz. Cobrem o que costuma quebrar uma voz sintética numa call de seguro: divulgação de IA, acolhimento, números grandes, idade, siglas e nomes de produto, pergunta com entonação subindo e frase longa. Nenhum dado real.",
+  "lines": [
+    {"id": "disclosure", "language": "en", "text": "Hi, I'm Priscila, an AI assistant working with a licensed insurance team. Is now still a good time?"},
+    {"id": "empathy", "language": "en", "text": "I'm so sorry about your husband. Thank you for trusting me with that. Take your time."},
+    {"id": "numbers", "language": "en", "text": "As an estimate, the gap comes to about one million, one hundred eighty-five thousand dollars, after the 140,000 you already have through work."},
+    {"id": "jargon", "language": "en", "text": "Kai-Zen pairs bank financing with an IUL. The agent will walk you through the loan, the caps and the risks before anything is decided."},
+    {"id": "question", "language": "en", "text": "And who depends on your income today?"},
+    {"id": "long", "language": "en", "text": "Here's how I'd think about it: your mortgage, fifteen years of income for the kids, and the 15,000 on the car and cards, minus what you already have, and then the licensed agent turns that into real options with real prices."},
+    {"id": "disclosure", "language": "pt", "text": "Oi, eu sou a Priscila, uma assistente de inteligência artificial que trabalha com uma equipe de corretores licenciados. Ainda é um bom momento pra gente conversar?"},
+    {"id": "empathy", "language": "pt", "text": "Sinto muito pela sua mãe. Obrigada por me contar. Vamos com calma."},
+    {"id": "numbers", "language": "pt", "text": "Como estimativa, ficaria uma lacuna de mais ou menos um milhão, cento e oitenta e cinco mil dólares, já descontando os 140 mil que você tem pelo trabalho."},
+    {"id": "jargon", "language": "pt", "text": "O Kai-Zen combina um financiamento bancário com um IUL. O agente explica o empréstimo, os tetos e os riscos antes de qualquer decisão."},
+    {"id": "question", "language": "pt", "text": "E quem depende da sua renda hoje?"},
+    {"id": "long", "language": "pt", "text": "Eu pensaria assim: a hipoteca, quinze anos de renda pras crianças e os 15 mil do carro e do cartão, menos o que você já tem, e aí o agente licenciado transforma isso em opções reais com preço de verdade."},
+    {"id": "disclosure", "language": "es", "text": "Hola, soy Priscila, una asistente de inteligencia artificial que trabaja con un equipo de agentes con licencia. ¿Es buen momento para hablar?"},
+    {"id": "empathy", "language": "es", "text": "Lo siento mucho por su esposo. Gracias por contármelo. Vamos con calma."},
+    {"id": "numbers", "language": "es", "text": "Como estimado, la brecha sería de alrededor de un millón ciento ochenta y cinco mil dólares, después de los 140 mil que ya tiene por su trabajo."},
+    {"id": "jargon", "language": "es", "text": "Kai-Zen combina un préstamo bancario con un IUL. El agente le explica el préstamo, los topes y los riesgos antes de decidir nada."},
+    {"id": "question", "language": "es", "text": "¿Y quién depende de su ingreso hoy?"},
+    {"id": "long", "language": "es", "text": "Yo lo pensaría así: la hipoteca, quince años de ingreso para los niños y los 15 mil del carro y las tarjetas, menos lo que ya tiene, y luego el agente con licencia lo convierte en opciones reales con precios reales."}
+  ]
+}
