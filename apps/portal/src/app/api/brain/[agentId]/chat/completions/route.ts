@@ -1,4 +1,4 @@
-import { NextRequest, NextResponse } from "next/server";
+import { after, NextRequest, NextResponse } from "next/server";
 
 import { createOpenRouterTextGenerationPort } from "@axtro/provider-openrouter";
 
@@ -23,6 +23,7 @@ import { readBoundedTextBody } from "@/lib/http/read-bounded-body";
 import { retrieveBrainKnowledge } from "@/lib/brain/knowledge-retrieval";
 import { embedQuery, prepareEmbeddingQueryForReservedUsage } from "@/lib/knowledge";
 import { createServiceRoleClient, ServiceRoleUnavailableError } from "@/lib/supabase/service";
+import { exportBrainTurn, langfuseConfigFromEnv, type BrainTurnTrace } from "@/lib/observability/brain-trace";
 import { logError as trackError, logEvent } from "@/lib/telemetry";
 
 /**
@@ -132,6 +133,7 @@ export async function POST(
   context: { params: Promise<{ agentId: string }> },
 ): Promise<Response> {
   const { agentId } = await context.params;
+  const turnStartedAtMs = Date.now();
   const apiKey = process.env.OPENROUTER_API_KEY ?? "";
   if (apiKey.trim().length === 0) {
     return NextResponse.json({ error: "language_provider_not_configured" }, { status: 503 });
@@ -207,6 +209,30 @@ export async function POST(
   let generationDispatched = false;
   let generationTerminalRecorded = false;
   let generationReportedCostUsd: number | undefined;
+  // Só metadado do turno, para o Langfuse (brain-trace.ts): nunca fala, nunca argumento de tool.
+  let retrievalStep: BrainTurnTrace["retrieval"];
+  let generationStep: BrainTurnTrace["generation"];
+  const scheduleTurnTrace = (outcome: { degradedReason?: string; guardrailFlags?: readonly string[]; toolCallNames?: readonly string[] }) => {
+    const config = langfuseConfigFromEnv(process.env);
+    if (config === null) return;
+    const turn: BrainTurnTrace = {
+      tenantId: authenticatedConfig.tenantId,
+      agentId: authenticatedConfig.agentId,
+      vertical: authenticatedConfig.closerVertical ?? "metodo_silva",
+      language: authenticatedConfig.language ?? "default",
+      startedAtMs: turnStartedAtMs,
+      endedAtMs: Date.now(),
+      guardrailFlags: outcome.guardrailFlags ?? [],
+      toolCallNames: outcome.toolCallNames ?? [],
+      ...(outcome.degradedReason === undefined ? {} : { degradedReason: outcome.degradedReason }),
+      ...(retrievalStep === undefined ? {} : { retrieval: retrievalStep }),
+      ...(generationStep === undefined ? {} : { generation: generationStep }),
+    };
+    after(() => exportBrainTurn(turn, {
+      config,
+      onFailure: (failure) => logEvent("brain_trace_export_failed", { agent_id: authenticatedConfig.agentId, ...failure }),
+    }));
+  };
 
   try {
     const result = await handleBrainChatRequest(
@@ -231,20 +257,46 @@ export async function POST(
           generationReservation = begin.reservation;
           return "allowed";
         },
-        retrieveKnowledge: (tenantId, queryText) =>
-          retrieveKnowledge(tenantId, agentId, queryText, reservationMaterial),
+        retrieveKnowledge: async (tenantId, queryText) => {
+          const startedAtMs = Date.now();
+          try {
+            const matches = await retrieveKnowledge(tenantId, agentId, queryText, reservationMaterial);
+            retrievalStep = { startedAtMs, endedAtMs: Date.now(), matches: matches.length, failed: false };
+            return matches;
+          } catch (error) {
+            retrievalStep = { startedAtMs, endedAtMs: Date.now(), matches: 0, failed: true };
+            throw error;
+          }
+        },
         generate: async (messages, maxOutputTokens, options) => {
           if (generationReservation === null) throw new Error("AI usage reservation missing");
           generationDispatched = await markAiUsageInFlight(serviceClient, generationReservation);
           if (!generationDispatched) throw new Error("AI usage reservation is not executable");
-          const generated = await port.generate({
-            model: providerModel,
-            messages,
-            maxOutputTokens,
-            ...(options?.tools === undefined ? {} : { tools: options.tools }),
-            ...(options?.cacheSystemPrompt === true ? { cacheSystemPrompt: true } : {}),
-          });
+          const startedAtMs = Date.now();
+          let generated: Awaited<ReturnType<typeof port.generate>>;
+          try {
+            generated = await port.generate({
+              model: providerModel,
+              messages,
+              maxOutputTokens,
+              ...(options?.tools === undefined ? {} : { tools: options.tools }),
+              ...(options?.cacheSystemPrompt === true ? { cacheSystemPrompt: true } : {}),
+            });
+          } catch (error) {
+            generationStep = { startedAtMs, endedAtMs: Date.now(), model: providerModel, failed: true };
+            throw error;
+          }
           generationReportedCostUsd = generated.usage.reportedCostUsd;
+          generationStep = {
+            startedAtMs,
+            endedAtMs: Date.now(),
+            model: generated.model,
+            failed: false,
+            inputTokens: generated.usage.inputTokens,
+            outputTokens: generated.usage.outputTokens,
+            ...(generated.usage.cachedInputTokens === undefined ? {} : { cachedInputTokens: generated.usage.cachedInputTokens }),
+            ...(generated.usage.reportedCostUsd === undefined ? {} : { costUsd: generated.usage.reportedCostUsd }),
+          };
           return generated;
         },
         logGenerationUsage: async (_tenantId, _agentId, inputTokens, outputTokens) => {
@@ -297,6 +349,11 @@ export async function POST(
       // Só nomes: argumentos podem carregar contato do prospect.
       logEvent("brain_tool_calls", { agent_id: agentId, tools: result.toolCalls.map((call) => call.name).join(",") });
     }
+    scheduleTurnTrace({
+      ...(result.degradedReason === undefined ? {} : { degradedReason: result.degradedReason }),
+      guardrailFlags: result.guardrailFlags,
+      toolCallNames: result.toolCalls.map((call) => call.name),
+    });
     return new Response(buildCompletionStream(result.reply, model, result.toolCalls), {
       status: 200,
       headers: { "Content-Type": "text/event-stream", "Cache-Control": "no-cache", Connection: "keep-alive" },
@@ -311,6 +368,7 @@ export async function POST(
       return NextResponse.json({ error: "brain_not_configured" }, { status: 503 });
     }
     trackError("brain_chat_completions_unexpected_error", error, { agent_id: agentId });
+    scheduleTurnTrace({ degradedReason: "internal_error" });
     return NextResponse.json({ error: "internal_error" }, { status: 500 });
   }
 }

@@ -65,6 +65,12 @@ export interface TextGenerationUsage {
    * provider não reporta. O caller decide se estima por tabela.
    */
   readonly reportedCostUsd?: number;
+  /**
+   * Tokens de entrada servidos do cache do provedor
+   * (usage.prompt_tokens_details.cached_tokens). Ausente quando o provedor não
+   * informa. Serve para medir se o cache do prompt de sistema está pegando.
+   */
+  readonly cachedInputTokens?: number;
 }
 
 export interface TextGenerationResult {
@@ -533,6 +539,7 @@ function parseCompletion(payload: unknown, offeredTools: ReadonlySet<string> = n
   const inputTokens = normalizeTokenCount(usageRecord.prompt_tokens);
   const outputTokens = normalizeTokenCount(usageRecord.completion_tokens);
   const reportedCostUsd = normalizeReportedCost(usageRecord.cost);
+  const cachedInputTokens = normalizeCachedTokens(usageRecord.prompt_tokens_details, inputTokens);
   const model = typeof record.model === "string" && record.model.length > 0 ? record.model : "openrouter/unknown";
   const providerRequestId = typeof record.id === "string"
     && /^[!-~]{1,128}$/.test(record.id)
@@ -548,8 +555,17 @@ function parseCompletion(payload: unknown, offeredTools: ReadonlySet<string> = n
       inputTokens,
       outputTokens,
       ...(reportedCostUsd !== undefined ? { reportedCostUsd } : {}),
+      ...(cachedInputTokens !== undefined ? { cachedInputTokens } : {}),
     }),
   });
+}
+
+/** Nunca maior que o total de entrada: um valor incoerente é descartado, não corrigido. */
+function normalizeCachedTokens(details: unknown, inputTokens: number): number | undefined {
+  if (details === null || typeof details !== "object") return undefined;
+  const value = (details as Record<string, unknown>).cached_tokens;
+  if (typeof value !== "number" || !Number.isFinite(value) || value < 0 || value > inputTokens) return undefined;
+  return Math.floor(value);
 }
 
 /** usage.cost do OpenRouter: só aceita número finito não-negativo e plausível pra UMA chamada. */

@@ -550,3 +550,14 @@ test("prompt caching marks only the last system message, and only for Anthropic 
   await port.generate(request({ messages }));
   assert.ok(JSON.parse(calls[2].init.body).messages.every((message) => typeof message.content === "string"));
 });
+
+test("cached input tokens are reported only when coherent with the input total", async () => {
+  const usage = (details) => completionPayload({ usage: { prompt_tokens: 3000, completion_tokens: 40, prompt_tokens_details: details } });
+  const responses = [usage({ cached_tokens: 2800 }), usage({ cached_tokens: 9000 }), usage({ cached_tokens: "2800" }), usage(undefined)];
+  const { implementation } = fakeFetch(async () => new Response(JSON.stringify(responses.shift()), { status: 200 }));
+  const port = provider.createOpenRouterTextGenerationPort({ apiKey: API_KEY, fetchImplementation: implementation });
+  assert.equal((await port.generate(request({ cacheSystemPrompt: true }))).usage.cachedInputTokens, 2800);
+  for (let index = 0; index < 3; index += 1) {
+    assert.equal("cachedInputTokens" in (await port.generate(request({ cacheSystemPrompt: true }))).usage, false);
+  }
+});

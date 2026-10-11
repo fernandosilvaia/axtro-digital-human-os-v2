@@ -98,8 +98,10 @@ test("UTF8 knowledge block is <=3800 bytes with Unicode and full citation identi
 });
 test("brain route executes the real injected retrieval helper",async()=>{
   const h=harness();const source=await readFile(new URL("../../apps/portal/src/app/api/brain/[agentId]/chat/completions/route.ts",import.meta.url),"utf8");
+  const traces=[];const scheduled=[];
   const mocks=new Map([
-    ["next/server",{NextRequest:class {},NextResponse:{json:(value,init)=>new Response(JSON.stringify(value),init)}}],
+    ["next/server",{after:(callback)=>scheduled.push(callback),NextRequest:class {},NextResponse:{json:(value,init)=>new Response(JSON.stringify(value),init)}}],
+    ["@/lib/observability/brain-trace",{langfuseConfigFromEnv:()=>({endpoint:"https://trace.invalid",authorization:"Basic synthetic",environment:"test"}),exportBrainTurn:async(turn)=>{traces.push(turn);return true;}}],
     ["@axtro/domain",{createUuidV7:()=>agent}],["@axtro/provider-openrouter",{createOpenRouterTextGenerationPort:()=>({})}],
     ["@/lib/brain/chat-completion-core",{parseCloserVertical:()=>"metodo_silva"}],
     ["@/lib/brain/completion-stream",{buildCompletionStream:(reply)=>new ReadableStream({start(controller){controller.enqueue(new TextEncoder().encode(`data: ${JSON.stringify({choices:[{delta:{content:reply}}]})}\n\n`));controller.close();}})}],
@@ -115,6 +117,11 @@ test("brain route executes the real injected retrieval helper",async()=>{
   new vm.Script(compiled).runInNewContext({exports,require(name){if(!mocks.has(name))throw Error(`unmocked ${name}`);return mocks.get(name);},process:{env:{OPENROUTER_API_KEY:"synthetic-only"}},Response,ReadableStream,TextEncoder,Map,Date,JSON,Error});
   const result=await exports.POST(new Request("https://local.invalid",{headers:{authorization:"Bearer synthetic"}}),{params:Promise.resolve({agentId:agent})});
   assert.equal(result.status,200);assert.equal(h.embeddings(),1);assert.equal(h.calls.at(-1).name,"portal_search_knowledge_hybrid_service");
+  // O trace sai depois da resposta e leva só metadado: nada do que a pessoa disse.
+  assert.equal(traces.length,0,"trace export never runs before the response");
+  assert.equal(scheduled.length,1);await scheduled[0]();
+  assert.equal(traces.length,1);assert.equal(traces[0].tenantId,tenant);assert.equal(traces[0].retrieval.matches,1);assert.equal(traces[0].retrieval.failed,false);
+  assert.ok(!JSON.stringify(traces[0]).includes(input.queryText),"the trace never carries conversation text");
 });
 
 test("too-small per-chunk budget never emits citation plus marker without a real excerpt",()=>{

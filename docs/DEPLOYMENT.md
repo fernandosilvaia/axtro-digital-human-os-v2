@@ -21,6 +21,7 @@ Este arquivo é o resumo operacional.
 | `PORTAL_PUBLIC_URL` | opcional | URL pública |
 | `PORTAL_PUBLIC_DEMO_STATE_SECRET` | sim para `/demo` (32 bytes em hexadecimal minúsculo) | secret manager, exclusivo da demo |
 | `PORTAL_PUBLIC_DEMO_EDGE_POLICY_ATTESTATION` | sim para `/demo`, após aplicar a política v3 exata | configuração de release, valor canônico no runbook |
+| `LANGFUSE_PUBLIC_KEY` / `LANGFUSE_SECRET_KEY` / `LANGFUSE_BASE_URL` | opcional (trace por turno do cérebro, só metadado) | projeto Langfuse escolhido; ver `apps/portal/src/lib/observability/brain-trace.ts` |
 | `PORTAL_FAKE_PROVIDERS` | nunca em produção | - |
 
 ## Banco (Supabase `ovctadcrvnfpgxzplupp`)
