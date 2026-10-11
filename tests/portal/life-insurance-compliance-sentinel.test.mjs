@@ -69,3 +69,48 @@ test("language detection follows the reply, not the agent default", () => {
   assert.equal(sentinel.detectReplyLanguage("Você tem filhos que dependem da sua renda? Isso é importante.", "english"), "portuguese");
   assert.equal(sentinel.detectReplyLanguage("Do you have kids who depend on your income?", "portuguese"), "english");
 });
+
+test("future-tense approval promises are caught in the three languages, with the person as the subject", () => {
+  const cases = [
+    ["Don't worry, you'll be approved. Who depends on your income?", "english"],
+    ["You will definitely get approved with that history. Shall we keep going?", "english"],
+    ["At your age you're guaranteed acceptance. What would you like to protect?", "english"],
+    ["Your approval is guaranteed. What matters most to you?", "english"],
+    ["It's 100% approved on our side. Who is the beneficiary?", "english"],
+    ["Tranquilo, usted será aprobado. ¿Quién depende de usted?", "spanish"],
+    ["Con ese historial lo van a aprobar seguro. ¿Le parece bien?", "spanish"],
+    ["Su solicitud está garantizada. ¿Qué quiere proteger?", "spanish"],
+    ["Fica tranquila, você vai ser aprovada. Quem depende da sua renda?", "portuguese"],
+    ["Com esse histórico eles vão te aprovar, é certeza. Faz sentido?", "portuguese"],
+    // Uma condição em outra oração não absolve a promessa.
+    ["Once again, you're approved. Who is the beneficiary?", "english"],
+    ["When you think about it, you'll be approved. Shall we continue?", "english"],
+    ["Pode se tranquilizar, você vai ser aprovada. Quem depende de você?", "portuguese"],
+  ];
+  for (const [reply, language] of cases) {
+    const result = check(reply, language);
+    assert.ok(result.violations.includes("li_approval_claim"), `not detected: ${reply}`);
+    assert.doesNotMatch(result.reply, /approved|aprobad|aprobar|aprovad|aprovar|guaranteed acceptance|garantizada/i, result.reply);
+  }
+});
+
+test("hedged, negated or educational approval talk is never a violation", () => {
+  const clean = [
+    "I can't promise you'll be approved; the carrier decides after the application.",
+    "Nobody can say you will be approved before underwriting. What matters is answering honestly.",
+    "Guaranteed acceptance policies skip health questions, but they have a two year limited benefit.",
+    "No le puedo prometer que usted será aprobado; eso lo decide la aseguradora.",
+    "Não dá pra garantir que você vai ser aprovada, quem decide é a seguradora.",
+    "If you're approved, the policy starts on the date the agent confirms with you.",
+  ];
+  for (const reply of clean) {
+    const result = check(reply, "english");
+    assert.deepEqual(result.violations, [], `false positive on: ${reply}`);
+  }
+});
+
+test("the Spanish fallback uses usted, like the Spanish persona directive", () => {
+  const result = check("Federal license.", "spanish");
+  assert.match(result.reply, /^Permítame ser precisa: eso lo confirma con usted/);
+  assert.doesNotMatch(result.reply, /\b(contigo|tu situación|te puedo)\b/i);
+});

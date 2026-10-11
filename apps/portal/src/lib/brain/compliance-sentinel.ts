@@ -39,6 +39,11 @@ interface Rule {
   readonly patterns: readonly RegExp[];
   /** Frase com negação não é afirmação: a regra não se aplica. */
   readonly negationSensitive: boolean;
+  /**
+   * Condição antes da afirmação, na mesma oração ("if you're approved, ..."),
+   * descreve o processo e não promete nada. Só faz sentido na aprovação.
+   */
+  readonly conditionalSensitive?: boolean;
 }
 
 // Fronteira de palavra ciente de acento: em JavaScript \\b só conhece ASCII, então
@@ -47,7 +52,11 @@ function words(list: readonly string[], flags: string): RegExp {
   return new RegExp(`(?<![\\p{L}\\p{N}'])(?:${list.join("|")})(?![\\p{L}\\p{N}])`, `${flags}u`);
 }
 
-const NEGATION = words(["not", "no", "never", "isn't", "aren't", "wasn't", "weren't", "don't", "doesn't", "didn't", "won't", "can't", "cannot", "nor", "there's no", "não", "nao", "nunca", "nem", "jamais", "nenhum", "nenhuma", "ningún", "ninguna", "ninguno", "tampoco", "ni"], "i");
+const NEGATION = words(["not", "no", "never", "isn't", "aren't", "wasn't", "weren't", "don't", "doesn't", "didn't", "won't", "can't", "cannot", "nor", "there's no", "nobody", "no one", "nadie", "ninguém", "ninguem", "não", "nao", "nunca", "nem", "jamais", "nenhum", "nenhuma", "ningún", "ninguna", "ninguno", "tampoco", "ni"], "i");
+
+// Sem o "se" do português de propósito: ele também é pronome ("pode se
+// tranquilizar, você vai ser aprovada") e deixaria passar uma promessa real.
+const CONDITIONAL = words(["if", "once", "when", "whenever", "after", "until", "unless", "si", "cuando", "una vez que", "después de que", "despues de que", "quando", "assim que", "depois que", "depois de"], "i");
 
 const RULES: readonly Rule[] = [
   {
@@ -76,10 +85,26 @@ const RULES: readonly Rule[] = [
   {
     id: "li_approval_claim",
     negationSensitive: true,
+    conditionalSensitive: true,
     patterns: [
       /\byou('re| are|'ve been| have been| were| got)\s+(already\s+)?(pre-?)?approved\b/i,
       /\b(est[aá]s?|queda|qued[oó]|fue|ha sido|usted est[aá])\s+(ya\s+)?(pre-?)?aprobad[oa]\b/i,
       /\b(est[aá]|voc[eê] foi|foi|ficou|voc[eê] est[aá])\s+(j[aá]\s+)?(pr[eé]-?)?aprovad[oa]\b/i,
+      // Promessa no futuro, o deslize mais comum numa conversa de venda
+      // ("you'll be approved, don't worry"). Sempre com a pessoa como sujeito:
+      // frase educativa sobre aceitação garantida de um produto passa.
+      /\byou(?:'ll| will)\s+(?:definitely\s+|surely\s+|certainly\s+|easily\s+)?(?:be|get)\s+(?:pre-?)?approved\b/i,
+      /\byou(?:'re| are|'ll be| will be)\s+guaranteed\s+(?:to\s+(?:be|get)\s+)?(?:approval|approved|acceptance|accepted)\b/i,
+      /\byour\s+(?:approval|application)\s+(?:is|will be)\s+(?:guaranteed|a sure thing|approved)\b/i,
+      /\b(?:100\s?%|a hundred percent|one hundred percent)\s+(?:pre-?)?approved\b/i,
+      /\b(?:usted\s+)?(?:ser[aá]|va a ser|vas a ser|va a quedar)\s+(?:pre-?)?aprobad[oa]\b/i,
+      /\b(?:le|lo|la|te)\s+(?:van a|vamos a|va a)\s+aprobar\b/i,
+      /\b(?:van a|vamos a|va a)\s+aprobarl[oae]s?\b/i,
+      /\bsu\s+(?:aprobaci[oó]n|solicitud)\s+(?:est[aá]|ser[aá]|queda)\s+(?:garantizada|aprobada)\b/i,
+      /\b(?:voc[eê]\s+)?(?:vai ser|ser[aá]|vai ficar)\s+(?:pr[eé]-?)?aprovad[oa]\b/i,
+      /\b(?:te|lhe|o|a)\s+(?:v[aã]o|vamos)\s+aprovar\b/i,
+      /(?<![\p{L}])(?:v[aã]o|vamos|vai)\s+(?:te|lhe)\s+aprovar\b/iu,
+      /\bsua\s+(?:aprova[cç][aã]o|proposta)\s+(?:est[aá]|vai ser|ser[aá])\s+(?:garantida|aprovada)\b/i,
     ],
   },
   {
@@ -110,7 +135,9 @@ const QUOTE_HEDGE = /\b(example|for example|e\.g\.|around|about|roughly|approxim
 
 const FALLBACK: Readonly<Record<SentinelLanguage, string>> = {
   english: "Let me be precise here: that is something the licensed agent confirms with you, with the real numbers. Can I ask you one quick question about your situation?",
-  spanish: "Déjame ser precisa: eso lo confirma contigo el agente con licencia, con los números reales. ¿Te puedo hacer una pregunta rápida sobre tu situación?",
+  // "usted", como pede a diretiva da persona em espanhol: é o trato esperado com
+  // quem compra seguro de vida, sobretudo os mais velhos.
+  spanish: "Permítame ser precisa: eso lo confirma con usted el agente con licencia, con los números reales. ¿Le puedo hacer una pregunta rápida sobre su situación?",
   portuguese: "Deixa eu ser precisa: isso quem confirma com você é o agente licenciado, com os números reais. Posso te fazer uma pergunta rápida sobre a sua situação?",
 };
 
@@ -159,7 +186,12 @@ function ruleMatches(rule: Rule, sentence: string): boolean {
     if (!match) continue;
     if (!rule.negationSensitive) return true;
     const clause = clauseAround(sentence, match.index, match.index + match[0].length);
-    if (!NEGATION.test(clause)) return true;
+    if (NEGATION.test(clause)) continue;
+    if (rule.conditionalSensitive === true) {
+      const before = clause.slice(0, Math.max(0, clause.indexOf(match[0])));
+      if (CONDITIONAL.test(before)) continue;
+    }
+    return true;
   }
   return false;
 }
