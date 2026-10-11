@@ -79,6 +79,10 @@ const STEP_CONTENT: Readonly<Record<StepName, Readonly<{ label: string; descript
   }),
 });
 
+// Ordem real do percurso (a mesma de PUBLIC_DEMO_STEPS em lib/public-demo/fixture.ts).
+// A etapa exibida vem daqui, não da revisão: a revisão conta cliques e passa do total.
+const STEP_ORDER: readonly StepName[] = Object.freeze(["welcome", "context", "conversation", "handoff"]);
+
 function browserUuidV7(): string {
   const bytes = crypto.getRandomValues(new Uint8Array(16));
   let timestamp = Date.now();
@@ -99,6 +103,8 @@ export function PublicDemoWorkspace({ initialView }: { initialView: PublicDemoVi
   const [isPending, startTransition] = useTransition();
   const surface = SURFACES.find((candidate) => candidate.id === view.surface) ?? SURFACES[0]!;
   const step = STEP_CONTENT[view.step];
+  const stepNumber = STEP_ORDER.indexOf(view.step) + 1;
+  const journeyFinished = view.step === "handoff";
 
   function send(commandName: CommandName) {
     if (isPending || sessionEnded) return;
@@ -247,19 +253,23 @@ export function PublicDemoWorkspace({ initialView }: { initialView: PublicDemoVi
 
         <section className={styles.guidePanel} aria-labelledby="demo-guide-title">
           <div>
-            <p className={styles.kicker}>Etapa {view.revision + 1}</p>
+            <p className={styles.kicker}>Etapa {stepNumber} de {STEP_ORDER.length}</p>
             <h2 id="demo-guide-title">{step.label}</h2>
             <p>{step.description}</p>
           </div>
           <div className={styles.guideActions}>
-            <button
-              className={styles.primaryButton}
-              type="button"
-              disabled={isPending || view.step === "handoff" || view.commandsRemaining === 0}
-              onClick={() => send("advance")}
-            >
-              {isPending ? "Atualizando…" : view.step === "handoff" ? "Percurso concluído" : "Avançar na jornada"}
-            </button>
+            {journeyFinished ? (
+              <a className={styles.primaryButton} href="/signup">Criar minha conta</a>
+            ) : (
+              <button
+                className={styles.primaryButton}
+                type="button"
+                disabled={isPending || view.commandsRemaining === 0}
+                onClick={() => send("advance")}
+              >
+                {isPending ? "Atualizando…" : "Avançar na jornada"}
+              </button>
+            )}
             <p className={styles.feedback} aria-live="polite">{feedback}</p>
           </div>
         </section>
