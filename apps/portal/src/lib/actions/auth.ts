@@ -3,6 +3,7 @@
 import { headers } from "next/headers";
 import { redirect } from "next/navigation";
 
+import { passwordResetOrigin, rateLimitClientIp } from "@/lib/auth-request-origin";
 import { isRateLimited } from "@/lib/rate-limit";
 import { createClient } from "@/lib/supabase/server";
 
@@ -43,13 +44,9 @@ const PASSWORD_RESET_RATE_LIMIT_MAX = 5;
 
 async function clientIp(): Promise<string> {
   const requestHeaders = await headers();
-  const forwardedFor = requestHeaders.get("x-forwarded-for");
-  if (forwardedFor) {
-    const first = forwardedFor.split(",")[0]?.trim();
-    if (first) return first;
-  }
-  return requestHeaders.get("x-real-ip") ?? "unknown";
+  return rateLimitClientIp(requestHeaders.get("x-forwarded-for"), requestHeaders.get("x-real-ip"));
 }
+
 
 // O Supabase Auth responde em inglês ("Invalid login credentials"). As telas
 // de maior tráfego do produto não podem destoar do resto da UI em pt-BR.
@@ -147,13 +144,12 @@ export async function requestPasswordReset(
   if (email.length === 0) return { error: "Informe seu e-mail.", sent: false };
 
   const requestHeaders = await headers();
-  const host = requestHeaders.get("x-forwarded-host") ?? requestHeaders.get("host");
-  const protocol = requestHeaders.get("x-forwarded-proto") ?? "http";
-  if (!host) return { error: "Não foi possível montar o link de recuperação.", sent: false };
+  const origin = passwordResetOrigin(process.env.PORTAL_PUBLIC_URL, requestHeaders.get("host"));
+  if (!origin) return { error: "Não foi possível montar o link de recuperação.", sent: false };
 
   const supabase = await createClient();
   const { error } = await supabase.auth.resetPasswordForEmail(email, {
-    redirectTo: `${protocol}://${host}/auth/callback?next=/nova-senha`,
+    redirectTo: `${origin}/auth/callback?next=/nova-senha`,
   });
   // Resposta idêntica para e-mail existente ou não: nunca revelar se a conta existe.
   if (error && error.status !== 429) {
