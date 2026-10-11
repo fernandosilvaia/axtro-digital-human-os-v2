@@ -127,3 +127,85 @@ test("the regulated brain prompt with scheduling and calculator stays within its
     assert.ok(prompt.length <= 14_500, `${language}: ${prompt.length} chars`);
   }
 });
+
+test("every tool the brain can offer is one the call screen knows how to answer", async () => {
+  const names = await import("../../apps/portal/src/lib/runtime/tool-call-names.ts");
+  for (const name of [...tools.BRAIN_BUSINESS_TOOL_NAMES, ...tools.BRAIN_CALCULATION_TOOL_NAMES]) {
+    assert.notEqual(names.classifyToolCallName(name), "unknown", `${name} would hang the turn waiting for a tool_result`);
+  }
+  assert.deepEqual([...tools.BRAIN_CALCULATION_TOOL_NAMES], [...names.CALCULATION_TOOL_NAMES]);
+  for (const name of tools.BRAIN_BUSINESS_TOOL_NAMES) assert.equal(names.classifyToolCallName(name), "business_action");
+});
+
+test("a long call with every tool keeps the newest turns and always fits the reserved input ceiling", async () => {
+  const envelope = await import("../../apps/portal/src/lib/ai-budget/envelope.ts");
+  const history = Array.from({ length: 20 }, (_, index) => ({
+    role: index % 2 === 0 ? "user" : "assistant",
+    content: `turn ${index} ${"we talked about the mortgage, the kids and the budget. ".repeat(16)}`,
+  }));
+  const { calls, deps: d } = deps({ text: "Got it." });
+  await core.runBrainChatCompletion({
+    ...REQUEST,
+    availableTools: ALL,
+    knowledgeMatches: [],
+    providerContext: "Context from the provider. ".repeat(55),
+    history,
+  }, d);
+  const sent = calls[0].messages;
+  const bound = envelope.generationInputTokenUpperBound([...sent, { role: "system", content: JSON.stringify(calls[0].options.tools) }]);
+  assert.ok(bound <= 20_000, `bound ${bound}`);
+  const kept = sent.filter((message) => /^turn \d+ /.test(message.content)).map((message) => Number(message.content.split(" ")[1]));
+  assert.ok(kept.length > 0 && kept.length < history.length, `kept ${kept.length}`);
+  assert.equal(kept.at(-1), 19, "the newest turn is always kept");
+  assert.deepEqual(kept, Array.from({ length: kept.length }, (_, index) => 20 - kept.length + index), "a contiguous recent block, nothing skipped");
+});
+
+function knowledgeMatch(index) {
+  const id = `019f0000-0074-7000-8000-${String(index).padStart(12, "0")}`;
+  const citation = { source_id: id, version_id: id, chunk_id: id, chunk_index: index, content_hash: "a".repeat(64) };
+  return {
+    ...citation, citation, source_name: `Source ${index}`, score: 1 / (60 + index), similarity: null, match_kind: "lexical", trusted: false,
+    chunk_text: `Fact ${index}: Kai-Zen pairs bank financing with an indexed universal life policy. `.repeat(30),
+  };
+}
+
+async function compose(request) {
+  const envelope = await import("../../apps/portal/src/lib/ai-budget/envelope.ts");
+  const { calls, deps: d } = deps({ text: "Got it." });
+  await core.runBrainChatCompletion({ ...REQUEST, ...request }, d);
+  const sent = calls[0].messages;
+  const tools = calls[0].options.tools ?? [];
+  return { sent, bound: envelope.generationInputTokenUpperBound([...sent, ...(tools.length > 0 ? [{ role: "system", content: JSON.stringify(tools) }] : [])]) };
+}
+
+test("with tools and a full knowledge result, the best sources stay, the worst go, and the call still fits", async () => {
+  const history = [{ role: "assistant", content: "Do you own a business?" }, { role: "user", content: "Yes, a dental practice." }];
+  const { sent, bound } = await compose({ availableTools: ALL, knowledgeMatches: Array.from({ length: 12 }, (_, index) => knowledgeMatch(index + 1)), history });
+  assert.ok(bound <= 20_000, `bound ${bound}`);
+  const block = sent.find((message) => message.content.startsWith("DADOS DE REFERÊNCIA NÃO CONFIÁVEIS: RAG"));
+  assert.ok(block, "knowledge still reaches the model");
+  assert.match(block.content, /Fact 1:/, "the best ranked source is kept");
+  assert.doesNotMatch(block.content, /Fact 12:/, "the worst ranked source is the first to go");
+  assert.ok(sent.some((message) => message.content === "Yes, a dental practice."), "the turn being answered is never dropped for context");
+});
+
+test("oversized perception and provider context keep their most recent part", async () => {
+  const perception = Array.from({ length: 30 }, (_, index) => `<user_emotions>minute ${index}: calm and curious</user_emotions>`).join("\n");
+  const providerContext = Array.from({ length: 200 }, (_, index) => `provider note ${index}.`).join(" ");
+  const { sent, bound } = await compose({ availableTools: ALL, perceptionContext: perception, providerContext });
+  assert.ok(bound <= 20_000, `bound ${bound}`);
+  const perceptionBlock = sent.find((message) => message.content.startsWith("DADOS DE REFERÊNCIA NÃO CONFIÁVEIS: LEITURA COMPORTAMENTAL"));
+  const providerBlock = sent.find((message) => message.content.startsWith("DADOS DE REFERÊNCIA NÃO CONFIÁVEIS: CONTEXTO DO PROVIDER"));
+  assert.ok(perceptionBlock && providerBlock, "both fit once trimmed");
+  assert.match(perceptionBlock.content, /minute 29:/);
+  assert.match(providerBlock.content, /provider note 199\./, "the newest provider note survives the trim");
+  assert.doesNotMatch(providerBlock.content, /provider note 0\./, "the oldest goes first");
+});
+
+test("a short call without tools is composed exactly as before: every turn and the full knowledge block", async () => {
+  const history = Array.from({ length: 6 }, (_, index) => ({ role: index % 2 === 0 ? "user" : "assistant", content: `short turn ${index}` }));
+  const matches = [knowledgeMatch(1), knowledgeMatch(2)];
+  const { sent } = await compose({ availableTools: [], knowledgeMatches: matches, history });
+  assert.deepEqual(sent.filter((message) => message.content.startsWith("short turn")).map((message) => message.content), history.map((turn) => turn.content));
+  assert.equal(sent.find((message) => message.content.startsWith("DADOS DE REFERÊNCIA NÃO CONFIÁVEIS: RAG")).content, core.buildKnowledgeBlock(matches));
+});

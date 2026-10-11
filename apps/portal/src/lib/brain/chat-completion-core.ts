@@ -15,7 +15,7 @@
  */
 import type { TextGenerationMessage, TextGenerationResult, TextGenerationTool, TextGenerationToolCall } from "@axtro/provider-openrouter";
 
-import { assertGenerationFitsReservedInput } from "../ai-budget/envelope.ts";
+import { assertGenerationFitsReservedInput, generationInputTokenUpperBound } from "../ai-budget/envelope.ts";
 import { AI_USAGE_LIMITS } from "../ai-budget/reservations.ts";
 
 import { buildLifeInsuranceCore, buildLifeInsuranceIdentity } from "./life-insurance.ts";
@@ -330,6 +330,118 @@ export function buildProviderContextBlock(providerContext: string | null | undef
   ].join("\n");
 }
 
+/** Mínimo de turnos recentes garantidos antes de qualquer contexto opcional. */
+const HISTORY_FLOOR_TURNS = 2;
+/** Abaixo disto, um bloco cortado não ajuda mais do que atrapalha: sai inteiro. */
+const MIN_TRIMMED_CONTEXT_CHARS = 200;
+
+interface EnvelopeFitInput {
+  readonly systemMessages: readonly TextGenerationMessage[];
+  readonly toolBudgetMessages: readonly TextGenerationMessage[];
+  readonly userMessage: string;
+  readonly knowledgeMatches: readonly BrainKnowledgeMatch[];
+  readonly perceptionContext?: string | null | undefined;
+  readonly providerContext?: string | null | undefined;
+  readonly history: readonly BrainTurn[];
+}
+
+/**
+ * Encaixa o contexto opcional no teto de entrada da reserva (20 mil, medido
+ * em bytes e fixado no banco). Prompt, schemas das tools e a fala atual nunca
+ * são cortados; se só eles não couberem, a checagem posterior falha fechada
+ * como antes. O resto entra por prioridade:
+ *   1. os dois turnos mais recentes (a pergunta que a pessoa está respondendo);
+ *   2. conhecimento, dos trechos mais bem ranqueados para os piores;
+ *   3. leitura comportamental, cortada pelo começo (o mais recente fica);
+ *   4. contexto do provider, idem;
+ *   5. o restante do histórico, do mais novo para o mais velho, sem pular.
+ * Sem isso, a persona com tools e base de conhecimento estourava o teto já no
+ * primeiro turno com busca, e todo turno virava fallback.
+ */
+function fitContextToEnvelope(input: EnvelopeFitInput): {
+  knowledgeBlock: string | null;
+  perceptionBlock: string | null;
+  providerContextBlock: string | null;
+  historyMessages: TextGenerationMessage[];
+} {
+  const emptyBound = generationInputTokenUpperBound([]);
+  // O papel também conta bytes ("assistant" é mais longo que "user").
+  const cost = (content: string, role: "user" | "assistant" = "user"): number =>
+    generationInputTokenUpperBound([{ role, content }]) - emptyBound;
+  let room = AI_USAGE_LIMITS.brain_generation.maxInputTokens - generationInputTokenUpperBound([
+    ...input.systemMessages,
+    ...input.toolBudgetMessages,
+    { role: "user", content: input.userMessage },
+  ]);
+
+  // Teto de quantidade do adapter (MAX_TOTAL_MESSAGES): system + blocos de
+  // contexto presentes + fala atual; o histórico fica com o que sobra.
+  const historySlots = (contextBlocks: number): number =>
+    Math.max(0, Math.min(MAX_HISTORY_TURNS * 2, MAX_TOTAL_MESSAGES - input.systemMessages.length - contextBlocks - 1));
+  const recentHistory = input.history.slice(-(MAX_HISTORY_TURNS * 2));
+  // Turnos mantidos, contados a partir do mais recente. Bloco contíguo: o
+  // primeiro turno que não cabe encerra o histórico, nunca se pula um.
+  let keptTurns = 0;
+  let historyClosed = false;
+  const takeHistory = (maxTurns: number): void => {
+    while (!historyClosed && keptTurns < Math.min(maxTurns, recentHistory.length)) {
+      const turn = recentHistory[recentHistory.length - 1 - keptTurns];
+      if (turn === undefined) break;
+      const turnCost = cost(turn.content, turn.role);
+      if (turnCost > room) {
+        historyClosed = true;
+        break;
+      }
+      room -= turnCost;
+      keptTurns += 1;
+    }
+  };
+  takeHistory(Math.min(HISTORY_FLOOR_TURNS, historySlots(3)));
+
+  let knowledgeBlock: string | null = null;
+  for (let count = input.knowledgeMatches.length; count > 0; count -= 1) {
+    const candidate = buildKnowledgeBlock(input.knowledgeMatches.slice(0, count));
+    if (candidate !== null && cost(candidate) <= room) {
+      knowledgeBlock = candidate;
+      room -= cost(candidate);
+      break;
+    }
+  }
+
+  const fitTail = (raw: string | null | undefined, build: (text: string) => string | null): string | null => {
+    const full = build(raw ?? "");
+    if (full === null) return null;
+    if (cost(full) <= room) {
+      room -= cost(full);
+      return full;
+    }
+    const text = (raw ?? "").trim();
+    let low = MIN_TRIMMED_CONTEXT_CHARS;
+    let high = text.length - 1;
+    let best: string | null = null;
+    while (low <= high) {
+      const middle = Math.floor((low + high) / 2);
+      const candidate = build(text.slice(-middle));
+      if (candidate !== null && cost(candidate) <= room) {
+        best = candidate;
+        low = middle + 1;
+      } else {
+        high = middle - 1;
+      }
+    }
+    if (best !== null) room -= cost(best);
+    return best;
+  };
+  const perceptionBlock = fitTail(input.perceptionContext, buildPerceptionBlock);
+  const providerContextBlock = fitTail(input.providerContext, buildProviderContextBlock);
+
+  takeHistory(historySlots([knowledgeBlock, perceptionBlock, providerContextBlock].filter((block) => block !== null).length));
+  const historyMessages = recentHistory
+    .slice(recentHistory.length - keptTurns)
+    .map((turn) => ({ role: turn.role, content: turn.content }));
+  return { knowledgeBlock, perceptionBlock, providerContextBlock, historyMessages };
+}
+
 export async function runBrainChatCompletion(request: BrainChatRequest, deps: BrainChatDeps): Promise<BrainChatResult> {
   const isVideo = request.surface === "video";
   let userMessage = request.userMessage.trim();
@@ -362,9 +474,6 @@ export async function runBrainChatCompletion(request: BrainChatRequest, deps: Br
     history.push(turn);
   }
 
-  const knowledgeBlock = buildKnowledgeBlock(request.knowledgeMatches);
-  const perceptionBlock = buildPerceptionBlock(request.perceptionContext);
-  const providerContextBlock = buildProviderContextBlock(request.providerContext);
 
   // A vertical so muda o prompt de VIDEO. O caminho de chat e preview interno
   // e nao passa por call regulada, entao mante-lo fora daqui evita duplicar a
@@ -406,7 +515,20 @@ export async function runBrainChatCompletion(request: BrainChatRequest, deps: Br
       hasKnowledge: request.knowledgeMatches.length > 0,
     });
 
-  const contextMessages: TextGenerationMessage[] = [
+  const toolBudgetMessages: TextGenerationMessage[] = toolDefinitions.length === 0
+    ? []
+    : [{ role: "system", content: JSON.stringify(toolDefinitions) }];
+  const { knowledgeBlock, perceptionBlock, providerContextBlock, historyMessages } = fitContextToEnvelope({
+    systemMessages: systemContents.map((content) => ({ role: "system" as const, content })),
+    toolBudgetMessages,
+    userMessage,
+    knowledgeMatches: request.knowledgeMatches,
+    perceptionContext: request.perceptionContext,
+    providerContext: request.providerContext,
+    history,
+  });
+
+  const messages: TextGenerationMessage[] = [
     ...systemContents.map((content) => ({ role: "system" as const, content })),
     // Dados de provider/RAG/percepção NÃO podem receber autoridade system.
     // Eles ficam antes do histórico e do turno vivo; portanto a última
@@ -414,18 +536,6 @@ export async function runBrainChatCompletion(request: BrainChatRequest, deps: Br
     ...(knowledgeBlock ? [{ role: "user" as const, content: knowledgeBlock }] : []),
     ...(providerContextBlock ? [{ role: "user" as const, content: providerContextBlock }] : []),
     ...(perceptionBlock ? [{ role: "user" as const, content: perceptionBlock }] : []),
-  ];
-
-  // Reserva slots fixos (system/knowledge/perception + turno atual do usuário)
-  // e encaixa o máximo de histórico recente que ainda cabe no teto do adapter.
-  const reservedSlots = contextMessages.length + 1;
-  const historyBudget = Math.max(0, Math.min(MAX_HISTORY_TURNS * 2, MAX_TOTAL_MESSAGES - reservedSlots));
-  const historyMessages: TextGenerationMessage[] = history
-    .slice(historyBudget === 0 ? history.length : -historyBudget)
-    .map((turn) => ({ role: turn.role, content: turn.content }));
-
-  const messages: TextGenerationMessage[] = [
-    ...contextMessages,
     ...historyMessages,
     { role: "user", content: userMessage },
   ];
@@ -444,9 +554,7 @@ export async function runBrainChatCompletion(request: BrainChatRequest, deps: Br
   // (sobretudo Unicode) portanto libera a reserva como `not_dispatched`, sem
   // iniciar uma chamada OpenRouter que o ledger não pode aceitar no commit.
   // Os schemas das tools também viram tokens de entrada: entram na prova do teto.
-  const budgetedMessages = toolDefinitions.length === 0
-    ? messages
-    : [...messages, { role: "system" as const, content: JSON.stringify(toolDefinitions) }];
+  const budgetedMessages = [...messages, ...toolBudgetMessages];
   assertGenerationFitsReservedInput(budgetedMessages, AI_USAGE_LIMITS.brain_generation.maxInputTokens);
 
   const result = await deps.generate(messages, maxOutputTokens, {
