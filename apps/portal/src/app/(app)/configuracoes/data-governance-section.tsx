@@ -15,9 +15,9 @@ const PURPOSE_LABEL: Readonly<Record<string, string>> = {
 };
 
 const STATE_LABEL: Readonly<Record<string, string>> = {
-  requested: "Solicitado, aguardando decisão de política",
+  requested: "Pedido registrado, em verificação",
   approval_pending: "Aguardando aprovação",
-  authorized: "Autorizado, aguardando execução",
+  authorized: "Aprovado, aguardando execução pela equipe Axtro",
 };
 
 const STATUS_MESSAGE: Readonly<Record<string, string>> = {
@@ -28,9 +28,9 @@ const STATUS_MESSAGE: Readonly<Record<string, string>> = {
 
 const ERROR_MESSAGE: Readonly<Record<string, string>> = {
   motivo_invalido: "Selecione um dos motivos disponíveis.",
-  nao_disponivel: "Este recurso ainda não está disponível neste ambiente: os verificadores externos (armazenamento, cache, índices, cópias em provider, Auth, Vault, backup) não foram provisionados. Nenhum pedido chega a existir.",
-  pedido_ja_existe: "Este tenant já tem um pedido de exclusão em andamento.",
-  tenant_nao_admite: "Este tenant não admite um pedido de exclusão agora (conta suspensa ou fechamento já em curso).",
+  nao_disponivel: "A exclusão de todos os dados ainda não está disponível para esta conta. Nenhum pedido foi aberto. Se precisar apagar os dados agora, fale com o suporte.",
+  pedido_ja_existe: "Esta conta já tem um pedido de exclusão em andamento.",
+  tenant_nao_admite: "Esta conta não aceita um pedido de exclusão agora (conta suspensa ou encerramento já em andamento).",
   apenas_admin: "Só um administrador da conta pode ver ou agir sobre pedidos de exclusão de dados.",
   falha_ao_solicitar: "Não foi possível registrar o pedido agora. Tente novamente em instantes.",
   nao_aprovavel: "Este pedido não está mais aguardando aprovação (pode já ter sido decidido por outro administrador).",
@@ -43,11 +43,11 @@ const ERROR_MESSAGE: Readonly<Record<string, string>> = {
 /**
  * M6-04, ADR-046, fatia 1 (D-V2-182): pedido de exclusão `scope=tenant`,
  * request/approve/status/cancel usando as próprias RPCs `_authenticated` da
- * migration 0059 -- a mesma autorização que qualquer `tenant_admin` real
+ * migration 0059, com a mesma autorização que qualquer `tenant_admin` real
  * teria. Nunca avança um pedido além de `authorized`: nada irreversível é
  * alcançável por esta tela. `attestationReady=false` (os verificadores
  * externos nunca foram provisionados fora do harness de teste local) é o
- * desfecho esperado em todo ambiente real hoje -- o formulário existe e
+ * desfecho esperado em todo ambiente real hoje. O formulário existe e
  * funciona ponta a ponta, só o resultado final é "ainda não disponível".
  */
 export function DataGovernanceSection({
@@ -63,11 +63,10 @@ export function DataGovernanceSection({
 }) {
   return (
     <section className="card" aria-labelledby="governanca-de-dados" style={{ gridColumn: "1 / -1" }}>
-      <h2 id="governanca-de-dados" className="section-title">Exclusão de dados do tenant</h2>
+      <h2 id="governanca-de-dados" className="section-title">Excluir todos os dados da conta</h2>
       <p style={{ color: "var(--text-muted)", fontSize: "0.88rem", margin: "0 0 14px" }}>
-        Abre um pedido formal de exclusão de todos os dados desta conta (ADR-046). Exige aprovação de
-        dois administradores distintos antes de autorizar, e nunca executa a exclusão de fato por
-        aqui -- essa etapa depende de um worker separado, ainda não ligado.
+        Abre um pedido formal para apagar todos os dados desta conta. Dois administradores diferentes
+        precisam aprovar. Depois disso, o pedido aguarda a execução pela equipe Axtro.
       </p>
 
       {governanceStatus && STATUS_MESSAGE[governanceStatus] && (
@@ -130,9 +129,9 @@ function ActiveRequestCard({
             </form>
             <form action={denyTenantDataGovernanceDispositionRequest}>
               <input type="hidden" name="requestId" value={status.requestId} />
-              <SubmitOnceButton className="btn btn-ghost" style={{ padding: "9px 16px" }} pendingLabel="Registrando…">
+              <ConfirmSubmitButton className="btn btn-ghost" style={{ padding: "9px 16px" }} pendingLabel="Registrando…" confirmLabel="Confirmar negação?">
                 Negar
-              </SubmitOnceButton>
+              </ConfirmSubmitButton>
             </form>
           </>
         )}
