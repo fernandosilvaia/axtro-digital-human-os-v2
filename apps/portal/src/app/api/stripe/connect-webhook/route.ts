@@ -5,6 +5,7 @@ import { NextRequest, NextResponse } from "next/server";
 import {
   isHandledStripeConnectEventType,
   parseStripeConnectAccountEvent,
+  connectCheckoutCompletionIsSettled,
   parseStripeConnectCheckoutEvent,
   verifyStripeWebhookSignature,
 } from "@/lib/billing/connect-webhook";
@@ -83,6 +84,18 @@ export async function POST(request: NextRequest): Promise<Response> {
   const fingerprint = payloadFingerprint(rawBody);
 
   const checkout = parseStripeConnectCheckoutEvent(body);
+  if (checkout !== null && !connectCheckoutCompletionIsSettled(checkout)) {
+    // Sessão completa sem pagamento liquidado: nada é aplicado. Se o dinheiro
+    // falhar, async_payment_failed marca a reserva; a reserva nunca vira
+    // payment_completed antes de o pagamento existir.
+    logEvent("stripe_connect_checkout_completed_unsettled", {
+      event_id: checkout.eventId,
+      tenant_id: checkout.tenantId,
+      reservation_id: checkout.reservationId,
+      payment_status: checkout.paymentStatus ?? "missing",
+    });
+    return NextResponse.json({ received: true, outcome: "pending_payment_settlement" });
+  }
   if (checkout !== null) {
     try {
       const supabase = createServiceRoleClient();

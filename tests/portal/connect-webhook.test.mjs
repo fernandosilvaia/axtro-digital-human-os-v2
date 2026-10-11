@@ -18,6 +18,7 @@ function checkoutEvent(type = "checkout.session.completed", overrides = {}) {
         id: "cs_test_connectcheckout123",
         payment_intent: "pi_1NTestConnect123",
         amount_total: 15000,
+        payment_status: "paid",
         metadata: {
           tenant_id: TENANT_ID,
           reservation_id: RESERVATION_ID,
@@ -45,9 +46,23 @@ test("parseStripeConnectCheckoutEvent aceita os três eventos fechados e preserv
       stripeSessionId: "cs_test_connectcheckout123",
       paymentIntentId: "pi_1NTestConnect123",
       amountTotalCents: 15000,
+      paymentStatus: "paid",
     });
     assert.equal(webhook.isHandledStripeConnectCheckoutEventType(type), true);
   }
+});
+
+test("checkout.session.completed só conta como pagamento quando o status já é pago", () => {
+  const completed = (paymentStatus) => webhook.parseStripeConnectCheckoutEvent(checkoutEvent("checkout.session.completed", { payment_status: paymentStatus }));
+  assert.equal(webhook.connectCheckoutCompletionIsSettled(completed("paid")), true);
+  assert.equal(webhook.connectCheckoutCompletionIsSettled(completed("no_payment_required")), true);
+  // ACH, boleto: a sessão completa antes de o dinheiro existir.
+  assert.equal(webhook.connectCheckoutCompletionIsSettled(completed("unpaid")), false);
+  const missing = webhook.parseStripeConnectCheckoutEvent(checkoutEvent("checkout.session.completed", { payment_status: undefined }));
+  assert.equal(webhook.connectCheckoutCompletionIsSettled(missing), false);
+  // Falha e expiração não dependem do status: sempre seguem para o banco.
+  const failed = webhook.parseStripeConnectCheckoutEvent(checkoutEvent("checkout.session.async_payment_failed", { payment_status: "unpaid" }));
+  assert.equal(webhook.connectCheckoutCompletionIsSettled(failed), true);
 });
 
 test("parser de checkout ignora eventos de outros domínios (assinatura, conta) sem lançar", () => {

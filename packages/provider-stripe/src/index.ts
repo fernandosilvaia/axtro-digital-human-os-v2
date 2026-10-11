@@ -584,6 +584,10 @@ export function createStripeBillingPort(options: StripeAdapterOptions): StripeBi
         "/checkout/sessions",
         {
           mode: "payment",
+          // Só cartão: métodos assíncronos da conta conectada (ACH, boleto)
+          // emitem checkout.session.completed com payment_status "unpaid", e a
+          // reserva viraria payment_completed antes de o dinheiro existir.
+          payment_method_types: ["card"],
           ...(request.contactEmail ? { customer_email: request.contactEmail } : {}),
           success_url: request.successUrl,
           cancel_url: request.cancelUrl,

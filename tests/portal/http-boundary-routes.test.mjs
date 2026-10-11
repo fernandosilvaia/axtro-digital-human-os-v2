@@ -74,6 +74,7 @@ const mockSources = new Map([
   ["@/lib/billing/connect-webhook", `
     export function verifyStripeWebhookSignature() { globalThis.__httpBoundaryState.stripeConnectSignatureChecks += 1; return true; }
     export function parseStripeConnectCheckoutEvent() { return globalThis.__httpBoundaryState.connectCheckoutEvent ?? null; }
+    export function connectCheckoutCompletionIsSettled(event) { return event.eventType !== "checkout.session.completed" || event.paymentStatus === "paid"; }
     export function parseStripeConnectAccountEvent() { return globalThis.__httpBoundaryState.connectAccountEvent ?? null; }
     export function isHandledStripeConnectEventType() { return globalThis.__httpBoundaryState.handledConnectEventType; }
   `],
@@ -495,6 +496,7 @@ test("Stripe connect checkout webhook forwards exact signed fields to the reserv
     connectedAccountId: "acct_1NRouteTest123",
     stripeSessionId: "cs_test_connectcheckout123",
     paymentIntentId: "pi_1NRouteTest123",
+    paymentStatus: "paid",
     amountTotalCents: 9900,
   };
   state.rpcResponses.portal_apply_business_checkout_connect_event_service = {
@@ -520,13 +522,34 @@ test("Stripe connect checkout webhook forwards exact signed fields to the reserv
   assert.match(state.rpcCalls[0].args.p_payload_fingerprint, /^[0-9a-f]{64}$/, "fingerprint must be the raw body's sha256 hex digest, matching what the RPC's own regex expects");
 });
 
+test("Stripe connect checkout completed but unpaid (async method) applies nothing until the payment settles", { concurrency: false }, async () => {
+  const state = freshState();
+  state.connectCheckoutEvent = {
+    eventId: "evt_connect_checkout_unpaid",
+    eventType: "checkout.session.completed",
+    eventCreatedIso: "2026-09-18T12:00:00.000Z",
+    tenantId: "0198a8b2-3c4d-7e5f-8a90-1234567890aa",
+    reservationId: "0198a8b2-3c4d-7e5f-8a90-1234567890ab",
+    connectedAccountId: "acct_1NRouteTest123",
+    stripeSessionId: "cs_test_connectcheckout123",
+    paymentIntentId: null,
+    paymentStatus: "unpaid",
+    amountTotalCents: 9900,
+  };
+  const response = await postStripeConnectWebhook(requestWithBody(new Response("{}").body, { "stripe-signature": "mock" }));
+  assert.equal(response.status, 200);
+  assert.deepEqual(await response.json(), { received: true, outcome: "pending_payment_settlement" });
+  assert.deepEqual(state.rpcCalls, [], "an unsettled completion must never reach the reservation RPC");
+});
+
 test("Stripe connect checkout webhook rejects a signed event whose account does not match the reservation, without silently succeeding", { concurrency: false }, async () => {
   const state = freshState();
   state.connectCheckoutEvent = {
     eventId: "evt_connect_mismatch", eventType: "checkout.session.completed", eventCreatedIso: "2026-09-18T12:00:00.000Z",
     tenantId: "0198a8b2-3c4d-7e5f-8a90-1234567890aa", reservationId: "0198a8b2-3c4d-7e5f-8a90-1234567890ab",
     connectedAccountId: "acct_1NRogueAccount", stripeSessionId: "cs_test_connectmismatch123",
-    paymentIntentId: null, amountTotalCents: null,
+    paymentIntentId: null, paymentStatus: "paid",
+    amountTotalCents: null,
   };
   state.rpcResponses.portal_apply_business_checkout_connect_event_service = {
     data: { outcome: "ignored_account_mismatch" }, error: null,
@@ -543,7 +566,8 @@ test("Stripe connect checkout webhook returns retryable 500 for a receipt outsid
     eventId: "evt_connect_bad_receipt", eventType: "checkout.session.expired", eventCreatedIso: "2026-09-18T12:00:00.000Z",
     tenantId: "0198a8b2-3c4d-7e5f-8a90-1234567890aa", reservationId: "0198a8b2-3c4d-7e5f-8a90-1234567890ab",
     connectedAccountId: "acct_1NRouteTest123", stripeSessionId: "cs_test_connectbad123",
-    paymentIntentId: null, amountTotalCents: null,
+    paymentIntentId: null, paymentStatus: "paid",
+    amountTotalCents: null,
   };
   state.rpcResponses.portal_apply_business_checkout_connect_event_service = { data: { outcome: "not_a_real_outcome" }, error: null };
   const response = await postStripeConnectWebhook(requestWithBody(new Response("{}").body, { "stripe-signature": "mock" }));

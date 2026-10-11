@@ -181,6 +181,8 @@ test("createConnectedAccountCheckoutSession envia Stripe-Account, mode payment e
 
   const body = parseFormBody(calls[0].init.body);
   assert.equal(body.mode, "payment", "V1 é sempre cobrança única, nunca assinatura recorrente pro cliente final");
+  assert.equal(body["payment_method_types[0]"], "card", "método assíncrono completaria a sessão como unpaid antes de o dinheiro existir");
+  assert.equal(body["payment_method_types[1]"], undefined);
   assert.equal(body.customer_email, "prospect@example.test");
   assert.equal(body["metadata[reservation_id]"], RESERVATION_ID);
   assert.equal(body["metadata[tenant_id]"], "tenant-abc");

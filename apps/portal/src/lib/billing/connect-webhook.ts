@@ -68,6 +68,18 @@ export interface ParsedStripeConnectCheckoutEvent {
   readonly stripeSessionId: string;
   readonly paymentIntentId: string | null;
   readonly amountTotalCents: number | null;
+  /** `payment_status` da Checkout Session ("paid", "unpaid", "no_payment_required"), quando presente. */
+  readonly paymentStatus: string | null;
+}
+
+/**
+ * `checkout.session.completed` só prova pagamento quando o status já é pago.
+ * Com método assíncrono a sessão completa com "unpaid" e o desfecho chega
+ * depois em async_payment_succeeded ou async_payment_failed.
+ */
+export function connectCheckoutCompletionIsSettled(event: ParsedStripeConnectCheckoutEvent): boolean {
+  if (event.eventType !== "checkout.session.completed") return true;
+  return event.paymentStatus === "paid" || event.paymentStatus === "no_payment_required";
 }
 
 /**
@@ -114,6 +126,7 @@ export function parseStripeConnectCheckoutEvent(body: unknown): ParsedStripeConn
     stripeSessionId: record.id,
     paymentIntentId: typeof paymentIntentId === "string" ? paymentIntentId : null,
     amountTotalCents: typeof amountTotal === "number" ? amountTotal : null,
+    paymentStatus: typeof record.payment_status === "string" ? record.payment_status : null,
   });
 }
 
