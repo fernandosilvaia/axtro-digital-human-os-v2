@@ -114,63 +114,81 @@ def config_from_env(env: Mapping[str, str]) -> LabConfig:
     )
 
 
-async def run_live(config: LabConfig) -> None:  # pragma: no cover - exige Tavus, Daily e voz reais
-    import aiohttp
+def build_pipeline(config: LabConfig, session: Any, stt: Any = None) -> Any:  # pragma: no cover - exige o SDK
+    """Monta a pipeline com as classes reais do Pipecat 1.12, sem abrir rede.
+
+    Conferido contra o SDK instalado: no 1.12 o VAD fica nos parâmetros do
+    agregador do usuário. O DailyParams ainda aceita `vad_analyzer`, mas
+    descarta em silêncio, e o laboratório rodaria sem VAD sem ninguém
+    perceber. `stt` só existe para checar a montagem sem o faster-whisper.
+    """
     from pipecat.audio.turn.smart_turn.local_smart_turn_v3 import LocalSmartTurnAnalyzerV3
     from pipecat.audio.vad.silero import SileroVADAnalyzer
     from pipecat.audio.vad.vad_analyzer import VADParams
     from pipecat.pipeline.pipeline import Pipeline
-    from pipecat.pipeline.runner import PipelineRunner
     from pipecat.pipeline.task import PipelineParams, PipelineTask
     from pipecat.processors.aggregators.llm_context import LLMContext
     from pipecat.processors.aggregators.llm_response_universal import LLMContextAggregatorPair, LLMUserAggregatorParams
     from pipecat.services.openai.llm import OpenAILLMService
     from pipecat.services.tavus.video import TavusVideoService
-    from pipecat.services.whisper.stt import WhisperSTTService
+    from pipecat.transcriptions.language import Language
     from pipecat.transports.daily.transport import DailyParams, DailyTransport
     from pipecat.turns.user_stop import TurnAnalyzerUserTurnStopStrategy
     from pipecat.turns.user_turn_strategies import UserTurnStrategies
 
-    async with aiohttp.ClientSession() as session:
-        transport = DailyTransport(
-            config.daily_room_url,
-            config.daily_token,
-            "Priscila (lab)",
-            DailyParams(
-                audio_in_enabled=True,
-                audio_out_enabled=True,
-                video_out_enabled=True,
-                video_out_is_live=True,
-                video_out_width=1280,
-                video_out_height=720,
-                # stop curto: quem decide o fim do turno é o Smart Turn, não o silêncio.
-                vad_analyzer=SileroVADAnalyzer(params=VADParams(stop_secs=0.2)),
-            ),
-        )
-        stt = WhisperSTTService(model=config.whisper_model)
-        # O cérebro é a mesma rota da produção. A Tavus acrescenta /chat/completions
-        # à base; o cliente OpenAI faz o mesmo, então a base é idêntica.
-        llm = OpenAILLMService(api_key=config.brain_secret, base_url=config.brain_base_url, model="axtro-digital-human-os-brain")
-        if config.tts == "elevenlabs":
-            from pipecat.services.elevenlabs.tts import ElevenLabsTTSService
-            tts = ElevenLabsTTSService(api_key=config.elevenlabs_api_key, voice_id=config.tts_voice)
-        else:
-            from pipecat.services.openai.tts import OpenAITTSService
-            tts = OpenAITTSService(api_key="local-voice-server", base_url=config.tts_base_url, voice=config.tts_voice)
-        tavus = TavusVideoService(api_key=config.tavus_api_key, replica_id=config.tavus_replica_id, session=session)
+    transport = DailyTransport(
+        config.daily_room_url,
+        config.daily_token,
+        "Priscila (lab)",
+        DailyParams(
+            audio_in_enabled=True,
+            audio_out_enabled=True,
+            video_out_enabled=True,
+            video_out_is_live=True,
+            video_out_width=1280,
+            video_out_height=720,
+        ),
+    )
+    language = {"en": Language.EN, "pt": Language.PT, "es": Language.ES}[config.language]
+    if stt is None:
+        from pipecat.services.whisper.stt import WhisperSTTService
+        stt = WhisperSTTService(model=config.whisper_model, language=language)
+    # O cérebro é a mesma rota da produção. A Tavus acrescenta /chat/completions
+    # à base; o cliente OpenAI faz o mesmo, então a base é idêntica.
+    # No 1.12, modelo e voz vão em `settings` (os parâmetros soltos estão depreciados).
+    llm = OpenAILLMService(
+        api_key=config.brain_secret,
+        base_url=config.brain_base_url,
+        settings=OpenAILLMService.Settings(model="axtro-digital-human-os-brain"),
+    )
+    if config.tts == "elevenlabs":
+        from pipecat.services.elevenlabs.tts import ElevenLabsTTSService
+        tts = ElevenLabsTTSService(api_key=config.elevenlabs_api_key, settings=ElevenLabsTTSService.Settings(voice=config.tts_voice))
+    else:
+        from pipecat.services.openai.tts import OpenAITTSService
+        tts = OpenAITTSService(api_key="local-voice-server", base_url=config.tts_base_url, settings=OpenAITTSService.Settings(voice=config.tts_voice))
+    tavus = TavusVideoService(api_key=config.tavus_api_key, replica_id=config.tavus_replica_id, session=session)
 
-        context = LLMContext([])
-        user_aggregator, assistant_aggregator = LLMContextAggregatorPair(
-            context,
-            user_params=LLMUserAggregatorParams(
-                user_turn_strategies=UserTurnStrategies(stop=[TurnAnalyzerUserTurnStopStrategy(turn_analyzer=LocalSmartTurnAnalyzerV3())]),
-            ),
-        )
-        pipeline = Pipeline([
-            transport.input(), stt, user_aggregator, llm, tts, tavus, transport.output(), assistant_aggregator,
-        ])
-        task = PipelineTask(pipeline, params=PipelineParams(enable_metrics=True, enable_usage_metrics=True))
-        await PipelineRunner().run(task)
+    user_aggregator, assistant_aggregator = LLMContextAggregatorPair(
+        LLMContext([]),
+        user_params=LLMUserAggregatorParams(
+            # stop curto: quem decide o fim do turno é o Smart Turn, não o silêncio.
+            vad_analyzer=SileroVADAnalyzer(params=VADParams(stop_secs=0.2)),
+            user_turn_strategies=UserTurnStrategies(stop=[TurnAnalyzerUserTurnStopStrategy(turn_analyzer=LocalSmartTurnAnalyzerV3())]),
+        ),
+    )
+    pipeline = Pipeline([
+        transport.input(), stt, user_aggregator, llm, tts, tavus, transport.output(), assistant_aggregator,
+    ])
+    return PipelineTask(pipeline, params=PipelineParams(enable_metrics=True, enable_usage_metrics=True))
+
+
+async def run_live(config: LabConfig) -> None:  # pragma: no cover - exige Tavus, Daily e voz reais
+    import aiohttp
+    from pipecat.pipeline.runner import PipelineRunner
+
+    async with aiohttp.ClientSession() as session:
+        await PipelineRunner().run(build_pipeline(config, session))
 
 
 def main(env: Mapping[str, str] = os.environ) -> int:

@@ -52,4 +52,9 @@ Para uma voz aberta, use `VOICE_LAB_TTS=openai-compatible` e `VOICE_LAB_TTS_BASE
 - Autorizar o gasto da Tavus e da voz.
 - Recrutar os ouvintes.
 
-A pipeline foi escrita contra a API documentada do Pipecat 1.12.0 e ainda não rodou contra Tavus e Daily reais. O primeiro teste pago é também o primeiro teste de integração.
+A montagem foi conferida contra o Pipecat 1.12.0 instalado, num ambiente isolado e sem rede. A pipeline inteira é construída com as classes reais nas duas vozes, sem aviso de depreciação, e o modelo do Smart Turn v3.2 já vem no pacote (carrega em cerca de 20 ms em CPU). Duas armadilhas dessa versão já estão tratadas:
+
+- o `DailyParams` aceita `vad_analyzer` mas descarta em silêncio, então o VAD fica no agregador do usuário;
+- modelo e voz vão em `settings`.
+
+O que ainda não rodou é a chamada contra Tavus e Daily reais. O primeiro teste pago é também o primeiro teste de integração.
