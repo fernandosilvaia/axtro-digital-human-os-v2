@@ -25,6 +25,12 @@ const TAVUS_WEBHOOK_RATE_LIMIT_WINDOW_MS = 60_000;
 const TAVUS_WEBHOOK_GLOBAL_RATE_LIMIT_MAX = 240;
 const TAVUS_WEBHOOK_CAPABILITY_RATE_LIMIT_MAX = 30;
 const TAVUS_WEBHOOK_GLOBAL_RATE_LIMIT_KEY = "tavus-webhook:global";
+// Proteção do banco contra enxurrada ANTES da autenticação. Fica muito acima do
+// volume real do Tavus de propósito: o teto de 240/min só conta callback que já
+// provou a capability, senão 240 POSTs forjados (bem formados, sem credencial)
+// esgotavam o balde e o callback legítimo de qualquer tenant recebia 429.
+const TAVUS_WEBHOOK_PREAUTH_FLOOD_MAX = 3000;
+const TAVUS_WEBHOOK_PREAUTH_FLOOD_KEY = "tavus-webhook:preauth-flood";
 
 type ClaimOutcome = "claimed" | "replayed" | "busy" | "unauthorized" | "not_ready" | "conflict";
 type PreflightReceipt =
@@ -100,7 +106,7 @@ export async function POST(request: NextRequest): Promise<Response> {
   if (declaredBodyLength === "invalid") return NextResponse.json({ error: "invalid_request_body" }, { status: 400 });
 
   const capabilityHash = createHash("sha256").update(capability).digest("hex");
-  if (isRateLimited(TAVUS_WEBHOOK_GLOBAL_RATE_LIMIT_KEY, TAVUS_WEBHOOK_RATE_LIMIT_WINDOW_MS, TAVUS_WEBHOOK_GLOBAL_RATE_LIMIT_MAX)) {
+  if (isRateLimited(TAVUS_WEBHOOK_PREAUTH_FLOOD_KEY, TAVUS_WEBHOOK_RATE_LIMIT_WINDOW_MS, TAVUS_WEBHOOK_PREAUTH_FLOOD_MAX)) {
     return NextResponse.json({ error: "rate_limited" }, { status: 429 });
   }
   if (isRateLimited(`tavus-webhook:capability:${capabilityHash}`, TAVUS_WEBHOOK_RATE_LIMIT_WINDOW_MS, TAVUS_WEBHOOK_CAPABILITY_RATE_LIMIT_MAX)) {
@@ -131,6 +137,10 @@ export async function POST(request: NextRequest): Promise<Response> {
     }
     if (Date.parse(receipt.capabilityExpiresAt) <= Date.now()) {
       return NextResponse.json({ error: "unauthorized" }, { status: 401 });
+    }
+    // Só callback autenticado consome o teto global de processamento.
+    if (isRateLimited(TAVUS_WEBHOOK_GLOBAL_RATE_LIMIT_KEY, TAVUS_WEBHOOK_RATE_LIMIT_WINDOW_MS, TAVUS_WEBHOOK_GLOBAL_RATE_LIMIT_MAX)) {
+      return NextResponse.json({ error: "rate_limited" }, { status: 429 });
     }
     preflight = receipt;
   } catch (error) {

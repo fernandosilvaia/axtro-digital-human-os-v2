@@ -305,10 +305,10 @@ test("preflight rejects unauthorized, not-ready, terminal replay, invalid and ex
   }
 });
 
-test("fixed global and capability-hash limits reject before database and body acquisition", { concurrency: false }, async (t) => {
-  await t.test("global", async () => {
+test("pre-auth flood guard and capability-hash limits reject before database and body acquisition", { concurrency: false }, async (t) => {
+  await t.test("pre-auth flood guard", async () => {
     const state = freshState();
-    state.rateLimitedKeys.add("tavus-webhook:global");
+    state.rateLimitedKeys.add("tavus-webhook:preauth-flood");
     let bodyTouched = false;
     const guarded = request();
     Object.defineProperty(guarded, "body", { get() { bodyTouched = true; throw new Error("body must not be acquired"); } });
@@ -316,7 +316,7 @@ test("fixed global and capability-hash limits reject before database and body ac
     assert.equal(response.status, 429);
     assert.equal(bodyTouched, false);
     assert.equal(state.calls.length, 0);
-    assert.deepEqual(state.rateLimitCalls.map((call) => call.key), ["tavus-webhook:global"]);
+    assert.deepEqual(state.rateLimitCalls.map((call) => call.key), ["tavus-webhook:preauth-flood"]);
   });
   await t.test("capability hash", async () => {
     const state = freshState();
@@ -329,8 +329,30 @@ test("fixed global and capability-hash limits reject before database and body ac
     assert.equal(response.status, 429);
     assert.equal(bodyTouched, false);
     assert.equal(state.calls.length, 0);
-    assert.deepEqual(state.rateLimitCalls.map((call) => call.key), ["tavus-webhook:global", hashKey]);
+    assert.deepEqual(state.rateLimitCalls.map((call) => call.key), ["tavus-webhook:preauth-flood", hashKey]);
     assert.equal(state.rateLimitCalls[1].key.includes(CAPABILITY), false);
+  });
+});
+
+test("the global processing limit counts only authenticated callbacks, so forged requests cannot starve real ones", { concurrency: false }, async (t) => {
+  await t.test("an unauthorized request never touches the global bucket", async () => {
+    const state = freshState();
+    state.preflightReceipt = { outcome: "unauthorized" };
+    const response = await POST(request());
+    assert.equal(response.status, 401);
+    assert.equal(state.rateLimitCalls.some((call) => call.key === "tavus-webhook:global"), false);
+  });
+  await t.test("an authenticated callback over the global limit is rejected before body acquisition", async () => {
+    const state = freshState();
+    state.rateLimitedKeys.add("tavus-webhook:global");
+    let bodyTouched = false;
+    const guarded = request();
+    Object.defineProperty(guarded, "body", { get() { bodyTouched = true; throw new Error("body must not be acquired"); } });
+    const response = await POST(guarded);
+    assert.equal(response.status, 429);
+    assert.equal(bodyTouched, false);
+    assert.deepEqual(state.calls.map((call) => call.name), ["portal_preflight_tavus_webhook_service"]);
+    assert.deepEqual(state.rateLimitCalls.map((call) => call.key).at(-1), "tavus-webhook:global");
   });
 });
 
