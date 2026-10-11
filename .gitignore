@@ -19,6 +19,7 @@ coverage/
 
 # Python
 .venv/
+.eval-venv/
 venv/
 __pycache__/
 .pytest_cache/
@@ -32,6 +33,7 @@ knowledge-vault/
 
 # Local runtime and provider artifacts
 artifacts/local/
+experiments/conversation-eval/out/
 recordings/
 transcripts/private/
 *.log
