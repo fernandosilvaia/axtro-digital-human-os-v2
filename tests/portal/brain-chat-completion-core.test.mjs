@@ -61,8 +61,12 @@ test("video surface splits the rich persona prompt into system messages under th
   }
   const joined = systemMessages.map((m) => m.content).join("\n\n");
   assert.match(joined, /VIDEOCHAMADA/);
-  assert.match(joined, /next_slide/);
   assert.match(joined, /MAESTRIA HUMANA/);
+  // A rota do cérebro devolve só texto, nunca tool_calls: prometer tools aqui
+  // levava o modelo a "checar a agenda" e inventar horários que nada marcava.
+  assert.doesNotMatch(joined, /next_slide|register_lead|propose_meeting_slots|confirm_meeting_slot/);
+  assert.match(joined, /PRÓXIMO PASSO SEM TOOLS/);
+  assert.match(joined, /Nunca ofereça horário específico/);
 });
 
 test("video surface truncates oversized user message and history turns instead of rejecting (Tavus controls the input)", async () => {
@@ -349,4 +353,26 @@ test("D-V2-180: runBrainChatCompletion devolve a resposta já sanitizada, e é e
   const result = await core.runBrainChatCompletion(BASE_REQUEST, deps);
   assert.equal(result.reply, "Isso é garantido, 30% de desconto só hoje!");
   assert.deepEqual(result.guardrailFlags, ["guaranteed_claim", "unauthorized_discount"]);
+});
+
+test("life insurance vertical: the compliance sentinel removes a regulatory claim before it becomes audio", async () => {
+  const { deps } = fakeDeps({ generateResult: {
+    text: "Perfect, you're approved for the policy. What is the best number for the agent to reach you?",
+    model: "fake/model",
+    usage: { inputTokens: 100, outputTokens: 20 },
+  } });
+  const result = await core.runBrainChatCompletion({
+    ...BASE_REQUEST, surface: "video", language: "english", closerVertical: "life_insurance_qualification",
+    userMessage: "So am I covered now?",
+  }, deps);
+  assert.equal(result.reply, "What is the best number for the agent to reach you?");
+  assert.ok(result.guardrailFlags.includes("li_approval_claim"));
+});
+
+test("generic vertical: the life insurance sentinel never rewrites other tenants' replies", async () => {
+  const text = "Perfect, you're approved for the pilot plan. When do you want to start?";
+  const { deps } = fakeDeps({ generateResult: { text, model: "fake/model", usage: { inputTokens: 10, outputTokens: 5 } } });
+  const result = await core.runBrainChatCompletion({ ...BASE_REQUEST, surface: "video", language: "english" }, deps);
+  assert.equal(result.reply, text);
+  assert.ok(!result.guardrailFlags.some((flag) => flag.startsWith("li_")));
 });

@@ -11,11 +11,15 @@ const LANGUAGES = ["portuguese", "english"];
 const MODES = ["qualification", "recruitment"];
 const PERSONA_PROMPT_COMFORT_CAP = 14_000;
 
+// A vertical só é composta pelo cérebro próprio (runBrainChatCompletion), que
+// devolve texto e nunca tool_calls; por isso o prompt medido aqui é o de
+// produção, com toolCalling=false.
 function regulatedPrompt(language, mode) {
   return brain.buildCloserVideoSystemPrompt({
     agentName: "Sofia",
     tenantName: "Billion Club",
     language,
+    toolCalling: false,
     identityOverride: life.buildLifeInsuranceIdentity({
       agentName: "Sofia", tenantName: "Billion Club", language, mode,
     }),
@@ -143,13 +147,23 @@ test("o núcleo regulatório sobrevive inteiro à composição", () => {
   }
 });
 
-test("a vertical regulada mantém as tools de agendamento, que são o desfecho dela", () => {
-  // Uma closer que qualifica e não consegue agendar não entrega nada.
+test("a vertical regulada conduz ao agendamento: tools quando existem, captura honesta quando não", () => {
+  // Uma closer que qualifica e não consegue agendar não entrega nada. Mas pelo
+  // cérebro próprio ela não tem tools: prometê-las a fazia inventar horários.
   for (const language of LANGUAGES) {
     for (const mode of MODES) {
-      const prompt = regulatedPrompt(language, mode);
+      const brainPrompt = regulatedPrompt(language, mode);
       for (const tool of ["register_lead", "propose_meeting_slots", "confirm_meeting_slot"]) {
-        assert.ok(prompt.includes(tool), `${language}/${mode}: ${tool} precisa continuar no prompt`);
+        assert.ok(!brainPrompt.includes(tool), `${language}/${mode}: ${tool} não pode ser prometida sem tool calling`);
+      }
+      assert.match(brainPrompt, language === "english" ? /a licensed agent from the team will reach out to confirm/ : /um agente licenciado do time vai entrar em contato para confirmar/);
+      const withTools = brain.buildCloserVideoSystemPrompt({
+        agentName: "Sofia", tenantName: "Billion Club", language,
+        identityOverride: life.buildLifeInsuranceIdentity({ agentName: "Sofia", tenantName: "Billion Club", language, mode }),
+        domainCore: life.buildLifeInsuranceCore(mode, language),
+      });
+      for (const tool of ["register_lead", "propose_meeting_slots", "confirm_meeting_slot"]) {
+        assert.ok(withTools.includes(tool), `${language}/${mode}: com tool calling, ${tool} continua na doutrina`);
       }
     }
   }

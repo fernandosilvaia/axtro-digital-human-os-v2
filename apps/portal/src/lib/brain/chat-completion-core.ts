@@ -19,6 +19,7 @@ import { assertGenerationFitsReservedInput } from "../ai-budget/envelope.ts";
 import { AI_USAGE_LIMITS } from "../ai-budget/reservations.ts";
 
 import { buildLifeInsuranceCore, buildLifeInsuranceIdentity } from "./life-insurance.ts";
+import { enforceLifeInsuranceCompliance } from "./compliance-sentinel.ts";
 import { buildCloserChatSystemMessages, buildCloserVideoSystemPrompt, type BrainLanguage } from "./metodo-silva.ts";
 
 /**
@@ -365,6 +366,10 @@ export async function runBrainChatCompletion(request: BrainChatRequest, deps: Br
     ? splitSystemPrompt(buildCloserVideoSystemPrompt({
       agentName: request.agentName,
       tenantName: request.tenantName,
+      // Esta rota devolve só texto (SSE de chat.completion.chunk), nunca
+      // tool_calls: a persona servida pelo cérebro não consegue disparar as
+      // tools de cena nem as de negócio, então o prompt não pode prometê-las.
+      toolCalling: false,
       ...(request.language === undefined ? {} : { language: request.language }),
       ...verticalComposition,
     }))
@@ -415,6 +420,16 @@ export async function runBrainChatCompletion(request: BrainChatRequest, deps: Br
 
   const result = await deps.generate(messages, maxOutputTokens);
   await deps.logGenerationUsage(result.usage.inputTokens, result.usage.outputTokens, result.usage.reportedCostUsd);
-  const reply = sanitizeSpokenReply(result.text);
-  return { reply, usage: result.usage, guardrailFlags: detectGuardrailRisk(reply) };
+  const sanitized = sanitizeSpokenReply(result.text);
+  if (lifeInsuranceMode === undefined) {
+    return { reply: sanitized, usage: result.usage, guardrailFlags: detectGuardrailRisk(sanitized) };
+  }
+  // Vertical regulada: a frase que cria exposição regulatória não chega ao
+  // áudio, mesmo que o modelo ignore a instrução do prompt.
+  const guarded = enforceLifeInsuranceCompliance(sanitized, request.language === "english" ? "english" : "portuguese");
+  return {
+    reply: guarded.reply,
+    usage: result.usage,
+    guardrailFlags: [...detectGuardrailRisk(guarded.reply), ...guarded.violations],
+  };
 }
