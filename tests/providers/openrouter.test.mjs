@@ -460,3 +460,93 @@ for (const kind of ["generation", "embedding"]) {
     });
   }
 }
+
+const LEAD_TOOL = Object.freeze({
+  name: "register_lead",
+  description: "Registers a qualified lead.",
+  parameters: { type: "object", properties: { contactName: { type: "string" } }, required: ["contactName"] },
+});
+
+function toolCallPayload(toolCalls, content = null) {
+  return completionPayload({ choices: [{ message: { role: "assistant", content, tool_calls: toolCalls } }] });
+}
+
+test("tools are offered in OpenAI function format and tool_calls come back parsed", async () => {
+  const { calls, implementation } = fakeFetch(async () => new Response(JSON.stringify(toolCallPayload([
+    { id: "call_1", type: "function", function: { name: "register_lead", arguments: "{\"contactName\":\"Ana\"}" } },
+  ], "Let me save that for the agent.")), { status: 200 }));
+  const port = provider.createOpenRouterTextGenerationPort({ apiKey: API_KEY, fetchImplementation: implementation });
+  const result = await port.generate(request({ tools: [LEAD_TOOL] }));
+  const body = JSON.parse(calls[0].init.body);
+  assert.deepEqual(body.tools, [{ type: "function", function: { name: "register_lead", description: LEAD_TOOL.description, parameters: LEAD_TOOL.parameters } }]);
+  assert.equal(body.tool_choice, "auto");
+  assert.equal(result.text, "Let me save that for the agent.");
+  assert.deepEqual(result.toolCalls, [{ id: "call_1", name: "register_lead", argumentsJson: "{\"contactName\":\"Ana\"}" }]);
+});
+
+test("a tool call alone, with no text, is a valid completion", async () => {
+  const { implementation } = fakeFetch(async () => new Response(JSON.stringify(toolCallPayload([
+    { id: "call_2", type: "function", function: { name: "register_lead", arguments: "{}" } },
+  ])), { status: 200 }));
+  const port = provider.createOpenRouterTextGenerationPort({ apiKey: API_KEY, fetchImplementation: implementation });
+  const result = await port.generate(request({ tools: [LEAD_TOOL] }));
+  assert.equal(result.text, "");
+  assert.equal(result.toolCalls.length, 1);
+});
+
+test("a tool the request never offered is dropped, never turned into an action", async () => {
+  const { implementation } = fakeFetch(async () => new Response(JSON.stringify(toolCallPayload([
+    { id: "call_3", type: "function", function: { name: "issue_refund", arguments: "{\"amount\":999}" } },
+  ], "Sure.")), { status: 200 }));
+  const port = provider.createOpenRouterTextGenerationPort({ apiKey: API_KEY, fetchImplementation: implementation });
+  const result = await port.generate(request({ tools: [LEAD_TOOL] }));
+  assert.equal(result.text, "Sure.");
+  assert.equal(result.toolCalls, undefined);
+});
+
+test("malformed tool calls fail closed", async () => {
+  for (const toolCalls of [
+    [{ id: "call 4", type: "function", function: { name: "register_lead", arguments: "{}" } }],
+    [{ id: "call_5", type: "function", function: { name: "register_lead", arguments: "not json" } }],
+    [{ id: "call_6", type: "function", function: { name: "register_lead", arguments: "[1,2]" } }],
+    Array.from({ length: 5 }, (_, index) => ({ id: `call_${index}`, type: "function", function: { name: "register_lead", arguments: "{}" } })),
+  ]) {
+    const { implementation } = fakeFetch(async () => new Response(JSON.stringify(toolCallPayload(toolCalls)), { status: 200 }));
+    const port = provider.createOpenRouterTextGenerationPort({ apiKey: API_KEY, fetchImplementation: implementation });
+    await assert.rejects(() => port.generate(request({ tools: [LEAD_TOOL] })), (error) => error.code === "malformed_provider_response");
+  }
+});
+
+test("invalid tool definitions are rejected before any request", async () => {
+  const { calls, implementation } = fakeFetch(async () => new Response(JSON.stringify(completionPayload()), { status: 200 }));
+  const port = provider.createOpenRouterTextGenerationPort({ apiKey: API_KEY, fetchImplementation: implementation });
+  for (const tools of [
+    [{ ...LEAD_TOOL, name: "Register Lead" }],
+    [LEAD_TOOL, LEAD_TOOL],
+    [{ ...LEAD_TOOL, parameters: { type: "string" } }],
+    [{ ...LEAD_TOOL, description: "" }],
+  ]) {
+    await assert.rejects(() => port.generate(request({ tools })), (error) => error.code === "invalid_request");
+  }
+  assert.equal(calls.length, 0);
+});
+
+test("prompt caching marks only the last system message, and only for Anthropic models", async () => {
+  const messages = [
+    { role: "system", content: "Static persona part one." },
+    { role: "system", content: "Static persona part two." },
+    { role: "user", content: "Hello" },
+  ];
+  const { calls, implementation } = fakeFetch(async () => new Response(JSON.stringify(completionPayload()), { status: 200 }));
+  const port = provider.createOpenRouterTextGenerationPort({ apiKey: API_KEY, fetchImplementation: implementation });
+  await port.generate(request({ messages, cacheSystemPrompt: true }));
+  const anthropic = JSON.parse(calls[0].init.body).messages;
+  assert.equal(anthropic[0].content, "Static persona part one.");
+  assert.deepEqual(anthropic[1].content, [{ type: "text", text: "Static persona part two.", cache_control: { type: "ephemeral" } }]);
+  assert.equal(anthropic[2].content, "Hello");
+  await port.generate(request({ model: "openai/gpt-4o-mini", messages, cacheSystemPrompt: true }));
+  const other = JSON.parse(calls[1].init.body).messages;
+  assert.ok(other.every((message) => typeof message.content === "string"), "other providers cache automatically");
+  await port.generate(request({ messages }));
+  assert.ok(JSON.parse(calls[2].init.body).messages.every((message) => typeof message.content === "string"));
+});

@@ -27,10 +27,33 @@ export interface TextGenerationMessage {
   readonly content: string;
 }
 
+/** Função oferecida ao modelo (formato OpenAI de function calling). */
+export interface TextGenerationTool {
+  readonly name: string;
+  readonly description: string;
+  /** JSON Schema do objeto de argumentos. */
+  readonly parameters: Readonly<Record<string, unknown>>;
+}
+
+/** Chamada de função devolvida pelo modelo; `argumentsJson` é sempre um objeto JSON serializado. */
+export interface TextGenerationToolCall {
+  readonly id: string;
+  readonly name: string;
+  readonly argumentsJson: string;
+}
+
 export interface TextGenerationRequest {
   readonly model: string;
   readonly messages: readonly TextGenerationMessage[];
   readonly maxOutputTokens: number;
+  /** Funções que o modelo pode chamar nesta geração. Ausente = só texto. */
+  readonly tools?: readonly TextGenerationTool[];
+  /**
+   * Marca o prefixo estático (as mensagens system) para cache no provedor.
+   * Só modelos Anthropic precisam de marcação explícita (cache_control); os
+   * demais fazem cache automático e ignoram a marcação.
+   */
+  readonly cacheSystemPrompt?: boolean;
 }
 
 export interface TextGenerationUsage {
@@ -45,7 +68,10 @@ export interface TextGenerationUsage {
 }
 
 export interface TextGenerationResult {
+  /** Pode ser vazio somente quando `toolCalls` vem preenchido. */
   readonly text: string;
+  /** Presente só quando o modelo pediu ao menos uma função oferecida. */
+  readonly toolCalls?: readonly TextGenerationToolCall[];
   readonly model: string;
   readonly usage: TextGenerationUsage;
   /** Opaque provider identity used only by durable completion/reconciliation. */
@@ -95,6 +121,13 @@ export interface OpenRouterAdapterOptions {
 
 const ENDPOINT = "https://openrouter.ai/api/v1/chat/completions";
 const MAX_MESSAGES = 24;
+const MAX_TOOLS = 8;
+const MAX_TOOL_DESCRIPTION_CHARS = 1024;
+const MAX_TOOL_SCHEMA_CHARS = 8_000;
+const MAX_TOOL_CALLS = 4;
+const MAX_TOOL_ARGUMENT_CHARS = 4_000;
+const TOOL_NAME_PATTERN = /^[a-z][a-z0-9_]{0,63}$/;
+const TOOL_CALL_ID_PATTERN = /^[A-Za-z0-9_.:-]{1,128}$/;
 const MAX_MESSAGE_CHARS = 4000;
 const MAX_OUTPUT_TOKENS_CAP = 1024;
 const MODEL_PATTERN = /^[a-z0-9][a-z0-9._\/:-]{2,127}$/i;
@@ -180,8 +213,17 @@ export function createOpenRouterTextGenerationPort(options: OpenRouterAdapterOpt
           },
           body: JSON.stringify({
             model: request.model,
-            messages: request.messages.map((message) => ({ role: message.role, content: message.content })),
+            messages: serializeMessages(request),
             max_tokens: request.maxOutputTokens,
+            ...(request.tools !== undefined && request.tools.length > 0
+              ? {
+                tools: request.tools.map((tool) => ({
+                  type: "function",
+                  function: { name: tool.name, description: tool.description, parameters: tool.parameters },
+                })),
+                tool_choice: "auto",
+              }
+              : {}),
             ...(privacy === undefined ? {} : {
               provider: privacy.routingConfiguration.provider,
             }),
@@ -214,7 +256,7 @@ export function createOpenRouterTextGenerationPort(options: OpenRouterAdapterOpt
           }
           throw new TextGenerationError("malformed_provider_response", "OpenRouter returned non-JSON output");
         }
-        const completion = parseCompletion(payload);
+        const completion = parseCompletion(payload, new Set((request.tools ?? []).map((tool) => tool.name)));
         if (privacy !== undefined && completion.providerRequestId === null) {
           throw new TextGenerationError(
             "malformed_provider_response",
@@ -391,9 +433,83 @@ function validateRequest(request: TextGenerationRequest): void {
   ) {
     throw new TextGenerationError("invalid_request", `maxOutputTokens must be 1..${MAX_OUTPUT_TOKENS_CAP}`);
   }
+  if (request.tools !== undefined) validateTools(request.tools);
 }
 
-function parseCompletion(payload: unknown): TextGenerationResult {
+function validateTools(tools: readonly TextGenerationTool[]): void {
+  if (!Array.isArray(tools) || tools.length > MAX_TOOLS) {
+    throw new TextGenerationError("invalid_request", `tools must contain at most ${MAX_TOOLS} entries`);
+  }
+  const names = new Set<string>();
+  for (const tool of tools) {
+    if (typeof tool?.name !== "string" || !TOOL_NAME_PATTERN.test(tool.name) || names.has(tool.name)) {
+      throw new TextGenerationError("invalid_request", "tool names must be unique snake_case identifiers");
+    }
+    names.add(tool.name);
+    if (typeof tool.description !== "string" || tool.description.length === 0 || tool.description.length > MAX_TOOL_DESCRIPTION_CHARS) {
+      throw new TextGenerationError("invalid_request", `tool description must be 1..${MAX_TOOL_DESCRIPTION_CHARS} chars`);
+    }
+    const schema = tool.parameters;
+    if (schema === null || typeof schema !== "object" || Array.isArray(schema) || schema.type !== "object") {
+      throw new TextGenerationError("invalid_request", "tool parameters must be a JSON Schema object");
+    }
+    if (JSON.stringify(schema).length > MAX_TOOL_SCHEMA_CHARS) {
+      throw new TextGenerationError("invalid_request", `tool parameters must serialize to at most ${MAX_TOOL_SCHEMA_CHARS} chars`);
+    }
+  }
+}
+
+/**
+ * Mensagens no formato do provedor. Com cache pedido num modelo Anthropic, a
+ * ÚLTIMA mensagem system vira parte de conteúdo com cache_control: o provedor
+ * guarda todo o prefixo até ali (ferramentas e prompt estático), que é igual em
+ * todo turno da mesma persona.
+ */
+function serializeMessages(request: TextGenerationRequest): unknown[] {
+  const cacheIndex = request.cacheSystemPrompt === true && request.model.toLowerCase().startsWith("anthropic/")
+    ? request.messages.reduce((last, message, index) => (message.role === "system" ? index : last), -1)
+    : -1;
+  return request.messages.map((message, index) => (index === cacheIndex
+    ? { role: message.role, content: [{ type: "text", text: message.content, cache_control: { type: "ephemeral" } }] }
+    : { role: message.role, content: message.content }));
+}
+
+function parseToolCalls(value: unknown, offered: ReadonlySet<string>): TextGenerationToolCall[] {
+  if (value === undefined || value === null) return [];
+  if (!Array.isArray(value) || value.length > MAX_TOOL_CALLS) {
+    throw new TextGenerationError("malformed_provider_response", "completion tool_calls is not a bounded array");
+  }
+  const calls: TextGenerationToolCall[] = [];
+  for (const entry of value) {
+    const record = (entry ?? null) as Record<string, unknown> | null;
+    const fn = (record?.function ?? null) as Record<string, unknown> | null;
+    const id = record?.id;
+    const name = fn?.name;
+    const rawArguments = fn?.arguments;
+    if (typeof id !== "string" || !TOOL_CALL_ID_PATTERN.test(id) || typeof name !== "string" || !TOOL_NAME_PATTERN.test(name)) {
+      throw new TextGenerationError("malformed_provider_response", "completion tool call has no valid id or name");
+    }
+    // Função que não foi oferecida é alucinação do modelo: nunca vira ação.
+    if (!offered.has(name)) continue;
+    const argumentsText = typeof rawArguments === "string" && rawArguments.trim().length > 0 ? rawArguments : "{}";
+    if (argumentsText.length > MAX_TOOL_ARGUMENT_CHARS) {
+      throw new TextGenerationError("malformed_provider_response", "completion tool call arguments are too large");
+    }
+    let parsed: unknown;
+    try {
+      parsed = JSON.parse(argumentsText);
+    } catch {
+      throw new TextGenerationError("malformed_provider_response", "completion tool call arguments are not JSON");
+    }
+    if (parsed === null || typeof parsed !== "object" || Array.isArray(parsed)) {
+      throw new TextGenerationError("malformed_provider_response", "completion tool call arguments must be a JSON object");
+    }
+    calls.push(Object.freeze({ id, name, argumentsJson: JSON.stringify(parsed) }));
+  }
+  return calls;
+}
+
+function parseCompletion(payload: unknown, offeredTools: ReadonlySet<string> = new Set()): TextGenerationResult {
   if (payload === null || typeof payload !== "object") {
     throw new TextGenerationError("malformed_provider_response", "completion payload is not an object");
   }
@@ -404,9 +520,14 @@ function parseCompletion(payload: unknown): TextGenerationResult {
   }
   const first = choices[0] as Record<string, unknown> | undefined;
   const message = (first?.message ?? null) as Record<string, unknown> | null;
-  const text = message?.content;
-  if (typeof text !== "string" || text.length === 0) {
+  const toolCalls = parseToolCalls(message?.tool_calls, offeredTools);
+  const rawText = message?.content;
+  const text = typeof rawText === "string" ? rawText : "";
+  if (text.length === 0 && toolCalls.length === 0) {
     throw new TextGenerationError("malformed_provider_response", "completion payload has no text content");
+  }
+  if (rawText !== undefined && rawText !== null && typeof rawText !== "string") {
+    throw new TextGenerationError("malformed_provider_response", "completion text content must be a string");
   }
   const usageRecord = (record.usage ?? {}) as Record<string, unknown>;
   const inputTokens = normalizeTokenCount(usageRecord.prompt_tokens);
@@ -420,6 +541,7 @@ function parseCompletion(payload: unknown): TextGenerationResult {
 
   return Object.freeze({
     text,
+    ...(toolCalls.length > 0 ? { toolCalls: Object.freeze(toolCalls) } : {}),
     model,
     providerRequestId,
     usage: Object.freeze({
