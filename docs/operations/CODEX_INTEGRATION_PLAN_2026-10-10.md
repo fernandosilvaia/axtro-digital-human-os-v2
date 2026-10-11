@@ -236,3 +236,11 @@ Projeto hospedado: `digital-human-os`, id `ovctadcrvnfpgxzplupp` [V: é o host d
 
 Fica de fora desta janela: provisionar as autoridades de atestação (D4, chaves aleatórias no Doppler) e o executor dos pedidos de exclusão (D2). Sem elas a tela de governança mostra "indisponível neste ambiente" e falha fechada.
 
+### Estado em 2026-10-11
+
+- **Backup feito.** Bundle completo do repositório (`git bundle create --all`, verificado) em `99_BACKUPS/git-bundles/axtro-digital-human-os-v2-integration-codex-2026-10-20261011.bundle`, com a nota de origem, SHA-256 e retenção ao lado. Guarda `integration/codex-2026-10` em `2194d3c` e a `main` em `3f0a489`. Não guarda o banco hospedado.
+- **Autorização.** O Fernando autorizou no chat mesclar, aplicar as migrations e publicar, sem esperar a CI.
+- **Bloqueio persiste.** O classificador do modo automático negou de novo `list_migrations` no projeto `ovctadcrvnfpgxzplupp` (`[Production Reads]`), mesmo com a autorização no chat. Não foi contornado: nenhuma outra ferramenta, host ou sonda pública foi usada para obter a mesma informação. A janela segue parada no passo 1 (preflight).
+- **Nada mudou desde a prova da ordem real.** `git diff 3b056c1..HEAD` sobre `database/`, o harness, o bootstrap e `/api/ready` está vazio, então a prova do perfil `hosted-order` continua valendo para o `HEAD`.
+- **Merge.** `main` (`3f0a489`) é ancestral do branch, então é um fast-forward limpo. Não executado: pela ordem do roteiro, o push da `main` vem depois do schema, porque o portão novo recusa o v58 hospedado.
+- **Para destravar**, uma destas: (1) o Fernando adiciona regras de permissão para `list_migrations`, `execute_sql` e `apply_migration` do MCP do Supabase nas configurações; ou (2) o operador aplica as 10 migrations pelo SQL Editor na ordem do passo 2 e cola o resultado da verificação de cada uma.
