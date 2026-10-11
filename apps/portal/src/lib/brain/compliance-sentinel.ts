@@ -25,6 +25,7 @@ export type ComplianceViolation =
   | "li_self_underwriter"
   | "li_self_licensed"
   | "li_product_recommendation"
+  | "li_sensitive_id_request"
   | "li_tax_guarantee"
   | "li_approval_claim"
   | "li_loss_guarantee"
@@ -75,6 +76,11 @@ const RULES: readonly Rule[] = [
       /\b(?:this|it|that)\s+(?:is|'s)\s+(?:a\s+|an\s+)?(?:government|state|federal)\s+(?:program|benefit|plan)\b/i,
       /\b(?:programa|beneficio|plan|seguro)\s+(?:respaldado\s+por\s+el|patrocinado\s+por\s+el|del)\s+(?:gobierno|estado)\b/i,
       /\b(?:programa|benef[ií]cio|plano|seguro)\s+(?:do|garantido\s+pelo|bancado\s+pelo|patrocinado\s+pelo)\s+(?:governo|estado)\b/i,
+      // "Backed by Medicare" / "endorsed by the government": o verbo de ligação
+      // não é "with" nem "from", e a frase afirma o vínculo do mesmo jeito.
+      /\b(?:we(?:'re| are)|i(?:'m| am)|this (?:is|plan is|policy is|program is))\s+(?:fully\s+|officially\s+|also\s+)?(?:backed|endorsed|sponsored|funded|run|operated|supported)\s+by\s+(?:the\s+)?(?:u\.?s\.?\s+|federal\s+|state\s+)?(?:government|medicare|medicaid|social security|irs|va)\b/i,
+      /\b(?:estamos|somos|esto es)\s+(?:respaldad[oa]s?|avalad[oa]s?|patrocinad[oa]s?|financiad[oa]s?)\s+por\s+(?:el\s+)?(?:gobierno|medicare|medicaid|seguro social)\b/i,
+      /\b(?:somos|estamos|isso [eé])\s+(?:apoiad[oa]s?|avalad[oa]s?|patrocinad[oa]s?|financiad[oa]s?|garantid[oa]s?)\s+pel[oa]\s+(?:governo|medicare|medicaid)\b/i,
     ],
   },
   {
@@ -105,6 +111,13 @@ const RULES: readonly Rule[] = [
       /\bestoy\s+licenciad[oa]\b/i,
       /\b(?:sou|como)\s+(?:sua\s+|seu\s+)?(?:agente|corretora?|consultora?)\s+(?:licenciad[oa]|habilitad[oa]|credenciad[oa])\b/i,
       /\b(?:tenho|possuo)\s+(?:a\s+|minha\s+|uma\s+)?licen[cç]a\b/i,
+      // Sem preposição: "I'm fully licensed", "Yes, I am licensed".
+      /\bi(?:'m| am)\s+(?:(?:fully|properly|officially|also|totally|already)\s+)?(?:state[- ])?licen[sc]ed\b/i,
+      // Com o nome antes: "I'm Priscila, a licensed insurance agent". Sensível a
+      // maiúscula de propósito, para "I'm here, a licensed agent will call" passar.
+      /\b[Ii](?:'m| am)\s+(?:\p{Lu}\p{Ll}+,?\s+)?(?:a|an|your)\s+(?:(?:state|fully)[- ]?)?licen[sc]ed\s+(?:insurance\s+)?(?:agent|producer|broker|advisor|adviser|consultant)\b/u,
+      /\b(?:soy|estoy)\s+(?:(?:completamente|totalmente|plenamente)\s+)?licenciad[oa]\b/i,
+      /\bsou\s+(?:(?:totalmente|plenamente|devidamente)\s+)?(?:licenciad[oa]|habilitad[oa])\b/i,
     ],
   },
   {
@@ -118,6 +131,11 @@ const RULES: readonly Rule[] = [
       /\b(?:le|te)\s+(?:recomiendo|sugiero|aconsejo)\s+(?:que\s+)?(?:compre|contrate|comprar|contratar|el iul|la anualidad|la p[oó]liza)\b/i,
       /\b(?:yo\s+)?recomiendo\s+(?:el|la|un|una|esta|este)\s+(?:iul|vida entera|p[oó]liza|anualidad|seguro|plan)\b/i,
       /\b(?:eu\s+)?(?:recomendo|sugiro|aconselho)\s+(?:que\s+voc[eê]\s+)?(?:compre|contrate|feche|o iul|a anuidade|a ap[oó]lice|o seguro|o plano)\b/i,
+      /\byou\s+should\s+(?:definitely\s+|really\s+|absolutely\s+)?(?:get|buy|take|choose|go with|sign up for|purchase)\s+(?:the\s+|an?\s+|this\s+)?(?:iul|whole life|term|annuity|gul|final expense|kai-?zen|universal life|policy|plan)\b/i,
+      /\bi(?:'d| would)\s+(?:definitely\s+|honestly\s+)?(?:go with|pick|choose|take|get)\s+(?:the\s+|an?\s+)?(?:iul|whole life|term|annuity|gul|final expense|kai-?zen|policy|plan)\b/i,
+      /\bmy\s+recommendation\s+(?:is|would be)\s+(?:the\s+|an?\s+)?(?:iul|whole life|term|annuity|gul|final expense|kai-?zen|policy|plan)\b/i,
+      /\b(?:deber[ií]a|debe|tiene que)\s+(?:contratar|comprar|tomar|elegir)\s+(?:el|la|un|una)?\s*(?:iul|vida entera|anualidad|p[oó]liza|seguro|plan)\b/i,
+      /\b(?:voc[eê]\s+)?(?:deveria|deve|tem que)\s+(?:contratar|comprar|fechar|escolher)\s+(?:o|a|um|uma)?\s*(?:iul|vida inteira|anuidade|ap[oó]lice|seguro|plano)\b/i,
     ],
   },
   {
@@ -136,9 +154,19 @@ const RULES: readonly Rule[] = [
     negationSensitive: true,
     conditionalSensitive: true,
     patterns: [
-      /\byou('re| are|'ve been| have been| were| got)\s+(already\s+)?(pre-?)?approved\b/i,
-      /\b(est[aá]s?|queda|qued[oó]|fue|ha sido|usted est[aá])\s+(ya\s+)?(pre-?)?aprobad[oa]\b/i,
-      /\b(est[aá]|voc[eê] foi|foi|ficou|voc[eê] est[aá])\s+(j[aá]\s+)?(pr[eé]-?)?aprovad[oa]\b/i,
+      /\byou('re| are|'ve been| have been| were| got)\s+(?:(?:already|definitely|officially|fully|totally|certainly|surely|absolutely|now)\s+)*(?:been\s+)?(?:pre[- ]?)?(?:approved|accepted)\b/i,
+      /\b(est[aá]s?|queda|qued[oó]|fue|ha sido|usted est[aá])\s+(?:(?:ya|definitivamente|oficialmente|totalmente)\s+)*(?:pre[- ]?)?aprobad[oa]\b/i,
+      /\b(est[aá]|voc[eê] foi|foi|ficou|voc[eê] est[aá])\s+(?:(?:j[aá]|oficialmente|totalmente|definitivamente)\s+)*(?:pr[eé][- ]?)?aprovad[oa]\b/i,
+      // Exige "been": "you've approved the form" é a pessoa aprovando, não sendo aprovada.
+      /\byou(?:'ve| have)\s+(?:(?:already|officially|definitely|fully|totally)\s+)+been\s+(?:pre[- ]?)?(?:approved|accepted)\b/i,
+      // O sujeito é a proposta, não a pessoa.
+      /\byour\s+(?:application|policy|coverage|request)\s+(?:has been|was|is|got)\s+(?:(?:already|officially)\s+)?(?:pre[- ]?)?(?:approved|accepted)\b/i,
+      /\bsu\s+(?:solicitud|p[oó]liza)\s+(?:ya\s+)?(?:fue|ha sido|est[aá]|queda)\s+aprobad[oa]\b/i,
+      /\bsua\s+(?:proposta|solicita[cç][aã]o|ap[oó]lice)\s+(?:j[aá]\s+)?(?:foi|est[aá]|ficou)\s+aprovad[oa]\b/i,
+      // "You qualify for the full coverage" é aprovação dita de outro jeito.
+      /\byou\s+(?:definitely\s+|already\s+|certainly\s+)?qualify\s+for\s+(?:the\s+|this\s+|that\s+|our\s+)?(?:full\s+|entire\s+)?(?:coverage|policy|plan|benefit)\b/i,
+      /\busted\s+(?:ya\s+)?califica\s+para\s+(?:la\s+|esta\s+)?(?:cobertura|p[oó]liza|plan)\b/i,
+      /\bvoc[eê]\s+(?:j[aá]\s+)?(?:se\s+)?qualifica\s+para\s+(?:a\s+|essa\s+)?(?:cobertura|ap[oó]lice|plano)\b/i,
       // Promessa no futuro, o deslize mais comum numa conversa de venda
       // ("you'll be approved, don't worry"). Sempre com a pessoa como sujeito:
       // frase educativa sobre aceitação garantida de um produto passa.
@@ -179,11 +207,33 @@ const RULES: readonly Rule[] = [
       /\b(rendimento|retorno|lucro|ganho|crescimento)\s+garantid[oa]s?\b/i,
     ],
   },
+  {
+    // A regra 8 do prompt proíbe coletar SSN, conta ou cartão por voz. O prompt
+    // é a primeira defesa; esta é a segunda.
+    id: "li_sensitive_id_request",
+    negationSensitive: true,
+    patterns: [
+      /\b(?:read|tell|give|send|share|say|text|email|type|provide|confirm)\s+(?:me\s+)?(?:your|ur)\s+(?:full\s+)?(?:social security(?: number)?|ssn|bank account(?: number)?|routing number|credit card(?: number)?|debit card(?: number)?|card number|driver'?s licen[sc]e(?: number)?|password)\b/i,
+      /\bwhat(?:'s| is)\s+your\s+(?:full\s+)?(?:social security(?: number)?|ssn|bank account(?: number)?|routing number|credit card(?: number)?|card number)\b/i,
+      /\b(?:d[ií]game|dame|d[eé]me|comp[aá]rtame|env[ií]eme|l[eé]ame)\s+(?:su|tu)\s+(?:n[uú]mero de\s+)?(?:seguro social|ssn|cuenta bancaria|tarjeta(?: de cr[eé]dito)?)\b/i,
+      /\b(?:me\s+)?(?:fale|passe|diga|envie|mande|informe)\s+(?:o\s+)?(?:seu|sua)\s+(?:n[uú]mero\s+do\s+)?(?:ssn|social security|seguro social|conta banc[aá]ria|cart[aã]o(?: de cr[eé]dito)?)\b/i,
+    ],
+  },
 ];
 
-const QUOTE_AMOUNT = /(\$\s?\d[\d,.]*|\b\d[\d,.]*\s?(dollars|d[oó]lares|reais)\b|R\$\s?\d)/i;
-const QUOTE_PERIOD = /\b(premium|per month|a month|monthly|each month|al mes|por mes|mensual(es)?|prima|por m[eê]s|mensal(idade)?|pr[eê]mio)\b/i;
-const QUOTE_HEDGE = /\b(example|for example|e\.g\.|around|about|roughly|approximately|could|might|may|typically|usually|depends|depending|estimate|ballpark|range|illustrat\w*|ejemplo|por ejemplo|alrededor|aproximadamente|depende|podr[ií]a|t[ií]picamente|estimad\w*|exemplo|por exemplo|cerca de|em torno|depende|poderia|tipicamente|estimativa|faixa|ilustrativ\w*)\b/i;
+const QUOTE_AMOUNT = /(\$\s?\d[\d,.]*|\b\d[\d,.]*\s?(?:dollars|d[oó]lares|reais|bucks|usd)\b|R\$\s?\d)/i;
+const QUOTE_PERIOD = /(?:\b(?:premium|per month|a month|monthly|each month|every month|per year|a year|every year|each year|annually|annual|yearly|al mes|por mes|mensual(?:es)?|cada mes|al a[nñ]o|por a[nñ]o|anual(?:es)?|prima|por m[eê]s|mensal(?:idade)?|cada m[eê]s|todo m[eê]s|por ano|ao ano|pr[eê]mio)\b|\/\s?(?:mo|month|yr|year)\b)/i;
+// Hedge que vale na frase inteira: aproximação ou ilustração explícita.
+const QUOTE_HEDGE = /\b(example|for example|e\.g\.|around|about|roughly|approximately|typically|usually|often|depends|depending|estimate|ballpark|range|starting at|as low as|illustrat\w*|ejemplo|por ejemplo|alrededor|aproximadamente|depende|t[ií]picamente|estimad\w*|exemplo|por exemplo|cerca de|em torno|tipicamente|estimativa|faixa|ilustrativ\w*)\b/i;
+// Modal só vale ANTES do valor: "might see $40 a month" hedgeia o preço, mas em
+// "$85 a month, and that may not change" o "may" fala de outra coisa.
+const QUOTE_MODAL_BEFORE = /\b(could|might|may|can|podr[ií]a|poderia|puede|pode)\b/i;
+
+function isDefinitiveQuote(sentence: string): boolean {
+  const amount = QUOTE_AMOUNT.exec(sentence);
+  if (amount === null || !QUOTE_PERIOD.test(sentence)) return false;
+  return !QUOTE_HEDGE.test(sentence) && !QUOTE_MODAL_BEFORE.test(sentence.slice(0, amount.index));
+}
 
 const FALLBACK: Readonly<Record<SentinelLanguage, string>> = {
   english: "Let me be precise here: that is something the licensed agent confirms with you, with the real numbers. Can I ask you one quick question about your situation?",
@@ -213,6 +263,31 @@ export function detectReplyLanguage(text: string, fallback: SentinelLanguage): S
   return best;
 }
 
+// Caracteres que o ouvido não distingue e a regex distingue. Sem isto, um
+// apóstrofo tipográfico ("you’re approved") ou um zero-width dentro da palavra
+// desligava a regra inteira, e o TTS lê as duas versões do mesmo jeito.
+const INVISIBLE = /[­͏؜ᅟᅠ឴឵᠎​-‏‪-‮⁠-⁤ㅤ︀-️﻿]/g;
+const APOSTROPHES = /[‘’‛ʼʹ`´′＇]/g;
+const DASHES = /[‐-―−﹘﹣－]/g;
+const HOMOGLYPHS: Readonly<Record<string, string>> = {
+  "а": "a", "е": "e", "о": "o", "р": "p", "с": "c", "у": "y", "х": "x", "і": "i", "ј": "j", "ѕ": "s", "һ": "h", "ԁ": "d", "ԛ": "q", "ԝ": "w",
+  "А": "A", "В": "B", "Е": "E", "К": "K", "М": "M", "Н": "H", "О": "O", "Р": "P", "С": "C", "Т": "T", "Х": "X", "І": "I",
+  "ο": "o", "α": "a", "ε": "e", "ι": "i", "ν": "v", "ρ": "p", "τ": "t", "υ": "u", "κ": "k",
+  "Α": "A", "Β": "B", "Ε": "E", "Η": "H", "Ι": "I", "Κ": "K", "Μ": "M", "Ν": "N", "Ο": "O", "Ρ": "P", "Τ": "T", "Υ": "Y", "Χ": "X",
+};
+const HOMOGLYPH_PATTERN = new RegExp(`[${Object.keys(HOMOGLYPHS).join("")}]`, "g");
+
+/** Só para casar regra: a resposta que vai ao áudio nunca é a normalizada. */
+export function normalizeForMatching(text: string): string {
+  return text
+    .normalize("NFKC")
+    .replace(INVISIBLE, "")
+    .replace(APOSTROPHES, "'")
+    .replace(DASHES, "-")
+    .replace(HOMOGLYPH_PATTERN, (char) => HOMOGLYPHS[char] ?? char)
+    .replace(/\s+/g, " ");
+}
+
 function splitSentences(text: string): string[] {
   return text.split(/(?<=[.!?…])\s+/).map((sentence) => sentence.trim()).filter((sentence) => sentence.length > 0);
 }
@@ -221,28 +296,32 @@ function splitSentences(text: string): string[] {
 // approved" o "No" pertence a outra oração e não desfaz a promessa.
 const CLAUSE_BREAK = /[,;:]|\s(but|however|pero|sin embargo|mas|porém|porem)\s/gi;
 
-function clauseAround(sentence: string, start: number, end: number): string {
+function clauseStart(sentence: string, start: number): number {
   let from = 0;
-  let to = sentence.length;
   for (const match of sentence.matchAll(CLAUSE_BREAK)) {
     const at = match.index ?? 0;
     if (at < start) from = at + match[0].length;
-    else if (at >= end) { to = at; break; }
+    else break;
   }
-  return sentence.slice(from, to);
+  return from;
 }
+
+// "Don't worry" e "no te preocupes" têm a palavra de negação, mas não negam a
+// afirmação que vem depois: "Don't worry you're approved" é uma promessa.
+const NEGATION_IDIOMS = /\b(?:do not|don't|no)\s+worr(?:y|ies|ying)\b|\bno\s+te\s+preocupes?\b|\bno\s+se\s+preocupe\b|\bn[aã]o\s+(?:se|te)\s+preocupe?s?\b/giu;
 
 function ruleMatches(rule: Rule, sentence: string): boolean {
   for (const pattern of rule.patterns) {
     const match = pattern.exec(sentence);
     if (!match) continue;
     if (!rule.negationSensitive) return true;
-    const clause = clauseAround(sentence, match.index, match.index + match[0].length);
-    if (NEGATION.test(clause)) continue;
-    if (rule.conditionalSensitive === true) {
-      const before = clause.slice(0, Math.max(0, clause.indexOf(match[0])));
-      if (CONDITIONAL.test(before)) continue;
-    }
+    // A negação só absolve o que vem ANTES da afirmação na mesma oração, ou
+    // dentro dela ("we're not with Medicare"). Uma negação depois ("you're
+    // pre-approved with no medical exam") fala de outra coisa e não desfaz a promessa.
+    const from = clauseStart(sentence, match.index);
+    const scope = sentence.slice(from, match.index + match[0].length).replace(NEGATION_IDIOMS, " ");
+    if (NEGATION.test(scope)) continue;
+    if (rule.conditionalSensitive === true && CONDITIONAL.test(sentence.slice(from, match.index))) continue;
     return true;
   }
   return false;
@@ -253,9 +332,7 @@ function sentenceViolations(sentence: string): ComplianceViolation[] {
   for (const rule of RULES) {
     if (!found.includes(rule.id) && ruleMatches(rule, sentence)) found.push(rule.id);
   }
-  if (QUOTE_AMOUNT.test(sentence) && QUOTE_PERIOD.test(sentence) && !QUOTE_HEDGE.test(sentence)) {
-    found.push("li_definitive_quote");
-  }
+  if (isDefinitiveQuote(sentence)) found.push("li_definitive_quote");
   return found;
 }
 
@@ -264,7 +341,8 @@ export function enforceLifeInsuranceCompliance(reply: string, fallbackLanguage: 
   const kept: string[] = [];
   const violations = new Set<ComplianceViolation>();
   for (const sentence of sentences) {
-    const found = sentenceViolations(sentence);
+    // Casa na cópia normalizada; guarda a frase original para o áudio.
+    const found = sentenceViolations(normalizeForMatching(sentence));
     if (found.length === 0) {
       kept.push(sentence);
       continue;

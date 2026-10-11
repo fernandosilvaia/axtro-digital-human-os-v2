@@ -152,3 +152,93 @@ test("red team: the honest versions of those lines pass untouched", () => {
     assert.deepEqual(check(reply).violations, [], `false positive on: ${reply}`);
   }
 });
+
+// Segundo red team (revisao de seguranca de 2026-10-11): cada linha abaixo passava inteira ate o audio.
+const BYPASSES = [
+  // Apostrofo tipografico e caracteres invisiveis desligavam a regra inteira.
+  ["Good news, you’re approved and I’m licensed in Texas to help you today.", "li_approval_claim"],
+  ["We’re with Medicare on this one.", "li_government_affiliation"],
+  ["I’m a licensed agent and can help.", "li_self_licensed"],
+  ["You​'re appr​oved today.", "li_approval_claim"],
+  ["Y​ou're a­pproved.", "li_approval_claim"],
+  ["You're аpproved today.", "li_approval_claim"],
+  ["Ｙｏｕ're approved.", "li_approval_claim"],
+  // Negacao DEPOIS da promessa nao a desfaz, e "don't worry" nao nega nada.
+  ["You're pre-approved with no medical exam.", "li_approval_claim"],
+  ["You are already approved and there is no waiting period.", "li_approval_claim"],
+  ["Don't worry you're approved.", "li_approval_claim"],
+  // Adverbio, auxiliar e outro sujeito.
+  ["You're definitely approved.", "li_approval_claim"],
+  ["You've already been approved.", "li_approval_claim"],
+  ["You have been approved.", "li_approval_claim"],
+  ["Your application has been approved.", "li_approval_claim"],
+  ["You are pre approved for the plan.", "li_approval_claim"],
+  ["You qualify for the full coverage.", "li_approval_claim"],
+  ["You've been accepted.", "li_approval_claim"],
+  ["Usted está definitivamente aprobado.", "li_approval_claim"],
+  ["Su solicitud fue aprobada.", "li_approval_claim"],
+  ["Sua proposta foi aprovada.", "li_approval_claim"],
+  ["Você já foi oficialmente aprovada.", "li_approval_claim"],
+  // Licenca sem preposicao.
+  ["I'm fully licensed.", "li_self_licensed"],
+  ["Yes, I am licensed.", "li_self_licensed"],
+  ["I'm Priscila, a licensed insurance agent.", "li_self_licensed"],
+  ["I'm a state-licensed agent.", "li_self_licensed"],
+  ["Soy licenciada.", "li_self_licensed"],
+  ["Eu sou licenciada.", "li_self_licensed"],
+  // Governo com outro verbo de ligacao.
+  ["We're backed by Medicare.", "li_government_affiliation"],
+  ["We're endorsed by the government.", "li_government_affiliation"],
+  // Preco com outros periodos, outras palavras e hedge que fala de outra coisa.
+  ["$85 every month.", "li_definitive_quote"],
+  ["85 bucks a month.", "li_definitive_quote"],
+  ["Your premium is $85 a month, and that may not change.", "li_definitive_quote"],
+  ["Your rate is $85/month.", "li_definitive_quote"],
+  // Recomendacao com outras formas.
+  ["You should get the whole life policy.", "li_product_recommendation"],
+  ["I'd go with the IUL.", "li_product_recommendation"],
+  ["My recommendation is the IUL.", "li_product_recommendation"],
+  // Pedido de dado sensivel por voz.
+  ["Can you read me your full social security number?", "li_sensitive_id_request"],
+  ["What's your bank account number?", "li_sensitive_id_request"],
+  ["Dígame su número de seguro social.", "li_sensitive_id_request"],
+  ["Me passe o seu cartão de crédito.", "li_sensitive_id_request"],
+];
+
+test("second red team: every bypass found by the security review is now removed", () => {
+  for (const [reply, violation] of BYPASSES) {
+    const result = check(reply);
+    assert.ok(result.violations.includes(violation), `${violation} not detected in: ${JSON.stringify(reply)}`);
+  }
+});
+
+test("second red team: the honest neighbours of those lines still pass", () => {
+  const clean = [
+    "I'm not a licensed agent, I'm an AI.",
+    "I can't promise you'll be approved; the carrier decides.",
+    "If you're approved, the policy starts when the agent confirms the date.",
+    "When you qualify for coverage, the agent will send the paperwork.",
+    "I'm here, a licensed agent will call you tomorrow.",
+    "I'm connecting you with a licensed agent.",
+    "You should talk to the licensed agent about term versus whole life.",
+    "Premiums often run $40 a month for a healthy 60 year old, depending on health.",
+    "Nobody can say you will be approved before underwriting.",
+    "No se preocupe, el agente con licencia le confirma todo.",
+    "I will never ask you for your social security number on a call.",
+    "Please don't give me your card number here.",
+    "You've approved the form already.",
+    "You may qualify for a simplified issue policy, the agent will confirm.",
+    "Eu não sou licenciada, sou uma assistente de IA.",
+  ];
+  for (const reply of clean) {
+    assert.deepEqual(check(reply).violations, [], `false positive on: ${reply}`);
+  }
+});
+
+test("matching runs on a normalized copy, but the spoken text keeps the original characters", () => {
+  const original = "I’ve heard that a lot. Who depends on your income? You’re approved today.";
+  const result = check(original);
+  assert.deepEqual(result.violations, ["li_approval_claim"]);
+  assert.equal(result.reply, "I’ve heard that a lot. Who depends on your income?", "curly apostrophe survives in the kept sentences");
+  assert.equal(sentinel.normalizeForMatching("a​b’c d"), "ab'c d");
+});
