@@ -40,7 +40,7 @@ export default async function PublicDemoPage({
         <p className={styles.entryLead}>
           {unavailable
             ? "O workspace de clientes continua protegido e disponível pelo login normal. Tente novamente mais tarde ou crie sua própria conta."
-            : "Esta experiência usa somente dados sintéticos e um estado temporário neste navegador. Ela não cria tenant, cobrança, transcript ou chamada de provider."}
+            : "Tudo aqui é fictício: nada é salvo e nenhuma cobrança é feita. O percurso fica só neste navegador, por pouco tempo."}
         </p>
         <div className={styles.entryActions}>
           {!unavailable && (
@@ -53,8 +53,8 @@ export default async function PublicDemoPage({
         </div>
         <dl className={styles.safetyList}>
           <div><dt>Identidade</dt><dd>Visitante anônimo, sem papel administrativo</dd></div>
-          <div><dt>Dados</dt><dd>Fixture sintética, sem informação de cliente</dd></div>
-          <div><dt>Efeitos</dt><dd>Zero banco, provider, e-mail, billing ou tool</dd></div>
+          <div><dt>Dados</dt><dd>Fictícios, sem informação de cliente</dd></div>
+          <div><dt>Efeitos</dt><dd>Nada é salvo, nenhum e-mail é enviado e nenhuma cobrança é feita</dd></div>
         </dl>
       </section>
     </main>

@@ -18,6 +18,9 @@ const PROFILE_ERROR_MESSAGES: Readonly<Record<string, string>> = {
   "only a tenant_admin can edit the tenant profile": "Somente administradores podem editar o perfil da conta.",
 };
 
+// Erro de banco sem tradução conhecida nunca vai cru pro cliente.
+const UNEXPECTED_ERROR_MESSAGE = "Não foi possível concluir agora. Tente de novo em instantes; se continuar, fale com o suporte.";
+
 export async function updateTenantProfile(
   _prevState: TenantProfileActionState,
   formData: FormData,
@@ -42,7 +45,7 @@ export async function updateTenantProfile(
     p_default_language: defaultLanguage,
     p_default_timezone: defaultTimezone,
   });
-  if (error) return { error: PROFILE_ERROR_MESSAGES[error.message] ?? `Não foi possível salvar: ${error.message}`, saved: false };
+  if (error) return { error: PROFILE_ERROR_MESSAGES[error.message] ?? UNEXPECTED_ERROR_MESSAGE, saved: false };
 
   revalidatePath("/configuracoes");
   revalidatePath("/dashboard");

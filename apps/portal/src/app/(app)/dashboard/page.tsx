@@ -37,10 +37,35 @@ function formatUsd(value: number): string {
 const USAGE_SERVICE_LABELS: Record<string, string> = {
   "portal.agent_preview": "Chat de teste dos agentes",
   "portal.knowledge_embedding": "Ingestão de conhecimento",
-  "portal.knowledge_retrieval": "Busca de conhecimento (RAG)",
+  "portal.knowledge_retrieval": "Busca de conhecimento",
   "portal.video_conversation": "Conversas em vídeo",
   "portal.meeting_bot_session": "Reuniões externas",
 };
+
+// Nome por extenso dos fusos que o perfil da conta oferece (tenant-profile-form.tsx).
+// Fora dessa lista, o nome genérico do Intl em português; o id IANA cru só em último caso.
+const TIME_ZONE_LABELS: Record<string, string> = {
+  "America/Sao_Paulo": "Horário de Brasília",
+  "America/New_York": "Horário do Leste dos EUA (Nova York)",
+  "America/Chicago": "Horário Central dos EUA (Chicago)",
+  "America/Denver": "Horário das Montanhas dos EUA (Denver)",
+  "America/Los_Angeles": "Horário do Pacífico dos EUA (Los Angeles)",
+  "Europe/Lisbon": "Horário de Lisboa",
+  "Europe/Madrid": "Horário de Madri",
+};
+
+function timeZoneLabel(timeZone: string): string {
+  const known = TIME_ZONE_LABELS[timeZone];
+  if (known) return known;
+  try {
+    const name = new Intl.DateTimeFormat("pt-BR", { timeZone, timeZoneName: "longGeneric" })
+      .formatToParts(new Date())
+      .find((part) => part.type === "timeZoneName")?.value;
+    return name ?? timeZone;
+  } catch {
+    return timeZone;
+  }
+}
 
 export default async function DashboardPage() {
   const [overviewResult, usageResult, transcriptsResult] = await Promise.allSettled([
@@ -124,7 +149,7 @@ export default async function DashboardPage() {
         {METRICS.map((metric) => (
           <div key={metric.key} className="card card-hover">
             <span className="metric-label">{metric.label}</span>
-            <div className="metric-value">{counts ? counts[metric.key] : "—"}</div>
+            <div className="metric-value" style={counts ? undefined : { fontSize: "1.25rem" }}>{counts ? counts[metric.key] : "Sem dados"}</div>
             <div className="metric-hint">{counts ? metric.hint : "Dado indisponível no momento"}</div>
           </div>
         ))}
@@ -134,7 +159,7 @@ export default async function DashboardPage() {
         <section className="card" style={{ marginBottom: 24 }} aria-labelledby="uso-ia">
           <h2 id="uso-ia" className="section-title">Uso de IA</h2>
           <p className="workspace-section-lead">
-            Consumo já registrado no ledger da conta, separado de qualquer fatura conciliada.
+            Consumo já registrado na conta. Estes números não são a fatura.
           </p>
           <div className="grid grid-4" style={{ marginBottom: usage.services_7d.length > 0 ? 16 : 0 }}>
             <div>
@@ -148,12 +173,12 @@ export default async function DashboardPage() {
             <div>
               <span className="metric-label">Conversas em vídeo hoje</span>
               <div className="metric-value">{usage.conversations_today.toLocaleString("pt-BR")}</div>
-              <div className="metric-hint">Conversas registradas no ledger da conta</div>
+              <div className="metric-hint">Conversas registradas na conta</div>
             </div>
             <div>
               <span className="metric-label">Custo atribuído hoje</span>
               <div className="metric-value">{formatUsd(usage.total_cost_usd_today)}</div>
-              <div className="metric-hint">Ledger estimado/reportado: não é a fatura conciliada</div>
+              <div className="metric-hint">Consumo registrado hoje (não é a fatura)</div>
             </div>
             <div>
               <span className="metric-label">Serviços com atividade (7 dias)</span>
@@ -174,7 +199,11 @@ export default async function DashboardPage() {
               ))}
             </dl>
           )}
-          <p style={{ margin: "14px 0 0", fontSize: "0.72rem", color: "var(--text-faint)" }}>{usage.cost_estimate_note}</p>
+          {/* usage.cost_estimate_note vem do banco com texto técnico ("ledger estimado/provider-reported"),
+              então a tela usa uma nota fixa para o cliente. */}
+          <p style={{ margin: "14px 0 0", fontSize: "0.72rem", color: "var(--text-faint)" }}>
+            Valores estimados a partir do consumo registrado ou informado pelos fornecedores. O valor cobrado é o da fatura.
+          </p>
         </section>
       ) : (
         <section className="card workspace-data-notice" style={{ marginBottom: 24 }} aria-labelledby="uso-ia-indisponivel">
@@ -202,7 +231,7 @@ export default async function DashboardPage() {
         <div className="workspace-readiness-steps">
           {readiness.map((item) => (
             <div key={item.label} className={`workspace-readiness-step${item.state === "done" ? " is-done" : ""}${item.state === "unknown" ? " is-unknown" : ""}`}>
-              <span className="workspace-readiness-icon" aria-hidden="true">{item.state === "done" ? "✓" : item.state === "unknown" ? "—" : "○"}</span>
+              <span className="workspace-readiness-icon" aria-hidden="true">{item.state === "done" ? "✓" : item.state === "unknown" ? "?" : "○"}</span>
               <span>{item.label}</span>
             </div>
           ))}
@@ -234,7 +263,7 @@ export default async function DashboardPage() {
               <InfoRow label="Identificador" value={<span className="mono">{tenant.slug}</span>} />
               <InfoRow label="Região" value={tenant.home_region} />
               <InfoRow label="Idioma padrão" value={tenant.default_language} />
-              <InfoRow label="Fuso horário" value={tenant.default_timezone} />
+              <InfoRow label="Fuso horário" value={timeZoneLabel(tenant.default_timezone)} />
               <InfoRow label="Criada em" value={formatLongDate(tenant.created_at, tenant.default_timezone)} />
             </dl>
           ) : (

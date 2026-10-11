@@ -77,7 +77,7 @@ test("landing pública renderiza e aponta para login", async ({ page }) => {
   await page.goto("/");
   await expect(page).toHaveTitle("Axtro Closer AI Human | Closer de IA em vídeo com controle");
   await expect(page.getByRole("heading", { name: "Seu melhor closer não deveria caber na agenda." })).toBeVisible();
-  await expect(page.getByRole("button", { name: "Assistir à demonstração" })).toBeVisible();
+  await expect(page.getByRole("button", { name: "Explorar a demonstração" })).toBeVisible();
   await expect(page.locator('a[href="/login"]').first()).toBeVisible();
 });
 
@@ -136,7 +136,7 @@ test("login da fixture de cliente leva à central com progresso e custos explici
   await expect(page.getByRole("progressbar", { name: "Prontidão operacional confirmada" })).toHaveAttribute("aria-valuenow", /\d+/);
   // T8: painel de custo (ledger de efeitos pagos, M5-01 renomeou de "estimado" para "atribuído").
   await expect(page.getByText("Custo atribuído hoje")).toBeVisible();
-  await expect(page.getByText("Ledger estimado/reportado: não é a fatura conciliada")).toBeVisible();
+  await expect(page.getByText("Consumo registrado hoje (não é a fatura)")).toBeVisible();
   fixtureAuthCookies = (await page.context().cookies()).filter((cookie) => cookie.name.startsWith("sb-"));
   expect(fixtureAuthCookies.length > 0, "login real deve produzir sessão da fixture").toBe(true);
 });
@@ -154,7 +154,7 @@ test("demo isolada preserva cookies, tenant e papel do cliente autenticado", asy
   expect(authCookiesBefore.length).toBeGreaterThan(0);
 
   await page.goto("/");
-  await page.getByRole("button", { name: "Assistir à demonstração" }).click();
+  await page.getByRole("button", { name: "Explorar a demonstração" }).click();
   await expect(page).toHaveURL(/\/demo$/);
   await page.getByRole("button", { name: /Agente/i }).click();
   await page.getByRole("button", { name: "Sair da demonstração" }).click();

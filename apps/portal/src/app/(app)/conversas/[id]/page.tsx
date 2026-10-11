@@ -5,8 +5,6 @@ import { formatDateTime } from "@/lib/format-date";
 import { fetchConversationTranscript, fetchTenantOverview } from "@/lib/portal-data";
 import { SITE_NAME } from "@/lib/site";
 
-import { TranscriptDeleteButton } from "./transcript-delete-button";
-
 export const metadata: Metadata = { title: `Conversa, ${SITE_NAME}` };
 
 const SURFACE_LABELS: Record<string, string> = {
@@ -47,7 +45,23 @@ export default async function ConversationDetailPage({ params }: { params: Promi
             {transcript.endedAt ? ` · encerrada em ${formatDateTime(transcript.endedAt, timeZone)}` : " · em andamento"}
           </p>
         </div>
-        {isAdmin && <TranscriptDeleteButton id={transcript.id} />}
+        {isAdmin && (
+          // Desde a migration 0059 a exclusão direta de uma conversa está desligada:
+          // o único caminho é o pedido formal de governança em Configurações.
+          <div style={{ display: "flex", flexDirection: "column", gap: 4, alignItems: "flex-end" }}>
+            <Link
+              href="/configuracoes#governanca-de-dados"
+              className="btn btn-ghost"
+              aria-describedby="transcript-data-request-note"
+              style={{ padding: "6px 12px", fontSize: "0.82rem" }}
+            >
+              Pedir exclusão de dados
+            </Link>
+            <span id="transcript-data-request-note" style={{ color: "var(--text-muted)", fontSize: "0.72rem", maxWidth: 240, textAlign: "right" }}>
+              Conversas não são excluídas uma a uma. O pedido é feito em Configurações.
+            </span>
+          </div>
+        )}
       </header>
 
       {transcript.turns.length === 0 ? (

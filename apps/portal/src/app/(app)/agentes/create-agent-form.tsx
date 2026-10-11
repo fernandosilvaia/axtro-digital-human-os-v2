@@ -19,7 +19,7 @@ export function CreateAgentForm() {
 
   return (
     <form action={formAction}>
-      <h3 style={{ fontSize: "0.85rem", color: "var(--text-muted)", margin: "0 0 10px" }}>
+      <h3 id="novo-agente" style={{ fontSize: "0.85rem", color: "var(--text-muted)", margin: "0 0 10px" }}>
         Novo agente
       </h3>
       <div className="form-row form-row-3">
@@ -30,7 +30,7 @@ export function CreateAgentForm() {
         <div className="field" style={{ marginBottom: 0 }}>
           <label htmlFor="agent-role">Papel</label>
           <select id="agent-role" name="role_type" defaultValue="sales" disabled>
-            <option value="sales">Sales Closer</option>
+            <option value="sales">Closer de vendas</option>
           </select>
         </div>
         <button type="submit" className="btn btn-primary" disabled={pending}>

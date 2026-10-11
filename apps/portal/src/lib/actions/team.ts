@@ -15,6 +15,10 @@ export interface TeamActionState {
   readonly emailSent?: boolean;
 }
 
+// Erro de banco sem tradução conhecida nunca vai cru pro cliente: a UI recebe
+// esta frase e o original vai pra telemetria (só o caminho não mapeado).
+const UNEXPECTED_ERROR_MESSAGE = "Não foi possível concluir agora. Tente de novo em instantes; se continuar, fale com o suporte.";
+
 const INVITE_ERROR_MESSAGES: Readonly<Record<string, string>> = {
   "authentication required": "Sua sessão expirou. Recarregue a página e entre de novo.",
   "there is already a pending invite for this email": "Já existe um convite pendente para esse e-mail.",
@@ -38,7 +42,9 @@ export async function inviteMember(_prevState: TeamActionState, formData: FormDa
   const supabase = await createClient();
   const { error } = await supabase.rpc("portal_invite_member", { p_email: email, p_role: role });
   if (error) {
-    return { error: INVITE_ERROR_MESSAGES[error.message] ?? `Não foi possível convidar: ${error.message}`, done: false };
+    const known = INVITE_ERROR_MESSAGES[error.message];
+    if (!known) trackError("invite_member_failed", new Error(error.message), { role });
+    return { error: known ?? UNEXPECTED_ERROR_MESSAGE, done: false };
   }
 
   // Notificação por e-mail (T2): melhor esforço, o convite já está válido no
@@ -83,7 +89,9 @@ export async function revokeInvite(inviteId: string): Promise<RevokeInviteState>
   const supabase = await createClient();
   const { error } = await supabase.rpc("portal_revoke_invite", { p_invite_id: inviteId });
   if (error) {
-    return { error: REVOKE_INVITE_ERROR_MESSAGES[error.message] ?? `Não foi possível revogar: ${error.message}` };
+    const known = REVOKE_INVITE_ERROR_MESSAGES[error.message];
+    if (!known) trackError("revoke_invite_failed", new Error(error.message), { invite_id: inviteId });
+    return { error: known ?? UNEXPECTED_ERROR_MESSAGE };
   }
 
   revalidatePath("/configuracoes");
@@ -114,7 +122,9 @@ export async function removeMember(userId: string): Promise<RemoveMemberState> {
   const supabase = await createClient();
   const { error } = await supabase.rpc("portal_remove_member", { p_user_id: userId });
   if (error) {
-    return { error: REMOVE_MEMBER_ERROR_MESSAGES[error.message] ?? `Não foi possível remover: ${error.message}` };
+    const known = REMOVE_MEMBER_ERROR_MESSAGES[error.message];
+    if (!known) trackError("remove_member_failed", new Error(error.message), { member_user_id: userId });
+    return { error: known ?? UNEXPECTED_ERROR_MESSAGE };
   }
 
   revalidatePath("/configuracoes");
