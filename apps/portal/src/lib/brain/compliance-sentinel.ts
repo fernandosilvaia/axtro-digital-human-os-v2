@@ -23,6 +23,9 @@ export type ComplianceViolation =
   | "li_government_affiliation"
   | "li_federal_license"
   | "li_self_underwriter"
+  | "li_self_licensed"
+  | "li_product_recommendation"
+  | "li_tax_guarantee"
   | "li_approval_claim"
   | "li_loss_guarantee"
   | "li_definitive_quote";
@@ -66,6 +69,12 @@ const RULES: readonly Rule[] = [
       /\b(we('| a)re|i('| a)m|this is|i work|our team is|we work)\b[^.!?]{0,40}\b(with|from|for|part of|affiliated with|partnered with|authorized by|on behalf of)\b[^.!?]{0,20}\b(medicare|medicaid|social security|the government|a government program|the state program|veterans affairs|the va)\b/i,
       /\b(somos|soy|estoy|trabajo|trabajamos)\b[^.!?]{0,40}\b(de|del|con|para|parte de|en nombre de)\b[^.!?]{0,20}\b(medicare|medicaid|seguro social|el gobierno|gobierno|un programa del gobierno|programa del estado|asuntos de veteranos)\b/i,
       /\b(somos|sou|estou|trabalho|trabalhamos)\b[^.!?]{0,40}\b(do|da|de|com|para|parte d[oa])\b[^.!?]{0,20}\b(medicare|medicaid|seguridade social|governo|programa do governo|programa do estado)\b/i,
+      // Sem sujeito em primeira pessoa: "é um benefício do governo" é a frase
+      // clássica do golpe de final expense, e ninguém da conversa a afirma.
+      /\b(?:government|state|federal)[- ](?:backed|sponsored|funded|run|issued)\s+(?:program|benefit|plan|policy|coverage)\b/i,
+      /\b(?:this|it|that)\s+(?:is|'s)\s+(?:a\s+|an\s+)?(?:government|state|federal)\s+(?:program|benefit|plan)\b/i,
+      /\b(?:programa|beneficio|plan|seguro)\s+(?:respaldado\s+por\s+el|patrocinado\s+por\s+el|del)\s+(?:gobierno|estado)\b/i,
+      /\b(?:programa|benef[ií]cio|plano|seguro)\s+(?:do|garantido\s+pelo|bancado\s+pelo|patrocinado\s+pelo)\s+(?:governo|estado)\b/i,
     ],
   },
   {
@@ -80,6 +89,46 @@ const RULES: readonly Rule[] = [
       /\b(i('| a)m|i work as)\b[^.!?]{0,15}\bunderwriter\b/i,
       /\bsoy\b[^.!?]{0,15}\bsuscript(or|ora)\b/i,
       /\bsou\b[^.!?]{0,15}\bsubscrit(or|ora)\b/i,
+    ],
+  },
+  {
+    // Uma IA não tem licença. Afirmar que tem é se passar pelo agente
+    // licenciado, o que a regulação de seguros trata como prática ilegal.
+    id: "li_self_licensed",
+    negationSensitive: true,
+    patterns: [
+      /\b(?:i(?:'m| am)|as)\s+(?:a|an|your)\s+(?:licensed|appointed|certified)\s+(?:insurance\s+)?(?:agent|producer|broker|advisor|adviser|consultant)\b/i,
+      /\bi(?:'m| am)\s+(?:licensed|appointed)\s+(?:in|to sell|with|by)\b/i,
+      /\bi\s+(?:have|hold)\s+(?:a|an|my)\s+(?:insurance\s+)?licen[sc]e\b/i,
+      /\b(?:soy|como)\s+(?:su\s+|tu\s+)?(?:agente|corredora?|asesora?|productora?)\s+(?:con\s+licencia|licenciad[oa]|autorizad[oa])\b/i,
+      /\b(?:tengo|cuento con)\s+(?:mi\s+|una\s+)?licencia\b/i,
+      /\bestoy\s+licenciad[oa]\b/i,
+      /\b(?:sou|como)\s+(?:sua\s+|seu\s+)?(?:agente|corretora?|consultora?)\s+(?:licenciad[oa]|habilitad[oa]|credenciad[oa])\b/i,
+      /\b(?:tenho|possuo)\s+(?:a\s+|minha\s+|uma\s+)?licen[cç]a\b/i,
+    ],
+  },
+  {
+    // Quem recomenda produto e valor é o agente licenciado. Explicar que uma
+    // família de produto combina com o que a pessoa disse continua livre.
+    id: "li_product_recommendation",
+    negationSensitive: true,
+    patterns: [
+      /\bi\s+(?:would\s+|'d\s+)?(?:recommend|suggest|advise)\s+(?:that\s+)?you\s+(?:buy|get|purchase|go with|choose|sign up for|take out)\b/i,
+      /\bi\s+(?:would\s+|'d\s+)?recommend\s+(?:the\s+|an?\s+|this\s+)?(?:iul|indexed universal life|whole life|term(?: life)?|annuity|final expense|gul|universal life|kai-?zen|myga|policy|plan)\b/i,
+      /\b(?:le|te)\s+(?:recomiendo|sugiero|aconsejo)\s+(?:que\s+)?(?:compre|contrate|comprar|contratar|el iul|la anualidad|la p[oó]liza)\b/i,
+      /\b(?:yo\s+)?recomiendo\s+(?:el|la|un|una|esta|este)\s+(?:iul|vida entera|p[oó]liza|anualidad|seguro|plan)\b/i,
+      /\b(?:eu\s+)?(?:recomendo|sugiro|aconselho)\s+(?:que\s+voc[eê]\s+)?(?:compre|contrate|feche|o iul|a anuidade|a ap[oó]lice|o seguro|o plano)\b/i,
+    ],
+  },
+  {
+    // "Livre de imposto, garantido" é a promessa clássica do IUL de rede social.
+    id: "li_tax_guarantee",
+    negationSensitive: true,
+    patterns: [
+      /\bguaranteed\s+tax[- ]free\b/i,
+      /\btax[- ]free,?\s+guaranteed\b/i,
+      /\b(?:libre de impuestos|sin impuestos)\s+garantizad[oa]\b|\bgarantizad[oa]\s+(?:libre de|sin)\s+impuestos\b/i,
+      /\b(?:isent[oa] de impostos?|livre de impostos?)\s+garantid[oa]\b|\bgarantid[oa]\s+(?:isent[oa]|livre)\s+de\s+impostos?\b/i,
     ],
   },
   {
@@ -113,6 +162,9 @@ const RULES: readonly Rule[] = [
     negationSensitive: false,
     patterns: [
       /\b(can('|no)?t|cannot|won't|will not|will never|never)\s+lose\s+(money|a (penny|dime|cent)|value|your (money|savings|principal))\b/i,
+      /\byou\s+(?:can(?:'|no)?t|cannot)\s+lose\s+(?:with|on|in)\s+(?:this|that|an?|the|our)\b/i,
+      /\bno\s+(?:puede|va a)\s+perder\s+con\s+(?:este|esta|un|una|el|la)\b/i,
+      /\bn[aã]o\s+tem\s+como\s+perder\s+com\b/i,
       /\b(no|nunca)\s+(puede|vas a|va a|va usted a)?\s*perder\s+(dinero|su dinero|tu dinero|un centavo)\b/i,
       /\b(n[aã]o|nunca)\s+(pode|vai)?\s*perde[r]?\s+(dinheiro|seu dinheiro|um centavo|valor)\b/i,
     ],
