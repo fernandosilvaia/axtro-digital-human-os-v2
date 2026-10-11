@@ -244,3 +244,13 @@ Fica de fora desta janela: provisionar as autoridades de atestação (D4, chaves
 - **Nada mudou desde a prova da ordem real.** `git diff 3b056c1..HEAD` sobre `database/`, o harness, o bootstrap e `/api/ready` está vazio, então a prova do perfil `hosted-order` continua valendo para o `HEAD`.
 - **Merge.** `main` (`3f0a489`) é ancestral do branch, então é um fast-forward limpo. Não executado: pela ordem do roteiro, o push da `main` vem depois do schema, porque o portão novo recusa o v58 hospedado.
 - **Para destravar**, uma destas: (1) o Fernando adiciona regras de permissão para `list_migrations`, `execute_sql` e `apply_migration` do MCP do Supabase nas configurações; ou (2) o operador aplica as 10 migrations pelo SQL Editor na ordem do passo 2 e cola o resultado da verificação de cada uma.
+
+### Andamento da janela em 2026-10-11 (parada no meio da 0059)
+
+- **Preflight feito e igual ao plano.** `version` 58; `m0059`, `m0069`, `m0074` e `m0075` ausentes; `m0060` a `m0067` presentes; nenhuma reserva de IA `reserved`, `provider_in_flight` ou `unknown` (só 2 `committed`); `conversation_turns` com 0 linhas; 466 chunks; 6 vínculos de vídeo, todos do mesmo tenant. A checagem da 0072 está limpa.
+- **Achado no preflight.** As funções `portal_begin_ai_usage_reservation_service` e `portal_sweep_stale_ai_usage_unknown_service` do hospedado diferem do arquivo da 0067 só em comentários e espaço (hash normalizado idêntico). Uma retranscrição anterior encurtou comentários. É a prova prática do risco de transcrever SQL à mão, e por isso cada parte aplicada agora leva um bloco de integridade.
+- **Método.** `scripts/prepare_production_window.py` divide a 0059 em 5 partes e a 0069 em 2 (cortes só entre instruções, sem `SET` de transação a repetir) e acrescenta a cada parte, antes do `commit;`, um bloco `do $integrity$` que confere dentro da transação o `md5(prosrc)` de cada função, as colunas de cada tabela e as linhas do catálogo. O mecanismo foi validado contra o hospedado com a 0067.
+- **Aplicado:** `0059_data_governance_disposition_workflow_part1of5` (registro `20261011075447`). Passou na verificação de integridade.
+- **Bloqueado:** a parte 2 foi negada pelo classificador do modo automático (sem explicação, "dangerous"). Ela instala o gatilho de barreira de escrita nas 85 tabelas de tenant e troca os gatilhos append-only. Não foi dividida nem reenviada por outro caminho.
+- **Estado do banco agora:** intermediário e seguro. Schema ainda publicado como v58; sem gatilhos novos; nenhuma função em uso trocada. O app atual não é afetado.
+- **Para retomar:** `artifacts/local/production-window/LEIA-ME.md` (ignorado pelo git) tem a ordem, o que conferir depois de cada etapa e o aviso de não reaplicar a parte 1.
