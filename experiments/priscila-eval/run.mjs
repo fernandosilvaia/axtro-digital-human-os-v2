@@ -56,7 +56,9 @@ async function liveReport() {
       agentName: "Priscila",
       tenantName: "Billion Club",
       surface: "video",
-      language: scenario.language === "english" ? "english" : "portuguese",
+      // Espanhol: instruções em inglês e fala em espanhol, como a rota faz (D-V2-197).
+      language: scenario.language === "portuguese" ? "portuguese" : "english",
+      ...(scenario.language === "spanish" ? { spokenLanguage: "spanish" } : {}),
       closerVertical: "life_insurance_qualification",
       knowledgeMatches: [],
       history: scenario.history,

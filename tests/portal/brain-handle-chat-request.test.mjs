@@ -294,3 +294,37 @@ test("degraded answers never carry tool calls", async () => {
   assert.equal(result.degraded, true);
   assert.deepEqual(result.toolCalls, []);
 });
+
+test("the persona's video language maps to instruction language plus spoken language", () => {
+  assert.deepEqual(handler.brainLanguagesFromVideoConfig("english"), { language: "english" });
+  assert.deepEqual(handler.brainLanguagesFromVideoConfig("portuguese"), { language: "portuguese" });
+  assert.deepEqual(handler.brainLanguagesFromVideoConfig("spanish"), { language: "english", spokenLanguage: "spanish" });
+  for (const unknown of [undefined, null, "french", "Spanish", 1]) {
+    assert.deepEqual(handler.brainLanguagesFromVideoConfig(unknown), {}, String(unknown));
+  }
+});
+
+test("a Spanish persona hears its fixed lines in Spanish, never in Portuguese", async () => {
+  const SPANISH = { ...AGENT, language: "english", spokenLanguage: "spanish" };
+  const request = { authorizationHeader: `Bearer ${RAW_SECRET}`, agentIdFromPath: "agent-1", rawMessages: [{ role: "user", content: "¿Cuánto cuesta?" }] };
+  const degraded = fakeDeps({ resolveConfig: () => SPANISH, generateThrows: true });
+  const fallback = await handler.handleBrainChatRequest(request, degraded.deps);
+  assert.equal(fallback.degradedReason, "generation_failed");
+  assert.match(fallback.reply, /^Disculpe/);
+
+  const exhausted = fakeDeps({ resolveConfig: () => SPANISH, budget: "exhausted" });
+  assert.match((await handler.handleBrainChatRequest(request, exhausted.deps)).reply, /^Llegamos al límite/);
+
+  const malformed = fakeDeps({ resolveConfig: () => SPANISH });
+  assert.match((await handler.handleBrainChatRequest({ ...request, rawMessages: [{ role: "assistant", content: "Hola" }] }, malformed.deps)).reply, /^Disculpe/);
+
+  const healthy = fakeDeps({ resolveConfig: () => SPANISH });
+  await handler.handleBrainChatRequest(request, healthy.deps);
+  const system = healthy.calls.generate[0].messages.filter((message) => message.role === "system").map((message) => message.content).join("\n");
+  assert.match(system, /SPOKEN LANGUAGE: this persona speaks SPANISH/);
+  assert.match(system, /THE SILVA METHOD|Silva Sales Method/, "instructions are the reviewed English ones");
+
+  const english = fakeDeps({ resolveConfig: () => ({ ...AGENT, language: "english" }) });
+  await handler.handleBrainChatRequest(request, english.deps);
+  assert.doesNotMatch(english.calls.generate[0].messages.map((message) => message.content).join("\n"), /SPOKEN LANGUAGE/);
+});

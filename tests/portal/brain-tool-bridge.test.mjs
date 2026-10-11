@@ -216,3 +216,22 @@ test("the coverage calculator is provisioned only on request, from the brain's o
   assert.match(script, /brainToolDefinitions\(\["estimate_coverage_need"\]\)/, "no copied schema that could drift");
   assert.match(script, /args\.withCoverageCalculator \? \[\.\.\.BUSINESS_TOOLS, await loadCoverageCalculatorTool\(\)\] : BUSINESS_TOOLS/, "opt-in, the default stays the 3 business tools");
 });
+
+test("a Spanish life insurance persona gets the Spanish directive, still fits the cap and retreats in Spanish", async () => {
+  const spanish = { agentName: "Priscila", tenantName: "Billion Club", language: "english", spokenLanguage: "spanish", toolCalling: { business: true, calculator: true } };
+  const prompt = brain.buildCloserVideoSystemPrompt({
+    ...spanish,
+    identityOverride: life.buildLifeInsuranceIdentity({ ...spanish, mode: "qualification" }),
+    domainCore: life.buildLifeInsuranceCore("qualification", "english"),
+  });
+  assert.match(prompt, /SPOKEN LANGUAGE: this persona speaks SPANISH/);
+  assert.ok(prompt.length <= 14_900, `spanish prompt ${prompt.length}`);
+  const english = brain.buildCloserVideoSystemPrompt({ ...spanish, spokenLanguage: undefined });
+  assert.doesNotMatch(english, /SPOKEN LANGUAGE/);
+
+  // Uma fala só com a frase proibida, sem marcador de idioma: o recuo usa o idioma falado.
+  const { deps: d } = deps({ text: "Federal license." });
+  const result = await core.runBrainChatCompletion({ ...REQUEST, availableTools: [], language: "english", spokenLanguage: "spanish", userMessage: "¿Me aprueban?" }, d);
+  assert.ok(result.guardrailFlags.includes("li_federal_license"));
+  assert.match(result.reply, /^Permítame ser precisa/, "the retreat speaks the persona's language");
+});

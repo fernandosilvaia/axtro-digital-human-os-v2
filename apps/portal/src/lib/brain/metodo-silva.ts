@@ -19,10 +19,28 @@ import { maestriaHumanaFor } from "./maestria-humana.ts";
 
 export type BrainLanguage = "portuguese" | "english";
 
+/**
+ * Idioma que a persona FALA na chamada. É separado de `BrainLanguage` (o idioma
+ * das instruções) de propósito: o prompt só existe em inglês e português, e os
+ * ternários `language === "english" ? EN : PT` mandariam um "spanish" para o
+ * português sem nenhum erro. Persona em espanhol usa as instruções em inglês
+ * (os modelos seguem bem e é o texto revisado) mais a diretiva de idioma.
+ */
+export type SpokenLanguage = BrainLanguage | "spanish";
+
+/** Idioma das instruções para um idioma falado: espanhol usa as instruções em inglês. */
+export function promptLanguageFor(spoken: SpokenLanguage | undefined): BrainLanguage | undefined {
+  return spoken === "spanish" ? "english" : spoken;
+}
+
+const SPANISH_DIRECTIVE = "SPOKEN LANGUAGE: this persona speaks SPANISH. Open the call and run it in natural, warm US Hispanic Spanish, using usted by default and tú only if the person does first. These instructions are in English for precision only: every word you say is Spanish, including the AI disclosure, unless the person speaks another language, then follow them. Never mix two languages in one turn.";
+
 export interface BrainAgentProfile {
   readonly agentName: string;
   readonly tenantName: string;
   readonly language?: BrainLanguage;
+  /** Só "spanish" muda o prompt (diretiva de idioma); os outros já são o próprio `language`. */
+  readonly spokenLanguage?: SpokenLanguage;
   /**
    * Substitui a primeira linha de identidade do prompt de vídeo. Existe porque
    * numa call real a primeira frase decide o enquadramento inteiro da conversa,
@@ -44,10 +62,10 @@ export interface BrainAgentProfile {
    * Se a persona consegue de fato chamar tools nesta conversa. O padrão (true)
    * descreve uma persona com LLM hospedado na Tavus, onde as tools de cena e de
    * negócio anexadas à persona realmente disparam. O cérebro próprio (rota
-   * /api/brain, `runBrainChatCompletion`) NÃO devolve tool_calls, então lá a
-   * doutrina de agendamento por tool seria uma instrução falsa: o modelo
-   * "checaria a agenda", inventaria horários e nada seria marcado. Com false o
-   * prompt troca as tools por captura verbal e handoff honesto.
+   * /api/brain) passa o objeto com as tools que ofereceu ao modelo nesta
+   * requisição (D-V2-196), ou false quando não ofereceu nenhuma. Com false o
+   * prompt troca as tools por captura verbal e handoff honesto: prometer uma
+   * tool que não existe faria o modelo inventar horários.
    */
   readonly toolCalling?: boolean | BrainToolCapabilities;
 }
@@ -217,6 +235,7 @@ export function buildCloserVideoSystemPrompt(profile: BrainAgentProfile): string
       profile.identityOverride
         ?? `You are "${profile.agentName}", the digital sales closer for "${profile.tenantName}" on a LIVE VIDEO sales call, trained in the Silva Sales Method. You look and sound like a warm, senior consultant, because you are one, and you are also transparently an AI.`,
       "",
+      ...(profile.spokenLanguage === "spanish" ? [SPANISH_DIRECTIVE, ""] : []),
       "IDENTITY & DISCLOSURE (verbatim doctrine, never improvise here): early in the call, make your nature clear with ease: you are an AI consultant and you run this conversation end to end; if the person ever prefers a human, you transfer immediately with full context. If asked \"are you a robot?\": \"I am. An AI consultant, which is why I can be here for you anytime. If you'd rather talk to someone on the human team, I'll connect you right now. Want that?\" Never deny being an AI. Never imitate a specific real person.",
       "",
       metodoCoreFor("english", regulated),

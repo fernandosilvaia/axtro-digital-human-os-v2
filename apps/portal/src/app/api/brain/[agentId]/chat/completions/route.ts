@@ -4,8 +4,7 @@ import { createOpenRouterTextGenerationPort, TextGenerationError } from "@axtro/
 
 import { parseCloserVertical, type BrainKnowledgeMatch } from "@/lib/brain/chat-completion-core";
 import { buildCompletionStream } from "@/lib/brain/completion-stream";
-import type { BrainLanguage } from "@/lib/brain/metodo-silva";
-import { authenticateBrainRequest, BrainHttpError, handleBrainChatRequest, type BudgetVerdict, type ResolvedBrainAgent } from "@/lib/brain/handle-chat-request";
+import { authenticateBrainRequest, brainLanguagesFromVideoConfig, BrainHttpError, handleBrainChatRequest, type BudgetVerdict, type ResolvedBrainAgent } from "@/lib/brain/handle-chat-request";
 import {
   AI_USAGE_LIMITS,
   aiProviderRequestScope,
@@ -89,15 +88,14 @@ async function resolveConfig(secretHash: string): Promise<ResolvedBrainAgent | n
 
   // Idioma da persona (agent_video_config.language): sem ele o cérebro
   // sempre falava pt-BR mesmo em persona EN (achado da auditoria 2026-08-02).
-  let language: BrainLanguage | undefined;
+  // Espanhol usa as instruções em inglês e fala espanhol (D-V2-197).
   const { data: videoConfig } = await supabase
     .from("agent_video_config")
     .select("language, closer_vertical")
     .eq("tenant_id", record.tenant_id)
     .eq("agent_id", record.agent_id)
     .maybeSingle();
-  if (videoConfig?.language === "english") language = "english";
-  else if (videoConfig?.language === "portuguese") language = "portuguese";
+  const languages = brainLanguagesFromVideoConfig(videoConfig?.language);
 
   // Vertical de doutrina (0063). Valor ausente ou desconhecido cai em
   // `metodo_silva` dentro de parseCloserVertical: se a coluna ainda nao
@@ -111,7 +109,7 @@ async function resolveConfig(secretHash: string): Promise<ResolvedBrainAgent | n
     agentName: record.agent_name,
     tenantName: record.tenant_name,
     enabled: true,
-    ...(language === undefined ? {} : { language }),
+    ...languages,
     closerVertical,
   };
 }
@@ -240,7 +238,7 @@ export async function POST(
       tenantId: authenticatedConfig.tenantId,
       agentId: authenticatedConfig.agentId,
       vertical: authenticatedConfig.closerVertical ?? "metodo_silva",
-      language: authenticatedConfig.language ?? "default",
+      language: authenticatedConfig.spokenLanguage ?? authenticatedConfig.language ?? "default",
       startedAtMs: turnStartedAtMs,
       endedAtMs: Date.now(),
       guardrailFlags: outcome.guardrailFlags ?? [],

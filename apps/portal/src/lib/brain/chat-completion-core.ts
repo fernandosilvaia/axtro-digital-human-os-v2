@@ -21,7 +21,7 @@ import { AI_USAGE_LIMITS } from "../ai-budget/reservations.ts";
 import { buildLifeInsuranceCore, buildLifeInsuranceIdentity } from "./life-insurance.ts";
 import { brainToolDefinitions, hasBusinessTools, hasCalculatorTool, type BrainToolName } from "./brain-tools.ts";
 import { enforceLifeInsuranceCompliance } from "./compliance-sentinel.ts";
-import { buildCloserChatSystemMessages, buildCloserVideoSystemPrompt, type BrainLanguage } from "./metodo-silva.ts";
+import { buildCloserChatSystemMessages, buildCloserVideoSystemPrompt, type BrainLanguage, type SpokenLanguage } from "./metodo-silva.ts";
 
 /**
  * Vertical de doutrina do agente, vinda de `agent_video_config.closer_vertical`.
@@ -87,6 +87,8 @@ export interface BrainChatRequest {
   /** "chat" usa o prompt curto do sandbox; "video" usa o prompt rico da persona de vídeo (ritmo curto, leitura emocional, tools de slide). */
   readonly surface: "chat" | "video";
   readonly language?: BrainLanguage;
+  /** Idioma falado, quando difere das instruções (hoje só espanhol, com instruções em inglês). */
+  readonly spokenLanguage?: SpokenLanguage;
   readonly closerVertical?: CloserVertical;
   readonly knowledgeMatches: readonly BrainKnowledgeMatch[];
   /** Bloco de percepção JÁ extraído (ex.: tags do raven-1 via Tavus); texto livre, nunca instrução. */
@@ -507,6 +509,7 @@ export async function runBrainChatCompletion(request: BrainChatRequest, deps: Br
         ? false
         : { business: hasBusinessTools(offered), calculator: hasCalculatorTool(offered) },
       ...(request.language === undefined ? {} : { language: request.language }),
+      ...(request.spokenLanguage === undefined ? {} : { spokenLanguage: request.spokenLanguage }),
       ...verticalComposition,
     }))
     : buildCloserChatSystemMessages({
@@ -571,7 +574,8 @@ export async function runBrainChatCompletion(request: BrainChatRequest, deps: Br
   }
   // Vertical regulada: a frase que cria exposição regulatória não chega ao
   // áudio, mesmo que o modelo ignore a instrução do prompt.
-  const guarded = enforceLifeInsuranceCompliance(sanitized, request.language === "english" ? "english" : "portuguese");
+  // O recuo da sentinela sai no idioma da fala quando ela não dá para detectar.
+  const guarded = enforceLifeInsuranceCompliance(sanitized, request.spokenLanguage ?? (request.language === "english" ? "english" : "portuguese"));
   return {
     // Resposta só de tool não tem fala: a sentinela não inventa recuo para o vazio.
     reply: sanitized.length === 0 ? "" : guarded.reply,

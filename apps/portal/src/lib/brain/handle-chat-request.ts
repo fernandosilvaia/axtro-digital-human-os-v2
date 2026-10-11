@@ -21,7 +21,7 @@
  */
 import type { TextGenerationToolCall } from "@axtro/provider-openrouter";
 import { offeredBrainToolNames } from "./brain-tools.ts";
-import type { BrainLanguage } from "./metodo-silva.ts";
+import { promptLanguageFor, type BrainLanguage, type SpokenLanguage } from "./metodo-silva.ts";
 import { runBrainChatCompletion, type BrainKnowledgeMatch, type CloserVertical } from "./chat-completion-core.ts";
 import { hashBrainSecret } from "./secret.ts";
 import { parseTavusChatRequest, TavusRequestParseError } from "./tavus-request.ts";
@@ -33,7 +33,20 @@ export interface ResolvedBrainAgent {
   readonly tenantName: string;
   readonly enabled: boolean;
   readonly language?: BrainLanguage;
+  /** Idioma falado na chamada. Ausente quando é o próprio `language`. */
+  readonly spokenLanguage?: SpokenLanguage;
   readonly closerVertical?: CloserVertical;
+}
+
+/**
+ * `agent_video_config.language` para os dois idiomas do cérebro: o das
+ * instruções e o falado. Valor desconhecido ou ausente não define nenhum, e o
+ * prompt cai no padrão (português), como antes.
+ */
+export function brainLanguagesFromVideoConfig(value: unknown): Pick<ResolvedBrainAgent, "language" | "spokenLanguage"> {
+  if (value !== "english" && value !== "portuguese" && value !== "spanish") return {};
+  const language = promptLanguageFor(value);
+  return value === "spanish" ? { language: language as BrainLanguage, spokenLanguage: "spanish" } : { language: value };
 }
 
 export type BudgetVerdict = "allowed" | "exhausted" | "unavailable";
@@ -87,14 +100,20 @@ const FALLBACK_REPLY_PT = "Peço desculpa, deixa eu reorganizar isso rapidinho. 
 const FALLBACK_REPLY_EN = "My apologies, let me collect that for a second. Could you repeat the last part for me?";
 const BUDGET_REPLY_PT = "Nosso tempo de hoje chegou ao limite da sessão. Vou pedir pro time humano continuar com você daqui, com todo o nosso contexto. Obrigada pela conversa até aqui!";
 const BUDGET_REPLY_EN = "We've reached today's session limit. I'll have our human team continue from here with full context. Thank you for the conversation so far!";
+const FALLBACK_REPLY_ES = "Disculpe, déjeme organizar eso un momento. ¿Me repite la última parte, por favor?";
+const BUDGET_REPLY_ES = "Llegamos al límite de la sesión de hoy. Le pido a nuestro equipo humano que continúe con usted desde aquí, con todo el contexto. ¡Gracias por la conversación!";
 const BEARER_PATTERN = /^Bearer\s+([a-f0-9]{64})$/;
 
-function fallbackReply(language: BrainLanguage | undefined): string {
-  return language === "english" ? FALLBACK_REPLY_EN : FALLBACK_REPLY_PT;
+// As frases fixas saem no idioma que a persona FALA: uma persona em espanhol
+// ouvia "Peço desculpa..." em português sempre que o cérebro degradava.
+function fallbackReply(agent: Pick<ResolvedBrainAgent, "language" | "spokenLanguage">): string {
+  const spoken = agent.spokenLanguage ?? agent.language;
+  return spoken === "spanish" ? FALLBACK_REPLY_ES : spoken === "english" ? FALLBACK_REPLY_EN : FALLBACK_REPLY_PT;
 }
 
-function budgetReply(language: BrainLanguage | undefined): string {
-  return language === "english" ? BUDGET_REPLY_EN : BUDGET_REPLY_PT;
+function budgetReply(agent: Pick<ResolvedBrainAgent, "language" | "spokenLanguage">): string {
+  const spoken = agent.spokenLanguage ?? agent.language;
+  return spoken === "spanish" ? BUDGET_REPLY_ES : spoken === "english" ? BUDGET_REPLY_EN : BUDGET_REPLY_PT;
 }
 
 function extractBearer(authorizationHeader: string | null): string | null {
@@ -144,7 +163,7 @@ export async function handleBrainChatRequest(
   }
   if (budget !== "allowed") {
     return {
-      reply: budget === "exhausted" ? budgetReply(agent.language) : fallbackReply(agent.language),
+      reply: budget === "exhausted" ? budgetReply(agent) : fallbackReply(agent),
       degraded: true,
       degradedReason: budget === "exhausted" ? "budget_exhausted" : "budget_unavailable",
       guardrailFlags: [],
@@ -158,7 +177,7 @@ export async function handleBrainChatRequest(
   } catch (error) {
     if (error instanceof TavusRequestParseError) {
       // Requisição chegou autenticada mas malformada: degrada, não derruba a call.
-      return { reply: fallbackReply(agent.language), degraded: true, degradedReason: "malformed_request", cause: error, guardrailFlags: [], toolCalls: [] };
+      return { reply: fallbackReply(agent), degraded: true, degradedReason: "malformed_request", cause: error, guardrailFlags: [], toolCalls: [] };
     }
     throw error;
   }
@@ -180,6 +199,7 @@ export async function handleBrainChatRequest(
         tenantName: agent.tenantName,
         surface: "video",
         ...(agent.language === undefined ? {} : { language: agent.language }),
+        ...(agent.spokenLanguage === undefined ? {} : { spokenLanguage: agent.spokenLanguage }),
         ...(agent.closerVertical === undefined ? {} : { closerVertical: agent.closerVertical }),
         knowledgeMatches,
         perceptionContext: parsed.perceptionContext,
@@ -196,6 +216,6 @@ export async function handleBrainChatRequest(
     );
     return { reply: result.reply, degraded: false, guardrailFlags: result.guardrailFlags, toolCalls: result.toolCalls };
   } catch (error) {
-    return { reply: fallbackReply(agent.language), degraded: true, degradedReason: "generation_failed", cause: error, guardrailFlags: [], toolCalls: [] };
+    return { reply: fallbackReply(agent), degraded: true, degradedReason: "generation_failed", cause: error, guardrailFlags: [], toolCalls: [] };
   }
 }

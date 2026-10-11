@@ -43,8 +43,10 @@ export const LIVE_CONFIRM = "spend-openrouter-credit";
 const MAX_TOOL_HOPS = 3;
 const LOOPBACK_HOSTS = new Set(["127.0.0.1", "localhost", "[::1]"]);
 
-function brainLanguage(language) {
-  return language === "english" ? "english" : "portuguese";
+/** Mesmo mapeamento da rota: espanhol usa as instruções em inglês e fala espanhol. */
+function brainLanguages(language) {
+  if (language === "spanish") return { language: "english", spokenLanguage: "spanish" };
+  return { language: language === "english" ? "english" : "portuguese" };
 }
 
 /**
@@ -101,7 +103,7 @@ export async function playConversation(conversation, generate) {
         agentName: "Priscila",
         tenantName: "Billion Club",
         surface: "video",
-        language: brainLanguage(conversation.language),
+        ...brainLanguages(conversation.language),
         closerVertical: "life_insurance_qualification",
         knowledgeMatches: [],
         history,
