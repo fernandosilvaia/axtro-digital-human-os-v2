@@ -99,7 +99,7 @@ export async function createKnowledgeSource(
   // sozinho). A guarda de chave só vale fora dele (contrato T3: todos os
   // fluxos de UI testáveis sem chave; auditoria 2026-08-02).
   if (content.length > 0 && !fakeProvidersEnabled() && (process.env.OPENROUTER_API_KEY ?? "").trim().length === 0) {
-    return { error: "O provider de embeddings ainda não está configurado neste ambiente.", done: false };
+    return { error: "O serviço de busca da base de conhecimento ainda não está configurado neste ambiente.", done: false };
   }
 
   const overview = await fetchTenantOverview();
@@ -180,7 +180,7 @@ async function ingestContentForSource(
       try {
         assertEmbeddingProviderConfigured(process.env.OPENROUTER_API_KEY ?? "");
       } catch {
-        return "o provedor de embeddings não está configurado nesta conta; nenhum custo foi gerado.";
+        return "o serviço de busca da base de conhecimento não está configurado nesta conta; nenhum custo foi gerado.";
       }
     }
     const embedded = fakeMode
@@ -240,7 +240,7 @@ async function ingestContentForSource(
     return null;
   } catch (embedError) {
     trackError("knowledge_ingestion_failed", embedError, { source_id: sourceId });
-    return "o provider de embeddings falhou e a tentativa aguarda reconciliação.";
+    return "o serviço de busca falhou e a tentativa aguarda conferência da equipe.";
   }
 }
 
@@ -259,7 +259,7 @@ export async function updateKnowledgeSourceContent(
     return { error: `O conteúdo precisa ter entre 1 e ${MAX_CONTENT_CHARS.toLocaleString("pt-BR")} caracteres.`, done: false };
   }
   if (!fakeProvidersEnabled() && (process.env.OPENROUTER_API_KEY ?? "").trim().length === 0) {
-    return { error: "O provider de embeddings ainda não está configurado neste ambiente.", done: false };
+    return { error: "O serviço de busca da base de conhecimento ainda não está configurado neste ambiente.", done: false };
   }
 
   const overview = await fetchTenantOverview();

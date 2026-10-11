@@ -6,9 +6,8 @@ export function PreviewChat({ agentName }: { agentId: string; agentName: string 
         Proteção de privacidade em restauração
       </h2>
       <p style={{ color: "var(--text-muted)", marginBottom: 0, maxWidth: 680 }}>
-        O chat de teste de {agentName} está temporariamente indisponível. Nenhum provider,
-        ledger ou transcript é acionado enquanto o runtime contract-first passa pela
-        validação de disclosure, consentimento, isolamento por tenant e replay.
+        O chat de teste de {agentName} volta em breve. Enquanto isso, nada é enviado a
+        fornecedores e nenhuma conversa é registrada por aqui. Teste pela conversa em vídeo abaixo.
       </p>
     </section>
   );

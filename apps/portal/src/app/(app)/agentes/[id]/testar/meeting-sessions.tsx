@@ -59,7 +59,7 @@ export async function MeetingSessions({ agentId, timeZone }: { agentId: string; 
     <section className="card" style={{ marginTop: 16 }} aria-labelledby="reunioes-externas">
       <h3 id="reunioes-externas" style={{ fontSize: "0.95rem", marginBottom: 4 }}>Reuniões externas deste agente</h3>
       <p style={{ color: "var(--text-muted)", fontSize: "0.8rem", margin: "0 0 10px" }}>
-        Status atualizado pelo provider de reuniões (horários no fuso {timeZone}). Recarregue a página para ver o mais recente.
+        Status atualizado pelo serviço de reuniões (horários no fuso {timeZone}). Recarregue a página para ver o mais recente.
       </p>
       <div className="table-wrap">
         <table>

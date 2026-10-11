@@ -3,6 +3,7 @@
 import { revalidatePath } from "next/cache";
 
 import { createClient } from "@/lib/supabase/server";
+import { logError as trackError } from "@/lib/telemetry";
 
 export interface TenantProfileActionState {
   readonly error: string | null;
@@ -45,7 +46,12 @@ export async function updateTenantProfile(
     p_default_language: defaultLanguage,
     p_default_timezone: defaultTimezone,
   });
-  if (error) return { error: PROFILE_ERROR_MESSAGES[error.message] ?? UNEXPECTED_ERROR_MESSAGE, saved: false };
+  if (error) {
+    const known = PROFILE_ERROR_MESSAGES[error.message];
+    // Recusa esperada já tem tradução; só o erro desconhecido vira telemetria.
+    if (!known) trackError("update_tenant_profile_failed", new Error(error.message), {});
+    return { error: known ?? UNEXPECTED_ERROR_MESSAGE, saved: false };
+  }
 
   revalidatePath("/configuracoes");
   revalidatePath("/dashboard");

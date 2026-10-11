@@ -28,7 +28,7 @@ const SURFACES: readonly Readonly<{
     label: "Visão geral",
     eyebrow: "Central sintética",
     title: "Entenda a operação antes de colocar um agente em campo.",
-    description: "A simulação organiza presença, contexto autorizado e histórico sem consultar qualquer workspace real.",
+    description: "A simulação organiza presença, contexto autorizado e histórico sem consultar nenhuma conta real.",
     facts: ["Um agente fictício", "Três fontes sintéticas", "Quatro etapas simuladas"],
   },
   {
@@ -37,7 +37,7 @@ const SURFACES: readonly Readonly<{
     label: "Agente",
     eyebrow: "Presença configurada",
     title: "Raissa representa a identidade visual da experiência.",
-    description: "A demonstração apresenta configuração e disclosure, mas não ativa persona, voz, vídeo ou chamada externa.",
+    description: "A demonstração apresenta a configuração e a identificação da IA, mas não ativa persona, voz, vídeo ou chamada externa.",
     facts: ["IA identificada", "Escopo comercial fictício", "Nenhuma capacidade de ativação"],
   },
   {
@@ -56,7 +56,7 @@ const SURFACES: readonly Readonly<{
     eyebrow: "Histórico demonstrativo",
     title: "Uma linha do tempo fictícia explica o próximo passo.",
     description: "A experiência não gera fala, transcrição, lead, reunião ou comprovante. Ela apenas demonstra a estrutura da jornada.",
-    facts: ["Disclosure apresentado", "Contexto sintético consultado", "Handoff demonstrativo"],
+    facts: ["Identificação da IA apresentada", "Contexto sintético consultado", "Passagem para humano demonstrada"],
   },
 ]);
 
@@ -74,7 +74,7 @@ const STEP_CONTENT: Readonly<Record<StepName, Readonly<{ label: string; descript
     description: "Percorra uma representação sem mídia, geração ou efeito externo.",
   }),
   handoff: Object.freeze({
-    label: "Handoff",
+    label: "Passagem para humano",
     description: "Veja como a continuidade humana seria indicada, sem executar nenhuma ação.",
   }),
 });
@@ -139,7 +139,7 @@ export function PublicDemoWorkspace({ initialView }: { initialView: PublicDemoVi
           });
         }
         if (result.outcome === "applied") setFeedback("Estado sintético atualizado somente nesta sessão.");
-        if (result.outcome === "replayed") setFeedback("Comando repetido ignorado sem duplicar a transição.");
+        if (result.outcome === "replayed") setFeedback("Esse passo já tinha sido registrado.");
         if (result.outcome === "stale") setFeedback("A visualização foi sincronizada com o estado atual.");
         if (result.outcome === "expired" || result.outcome === "unavailable") {
           setSessionEnded(true);

@@ -65,8 +65,9 @@ export function DataGovernanceSection({
     <section className="card" aria-labelledby="governanca-de-dados" style={{ gridColumn: "1 / -1" }}>
       <h2 id="governanca-de-dados" className="section-title">Excluir todos os dados da conta</h2>
       <p style={{ color: "var(--text-muted)", fontSize: "0.88rem", margin: "0 0 14px" }}>
-        Abre um pedido formal para apagar todos os dados desta conta. Dois administradores diferentes
-        precisam aprovar. Depois disso, o pedido aguarda a execução pela equipe Axtro.
+        Abre um pedido formal para apagar todos os dados desta conta. Dois outros administradores,
+        além de quem abriu o pedido, precisam aprovar. Depois disso, o pedido aguarda a execução
+        pela equipe Axtro.
       </p>
 
       {governanceStatus && STATUS_MESSAGE[governanceStatus] && (

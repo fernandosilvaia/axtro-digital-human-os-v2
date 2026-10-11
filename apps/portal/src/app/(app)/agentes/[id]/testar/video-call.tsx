@@ -61,7 +61,7 @@ export function VideoCall({ tenantId, agentId, agentName }: { tenantId: string; 
         </div>
         {providerStopConfirmed && (
           <p role="status" style={{ margin: 0, width: "100%", color: "var(--text-muted)", fontSize: "0.82rem" }}>
-            O provider confirmou o pedido de encerramento da conversa.
+            O fornecedor de vídeo confirmou o pedido de encerramento da conversa.
           </p>
         )}
         <fieldset style={{ width: "100%", border: 0, padding: 0, margin: 0, display: "grid", gap: 8 }}>
@@ -121,7 +121,7 @@ export function VideoCall({ tenantId, agentId, agentName }: { tenantId: string; 
       <section className="card" style={{ marginTop: 16, padding: 16 }}>
         <p style={{ margin: 0, color: "var(--text-muted)", fontSize: "0.88rem" }}>
           {providerStopConfirmed
-            ? "O provider confirmou o pedido de encerramento da conversa."
+            ? "O fornecedor de vídeo confirmou o pedido de encerramento da conversa."
             : "Conversa finalizada nesta tela."} <button type="button" className="btn" onClick={reset} style={{ marginLeft: 8 }}>Nova conversa</button>
         </p>
       </section>

@@ -99,7 +99,7 @@ export function ExternalMeeting({ agentId, agentName, timeZone }: { agentId: str
         Levar para uma reunião externa 🎥
       </h3>
       <p style={{ color: "var(--text-muted)", fontSize: "0.84rem", margin: "0 0 14px" }}>
-        O fluxo de reuniões externas está em atualização para registrar disclosure e consentimento individual de cada participante antes de criar gravação, transcrição ou câmera de IA.
+        O fluxo de reuniões externas está em atualização para registrar a identificação da IA e o consentimento individual de cada participante antes de criar gravação, transcrição ou câmera de IA.
       </p>
       {!EXTERNAL_MEETING_AVAILABLE && (
         <p role="status" style={{ margin: "0 0 14px", padding: "10px 12px", borderRadius: 8, background: "rgba(255,195,107,0.10)", border: "1px solid rgba(255,195,107,0.28)", color: "var(--text-muted)", fontSize: "0.82rem" }}>
@@ -206,7 +206,7 @@ export function ExternalMeeting({ agentId, agentName, timeZone }: { agentId: str
         )}
         {stopped && (
           <p role="status" style={{ margin: "0 0 12px", fontSize: "0.82rem", color: "var(--text-muted)" }}>
-            O provider confirmou o pedido para que {agentName} saia da reunião.
+            O fornecedor de vídeo confirmou o pedido para que {agentName} saia da reunião.
           </p>
         )}
 

@@ -1,6 +1,7 @@
 "use server";
 
 import { createClient } from "@/lib/supabase/server";
+import { logError as trackError } from "@/lib/telemetry";
 
 export interface DeleteTranscriptState {
   readonly error: string | null;
@@ -26,7 +27,10 @@ export async function deleteConversationTranscript(id: string): Promise<DeleteTr
   const supabase = await createClient();
   const { error } = await supabase.rpc("portal_delete_conversation_transcript", { p_id: id });
   if (error) {
-    return { error: DELETE_TRANSCRIPT_ERROR_MESSAGES[error.message] ?? UNEXPECTED_ERROR_MESSAGE };
+    const known = DELETE_TRANSCRIPT_ERROR_MESSAGES[error.message];
+    // Recusa esperada já tem tradução; só o erro desconhecido vira telemetria.
+    if (!known) trackError("delete_transcript_failed", new Error(error.message), {});
+    return { error: known ?? UNEXPECTED_ERROR_MESSAGE };
   }
   return { error: null };
 }

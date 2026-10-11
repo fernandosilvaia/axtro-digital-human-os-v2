@@ -39,7 +39,7 @@ export default async function PublicDemoPage({
         </h1>
         <p className={styles.entryLead}>
           {unavailable
-            ? "O workspace de clientes continua protegido e disponível pelo login normal. Tente novamente mais tarde ou crie sua própria conta."
+            ? "A área de clientes continua protegida e disponível pelo login normal. Tente novamente mais tarde ou crie sua própria conta."
             : "Tudo aqui é fictício: nada é salvo e nenhuma cobrança é feita. O percurso fica só neste navegador, por pouco tempo."}
         </p>
         <div className={styles.entryActions}>

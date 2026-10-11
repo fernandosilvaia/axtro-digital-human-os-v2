@@ -26,7 +26,7 @@ test("operator stop controls retain retryable client state until the server conf
     assert.match(source, /useCallLifecycle/);
     assert.match(source, /Confirmando encerramento/);
     assert.match(source, /role="alert"/);
-    assert.match(source, /O provider confirmou o pedido de encerramento/);
+    assert.match(source, /O fornecedor de vídeo confirmou o pedido de encerramento/);
     assert.match(source, /Tentar encerrar/);
   }
   assert.match(videoCall, /stopAction: stopVideoConversation/);
@@ -40,6 +40,6 @@ test("operator stop controls retain retryable client state until the server conf
   assert.match(externalStop, /setStopped\(false\)[\s\S]*setStopError/);
   assert.match(externalStop, /catch[\s\S]*setStopError/);
   assert.doesNotMatch(externalStop, /setSuccess\(null\)/);
-  assert.match(externalMeeting, /O provider confirmou o pedido para que \{agentName\} saia da reunião/);
+  assert.match(externalMeeting, /O fornecedor de vídeo confirmou o pedido para que \{agentName\} saia da reunião/);
   assert.doesNotMatch(externalMeeting, /\{agentName\} saiu da reunião/);
 });

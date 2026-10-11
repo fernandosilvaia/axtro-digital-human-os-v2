@@ -8,7 +8,8 @@
   --demo-ink: #f2eee8;
   --demo-muted: #aaa39b;
   --demo-red: #d72f29;
-  --demo-red-hover: #ee443b;
+  /* Hover mais escuro que o vermelho base: o anterior (#ee443b) dava 3,8:1 com o texto branco. */
+  --demo-red-hover: #c0302a;
   min-height: 100dvh;
   background: var(--demo-canvas);
   color: var(--demo-ink);

@@ -267,7 +267,7 @@ export function PresentationRoom({ tenantId, agentId, agentName }: { tenantId: s
       <section className="card" style={{ marginTop: 16, padding: 16 }}>
         <p style={{ margin: 0, color: "var(--text-muted)", fontSize: "0.88rem" }}>
           {providerStopConfirmed
-            ? "O provider confirmou o pedido de encerramento da apresentação."
+            ? "O fornecedor de vídeo confirmou o pedido de encerramento da apresentação."
             : "Apresentação finalizada nesta tela."} <button type="button" className="btn" onClick={() => { reset(); setDeck(null); setSimulated(false); }} style={{ marginLeft: 8 }}>Nova apresentação</button>
         </p>
       </section>
@@ -348,7 +348,7 @@ export function PresentationRoom({ tenantId, agentId, agentName }: { tenantId: s
               role="note"
               style={{ width: "100%", aspectRatio: "3 / 4", borderRadius: 12, background: "#0c0c1c", border: "1px dashed rgba(129,120,255,0.35)", display: "flex", alignItems: "center", justifyContent: "center", padding: 18, textAlign: "center", color: "var(--text-muted)", fontSize: "0.82rem" }}
             >
-              Modo demonstração: sem provider de vídeo. Navegue o deck manualmente para revisar a apresentação de {agentName}.
+              Modo demonstração: sem fornecedor de vídeo. Navegue o deck manualmente para revisar a apresentação de {agentName}.
             </div>
           ) : (
             <>

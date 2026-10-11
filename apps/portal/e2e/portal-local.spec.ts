@@ -247,7 +247,7 @@ test("preview textual permanece fechado e vídeo sem provider libera uma nova te
   await page.goto(`/agentes/${RAFAELA_ID}/testar`);
   const preview = page.locator('section[aria-labelledby="text-preview-recovery-title"]');
   await expect(preview.getByRole("heading", { name: "Proteção de privacidade em restauração" })).toBeVisible();
-  await expect(preview.getByText("Nenhum provider, ledger ou transcript é acionado", { exact: false })).toBeVisible();
+  await expect(preview.getByText("nada é enviado a fornecedores", { exact: false })).toBeVisible();
   await expect(preview.locator("form, input, textarea, button")).toHaveCount(0);
 
   const videoConsent = page.getByRole("group", { name: "Consentimento para esta demonstração" });
@@ -289,7 +289,7 @@ test("apresentação simulada abre o deck e navega slides", async ({ page }) => 
   await presentationConsent.getByLabel(/análise comportamental/).check();
   await presentationConsent.getByLabel(/análise visual/).check();
   await page.getByRole("button", { name: "Iniciar apresentação" }).click();
-  await expect(page.getByText("Modo demonstração: sem provider de vídeo")).toBeVisible({ timeout: 30_000 });
+  await expect(page.getByText("Modo demonstração: sem fornecedor de vídeo")).toBeVisible({ timeout: 30_000 });
   await expect(page.getByText("1/7")).toBeVisible();
   await page.getByRole("button", { name: "Próximo →" }).click();
   await expect(page.getByText("2/7")).toBeVisible();
