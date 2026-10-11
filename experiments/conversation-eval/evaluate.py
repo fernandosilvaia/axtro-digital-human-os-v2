@@ -139,7 +139,7 @@ def conversation_report(rows: list[dict[str, Any]]) -> dict[str, Any]:
             "silent_turns": sum(1 for turn in assistant if not turn["content"].strip()),
             "tools_called": sorted({tool["name"] for turn in assistant for tool in turn["tools_called"]}),
             "guardrail_flags": sorted({flag for turn in row["turns"] for flag in turn.get("guardrail_flags", [])}),
-            "em_dash_turns": sum(1 for turn in assistant if "—" in turn["content"]),
+            "em_dash_turns": sum(1 for turn in assistant if "\u2014" in turn["content"]),
         })
     return report
 

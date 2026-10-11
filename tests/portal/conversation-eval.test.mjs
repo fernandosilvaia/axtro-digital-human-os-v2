@@ -20,7 +20,7 @@ test("conversation scripts are well formed and only use tools the brain can offe
     for (const name of conversation.tools) assert.ok(KNOWN_TOOLS.has(name), `${conversation.id}: ${name}`);
   }
   for (const text of [CHATBOT_ROLE, ...CONVERSATIONS.flatMap((c) => [c.scenario, c.expectedOutcome, ...c.userTurns])]) {
-    assert.ok(!text.includes("—"), "no em dash in eval material");
+    assert.ok(!text.includes("\u2014"), "no em dash in eval material");
   }
 });
 
@@ -29,7 +29,7 @@ test("every RAG question points at a section that exists in the Priscila pack", 
   assert.equal(rows.length, RAG_QUESTIONS.length);
   for (const row of rows) {
     assert.match(row.reference_contexts[0], /^## /);
-    assert.ok(row.reference.length > 40 && !row.reference.includes("—"));
+    assert.ok(row.reference.length > 40 && !row.reference.includes("\u2014"));
   }
 });
 
@@ -51,7 +51,7 @@ test("in-process scheduling tools answer in the production text format, with fic
   assert.match(collect.runToolInProcess({ name: "propose_meeting_slots", argumentsJson: "{\"durationMinutes\":30}" }).output, /^Horários disponíveis:\nOpção 1: /);
   assert.equal(collect.runToolInProcess({ name: "confirm_meeting_slot", argumentsJson: "{}" }).output, "Reunião confirmada.");
   assert.equal(collect.runToolInProcess({ name: "issue_refund", argumentsJson: "{}" }).status, "error");
-  assert.ok(!collect.dryRunGenerate([{ role: "user", content: `${TOOL_RESULT_PREFIX} x` }], 1, {}).text.includes("—"));
+  assert.ok(!collect.dryRunGenerate([{ role: "user", content: `${TOOL_RESULT_PREFIX} x` }], 1, {}).text.includes("\u2014"));
 });
 
 test("retrieval only ever runs against a local stack", () => {

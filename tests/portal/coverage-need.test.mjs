@@ -52,5 +52,5 @@ test("the text returned to the persona is always framed as an educational estima
   const output = coverageNeedToolOutput(estimateCoverageNeed({ annualIncome: 60_000, yearsOfIncome: 5, finalExpenses: 12_000 }));
   assert.match(output, /^Educational estimate \(DIME method\), not a quote or a recommendation:/);
   assert.match(output, /licensed agent/);
-  assert.ok(!output.includes("—"));
+  assert.ok(!output.includes("\u2014"));
 });
