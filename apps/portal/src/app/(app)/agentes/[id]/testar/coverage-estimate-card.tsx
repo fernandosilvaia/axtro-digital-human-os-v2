@@ -1,3 +1,5 @@
+import { useId } from "react";
+
 import type { CoverageNeedEstimate } from "@/lib/insurance/coverage-need";
 
 /**
@@ -52,8 +54,15 @@ function usd(value: number): string {
   return `$${value.toLocaleString("en-US")}`;
 }
 
+/** Sinal de menos de verdade: leitor de tela lê "menos", não "traço". */
+function minusUsd(value: number): string {
+  return `\u2212 ${usd(value)}`;
+}
+
 export function CoverageEstimateCard({ estimate, language }: { estimate: CoverageNeedEstimate; language: "english" | "spanish" | "portuguese" }) {
   const label = LABELS[language];
+  // As salas de vídeo e de apresentação ficam na mesma página: id fixo duplicaria.
+  const titleId = useId();
   const rows: [string, number][] = [
     [label.debts, estimate.components.debts],
     [label.income, estimate.components.income],
@@ -62,8 +71,8 @@ export function CoverageEstimateCard({ estimate, language }: { estimate: Coverag
     [label.finalExpenses, estimate.components.finalExpenses],
   ];
   return (
-    <section className="card" aria-live="polite" aria-labelledby="coverage-estimate-title" style={{ marginTop: 12 }}>
-      <h3 id="coverage-estimate-title" style={{ margin: "0 0 10px" }}>{label.title}</h3>
+    <section className="card" aria-live="polite" aria-labelledby={titleId} style={{ marginTop: 12 }}>
+      <h3 id={titleId} style={{ margin: "0 0 10px" }}>{label.title}</h3>
       <dl style={{ display: "grid", gridTemplateColumns: "1fr auto", gap: "4px 16px", margin: 0 }}>
         {rows.filter(([, value]) => value > 0).map(([name, value]) => (
           <div key={name} style={{ display: "contents" }}>
@@ -76,13 +85,13 @@ export function CoverageEstimateCard({ estimate, language }: { estimate: Coverag
         {estimate.offsets.existingCoverage > 0 && (
           <div style={{ display: "contents" }}>
             <dt style={{ color: "var(--text-muted)" }}>{label.existing}</dt>
-            <dd style={{ margin: 0, textAlign: "right" }}>{`- ${usd(estimate.offsets.existingCoverage)}`}</dd>
+            <dd style={{ margin: 0, textAlign: "right" }}>{minusUsd(estimate.offsets.existingCoverage)}</dd>
           </div>
         )}
         {estimate.offsets.liquidSavings > 0 && (
           <div style={{ display: "contents" }}>
             <dt style={{ color: "var(--text-muted)" }}>{label.savings}</dt>
-            <dd style={{ margin: 0, textAlign: "right" }}>{`- ${usd(estimate.offsets.liquidSavings)}`}</dd>
+            <dd style={{ margin: 0, textAlign: "right" }}>{minusUsd(estimate.offsets.liquidSavings)}</dd>
           </div>
         )}
         <dt><strong>{label.gap}</strong></dt>
