@@ -78,6 +78,8 @@ export interface TextGenerationResult {
   readonly text: string;
   /** Presente só quando o modelo pediu ao menos uma função oferecida. */
   readonly toolCalls?: readonly TextGenerationToolCall[];
+  /** Chamadas descartadas (malformadas, não oferecidas ou além do limite). Ausente quando zero. */
+  readonly droppedToolCalls?: number;
   readonly model: string;
   readonly usage: TextGenerationUsage;
   /** Opaque provider identity used only by durable completion/reconciliation. */
@@ -94,11 +96,18 @@ export type TextGenerationErrorCode =
 
 export class TextGenerationError extends Error {
   readonly code: TextGenerationErrorCode;
+  /**
+   * Presente só quando o provedor já cobrou e informou quanto: a resposta veio
+   * com usage, mas sem nada aproveitável. O chamador fecha o ledger com esses
+   * números em vez de marcar o custo como desconhecido.
+   */
+  readonly billedUsage?: TextGenerationUsage;
 
-  constructor(code: TextGenerationErrorCode, message: string) {
+  constructor(code: TextGenerationErrorCode, message: string, billedUsage?: TextGenerationUsage) {
     super(message);
     this.name = "TextGenerationError";
     this.code = code;
+    if (billedUsage !== undefined) this.billedUsage = billedUsage;
   }
 }
 
@@ -480,39 +489,44 @@ function serializeMessages(request: TextGenerationRequest): unknown[] {
     : { role: message.role, content: message.content }));
 }
 
-function parseToolCalls(value: unknown, offered: ReadonlySet<string>): TextGenerationToolCall[] {
-  if (value === undefined || value === null) return [];
-  if (!Array.isArray(value) || value.length > MAX_TOOL_CALLS) {
-    throw new TextGenerationError("malformed_provider_response", "completion tool_calls is not a bounded array");
-  }
+/**
+ * Cada chamada inválida é descartada sozinha, nunca derruba a resposta: a
+ * chamada já foi paga, e argumento truncado por max_tokens é comum. Lançar
+ * aqui deixava o custo como desconhecido e travava a IA do tenant até alguém
+ * reconciliar. Função não oferecida é alucinação do modelo e também nunca vira
+ * ação.
+ */
+function parseToolCalls(value: unknown, offered: ReadonlySet<string>): { calls: TextGenerationToolCall[]; dropped: number } {
+  if (value === undefined || value === null) return { calls: [], dropped: 0 };
+  if (!Array.isArray(value)) return { calls: [], dropped: 1 };
   const calls: TextGenerationToolCall[] = [];
-  for (const entry of value) {
-    const record = (entry ?? null) as Record<string, unknown> | null;
-    const fn = (record?.function ?? null) as Record<string, unknown> | null;
-    const id = record?.id;
-    const name = fn?.name;
-    const rawArguments = fn?.arguments;
-    if (typeof id !== "string" || !TOOL_CALL_ID_PATTERN.test(id) || typeof name !== "string" || !TOOL_NAME_PATTERN.test(name)) {
-      throw new TextGenerationError("malformed_provider_response", "completion tool call has no valid id or name");
-    }
-    // Função que não foi oferecida é alucinação do modelo: nunca vira ação.
-    if (!offered.has(name)) continue;
-    const argumentsText = typeof rawArguments === "string" && rawArguments.trim().length > 0 ? rawArguments : "{}";
-    if (argumentsText.length > MAX_TOOL_ARGUMENT_CHARS) {
-      throw new TextGenerationError("malformed_provider_response", "completion tool call arguments are too large");
-    }
-    let parsed: unknown;
-    try {
-      parsed = JSON.parse(argumentsText);
-    } catch {
-      throw new TextGenerationError("malformed_provider_response", "completion tool call arguments are not JSON");
-    }
-    if (parsed === null || typeof parsed !== "object" || Array.isArray(parsed)) {
-      throw new TextGenerationError("malformed_provider_response", "completion tool call arguments must be a JSON object");
-    }
-    calls.push(Object.freeze({ id, name, argumentsJson: JSON.stringify(parsed) }));
+  let dropped = 0;
+  for (const entry of value.slice(0, MAX_TOOL_CALLS * 4)) {
+    const call = parseToolCall(entry, offered);
+    if (call === null || calls.length >= MAX_TOOL_CALLS) dropped += 1;
+    else calls.push(call);
   }
-  return calls;
+  return { calls, dropped: dropped + Math.max(0, value.length - MAX_TOOL_CALLS * 4) };
+}
+
+function parseToolCall(entry: unknown, offered: ReadonlySet<string>): TextGenerationToolCall | null {
+  const record = (entry ?? null) as Record<string, unknown> | null;
+  const fn = (record?.function ?? null) as Record<string, unknown> | null;
+  const id = record?.id;
+  const name = fn?.name;
+  const rawArguments = fn?.arguments;
+  if (typeof id !== "string" || !TOOL_CALL_ID_PATTERN.test(id) || typeof name !== "string" || !TOOL_NAME_PATTERN.test(name)) return null;
+  if (!offered.has(name)) return null;
+  const argumentsText = typeof rawArguments === "string" && rawArguments.trim().length > 0 ? rawArguments : "{}";
+  if (argumentsText.length > MAX_TOOL_ARGUMENT_CHARS) return null;
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(argumentsText);
+  } catch {
+    return null;
+  }
+  if (parsed === null || typeof parsed !== "object" || Array.isArray(parsed)) return null;
+  return Object.freeze({ id, name, argumentsJson: JSON.stringify(parsed) });
 }
 
 function parseCompletion(payload: unknown, offeredTools: ReadonlySet<string> = new Set()): TextGenerationResult {
@@ -526,20 +540,31 @@ function parseCompletion(payload: unknown, offeredTools: ReadonlySet<string> = n
   }
   const first = choices[0] as Record<string, unknown> | undefined;
   const message = (first?.message ?? null) as Record<string, unknown> | null;
-  const toolCalls = parseToolCalls(message?.tool_calls, offeredTools);
-  const rawText = message?.content;
-  const text = typeof rawText === "string" ? rawText : "";
-  if (text.length === 0 && toolCalls.length === 0) {
-    throw new TextGenerationError("malformed_provider_response", "completion payload has no text content");
-  }
-  if (rawText !== undefined && rawText !== null && typeof rawText !== "string") {
-    throw new TextGenerationError("malformed_provider_response", "completion text content must be a string");
-  }
+  const { calls: toolCalls, dropped: droppedToolCalls } = parseToolCalls(message?.tool_calls, offeredTools);
   const usageRecord = (record.usage ?? {}) as Record<string, unknown>;
   const inputTokens = normalizeTokenCount(usageRecord.prompt_tokens);
   const outputTokens = normalizeTokenCount(usageRecord.completion_tokens);
   const reportedCostUsd = normalizeReportedCost(usageRecord.cost);
   const cachedInputTokens = normalizeCachedTokens(usageRecord.prompt_tokens_details, inputTokens);
+  const usage: TextGenerationUsage = Object.freeze({
+    inputTokens,
+    outputTokens,
+    ...(reportedCostUsd !== undefined ? { reportedCostUsd } : {}),
+    ...(cachedInputTokens !== undefined ? { cachedInputTokens } : {}),
+  });
+  // Só conta como cobrança informada se o provedor mandou os dois números.
+  // Sem eles o custo segue desconhecido e o chamador reconcilia.
+  const billedUsage = typeof usageRecord.prompt_tokens === "number" && typeof usageRecord.completion_tokens === "number"
+    ? usage
+    : undefined;
+  const rawText = message?.content;
+  if (rawText !== undefined && rawText !== null && typeof rawText !== "string") {
+    throw new TextGenerationError("malformed_provider_response", "completion text content must be a string", billedUsage);
+  }
+  const text = typeof rawText === "string" ? rawText : "";
+  if (text.length === 0 && toolCalls.length === 0) {
+    throw new TextGenerationError("malformed_provider_response", "completion payload has no text content", billedUsage);
+  }
   const model = typeof record.model === "string" && record.model.length > 0 ? record.model : "openrouter/unknown";
   const providerRequestId = typeof record.id === "string"
     && /^[!-~]{1,128}$/.test(record.id)
@@ -549,14 +574,10 @@ function parseCompletion(payload: unknown, offeredTools: ReadonlySet<string> = n
   return Object.freeze({
     text,
     ...(toolCalls.length > 0 ? { toolCalls: Object.freeze(toolCalls) } : {}),
+    ...(droppedToolCalls > 0 ? { droppedToolCalls } : {}),
     model,
     providerRequestId,
-    usage: Object.freeze({
-      inputTokens,
-      outputTokens,
-      ...(reportedCostUsd !== undefined ? { reportedCostUsd } : {}),
-      ...(cachedInputTokens !== undefined ? { cachedInputTokens } : {}),
-    }),
+    usage,
   });
 }
 

@@ -1,6 +1,6 @@
 import { after, NextRequest, NextResponse } from "next/server";
 
-import { createOpenRouterTextGenerationPort } from "@axtro/provider-openrouter";
+import { createOpenRouterTextGenerationPort, TextGenerationError } from "@axtro/provider-openrouter";
 
 import { parseCloserVertical, type BrainKnowledgeMatch } from "@/lib/brain/chat-completion-core";
 import { buildCompletionStream } from "@/lib/brain/completion-stream";
@@ -212,6 +212,27 @@ export async function POST(
   // Só metadado do turno, para o Langfuse (brain-trace.ts): nunca fala, nunca argumento de tool.
   let retrievalStep: BrainTurnTrace["retrieval"];
   let generationStep: BrainTurnTrace["generation"];
+  // Fecha a reserva com o que o provedor cobrou. Usado no caminho normal e
+  // quando a resposta paga veio sem nada aproveitável mas com usage informado.
+  const commitGenerationUsage = async (inputTokens: number, outputTokens: number, reportedCostUsd: number | undefined): Promise<void> => {
+    if (generationReservation === null) throw new Error("AI usage reservation missing at commit");
+    const committed = await commitAiUsage(serviceClient, generationReservation, {
+      inputTokens,
+      outputTokens,
+      ...(reportedCostUsd === undefined ? {} : { reportedCostUsd }),
+    });
+    generationTerminalRecorded = true;
+    if (!committed) {
+      await markAiUsageUnknown(serviceClient, generationReservation, "usage_commit_failed");
+      trackError("brain_ai_usage_commit_failed", new Error("generation reservation did not commit"), {
+        tenant_id: authenticatedConfig.tenantId,
+        agent_id: authenticatedConfig.agentId,
+        reservation_id: generationReservation.id,
+        operation: "brain_generation",
+      });
+      throw new Error("AI usage commit failed after provider success");
+    }
+  };
   const scheduleTurnTrace = (outcome: { degradedReason?: string; guardrailFlags?: readonly string[]; toolCallNames?: readonly string[] }) => {
     const config = langfuseConfigFromEnv(process.env);
     if (config === null) return;
@@ -284,7 +305,17 @@ export async function POST(
             });
           } catch (error) {
             generationStep = { startedAtMs, endedAtMs: Date.now(), model: providerModel, failed: true };
+            // Resposta paga e sem nada aproveitável (ex.: tool call truncada),
+            // mas com usage informado: o custo é conhecido, então a reserva
+            // fecha com ele. Antes virava "desconhecido" e travava a IA do
+            // tenant até uma reconciliação manual.
+            if (error instanceof TextGenerationError && error.billedUsage !== undefined && !generationTerminalRecorded) {
+              await commitGenerationUsage(error.billedUsage.inputTokens, error.billedUsage.outputTokens, error.billedUsage.reportedCostUsd);
+            }
             throw error;
+          }
+          if (generated.droppedToolCalls !== undefined) {
+            logEvent("brain_tool_calls_dropped", { agent_id: authenticatedConfig.agentId, count: generated.droppedToolCalls });
           }
           generationReportedCostUsd = generated.usage.reportedCostUsd;
           generationStep = {
@@ -300,23 +331,7 @@ export async function POST(
           return generated;
         },
         logGenerationUsage: async (_tenantId, _agentId, inputTokens, outputTokens) => {
-          if (generationReservation === null) throw new Error("AI usage reservation missing at commit");
-          const committed = await commitAiUsage(serviceClient, generationReservation, {
-            inputTokens,
-            outputTokens,
-            ...(generationReportedCostUsd === undefined ? {} : { reportedCostUsd: generationReportedCostUsd }),
-          });
-          if (!committed) {
-            await markAiUsageUnknown(serviceClient, generationReservation, "usage_commit_failed");
-            generationTerminalRecorded = true;
-            trackError("brain_ai_usage_commit_failed", new Error("generation reservation did not commit"), {
-              tenant_id: _tenantId,
-              agent_id: _agentId,
-              reservation_id: generationReservation.id,
-              operation: "brain_generation",
-            });
-            throw new Error("AI usage commit failed after provider success");
-          }
+          await commitGenerationUsage(inputTokens, outputTokens, generationReportedCostUsd);
         },
       },
     );

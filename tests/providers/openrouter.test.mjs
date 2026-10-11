@@ -504,17 +504,38 @@ test("a tool the request never offered is dropped, never turned into an action",
   assert.equal(result.toolCalls, undefined);
 });
 
-test("malformed tool calls fail closed", async () => {
-  for (const toolCalls of [
-    [{ id: "call 4", type: "function", function: { name: "register_lead", arguments: "{}" } }],
-    [{ id: "call_5", type: "function", function: { name: "register_lead", arguments: "not json" } }],
-    [{ id: "call_6", type: "function", function: { name: "register_lead", arguments: "[1,2]" } }],
-    Array.from({ length: 5 }, (_, index) => ({ id: `call_${index}`, type: "function", function: { name: "register_lead", arguments: "{}" } })),
+test("each malformed tool call is dropped on its own, so a paid answer is never thrown away", async () => {
+  const valid = { id: "call_ok", type: "function", function: { name: "register_lead", arguments: "{\"contactName\":\"Ana\"}" } };
+  for (const [toolCalls, dropped] of [
+    [[{ id: "call 4", type: "function", function: { name: "register_lead", arguments: "{}" } }, valid], 1],
+    [[{ id: "call_5", type: "function", function: { name: "register_lead", arguments: "{\"contactName\":\"An" } }, valid], 1],
+    [[{ id: "call_6", type: "function", function: { name: "register_lead", arguments: "[1,2]" } }, valid], 1],
+    [[valid, ...Array.from({ length: 4 }, (_, index) => ({ ...valid, id: `call_${index}` }))], 1],
   ]) {
-    const { implementation } = fakeFetch(async () => new Response(JSON.stringify(toolCallPayload(toolCalls)), { status: 200 }));
+    const { implementation } = fakeFetch(async () => new Response(JSON.stringify(toolCallPayload(toolCalls, "One moment.")), { status: 200 }));
     const port = provider.createOpenRouterTextGenerationPort({ apiKey: API_KEY, fetchImplementation: implementation });
-    await assert.rejects(() => port.generate(request({ tools: [LEAD_TOOL] })), (error) => error.code === "malformed_provider_response");
+    const result = await port.generate(request({ tools: [LEAD_TOOL] }));
+    assert.equal(result.text, "One moment.");
+    assert.equal(result.droppedToolCalls, dropped);
+    assert.ok(result.toolCalls.length >= 1 && result.toolCalls.length <= 4);
+    assert.ok(result.toolCalls.every((call) => JSON.parse(call.argumentsJson) !== null));
   }
+});
+
+test("nothing usable left: the error carries the billed usage so the ledger can close", async () => {
+  const truncated = [{ id: "call_7", type: "function", function: { name: "register_lead", arguments: "{\"qualificationSummary\":\"long" } }];
+  const { implementation } = fakeFetch(async () => new Response(JSON.stringify(toolCallPayload(truncated)), { status: 200 }));
+  const port = provider.createOpenRouterTextGenerationPort({ apiKey: API_KEY, fetchImplementation: implementation });
+  await assert.rejects(() => port.generate(request({ tools: [LEAD_TOOL] })), (error) => {
+    assert.equal(error.code, "malformed_provider_response");
+    assert.deepEqual({ ...error.billedUsage }, { inputTokens: 42, outputTokens: 17 });
+    return true;
+  });
+
+  const unreported = completionPayload({ choices: [{ message: { role: "assistant", content: "" } }], usage: {} });
+  const second = fakeFetch(async () => new Response(JSON.stringify(unreported), { status: 200 }));
+  const unknownPort = provider.createOpenRouterTextGenerationPort({ apiKey: API_KEY, fetchImplementation: second.implementation });
+  await assert.rejects(() => unknownPort.generate(request()), (error) => error.code === "malformed_provider_response" && error.billedUsage === undefined);
 });
 
 test("invalid tool definitions are rejected before any request", async () => {

@@ -102,7 +102,7 @@ test("brain route executes the real injected retrieval helper",async()=>{
   const mocks=new Map([
     ["next/server",{after:(callback)=>scheduled.push(callback),NextRequest:class {},NextResponse:{json:(value,init)=>new Response(JSON.stringify(value),init)}}],
     ["@/lib/observability/brain-trace",{langfuseConfigFromEnv:()=>({endpoint:"https://trace.invalid",authorization:"Basic synthetic",environment:"test"}),exportBrainTurn:async(turn)=>{traces.push(turn);return true;}}],
-    ["@axtro/domain",{createUuidV7:()=>agent}],["@axtro/provider-openrouter",{createOpenRouterTextGenerationPort:()=>({})}],
+    ["@axtro/domain",{createUuidV7:()=>agent}],["@axtro/provider-openrouter",{createOpenRouterTextGenerationPort:()=>({}),TextGenerationError:class extends Error{}}],
     ["@/lib/brain/chat-completion-core",{parseCloserVertical:()=>"metodo_silva"}],
     ["@/lib/brain/completion-stream",{buildCompletionStream:(reply)=>new ReadableStream({start(controller){controller.enqueue(new TextEncoder().encode(`data: ${JSON.stringify({choices:[{delta:{content:reply}}]})}\n\n`));controller.close();}})}],
     ["@/lib/brain/handle-chat-request",{BrainHttpError:class extends Error{},authenticateBrainRequest:async()=>({tenantId:tenant,agentId:agent,agentName:"Synthetic",tenantName:"Synthetic",enabled:true}),handleBrainChatRequest:async(_req,deps)=>{const rows=await deps.retrieveKnowledge(tenant,input.queryText);assert.equal(rows.length,1);return {reply:"Synthetic reply",degraded:false,guardrailFlags:[],toolCalls:[]};}}],
@@ -122,6 +122,36 @@ test("brain route executes the real injected retrieval helper",async()=>{
   assert.equal(scheduled.length,1);await scheduled[0]();
   assert.equal(traces.length,1);assert.equal(traces[0].tenantId,tenant);assert.equal(traces[0].retrieval.matches,1);assert.equal(traces[0].retrieval.failed,false);
   assert.ok(!JSON.stringify(traces[0]).includes(input.queryText),"the trace never carries conversation text");
+});
+
+test("a paid answer with nothing usable closes the ledger with the billed usage, never as unknown",async()=>{
+  const h=harness();const source=await readFile(new URL("../../apps/portal/src/app/api/brain/[agentId]/chat/completions/route.ts",import.meta.url),"utf8");
+  class TextGenerationError extends Error{constructor(code,message,billedUsage){super(message);this.code=code;this.billedUsage=billedUsage;}}
+  const mocks=new Map([
+    ["next/server",{after(){},NextRequest:class {},NextResponse:{json:(value,init)=>new Response(JSON.stringify(value),init)}}],
+    ["@/lib/observability/brain-trace",{langfuseConfigFromEnv:()=>null,exportBrainTurn:async()=>false}],
+    ["@axtro/provider-openrouter",{TextGenerationError,createOpenRouterTextGenerationPort:()=>({generate:async()=>{throw new TextGenerationError("malformed_provider_response","truncated tool call",{inputTokens:900,outputTokens:512});}})}],
+    ["@/lib/brain/chat-completion-core",{parseCloserVertical:()=>"metodo_silva"}],
+    ["@/lib/brain/completion-stream",{buildCompletionStream:(reply)=>new ReadableStream({start(controller){controller.enqueue(new TextEncoder().encode(reply));controller.close();}})}],
+    ["@/lib/brain/handle-chat-request",{BrainHttpError:class extends Error{},authenticateBrainRequest:async()=>({tenantId:tenant,agentId:agent,agentName:"Synthetic",tenantName:"Synthetic",enabled:true}),handleBrainChatRequest:async(_req,deps)=>{
+      assert.equal(await deps.checkBudget(tenant),"allowed");
+      try{await deps.generate([{role:"user",content:"synthetic"}],128,{});}catch(cause){return {reply:"fallback",degraded:true,degradedReason:"generation_failed",cause,guardrailFlags:[],toolCalls:[]};}
+      throw Error("generate must fail in this scenario");
+    }}],
+    ["@/lib/ai-budget/reservations",{...budget,configuredOpenRouterGenerationModel:()=>"openai/gpt-4.1-mini"}],
+    ["@/lib/brain/knowledge-retrieval",{retrieveBrainKnowledge}],
+    ["@/lib/http/read-bounded-body",{readBoundedTextBody:async()=>({ok:true,text:JSON.stringify({messages:[{role:"user",content:"synthetic"}]})})}],
+    ["@/lib/knowledge",{embedQuery:h.ports.embed,prepareEmbeddingQueryForReservedUsage:h.ports.prepare}],
+    ["@/lib/supabase/service",{createServiceRoleClient:()=>h.client,ServiceRoleUnavailableError:class extends Error{}}],
+    ["@/lib/telemetry",{logError(){},logEvent(){}}],
+  ]);
+  const exports={};const compiled=ts.transpileModule(source,{compilerOptions:{module:ts.ModuleKind.CommonJS,target:ts.ScriptTarget.ES2022}}).outputText;
+  new vm.Script(compiled).runInNewContext({exports,require(name){if(!mocks.has(name))throw Error(`unmocked ${name}`);return mocks.get(name);},process:{env:{OPENROUTER_API_KEY:"synthetic-only"}},Response,ReadableStream,TextEncoder,Map,Date,JSON,Error});
+  const result=await exports.POST(new Request("https://local.invalid",{headers:{authorization:"Bearer synthetic"}}),{params:Promise.resolve({agentId:agent})});
+  assert.equal(result.status,200);
+  const names=h.calls.map(c=>c.name);
+  assert.deepEqual(names,["portal_begin_ai_usage_reservation_service","portal_mark_ai_usage_in_flight_service","portal_commit_ai_usage_service"]);
+  assert.equal(h.calls[2].args.p_actual_input_tokens,900);assert.equal(h.calls[2].args.p_actual_output_tokens,512);
 });
 
 test("too-small per-chunk budget never emits citation plus marker without a real excerpt",()=>{
