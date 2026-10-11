@@ -1,5 +1,8 @@
-# Instale num ambiente separado, nunca no .venv do projeto:
-#   uv venv .voice-venv --python 3.11 && uv pip install --python .voice-venv/bin/python -r experiments/voice-lab/requirements.txt
+# Instale num ambiente separado, nunca no .venv do projeto, a partir do lock com hashes
+# (cobre também as dependências indiretas):
+#   uv venv .voice-venv --python 3.11 && uv pip install --python .voice-venv/bin/python --require-hashes -r experiments/voice-lab/requirements.lock
+# Para atualizar o lock depois de mudar este arquivo:
+#   uv pip compile experiments/voice-lab/requirements.txt --generate-hashes --python-version 3.11 --universal -o experiments/voice-lab/requirements.lock
 # Pipecat BSD-2-Clause. Extras: Daily (transporte), Tavus (rosto), Silero (VAD),
 # Smart Turn v3 local, ElevenLabs (base), OpenAI (cérebro e TTS compatível), Whisper (ouvido).
 pipecat-ai[daily,tavus,silero,local-smart-turn,elevenlabs,openai,whisper]==1.12.0

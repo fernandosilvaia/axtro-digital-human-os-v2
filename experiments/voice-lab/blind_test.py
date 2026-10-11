@@ -107,6 +107,11 @@ def validate_manifest(entries: Any, lines: Mapping[tuple[str, str], str]) -> lis
 def prepare(manifest_path: Path, session: Path, rng: random.Random | None = None) -> dict[str, Any]:
     lines = load_lines()
     clips = validate_manifest(json.loads(manifest_path.read_text(encoding="utf-8")), lines)
+    # Áudio de voz sintética (ou clonada) e a chave dos motores não podem parar no
+    # git: o repositório é público.
+    repo_root = HERE.parents[1].resolve()
+    if session.resolve() == repo_root or repo_root in session.resolve().parents:
+        raise BlindTestError("session directory must be outside the repository (it holds audio and the engine key)")
     if session.exists() and any(session.iterdir()):
         raise BlindTestError("session directory must be new or empty")
     seed = secrets.randbits(64)

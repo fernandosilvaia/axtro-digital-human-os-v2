@@ -63,6 +63,16 @@ class VoiceLabPipelineTest(unittest.TestCase):
         self.assertEqual(json.loads(output)["config"]["brain_secret"], "set")
         self.assertNotIn("pipecat", sys.modules, "the plan never imports the SDK")
 
+    def test_the_open_voice_server_must_be_on_loopback_and_the_brain_host_is_shown(self) -> None:
+        local = {key: value for key, value in ENV.items() if key != "ELEVENLABS_API_KEY"}
+        local["VOICE_LAB_TTS"] = "openai-compatible"
+        for remote in ("https://tts.example.com/v1", "http://192.168.0.20:8004/v1", "http://localhost.evil.com/v1", "ftp://localhost/v1"):
+            with self.subTest(remote), self.assertRaises(pipeline.LabConfigError):
+                pipeline.config_from_env({**local, "VOICE_LAB_TTS_BASE_URL": remote})
+        ok = pipeline.config_from_env({**local, "VOICE_LAB_TTS_BASE_URL": "http://127.0.0.1:8004/v1"})
+        self.assertEqual(ok.tts_base_url, "http://127.0.0.1:8004/v1")
+        self.assertEqual(ok.plan()["brain_host"], "closer.example.com")
+
     def test_an_accidental_print_of_the_config_shows_no_secret(self) -> None:
         text = repr(pipeline.config_from_env(ENV))
         for secret in ("synthetic-brain-secret", "synthetic-tavus-key", "synthetic-eleven-key"):

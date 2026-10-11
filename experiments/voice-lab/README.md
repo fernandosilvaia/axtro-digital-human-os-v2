@@ -43,7 +43,7 @@ VOICE_LAB_LIVE_CONFIRM=spend-tavus-and-voice-credit \
 python experiments/voice-lab/pipeline.py
 ```
 
-Para uma voz aberta, use `VOICE_LAB_TTS=openai-compatible` e `VOICE_LAB_TTS_BASE_URL=http://localhost:<porta>/v1` (o servidor da voz roda à parte). Gasta Tavus, Daily, a voz escolhida e o cérebro. É sempre sala de teste, nunca chamada de cliente.
+Para uma voz aberta, use `VOICE_LAB_TTS=openai-compatible` e `VOICE_LAB_TTS_BASE_URL=http://localhost:<porta>/v1`. O servidor da voz roda à parte, e o código só aceita endereço de loopback: o texto da Priscila não sai para outro host. O modo de plano mostra o host do cérebro, que é para onde o segredo vai como bearer: confira antes de subir. Gasta Tavus, Daily, a voz escolhida e o cérebro. É sempre sala de teste, nunca chamada de cliente.
 
 ## O que ainda exige gente
 
@@ -51,6 +51,9 @@ Para uma voz aberta, use `VOICE_LAB_TTS=openai-compatible` e `VOICE_LAB_TTS_BASE
 - Baixar os pesos das vozes abertas (vários GB) e rodar o servidor local.
 - Autorizar o gasto da Tavus e da voz.
 - Recrutar os ouvintes.
+- Confirmar o direito sobre qualquer voz clonada antes de circular os clipes (voz é dado biométrico).
+
+A pasta da sessão do teste cego guarda áudio e a chave dos motores. O `blind_test.py` recusa uma sessão dentro do repositório, que é público.
 
 A montagem foi conferida contra o Pipecat 1.12.0 instalado, num ambiente isolado e sem rede. A pipeline inteira é construída com as classes reais nas duas vozes, sem aviso de depreciação, e o modelo do Smart Turn v3.2 já vem no pacote (carrega em cerca de 20 ms em CPU). Duas armadilhas dessa versão já estão tratadas:
 

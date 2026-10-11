@@ -1,5 +1,8 @@
-# Instale num ambiente separado, nunca no .venv do projeto:
-#   uv venv .eval-venv --python 3.11 && uv pip install --python .eval-venv/bin/python -r experiments/conversation-eval/requirements.txt
+# Instale num ambiente separado, nunca no .venv do projeto, a partir do lock com hashes
+# (cobre também as dependências indiretas):
+#   uv venv .eval-venv --python 3.11 && uv pip install --python .eval-venv/bin/python --require-hashes -r experiments/conversation-eval/requirements.lock
+# Para atualizar o lock depois de mudar este arquivo:
+#   uv pip compile experiments/conversation-eval/requirements.txt --generate-hashes --python-version 3.11 --universal -o experiments/conversation-eval/requirements.lock
 # Licenças: DeepEval Apache-2.0, Ragas Apache-2.0, langchain-openai e langchain-community MIT, rapidfuzz MIT.
 deepeval==4.2.8
 ragas==0.4.3

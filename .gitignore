@@ -35,6 +35,8 @@ knowledge-vault/
 # Local runtime and provider artifacts
 artifacts/local/
 experiments/conversation-eval/out/
+experiments/voice-lab/sessions/
+experiments/voice-lab/out/
 recordings/
 transcripts/private/
 *.log

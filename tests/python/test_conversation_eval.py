@@ -100,6 +100,11 @@ class ConversationEvalTest(unittest.TestCase):
         output = self.run_main("rag", [row], {}, {"deepeval": missing, "ragas": missing, "judge": missing})
         self.assertIn("ragas is not installed", output["ragas"])
 
+    def test_library_telemetry_is_off_before_any_library_is_imported(self) -> None:
+        import os
+        self.assertEqual(os.environ.get("DEEPEVAL_TELEMETRY_OPT_OUT"), "YES")
+        self.assertEqual(os.environ.get("RAGAS_DO_NOT_TRACK"), "true")
+
     def test_judge_json_is_extracted_from_code_fences(self) -> None:
         self.assertEqual(evaluate.extract_json('```json\n{"score": 1}\n```'), '{"score": 1}')
         self.assertEqual(evaluate.extract_json('Here: {"verdict": "yes"} done'), '{"verdict": "yes"}')

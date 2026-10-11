@@ -31,6 +31,12 @@ import sys
 from pathlib import Path
 from typing import Any, Callable, Iterable, Mapping
 
+# DeepEval e Ragas enviam telemetria anônima por padrão. Os dados daqui são
+# sintéticos, mas o hábito certo é nunca depender disso. Vale antes de qualquer
+# import das bibliotecas, que acontecem só dentro das funções.
+os.environ.setdefault("DEEPEVAL_TELEMETRY_OPT_OUT", "YES")
+os.environ.setdefault("RAGAS_DO_NOT_TRACK", "true")
+
 HERE = Path(__file__).resolve().parent
 OUT_DIR = HERE / "out"
 JUDGE_CONFIRM = "spend-judge-credit"

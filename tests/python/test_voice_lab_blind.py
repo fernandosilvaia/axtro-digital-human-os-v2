@@ -58,6 +58,16 @@ class BlindTestCase(unittest.TestCase):
                 writer.writerow({"clip_id": clip_id, "language": clip["language"], "line_id": clip["line_id"], "naturalness": naturalness, "pronunciation": pronunciation})
         return path
 
+    def test_the_session_can_never_be_created_inside_the_repository(self) -> None:
+        good = [self.clip(engine, line_id) for engine in ("elevenlabs", "qwen3") for line_id in EN_LINES]
+        manifest = self.manifest(good)
+        inside = blind.HERE.parents[1] / "experiments" / "voice-lab" / "sessions" / "never-created"
+        with self.assertRaises(blind.BlindTestError):
+            blind.prepare(manifest, inside)
+        self.assertFalse(inside.exists())
+        with self.assertRaises(blind.BlindTestError):
+            blind.prepare(manifest, blind.HERE.parents[1])
+
     def test_listeners_never_see_which_engine_made_a_clip(self) -> None:
         session = self.prepared_session()
         sheet = (session / "sheet.csv").read_text(encoding="utf-8")

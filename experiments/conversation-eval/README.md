@@ -45,7 +45,7 @@ As métricas do Ragas sem LLM (precisão e recall de contexto por similaridade d
 | Respostas reais da Priscila | `CONVERSATION_EVAL_LIVE_CONFIRM=spend-openrouter-credit`, `OPENROUTER_API_KEY`, `OPENROUTER_MODEL` | uma geração por turno: cerca de 30 chamadas nas 6 conversas, mais 8 no RAG |
 | Juiz LLM (DeepEval e Ragas com LLM) | `CONVERSATION_EVAL_JUDGE_CONFIRM=spend-judge-credit`, `OPENROUTER_API_KEY`, `CONVERSATION_EVAL_JUDGE_MODEL` | várias chamadas por métrica e por conversa; usar um modelo diferente do avaliado |
 
-O juiz usa o OpenRouter, então não precisa de chave da OpenAI. Os resultados ficam em `out/`, que o git ignora (o repositório é público).
+O juiz usa o OpenRouter, então não precisa de chave da OpenAI. A telemetria anônima do DeepEval e do Ragas é desligada pelo próprio `evaluate.py`. Os resultados ficam em `out/`, que o git ignora (o repositório é público).
 
 ## O que ainda exige gente
 

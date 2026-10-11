@@ -63,8 +63,9 @@ class LabConfig:
     whisper_model: str
 
     def plan(self) -> dict[str, Any]:
-        """O que subiria, sem nenhum segredo."""
+        """O que subiria, sem nenhum segredo. O host do cérebro aparece porque é para onde o bearer vai."""
         safe = asdict(self)
+        safe["brain_host"] = urlparse(self.brain_base_url).hostname
         for key in ("brain_secret", "tavus_api_key", "daily_token", "elevenlabs_api_key"):
             safe[key] = "set" if safe[key] else None
         return safe
@@ -77,6 +78,16 @@ def _https_or_loopback(url: str, name: str) -> str:
             raise LabConfigError(f"{name} must not carry credentials, query or fragment")
         return url.rstrip("/")
     raise LabConfigError(f"{name} must be https (http only on loopback)")
+
+
+def _loopback_only(url: str, name: str) -> str:
+    """Voz aberta roda na máquina de quem testa: o texto da Priscila não sai para outro host."""
+    parsed = urlparse(url)
+    if parsed.scheme not in {"http", "https"} or parsed.hostname not in LOOPBACK_HOSTS:
+        raise LabConfigError(f"{name} must point to a loopback address (the open voice server runs locally)")
+    if parsed.username or parsed.password or parsed.query or parsed.fragment:
+        raise LabConfigError(f"{name} must not carry credentials, query or fragment")
+    return url.rstrip("/")
 
 
 def _required(env: Mapping[str, str], name: str) -> str:
@@ -98,7 +109,7 @@ def config_from_env(env: Mapping[str, str]) -> LabConfig:
     if tts not in TTS_ENGINES:
         raise LabConfigError("VOICE_LAB_TTS must be elevenlabs or openai-compatible")
     elevenlabs_api_key = _required(env, "ELEVENLABS_API_KEY") if tts == "elevenlabs" else None
-    tts_base_url = _https_or_loopback(_required(env, "VOICE_LAB_TTS_BASE_URL"), "VOICE_LAB_TTS_BASE_URL") if tts == "openai-compatible" else None
+    tts_base_url = _loopback_only(_required(env, "VOICE_LAB_TTS_BASE_URL"), "VOICE_LAB_TTS_BASE_URL") if tts == "openai-compatible" else None
     return LabConfig(
         brain_base_url=brain_base_url,
         brain_secret=_required(env, "VOICE_LAB_BRAIN_SECRET"),
