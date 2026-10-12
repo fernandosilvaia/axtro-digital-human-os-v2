@@ -1,6 +1,6 @@
 # Agendadores dos workers no cron do Railway
 
-Status: preparado em 2026-10-12, nada criado em produção. Quem executa os passos 2 a 5 é o operador.
+Status: instalado e verificado em 2026-10-12 (serviços `cron-billing-usage` e `cron-provider-effects` no projeto `axtro-digital-human-os`, ambiente `production`). Os passos abaixo continuam valendo para refazer a instalação ou para o terceiro serviço.
 
 ## Por que
 
@@ -40,6 +40,7 @@ Em 2026-10-12 estava vazio. Se houver linhas pendentes e a chave do Stripe for d
 ```bash
 railway add --service cron-billing-usage
 railway variable set --service cron-billing-usage --skip-deploys 'WORKER=billing' 'WORKER_URL=${{portal.PORTAL_PUBLIC_URL}}/api/internal/billing-usage' 'WORKER_SECRET=${{portal.BILLING_DISPATCH_SECRET}}'
+railway api 'mutation($s:String!,$e:String!){ serviceInstanceUpdate(serviceId:$s, environmentId:$e, input:{ cronSchedule:"*/5 * * * *", restartPolicyType:NEVER }) }' --var s=<ID do serviço> --var e=<ID do ambiente>
 railway up deploy/worker-cron --path-as-root --service cron-billing-usage --environment production --ci -m "cron do despachante de uso"
 ```
 
@@ -48,6 +49,7 @@ railway up deploy/worker-cron --path-as-root --service cron-billing-usage --envi
 ```bash
 railway add --service cron-provider-effects
 railway variable set --service cron-provider-effects --skip-deploys 'WORKER=reconciler' 'WORKER_URL=${{portal.PORTAL_PUBLIC_URL}}/api/internal/provider-effects/reconcile' 'WORKER_SECRET=${{portal.PROVIDER_EFFECT_RECONCILE_SECRET}}'
+railway api 'mutation($s:String!,$e:String!){ serviceInstanceUpdate(serviceId:$s, environmentId:$e, input:{ cronSchedule:"*/5 * * * *", restartPolicyType:NEVER }) }' --var s=<ID do serviço> --var e=<ID do ambiente>
 railway up deploy/worker-cron --path-as-root --service cron-provider-effects --environment production --ci -m "cron do reconciliador"
 ```
 
@@ -74,9 +76,16 @@ gh variable set BILLING_DISPATCH_SCHEDULE_ENABLED --body false
 gh variable set PROVIDER_EFFECT_RECONCILE_SCHEDULE_ENABLED --body false
 ```
 
+## O que a instalação ensinou
+
+- O `cronSchedule` do `deploy/worker-cron/railway.json` **não persiste** no serviço. Sem a mutação `serviceInstanceUpdate`, o contêiner roda uma vez no deploy e nunca mais: foi o que aconteceu na primeira tentativa (nenhuma execução às 03:30, 03:35 e 03:40). O `railway environment edit --service-config ... deploy.cronSchedule` respondeu "No changes to apply" e não aplicou; use a mutação. Os IDs saem de `railway status --json`; o `railway add` pode fazer perguntas, escolha serviço vazio e confirme o nome.
+- Como reconhecer que está certo: depois do `railway up` com o agendamento no serviço **não** há execução extra no deploy, e o log passa a ter uma linha a cada 5 minutos (o Railway pode atrasar a marca em até cerca de 1 minuto). Confirme com `railway api 'query($s:String!,$e:String!){ serviceInstance(serviceId:$s, environmentId:$e){ serviceName cronSchedule restartPolicyType } }' --var s=<ID> --var e=<ID>`, que deve devolver `*/5 * * * *` e `NEVER`.
+- `restartPolicyType NEVER` importa: com o padrão `ON_FAILURE`, uma resposta recusada pelo filtro reiniciaria o contêiner em laço, chamando o endpoint de novo.
+- Em 2026-10-12 foram confirmadas duas execuções agendadas consecutivas de cada serviço (03:45 e 03:50 UTC), heartbeats renovados a cada 5 minutos e `/api/ready` em 200 com 33 de 33 verificações. Os agendamentos do GitHub foram desligados em seguida (`BILLING_DISPATCH_SCHEDULE_ENABLED` e `PROVIDER_EFFECT_RECONCILE_SCHEDULE_ENABLED` em `false`).
+
 ## Terceiro serviço (reuniões)
 
-`MEETING_TERMINAL_NOTIFICATION_OUTBOX_ENABLED` está `false` em produção, então não há o que despachar e o `/api/ready` não exige esse heartbeat. Quando for ligado, crie `cron-meeting-notifications` com `WORKER=meeting`, `WORKER_URL=${{portal.PORTAL_PUBLIC_URL}}/api/internal/meeting-terminal-notifications` e `WORKER_SECRET=${{portal.MEETING_TERMINAL_NOTIFICATION_DISPATCH_SECRET}}`.
+`MEETING_TERMINAL_NOTIFICATION_OUTBOX_ENABLED` está `false` em produção, então não há o que despachar e o `/api/ready` não exige esse heartbeat. Quando for ligado, crie `cron-meeting-notifications` (mesmos passos, inclusive a mutação) com `WORKER=meeting`, `WORKER_URL=${{portal.PORTAL_PUBLIC_URL}}/api/internal/meeting-terminal-notifications` e `WORKER_SECRET=${{portal.MEETING_TERMINAL_NOTIFICATION_DISPATCH_SECRET}}`.
 
 ## Reverter
 
