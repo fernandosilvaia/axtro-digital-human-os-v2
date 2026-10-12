@@ -86,4 +86,4 @@ Remova os serviços `cron-billing-usage` e `cron-provider-effects` no painel do 
 
 - Quem alerta é o `/api/ready`. Se ainda não houver monitor de disponibilidade apontado para ele, configure um: é o único sinal de que o agendador parou.
 - O custo é de dois contêineres que rodam alguns segundos a cada 5 minutos. Confira o painel de uso depois de um dia; está longe do gate de R$ 500 por mês, mas o número real é o do painel.
-- A tag `node:24-alpine` não está fixada por digest. Se quiser supply chain mais estrita, fixe o digest no `Dockerfile` antes de implantar.
+- A imagem base está fixada por digest (`node:24-alpine@sha256:...`), então o contêiner só muda quando alguém decidir. Isso também significa que correções de segurança do Node e do Alpine não entram sozinhas: a cada trimestre, ou quando sair um aviso, troque o digest no `Dockerfile` (veja o digest atual de `node:24-alpine` no Docker Hub), rode `node --test tests/operations/worker-cron.test.mjs` e reimplante os dois serviços com o `railway up` do passo 2 e 3.

@@ -221,7 +221,7 @@ test("the Railway cron service is a minimal non-root image on a five minute sche
   assert.equal(config.deploy.cronSchedule, "*/5 * * * *", "five minutes is the Railway minimum and leaves slack inside the 720 s heartbeat window");
   assert.equal(config.deploy.restartPolicyType, "NEVER");
   const dockerfile = read("deploy/worker-cron/Dockerfile");
-  assert.match(dockerfile, /^FROM node:24-alpine$/m);
+  assert.match(dockerfile, /^FROM node:24-alpine@sha256:[0-9a-f]{64}$/m, "the base image is pinned by digest");
   assert.match(dockerfile, /^COPY gates\.mjs worker-cron\.mjs \.\/$/m);
   assert.match(dockerfile, /^USER node$/m);
   assert.match(dockerfile, /^CMD \["node", "worker-cron\.mjs"\]$/m);
