@@ -21,7 +21,7 @@ Uma closer de vídeo com IA para seguro de vida americano, servida pelo cérebro
 | Calculadora de cobertura (DIME) mostrada na tela | `apps/portal/src/lib/insurance/coverage-need.ts` e `coverage-estimate-card.tsx` |
 | Trace por turno no Langfuse, só metadado | `apps/portal/src/lib/observability/brain-trace.ts` |
 | Sentinela de compliance depois da geração | `apps/portal/src/lib/brain/compliance-sentinel.ts` |
-| Base de conhecimento (13 fontes) | `knowledge/life-insurance/priscila/` |
+| Base de conhecimento (19 fontes) | `knowledge/life-insurance/priscila/` |
 | Criação da persona na Tavus | `scripts/provision-tavus-brain-persona.mjs` |
 | Banco de cenários de avaliação | `experiments/priscila-eval/` |
 | Conversa inteira (DeepEval) e busca (Ragas) | `experiments/conversation-eval/` |
