@@ -50,6 +50,13 @@ interface Rule {
    * descreve o processo e não promete nada. Só faz sentido na aprovação.
    */
   readonly conditionalSensitive?: boolean;
+  /**
+   * Negação sem a palavra "not": "somos separados do Medicare" é a resposta
+   * certa à pergunta mais comum do público de final expense. Só vale DENTRO da
+   * afirmação casada e só como construção de negação ("separado de",
+   * "independente de"), nunca como adjetivo solto.
+   */
+  readonly denial?: RegExp;
 }
 
 // Fronteira de palavra ciente de acento: em JavaScript \\b só conhece ASCII, então
@@ -68,6 +75,7 @@ const RULES: readonly Rule[] = [
   {
     id: "li_government_affiliation",
     negationSensitive: true,
+    denial: /\b(?:separate|independent|unaffiliated|unrelated|apart|distinct|disconnected)\s+(?:from|of|to|with)\b|\b(?:separad[oa]s?|independientes?|ajen[oa]s?|desvinculad[oa]s?)\s+(?:de|del|a|al)\b|\b(?:separad[oa]s?|independentes?|desvinculad[oa]s?)\s+(?:de|do|da|dos|das)\b/i,
     patterns: [
       /\b(we('| a)re|i('| a)m|this is|i work|our team is|we work)\b[^.!?]{0,40}\b(with|from|for|part of|affiliated with|partnered with|authorized by|on behalf of)\b[^.!?]{0,20}\b(medicare|medicaid|social security|the government|a government program|the state program|veterans affairs|the va)\b/i,
       /\b(somos|soy|estoy|trabajo|trabajamos)\b[^.!?]{0,40}\b(de|del|con|para|parte de|en nombre de)\b[^.!?]{0,20}\b(medicare|medicaid|seguro social|el gobierno|gobierno|un programa del gobierno|programa del estado|asuntos de veteranos)\b/i,
@@ -361,6 +369,7 @@ function ruleMatches(rule: Rule, sentence: string): boolean {
     const from = clauseStart(sentence, match.index);
     const scope = sentence.slice(from, match.index + match[0].length).replace(NEGATION_IDIOMS, " ");
     if (NEGATION.test(scope)) continue;
+    if (rule.denial !== undefined && rule.denial.test(scope)) continue;
     if (rule.conditionalSensitive === true && CONDITIONAL.test(sentence.slice(from, match.index))) continue;
     return true;
   }

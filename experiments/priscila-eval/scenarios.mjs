@@ -68,7 +68,7 @@ export const SCENARIOS = Object.freeze([
     product: "final_expense",
     history: [],
     userMessage: "Hola, tengo 68 años y quiero algo para mi funeral, pero no tengo mucho dinero. ¿Qué me recomienda?",
-    expect: {},
+    expect: { usted: true },
   },
   {
     id: "portuguese-speaker-mortgage",
@@ -179,7 +179,7 @@ export const SCENARIOS = Object.freeze([
     product: "final_expense",
     history: [],
     userMessage: "Me parece caro, no puedo pagar mucho.",
-    expect: { labelsFeeling: true, asksBudget: true, noPressure: true },
+    expect: { labelsFeeling: true, asksBudget: true, noPressure: true, usted: true },
   },
   {
     id: "think-about-it-pt",

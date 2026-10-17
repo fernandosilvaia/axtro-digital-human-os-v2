@@ -342,6 +342,17 @@ test("D-V2-180: sanitizeSpokenReply remove marcação markdown que viraria áudi
   assert.equal(core.sanitizeSpokenReply("- primeiro item\n- segundo item"), "primeiro item\nsegundo item");
 });
 
+test("sanitizeSpokenReply remove direcao de cena entre asteriscos em vez de falar a frase", () => {
+  assert.equal(core.sanitizeSpokenReply("¿Cuál sería un monto cómodo?\n\n*Espero en silencio.*"), "¿Cuál sería un monto cómodo?");
+  assert.equal(core.sanitizeSpokenReply("¿Cuál sería un monto cómodo? *Espero en silencio.*"), "¿Cuál sería un monto cómodo?");
+  assert.equal(core.sanitizeSpokenReply("*pausa*\nOi, tudo bem?"), "Oi, tudo bem?");
+  assert.equal(core.sanitizeSpokenReply("Faz sentido?\n  *sorri*  \nMe conta mais."), "Faz sentido?\n\nMe conta mais.");
+  // Ênfase no meio ou no fim sem pontuação anterior continua só perdendo os asteriscos.
+  assert.equal(core.sanitizeSpokenReply("É *muito* simples."), "É muito simples.");
+  assert.equal(core.sanitizeSpokenReply("Isso é *importante*"), "Isso é importante");
+  assert.equal(core.sanitizeSpokenReply("Isso **funciona** e é *simples*."), "Isso funciona e é simples.");
+});
+
 test("D-V2-180: runBrainChatCompletion devolve a resposta já sanitizada, e é ela que alimenta detectGuardrailRisk", async () => {
   const { deps } = fakeDeps({
     generateResult: {

@@ -55,6 +55,36 @@ O operador pediu para não avisar que a Priscila é uma IA. **Isso não foi feit
 
 Uma edição que encurtava o bloco multilíngue de proibições foi bloqueada pelo classificador de segurança do ambiente (`Security Weaken`). Não contornei: aquele bloco ficou como estava, e o orçamento do prompt foi fechado cortando só texto de qualificação e de bússola.
 
+## Avaliação ao vivo (2026-10-17, modelo `anthropic/claude-haiku-4.5`, o de produção)
+
+24 cenários, texto cru do modelo antes da sentinela, sem a base de conhecimento (a avaliação passa `knowledgeMatches: []`, então os documentos 20 a 25 **não** foram exercitados). Três repetições por cenário, prompt antigo (`main`) contra prompt novo, sem contar o travessão que o sanitizador remove antes do áudio.
+
+| | Prompt antigo | Prompt novo |
+|---|---|---|
+| Respostas sem nenhuma falha | 19 de 72 (26%) | 19 de 72 (26%) |
+| Cenários de persuasão | 12 de 36 (33%) | 14 de 36 (39%) |
+| Cenários originais | 7 de 36 (19%) | 5 de 36 (14%) |
+| Respostas com mais de 4 frases | 25 | 38 |
+| Respostas com mais de 1 pergunta | 19 | 19 |
+| Tamanho médio | 76 palavras | 75 palavras |
+
+**Conclusão honesta:** o motor de argumentação, como texto de prompt, **não mudou a nota de forma mensurável** com esse modelo. A diferença nos cenários de persuasão (2 respostas em 36) está dentro do ruído. O defeito dominante é o mesmo nas duas versões: respostas longas demais para voz e mais de uma pergunta por turno. As regras 6 (prazo honesto) e 8 (duas janelas de horário) quase nunca foram aplicadas; em "ready-to-book" a Priscila pediu nome e sobrenome em vez de oferecer horários.
+
+Bom: nenhuma resposta afirmou ser humana, prometeu aprovação, deu preço definitivo, falou em licença federal ou sugeriu ligação com o governo. O aviso de IA apareceu no primeiro turno em todas as aberturas.
+
+**Defeitos reais achados e corrigidos nesta rodada**
+1. A sentinela apagava a resposta certa "somos separados do Medicare" (negação sem a palavra "not"). Agora `separate from`, `independent of`, `unaffiliated with` e os equivalentes em espanhol e português valem como negação, só dentro da própria afirmação.
+2. Em espanhol, 8 de 12 respostas usaram "tú" (déjame, te, tu) apesar da diretiva. A diretiva foi reforçada e o novo critério `language:tuteo` mede: 0 de 10 depois.
+3. O modelo às vezes termina com direção de cena entre asteriscos ("*Espero en silencio.*"). O sanitizador tirava os asteriscos e a voz leria a frase. Agora o trecho que ocupa a linha ou fecha a resposta some.
+4. O critério de acolhimento não reconhecia "I hear that" e "I understand".
+
+**Defeito conhecido que NÃO foi alterado:** quando o modelo cita "can't lose money" para corrigir o mito, a sentinela remove a frase de correção (regra de segurança, `li_loss_guarantee`). O restante da resposta ainda corrige, mas o efeito pode ser estranho. Afrouxar essa regra é decisão do operador.
+
+**Próximos passos que a evidência sugere**
+- Brevidade é o maior ganho: exemplos curtos no prompt (few-shot), um modelo mais forte para o cérebro, ou um limitador determinístico de frases na saída.
+- Repetir a avaliação com a base de conhecimento simulada (recuperação dos documentos por tema), para medir os documentos 20 a 25.
+- Chamada de vídeo de teste, que mede ritmo e voz, o que o texto não mostra.
+
 ## O que a verificação NÃO confirmou, e continua no pacote com cautela
 
 - **Documento 15 (beneficiários):** os parágrafos sobre beneficiário primário e contingente, menor de idade e inventário são prática padrão do setor e não foram conferidos fonte por fonte. Um agente licenciado deve ler.

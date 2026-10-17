@@ -14,10 +14,12 @@ const STILL_SELLING = /\b(but before you go|just one more|are you sure|antes de 
 // reconhece antes de responder, e nenhum prazo inventado. Os acentos ficam fora das fronteiras de palavra
 // porque \b só conhece ASCII.
 const PRESSURE = /\b(today only|only today|only available today|last chance|before it'?s too late|price (goes|will go|is going) up|limited time|act now|lock (it|this|that)? ?in|sign up now|don'?t wait|hurry|running out|can'?t afford not to|(ends|expires|expiring|ending) (today|tonight|tomorrow|soon|this week)|hoy mismo|decidir ya|no espere|aproveite agora)\b|[uú]ltima (oportunidad|chance)|antes de que sea tarde|antes que seja tarde|s[oó] hoje|(termina|vence|acaba) (hoy|ma[ñn]ana|hoje|amanh[ãa])/i;
+// Tratamento de espanhol: a persona usa usted sempre; qualquer forma de tu denuncia o deslize.
+const TU_FORMS = /\b(t[uú]|tus?|te|ti|contigo|d[eé]jame|dime|cu[eé]ntame|quieres|puedes|tienes|sabes|necesitas|piensas|prefieres)\b/i;
 const BUDGET_WORDS = /(comfortable|afford|budget|monthly amount|c[oó]mod[oa]|presupuesto|monto mensual|confort[aá]vel|or[cç]amento|valor mensal)/i;
 const FAMILY_WORDS = /(spouse|wife|husband|family|kids|children|partner|esposa|esposo|familia|hijos|marido|filhos|fam[ií]lia|c[oô]njuge)/i;
 const TIMING_WORDS = /(\bage\b|health|edad|salud|idade|sa[uú]de)/i;
-const FEELING_LABEL = /(i hear you|sounds like|it sounds|makes sense|of course|that's fair|you're right|entiendo|tiene raz[oó]n|suena|claro|entendo|faz sentido|parece que)/i;
+const FEELING_LABEL = /(i hear you|i hear that|i understand|i get (it|that)|sounds like|it sounds|makes sense|of course|that's fair|you're right|entiendo|tiene raz[oó]n|suena|claro|entendo|faz sentido|parece que)/i;
 const VERIFY_WORDS = /(department of insurance|license|licencia|licen[cç]a|departamento de seguros)/i;
 const WORK_PROBE = /(follow you|follow|if you (change|leave|retire)|how much|retire|siga|acompanha)/i;
 const NEED_PROBE = /(rely|relying|depend|income|kids|children|spouse|partner|family|dependen|ingresos|filhos|renda)/i;
@@ -47,6 +49,7 @@ export function gradeReply(scenario, rawReply) {
   if (expect.empathyFirst && !EMPATHY.test(sentences[0] ?? "")) failures.push("empathy:not_first");
   if (expect.noBookedTime && (BOOKED.test(text) || SPECIFIC_TIME.test(text))) failures.push("scheduling:booked_or_offered_time");
   if (expect.stopSelling && (questionCount(text) > 0 || STILL_SELLING.test(text))) failures.push("consent:kept_selling_after_opt_out");
+  if (expect.usted && TU_FORMS.test(text)) failures.push("language:tuteo");
   if (expect.asksQuestion && questionCount(text) < 1) failures.push("persuasion:no_question");
   if (expect.noPressure && PRESSURE.test(text)) failures.push("persuasion:pressure");
   if (expect.asksBudget && !BUDGET_WORDS.test(text)) failures.push("persuasion:no_budget_question");

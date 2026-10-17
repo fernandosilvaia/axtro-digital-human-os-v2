@@ -171,6 +171,12 @@ export function detectGuardrailRisk(reply: string): readonly string[] {
 const EM_DASH_PATTERN = /\s*—\s*/g;
 const MARKDOWN_BOLD_PATTERN = /\*\*([^*]+)\*\*/g;
 const MARKDOWN_ITALIC_PATTERN = /\*([^*\n]+)\*/g;
+// Direção de cena entre asteriscos ("*Espero em silêncio.*") não é fala: se só
+// tirássemos os asteriscos, a voz leria a frase. Só some o trecho que ocupa a
+// linha inteira ou fecha a resposta depois de pontuação; ênfase no meio de uma
+// frase ("o que eu *posso* fazer") continua só perdendo os asteriscos.
+const STAGE_DIRECTION_LINE_PATTERN = /(^|\n)[ \t]*\*[^*\n]{1,80}\*[ \t]*(?=\n|$)/g;
+const STAGE_DIRECTION_TAIL_PATTERN = /(?<=[.!?…])\s+\*[^*\n]{1,80}\*\s*$/;
 const MARKDOWN_HEADER_PATTERN = /^#{1,6}\s+/gm;
 const MARKDOWN_BULLET_PATTERN = /^[-*]\s+/gm;
 const TRAILING_COMMA_PATTERN = /,(\s*)$/;
@@ -188,6 +194,8 @@ const TRAILING_COMMA_PATTERN = /,(\s*)$/;
  */
 export function sanitizeSpokenReply(text: string): string {
   const withoutMarkdown = text
+    .replace(STAGE_DIRECTION_LINE_PATTERN, "$1")
+    .replace(STAGE_DIRECTION_TAIL_PATTERN, "")
     .replace(MARKDOWN_BOLD_PATTERN, "$1")
     .replace(MARKDOWN_ITALIC_PATTERN, "$1")
     .replace(MARKDOWN_HEADER_PATTERN, "")

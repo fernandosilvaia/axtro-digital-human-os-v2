@@ -41,9 +41,14 @@ test("the persuasion graders catch planted defects in otherwise good replies", a
     ["young-healthy-en", "That's great. Do you enjoy your job?", "persuasion:need_not_probed"],
     ["just-price-en", "Fair question. Your price will be $42 per month for the amount. Does that work?", "compliance:li_definitive_quote"],
     ["too-expensive-es", "Le entiendo. ¿Qué plan quiere?", "persuasion:no_budget_question"],
+    ["too-expensive-es", "Entiendo, déjame ayudarte. ¿Qué monto mensual te resulta cómodo?", "language:tuteo"],
+    ["spanish-speaker-final-expense", "Gracias por contarme. ¿Cuánto puedes pagar al mes?", "language:tuteo"],
+    ["too-expensive-en", "I hear that. What monthly amount would feel comfortable to you?", null],
     ["think-about-it-pt", "Claro. Só hoje o preço está garantido, quer fechar?", "persuasion:pressure"],
   ];
   for (const [id, reply, expected] of planted) {
-    assert.ok(gradeReply(scenario(id), reply).includes(expected), `${id}: ${expected} was not caught in: ${reply}`);
+    const failures = gradeReply(scenario(id), reply);
+    if (expected === null) assert.deepEqual(failures, [], `${id}: a good reply was failed: ${failures.join(", ")}`);
+    else assert.ok(failures.includes(expected), `${id}: ${expected} was not caught in: ${reply}`);
   }
 });

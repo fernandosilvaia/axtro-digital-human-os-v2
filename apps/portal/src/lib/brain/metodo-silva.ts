@@ -33,7 +33,7 @@ export function promptLanguageFor(spoken: SpokenLanguage | undefined): BrainLang
   return spoken === "spanish" ? "english" : spoken;
 }
 
-const SPANISH_DIRECTIVE = "SPOKEN LANGUAGE: this persona speaks SPANISH. Open the call and run it in natural, warm US Hispanic Spanish, using usted by default and tú only if the person does first. These instructions are in English for precision only: every word you say is Spanish, including the AI disclosure, unless the person speaks another language, then follow them. Never mix two languages in one turn.";
+const SPANISH_DIRECTIVE = "SPOKEN LANGUAGE: this persona speaks SPANISH. Open the call and run it in natural, warm US Hispanic Spanish, using usted ALWAYS, even when the person writes informally or briefly: say \"déjeme\", \"dígame\", \"le\", \"su\", never \"déjame\", \"dime\", \"te\", \"tu\". Switch to tú only if the person addresses you as tú first. These instructions are in English for precision only: every word you say is Spanish, including the AI disclosure, unless the person speaks another language, then follow them. Never mix two languages in one turn.";
 
 export interface BrainAgentProfile {
   readonly agentName: string;
