@@ -19,6 +19,7 @@ import { assertGenerationFitsReservedInput, generationInputTokenUpperBound } fro
 import { AI_USAGE_LIMITS } from "../ai-budget/reservations.ts";
 
 import { buildLifeInsuranceCore, buildLifeInsuranceIdentity } from "./life-insurance.ts";
+import { shapeSpokenReply } from "./spoken-shape.ts";
 import { brainToolDefinitions, hasBusinessTools, hasCalculatorTool, type BrainToolName } from "./brain-tools.ts";
 import { enforceLifeInsuranceCompliance } from "./compliance-sentinel.ts";
 import { buildCloserChatSystemMessages, buildCloserVideoSystemPrompt, type BrainLanguage, type SpokenLanguage } from "./metodo-silva.ts";
@@ -656,13 +657,16 @@ export async function runBrainChatCompletion(request: BrainChatRequest, deps: Br
   // Vertical regulada: a frase que cria exposição regulatória não chega ao
   // áudio, mesmo que o modelo ignore a instrução do prompt.
   // O recuo da sentinela sai no idioma da fala quando ela não dá para detectar.
-  const guarded = enforceLifeInsuranceCompliance(sanitized, request.spokenLanguage ?? (request.language === "english" ? "english" : "portuguese"));
+  // O tamanho do turno é garantido aqui, não pelo prompt: a avaliação ao vivo
+  // mostrou que o modelo passa de 4 frases em mais da metade das respostas.
+  const shaped = shapeSpokenReply(sanitized);
+  const guarded = enforceLifeInsuranceCompliance(shaped, request.spokenLanguage ?? (request.language === "english" ? "english" : "portuguese"));
   return {
     // Resposta só de tool não tem fala: a sentinela não inventa recuo para o vazio.
     reply: sanitized.length === 0 ? "" : guarded.reply,
     contextFit,
     usage: result.usage,
-    guardrailFlags: [...detectGuardrailRisk(guarded.reply), ...guarded.violations],
+    guardrailFlags: [...detectGuardrailRisk(guarded.reply), ...guarded.violations, ...(shaped !== sanitized ? ["reply_shortened"] : [])],
     toolCalls,
   };
 }

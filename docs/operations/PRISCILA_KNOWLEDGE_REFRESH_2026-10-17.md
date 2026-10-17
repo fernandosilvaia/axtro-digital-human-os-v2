@@ -85,6 +85,22 @@ Bom: nenhuma resposta afirmou ser humana, prometeu aprovação, deu preço defin
 - Repetir a avaliação com a base de conhecimento simulada (recuperação dos documentos por tema), para medir os documentos 20 a 25.
 - Chamada de vídeo de teste, que mede ritmo e voz, o que o texto não mostra.
 
+## Brevidade (limitador de fala)
+
+Depois da avaliação ao vivo, o tamanho do turno passou a ser garantido por código, não por prompt (`apps/portal/src/lib/brain/spoken-shape.ts`, aplicado nas verticais antes da sentinela). Até 4 frases e 1 pergunta passam intactas; acima disso ficam 3 frases afirmativas mais a pergunta que conduz o turno, as frases com aviso de IA, agente licenciado, negação de governo ou "sem obrigação" entram primeiro, e perguntas encadeadas viram uma só. A sinalização `reply_shortened` aparece nos `guardrailFlags`. O prototipo foi medido em 144 respostas gravadas antes de entrar no código; nenhuma pergunta se perdeu.
+
+Medido ao vivo (modelo de produção, 24 cenários x 3 repetições, 70 respostas válidas, 2 timeouts do OpenRouter):
+
+| | Texto cru do modelo | O que iria para a voz |
+|---|---|---|
+| Respostas sem nenhuma falha | 25 de 70 (36%) | 51 de 70 (73%) |
+| Cenários de persuasão | 18 de 36 | 25 de 36 |
+| Cenários originais | 7 de 34 | 26 de 34 |
+| Tamanho médio | 75 palavras | 51 palavras |
+| Perguntas por resposta | 1,3 | 1,0 |
+
+O que sobra são falhas de conteúdo: 10 respostas sem citar o agente licenciado, 3 sem o argumento de prazo honesto, 3 sem oferecer duas janelas de horário, 1 que insistiu depois de um pedido de parar. O limitador não resolve isso; resolve o ritmo.
+
 ## O que a verificação NÃO confirmou, e continua no pacote com cautela
 
 - **Documento 15 (beneficiários):** os parágrafos sobre beneficiário primário e contingente, menor de idade e inventário são prática padrão do setor e não foram conferidos fonte por fonte. Um agente licenciado deve ler.
