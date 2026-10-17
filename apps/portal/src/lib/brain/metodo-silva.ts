@@ -191,12 +191,17 @@ export function buildCloserChatSystemMessages(options: {
  * tempo, e um prompt que se contradiz no momento mais caro da conversa e pior
  * que qualquer um dos dois sozinho.
  *
+ * "OBJEÇÕES" e "OBJECTIONS" saem pelo mesmo motivo das fases 4 e 5: a rotina
+ * genérica manda reancorar no custo da dor e negociar valor, e a closer
+ * regulada não cota nem fecha. A vertical traz o seu próprio motor de
+ * argumentação (`life-insurance.ts`), com as mesmas travas de honestidade.
+ *
  * "FASE 2 · DESCOBERTA PROFUNDA" sai por outro motivo: a vertical traz a
  * MESMA descoberta ja instanciada no seu mercado (no caso de Life Insurance, o
  * SILVA com idade, estado, beneficiarios e cobertura existente), entao manter a
  * generica e repetir a instrucao em versao mais fraca.
  */
-const REGULATED_OMITTED_PHASES = ["FASE 2 ·", "FASE 4 ·", "FASE 5 ·", "PHASE 2 ·", "PHASE 4 ·", "PHASE 5 ·"] as const;
+const REGULATED_OMITTED_PHASES = ["FASE 2 ·", "FASE 4 ·", "FASE 5 ·", "PHASE 2 ·", "PHASE 4 ·", "PHASE 5 ·", "OBJEÇÕES:", "OBJECTIONS:"] as const;
 
 /**
  * Cabecalho do Metodo na vertical regulada. A contagem de fases precisa bater

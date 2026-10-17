@@ -1,6 +1,6 @@
 # Base de conhecimento da Priscila (closer de Life Insurance)
 
-Pacote versionado de fontes para o RAG do tenant que opera a closer de seguro de vida. Complementa a biblioteca de referência que já existe fora deste repositório (`02_PRODUTOS/lab/hermes-agent-sandbox/client-skills/huebner/life-insurance-expertise/references`), cobrindo o que ela não tinha: financiamento de prêmio (Kai-Zen), anuidades com revisão de melhor interesse, substituição e troca 1035, uso empresarial e sucessório, living benefits, o caminho de subscrição e um glossário trilíngue. Os documentos 14 a 19 (adicionados em 2026-10-17) cobrem mitos e o mito do preço, beneficiários, cobertura de grupo e benefícios públicos, saúde e tipo de emissão, o roteiro da primeira conversa e as regras de contato, de aviso de IA e de atividade sem licença.
+Pacote versionado de fontes para o RAG do tenant que opera a closer de seguro de vida. Complementa a biblioteca de referência que já existe fora deste repositório (`02_PRODUTOS/lab/hermes-agent-sandbox/client-skills/huebner/life-insurance-expertise/references`), cobrindo o que ela não tinha: financiamento de prêmio (Kai-Zen), anuidades com revisão de melhor interesse, substituição e troca 1035, uso empresarial e sucessório, living benefits, o caminho de subscrição e um glossário trilíngue. Os documentos 14 a 19 (adicionados em 2026-10-17) cobrem mitos e o mito do preço, beneficiários, cobertura de grupo e benefícios públicos, saúde e tipo de emissão, o roteiro da primeira conversa e as regras de contato, de aviso de IA e de atividade sem licença. Os documentos 20 a 25 são o motor de argumentação: banco de argumentos, respostas às objeções, biblioteca de técnicas de persuasão, fechamento do compromisso com mensagens de acompanhamento, e idioma, cultura e voz.
 
 ## Como o pacote é usado
 
@@ -18,7 +18,7 @@ railway run -- node scripts/ingest-knowledge-bulk.mjs knowledge/life-insurance/p
 
 Depois de revisar a saída, repetir com `--apply`. O script autentica como a conta de máquina do tenant e paga embeddings sem reserva de orçamento (limitação já registrada na própria nota do script).
 
-O script é idempotente por nome: os documentos 01 a 13 mantêm o nome e são reingeridos no lugar, e os documentos 14 a 19 viram fontes novas. Nenhuma fonte é apagada.
+O script é idempotente por nome: os documentos 01 a 13 mantêm o nome e são reingeridos no lugar, e os documentos 14 a 25 viram fontes novas. Nenhuma fonte é apagada.
 
 ## Garantias automáticas
 

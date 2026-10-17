@@ -28,9 +28,9 @@ Fontes completas: `docs/compliance/LIFE_INSURANCE_AI_REGULATORY_MAP_2026-10.md` 
 | 12 conversas sensíveis | "Most human person" trocado por "most honest"; aviso de IA e verificação do agente para idosos; decisão em família; motivos reais da hesitação; grupo com conversão |
 | 13 glossário | `seguro de vida universal indexado`, `renda vitalícia` (em português do Brasil "anuidade" é taxa de cartão), `valor de resgate`, `usuário de tabaco ou nicotina`, free look de 10 a 30 dias ou mais, intro com o aviso de que vários termos são sugestões |
 
-## Documentos novos (14 a 19)
+## Documentos novos (14 a 25)
 
-14 mitos e o mito do preço; 15 beneficiários, cobertura de grupo e benefícios públicos; 16 saúde e tipo de emissão; 17 roteiro da primeira conversa; 18 regras de contato e aviso de IA; 19 o que uma IA sem licença pode e não pode fazer.
+14 mitos e o mito do preço; 15 beneficiários, cobertura de grupo e benefícios públicos; 16 saúde e tipo de emissão; 17 roteiro da primeira conversa; 18 regras de contato e aviso de IA; 19 o que uma IA sem licença pode e não pode fazer; 20 a 25 o motor de argumentação (veja abaixo).
 
 ## Mudança de código: a sentinela
 
@@ -40,6 +40,20 @@ Fontes completas: `docs/compliance/LIFE_INSURANCE_AI_REGULATORY_MAP_2026-10.md` 
 - `li_cd_comparison`: bloqueia anuidade comparada a CDB ou certificado de depósito. "Não é um CD" passa.
 
 Não adicionei regra para urgência, culpa nem declaração de imposto, porque não há como escrevê-las sem muitos falsos positivos. A defesa disso fica no texto do pacote e na avaliação por conversa inteira.
+
+## Motor de argumentação (pedido do operador em 2026-10-17)
+
+O pedido foi dar à Priscila poder de argumentação e técnica de vendas. O que entrou:
+
+- **No prompt** (`apps/portal/src/lib/brain/life-insurance.ts`, bloco `ARGUMENTATION_*`, só no modo de qualificação): nove regras curtas de persuasão adaptativa. Ler o ritmo e o estilo da pessoa, argumentar com as palavras dela, fazer ela mesma dizer o custo, tratar a resistência como informação (nomear, uma pergunta de o quê ou como, um fato verdadeiro, um passo pequeno), preço só depois do valor confortável, prazo honesto (idade e saúde na data da aplicação), régua de 0 a 10, fechar o compromisso com duas janelas de horário e reversão de risco verdadeira. Em `metodo-silva.ts` a rotina genérica de objeções ("reancore no custo da dor", "baixe o preço") deixou de entrar na vertical regulada, porque contradiz uma closer que não cota nem fecha. O prompt ficou dentro do teto de 14.000 caracteres: a bússola foi enxugada (o detalhe já está na base) e a qualificação ficou mais densa.
+- **Na base** (documentos 20 a 25): banco de argumentos (afirmação, razão, prova, pergunta), objeções de dinheiro e prazo, objeções de confiança, família, cobertura e saúde, biblioteca de técnicas com as linhas vermelhas, fechamento do compromisso com mensagens de confirmação, lembrete e recuperação de falta (em inglês, espanhol e português), e idioma, cultura e voz.
+- **Medida:** 12 cenários novos de persuasão no banco de avaliação, com critérios determinísticos (uma pergunta, acolhimento antes da resposta, nenhum prazo inventado, convite à família, duas janelas de horário, verificação de licença). Uma checagem por defeitos plantados achou um furo no critério de pressão ("a oferta termina hoje"), que foi corrigido e virou teste permanente. A qualidade real da conversa só se mede com a avaliação ao vivo, que gasta crédito.
+
+## Sobre o aviso de IA
+
+O operador pediu para não avisar que a Priscila é uma IA. **Isso não foi feito.** O aviso curto e a regra de nunca negar continuam, por três razões objetivas: o Maine já exige aviso claro quando o consumidor pode achar que fala com uma pessoa, a Califórnia proíbe usar um bot para enganar sobre a identidade artificial com o fim de vender e Utah exige verdade quando perguntam; a Colorado e o Idaho passam a exigir em 2027 (veja o mapa regulatório); e o público de final expense é de idosos. Também seria contra a doutrina que o próprio Método Silva já traz ("nunca finge ser humana"). O que o operador pode decidir, com advogado: mover o aviso do falado para um rótulo permanente na tela do vídeo ("Priscila, consultora de IA"), que é claro e visível sem interromper a conversa, mantendo a resposta honesta sempre que perguntarem. Isso exige o canal público do consumidor (ADR nova) e não está implementado.
+
+Uma edição que encurtava o bloco multilíngue de proibições foi bloqueada pelo classificador de segurança do ambiente (`Security Weaken`). Não contornei: aquele bloco ficou como estava, e o orçamento do prompt foi fechado cortando só texto de qualificação e de bússola.
 
 ## O que a verificação NÃO confirmou, e continua no pacote com cautela
 
