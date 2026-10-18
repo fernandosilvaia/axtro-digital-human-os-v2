@@ -59,6 +59,13 @@ export interface BrainAgentProfile {
    */
   readonly domainCore?: string;
   /**
+   * Por padrão, ter `domainCore` marca a vertical como regulada (corta as fases
+   * de preço e de fechamento, que uma closer que não cota nem fecha não pode ter).
+   * Uma vertical que VENDE de verdade, como a Billion Leads Pro, traz núcleo de
+   * domínio e mantém o Método inteiro: passa `false` aqui.
+   */
+  readonly regulatedVertical?: boolean;
+  /**
    * Se a persona consegue de fato chamar tools nesta conversa. O padrão (true)
    * descreve uma persona com LLM hospedado na Tavus, onde as tools de cena e de
    * negócio anexadas à persona realmente disparam. O cérebro próprio (rota
@@ -229,7 +236,7 @@ export function buildCloserVideoSystemPrompt(profile: BrainAgentProfile): string
   // `domainCore` so e preenchido por uma vertical regulada (hoje, Life
   // Insurance). Derivar daqui evita um segundo sinalizador que poderia ficar
   // dessincronizado do nucleo que realmente entrou no prompt.
-  const regulated = profile.domainCore !== undefined;
+  const regulated = profile.regulatedVertical ?? profile.domainCore !== undefined;
   // true (padrão): persona com LLM da Tavus, tools de cena e de negócio.
   // objeto: cérebro próprio com as tools que ele ofereceu nesta requisição.
   // false: cérebro sem tools, captura verbal e handoff honesto.

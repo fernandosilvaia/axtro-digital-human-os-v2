@@ -18,6 +18,7 @@ import type { TextGenerationMessage, TextGenerationResult, TextGenerationTool, T
 import { assertGenerationFitsReservedInput, generationInputTokenUpperBound } from "../ai-budget/envelope.ts";
 import { AI_USAGE_LIMITS } from "../ai-budget/reservations.ts";
 
+import { buildBillionLeadsCore } from "./billion-leads.ts";
 import { buildLifeInsuranceCore, buildLifeInsuranceIdentity } from "./life-insurance.ts";
 import { shapeSpokenReply } from "./spoken-shape.ts";
 import { brainToolDefinitions, hasBusinessTools, hasCalculatorTool, type BrainToolName } from "./brain-tools.ts";
@@ -37,7 +38,7 @@ import { buildCloserChatSystemMessages, buildCloserVideoSystemPrompt, type Brain
  * para a doutrina generica e seguro, enquanto assumir a vertical regulada sem
  * certeza nao e.
  */
-export type CloserVertical = "metodo_silva" | "life_insurance_qualification" | "life_insurance_recruitment";
+export type CloserVertical = "metodo_silva" | "life_insurance_qualification" | "life_insurance_recruitment" | "billion_leads_sales";
 
 function lifeInsuranceModeFor(vertical: CloserVertical | undefined): "qualification" | "recruitment" | undefined {
   if (vertical === "life_insurance_qualification") return "qualification";
@@ -46,7 +47,7 @@ function lifeInsuranceModeFor(vertical: CloserVertical | undefined): "qualificat
 }
 
 export function parseCloserVertical(value: unknown): CloserVertical {
-  return value === "life_insurance_qualification" || value === "life_insurance_recruitment"
+  return value === "life_insurance_qualification" || value === "life_insurance_recruitment" || value === "billion_leads_sales"
     ? value
     : "metodo_silva";
 }
@@ -550,7 +551,10 @@ export async function runBrainChatCompletion(request: BrainChatRequest, deps: Br
   // e nao passa por call regulada, entao mante-lo fora daqui evita duplicar a
   // doutrina em dois lugares que divergiriam com o tempo.
   const lifeInsuranceMode = lifeInsuranceModeFor(request.closerVertical);
-  const verticalComposition = lifeInsuranceMode === undefined
+  const verticalComposition = request.closerVertical === "billion_leads_sales"
+    // Vertical que vende: núcleo de domínio com o Método Silva inteiro (não regulada).
+    ? { domainCore: buildBillionLeadsCore(request.language ?? "portuguese"), regulatedVertical: false }
+    : lifeInsuranceMode === undefined
     ? {}
     : {
       identityOverride: buildLifeInsuranceIdentity({
@@ -651,22 +655,25 @@ export async function runBrainChatCompletion(request: BrainChatRequest, deps: Br
   await deps.logGenerationUsage(result.usage.inputTokens, result.usage.outputTokens, result.usage.reportedCostUsd);
   if (toolCalls.length === 0 && droppedToolCalls > 0) throw new BrainToolCallUnusableError(droppedToolCalls);
   const sanitized = sanitizeSpokenReply(result.text);
+  // O tamanho do turno é garantido aqui, não pelo prompt: a avaliação ao vivo
+  // mostrou que o modelo passa de 4 frases em mais da metade das respostas. Vale
+  // para toda fala de vídeo, porque a doutrina Silva já exige turnos curtos e
+  // uma pergunta por vez; o chat de teste (texto) não é encurtado.
+  const shaped = isVideo ? shapeSpokenReply(sanitized) : sanitized;
+  const shortenedFlag = shaped !== sanitized ? ["reply_shortened"] : [];
   if (lifeInsuranceMode === undefined) {
-    return { reply: sanitized, usage: result.usage, guardrailFlags: detectGuardrailRisk(sanitized), toolCalls, contextFit };
+    return { reply: shaped, usage: result.usage, guardrailFlags: [...detectGuardrailRisk(shaped), ...shortenedFlag], toolCalls, contextFit };
   }
   // Vertical regulada: a frase que cria exposição regulatória não chega ao
   // áudio, mesmo que o modelo ignore a instrução do prompt.
   // O recuo da sentinela sai no idioma da fala quando ela não dá para detectar.
-  // O tamanho do turno é garantido aqui, não pelo prompt: a avaliação ao vivo
-  // mostrou que o modelo passa de 4 frases em mais da metade das respostas.
-  const shaped = shapeSpokenReply(sanitized);
   const guarded = enforceLifeInsuranceCompliance(shaped, request.spokenLanguage ?? (request.language === "english" ? "english" : "portuguese"));
   return {
     // Resposta só de tool não tem fala: a sentinela não inventa recuo para o vazio.
     reply: sanitized.length === 0 ? "" : guarded.reply,
     contextFit,
     usage: result.usage,
-    guardrailFlags: [...detectGuardrailRisk(guarded.reply), ...guarded.violations, ...(shaped !== sanitized ? ["reply_shortened"] : [])],
+    guardrailFlags: [...detectGuardrailRisk(guarded.reply), ...guarded.violations, ...shortenedFlag],
     toolCalls,
   };
 }

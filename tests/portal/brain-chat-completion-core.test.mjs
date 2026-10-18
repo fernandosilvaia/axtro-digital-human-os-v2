@@ -387,3 +387,21 @@ test("generic vertical: the life insurance sentinel never rewrites other tenants
   assert.equal(result.reply, text);
   assert.ok(!result.guardrailFlags.some((flag) => flag.startsWith("li_")));
 });
+
+const LONG_REPLY = "Entendi o seu momento. Isso faz sentido para quem está começando. Muita gente passa por essa dúvida. Vale olhar com calma. Posso te explicar cada plano. Depois você decide no seu tempo. Qual dessas partes quer ver primeiro? Ou prefere falar do preço?";
+
+test("a video reply is cut to the spoken size, with one question, and says so in the flags", async () => {
+  const { deps } = fakeDeps({ generateResult: { text: LONG_REPLY, model: "fake/model", usage: { inputTokens: 100, outputTokens: 60 } } });
+  const result = await core.runBrainChatCompletion({ ...BASE_REQUEST, surface: "video" }, deps);
+  assert.ok(result.reply.split(/(?<=[.!?])\s+/).length <= 4, result.reply);
+  assert.equal((result.reply.match(/\?/g) ?? []).length, 1);
+  assert.match(result.reply, /Qual dessas partes quer ver primeiro, ou prefere falar do preço\?$/);
+  assert.ok(result.guardrailFlags.includes("reply_shortened"));
+});
+
+test("a text chat reply is never cut", async () => {
+  const { deps } = fakeDeps({ generateResult: { text: LONG_REPLY, model: "fake/model", usage: { inputTokens: 100, outputTokens: 60 } } });
+  const result = await core.runBrainChatCompletion({ ...BASE_REQUEST, surface: "chat" }, deps);
+  assert.equal(result.reply, LONG_REPLY);
+  assert.ok(!result.guardrailFlags.includes("reply_shortened"));
+});

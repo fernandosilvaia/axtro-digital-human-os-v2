@@ -104,6 +104,7 @@ test("brain route executes the real injected retrieval helper",async()=>{
     ["@/lib/observability/brain-trace",{langfuseConfigFromEnv:()=>({endpoint:"https://trace.invalid",authorization:"Basic synthetic",environment:"test"}),exportBrainTurn:async(turn)=>{traces.push(turn);return true;}}],
     ["@axtro/domain",{createUuidV7:()=>agent}],["@axtro/provider-openrouter",{createOpenRouterTextGenerationPort:()=>({}),TextGenerationError:class extends Error{}}],
     ["@/lib/brain/chat-completion-core",{parseCloserVertical:()=>"metodo_silva",contextWasTrimmed}],
+    ["@/lib/brain/vertical-override",{applyVerticalOverride:(vertical)=>vertical}],
     ["@/lib/brain/completion-stream",{buildCompletionStream:(reply)=>new ReadableStream({start(controller){controller.enqueue(new TextEncoder().encode(`data: ${JSON.stringify({choices:[{delta:{content:reply}}]})}\n\n`));controller.close();}})}],
     ["@/lib/brain/handle-chat-request",{BrainHttpError:class extends Error{},authenticateBrainRequest:async()=>({tenantId:tenant,agentId:agent,agentName:"Synthetic",tenantName:"Synthetic",enabled:true}),handleBrainChatRequest:async(_req,deps)=>{const rows=await deps.retrieveKnowledge(tenant,input.queryText);assert.equal(rows.length,1);return {reply:"Synthetic reply",degraded:false,guardrailFlags:[],toolCalls:[],contextFit:{knowledge:{offered:4,used:1},perception:"trimmed",providerContext:"none",history:{offered:6,kept:2}}};}}],
     ["@/lib/ai-budget/reservations",{...budget,configuredOpenRouterGenerationModel:()=>"openai/gpt-4.1-mini"}],
@@ -136,6 +137,7 @@ test("a paid answer with nothing usable closes the ledger with the billed usage,
     ["@/lib/observability/brain-trace",{langfuseConfigFromEnv:()=>null,exportBrainTurn:async()=>false}],
     ["@axtro/provider-openrouter",{TextGenerationError,createOpenRouterTextGenerationPort:()=>({generate:async()=>{throw new TextGenerationError("malformed_provider_response","truncated tool call",{inputTokens:900,outputTokens:512});}})}],
     ["@/lib/brain/chat-completion-core",{parseCloserVertical:()=>"metodo_silva",contextWasTrimmed}],
+    ["@/lib/brain/vertical-override",{applyVerticalOverride:(vertical)=>vertical}],
     ["@/lib/brain/completion-stream",{buildCompletionStream:(reply)=>new ReadableStream({start(controller){controller.enqueue(new TextEncoder().encode(reply));controller.close();}})}],
     ["@/lib/brain/handle-chat-request",{BrainHttpError:class extends Error{},authenticateBrainRequest:async()=>({tenantId:tenant,agentId:agent,agentName:"Synthetic",tenantName:"Synthetic",enabled:true}),handleBrainChatRequest:async(_req,deps)=>{
       assert.equal(await deps.checkBudget(tenant),"allowed");
