@@ -49,7 +49,7 @@ Voz aprovada pelo dono em 2026-10-19: **Thayane, "Northern Brazilian accent"** (
 
 No ar: portal (rotas do canal ligadas), função `billion_closer` do CRM e o painel no app logado (billioncrm.com). Agente "Bia" ativo no tenant separado "Billion Leads Pro", persona Tavus `pd11d8f60586`, 19 fontes ingeridas. O teste de texto ao vivo passou (preço da tabela, teste de 7 dias sem reposição, outro CRM sem reposição, admissão adulterada e revogada recusadas, pedido de parar bloqueia nova admissão por 24 horas).
 
-**Vídeo bloqueado:** o portal só abre sala de vídeo para tenant com assinatura ativa (`tenant_subscriptions`, hoje vazia para todos os tenants). Para o tenant da Billion abrir vídeo é preciso uma assinatura: pelo checkout normal da Stripe ou uma linha concedida pelo operador (decisão de cobrança do dono). Enquanto isso o painel mostra "indisponível" no vídeo e o texto funciona.
+**Vídeo:** o portal exigia assinatura da Stripe para abrir sala. A migração 0080 (aplicada em 2026-10-19) criou a lista `portal_billing_exemptions`, e o tenant "Billion Leads Pro" está isento, sem assinatura e sem cobrança. Os tetos de segurança continuam: 20 salas por dia, 3 salas sem entrega por período, concorrência e 2 salas por conta por dia. Depois da isenção, a criação da sala chegou até a Tavus e ela respondeu **HTTP 402 (pagamento necessário)**: a conta da Tavus está sem crédito ou plano ativo. Recarregar a Tavus é ação do dono.
 
 ## Como disparar logo após o cadastro (especificação, a ser feita no CRM)
 
