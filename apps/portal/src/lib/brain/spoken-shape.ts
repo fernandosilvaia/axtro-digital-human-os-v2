@@ -19,6 +19,52 @@
 
 export const SPOKEN_MAX_SENTENCES = 4;
 
+// Elogio à pergunta no começo da fala ("Ótima pergunta."). Em 32 de 108 respostas ao vivo o modelo abriu
+// assim, mesmo com a regra no prompt, e é o cheiro de robô mais fácil de notar. Sai só o elogio; o que vem
+// depois é a resposta e fica.
+const PRAISE_OPENERS = [
+  /^(?:(?:[óo]tima|boa|excelente|muito boa|que (?:[óo]tima|boa))\s+pergunta(?:\s+essa)?|[óo]timo que (?:voc[eê] )?perguntou)[!.,:;]+\s*(?:e\s+)?/i,
+  /^(?:[óo]timo|boa|excelente),?\s+voc[eê]\s+(?:est[aá] fazendo|fez|fez uma) (?:a |uma )?(?:pergunta certa|boa pergunta)[!.,:;]+\s*/i,
+  /^(?:great|good|excellent|fantastic|fair) question[!.,:;]+\s*(?:and\s+)?/i,
+  /^(?:excelente|buena|muy buena|gran) pregunta[!.,:;]+\s*(?:y\s+)?/i,
+];
+
+// Tique de "vou ser honesto/transparente com você:" no começo de frase. Aparece em quase todo turno longo
+// e soa como fórmula; a frase honesta que vem depois fica, sem o prefixo.
+const HONESTY_TICS = [
+  /^(?:(?:agora|ent[aã]o|mas|olha|bom|bem)[,.]?\s+)?(?:deixa eu|vou|quero|deixe-me) ser (?:bem |muito )?(?:transparente|honesto|honesta|direto|direta|claro|clara|sincero|sincera)(?: com voc[eê])?[:,.]?\s*/i,
+  /^(?:(?:now|so|but|look)[,.]?\s+)?(?:let me be|i'll be|i will be|i want to be) (?:honest|transparent|direct|upfront|straight)(?: with you)?[:,.]?\s*/i,
+  /^(?:le voy a ser|voy a ser|d[eé]jeme ser) (?:honesto|honesta|directo|directa|transparente)(?: con usted)?[:,.]?\s*/i,
+];
+// O mesmo tique no fim de uma frase: "..., mas deixa eu ser direto com você."
+const TRAILING_TIC = /[,;]?\s*(?:mas\s+|e\s+)?(?:deixa eu|vou|quero) ser (?:bem |muito )?(?:transparente|honesto|honesta|direto|direta|claro|clara|sincero|sincera)(?: com voc[eê])?\s*([.!?])$/i;
+
+function stripTic(sentence: string): string {
+  for (const pattern of HONESTY_TICS) {
+    const match = pattern.exec(sentence);
+    if (match === null) continue;
+    const rest = sentence.slice(match[0].length);
+    return rest.trim().length === 0 ? "" : rest.charAt(0).toUpperCase() + rest.slice(1);
+  }
+  const trailing = TRAILING_TIC.exec(sentence);
+  if (trailing !== null) {
+    const head = sentence.slice(0, trailing.index).trim();
+    return head.length === 0 ? "" : `${head}${trailing[1]}`;
+  }
+  return sentence;
+}
+
+function stripPraiseOpener(text: string): string {
+  for (const pattern of PRAISE_OPENERS) {
+    const match = pattern.exec(text);
+    if (match === null) continue;
+    const rest = text.slice(match[0].length);
+    if (rest.trim().length === 0) return text;
+    return rest.charAt(0).toUpperCase() + rest.slice(1);
+  }
+  return text;
+}
+
 // Frases que não podem ser a primeira a cair quando o corte acontece.
 const PROTECTED_SENTENCE = /(\bAI\b|\bIA\b|inteligencia artificial|inteligência artificial|licensed|licencia|licenciad|department of insurance|departamento de seguros|medicare|government|gobierno|governo|human team|equipo humano|time humano|no obligation|sin compromiso|sem compromisso)/i;
 // "Or is it...?", "Ou é...?": a segunda pergunta continua a primeira.
@@ -51,11 +97,14 @@ function mergeQuestionChain(chain: string[]): string {
     .join(" ");
 }
 
-export function shapeSpokenReply(text: string, maxSentences: number = SPOKEN_MAX_SENTENCES): string {
+export function shapeSpokenReply(original: string, maxSentences: number = SPOKEN_MAX_SENTENCES): string {
+  const text = stripPraiseOpener(original.trimStart());
   const flat = text.replace(/\s*\n+\s*/g, " ").trim();
-  const sentences = splitSentences(flat);
+  const split = splitSentences(flat);
+  const sentences = split.map(stripTic).filter((sentence) => sentence.length > 0);
   const questionCount = sentences.filter(isQuestion).length;
-  if (sentences.length <= maxSentences && questionCount <= 1) return text;
+  const ticsRemoved = sentences.length !== split.length || sentences.some((sentence, index) => sentence !== split[index]);
+  if (!ticsRemoved && sentences.length <= maxSentences && questionCount <= 1) return text;
 
   // Ultima pergunta e, se as de antes a continuam, a cadeia inteira.
   let lastQuestion: string | null = null;

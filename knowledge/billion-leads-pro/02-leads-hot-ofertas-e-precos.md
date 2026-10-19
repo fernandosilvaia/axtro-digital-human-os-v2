@@ -16,4 +16,4 @@ Como e quando os leads chegam, com honestidade: os leads em português são gera
 
 Velocidade: o lead chega ao pipeline com um cronômetro de speed to lead que começa quando ele chega e avisa quando a janela ideal de resposta está passando. Quem responde primeiro sai na frente, e é por isso que o primeiro dia de uso importa.
 
-Só os leads, sem o CRM: o cliente pode comprar só os leads e continuar no CRM que já usa. Cada lead entregue pode ser enviado ao sistema dele por webhook assinado, no instante em que chega, com novas tentativas automáticas.
+Só os leads, sem o CRM: o cliente pode comprar só os leads e continuar no CRM que já usa. Cada lead entregue pode ser enviado ao sistema dele por webhook assinado, no instante em que chega, com novas tentativas automáticas. Atenção: a reposição exige o CRM da Billion ativo, porque é ele que registra as tentativas. Quem trabalha os leads só em outro CRM abre mão da reposição, e o closer avisa isso antes da compra.

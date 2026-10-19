@@ -67,3 +67,34 @@ test("shaping is idempotent and never returns an empty reply", () => {
   assert.equal(shapeSpokenReply(""), "");
   assert.ok(shapeSpokenReply("Only one sentence without punctuation").length > 0);
 });
+
+test("a praise-of-the-question opener is dropped and the answer stays", () => {
+  assert.equal(shapeSpokenReply("Ótima pergunta. O pacote de 25 sai a US$ 28 por lead."), "O pacote de 25 sai a US$ 28 por lead.");
+  assert.equal(shapeSpokenReply("Boa pergunta! Os leads chegam em fila."), "Os leads chegam em fila.");
+  assert.equal(shapeSpokenReply("Ótima pergunta, e vou ser direto: não existe garantia de venda."), "Não existe garantia de venda.");
+  assert.equal(shapeSpokenReply("Great question. The pack starts at 10 leads."), "The pack starts at 10 leads.");
+  assert.equal(shapeSpokenReply("Excelente pregunta. El paquete mínimo es de 10 leads."), "El paquete mínimo es de 10 leads.");
+});
+
+test("praise stripping never empties a reply and never touches a normal start", () => {
+  assert.equal(shapeSpokenReply("Ótima pergunta."), "Ótima pergunta.");
+  assert.equal(shapeSpokenReply("Boa, isso ajuda. Vamos ao catálogo."), "Boa, isso ajuda. Vamos ao catálogo.");
+  assert.equal(shapeSpokenReply("Faz sentido. Qual produto você vende?"), "Faz sentido. Qual produto você vende?");
+  const once = shapeSpokenReply("Ótima pergunta. Os leads chegam em fila.");
+  assert.equal(shapeSpokenReply(once), once, "idempotent");
+});
+
+test("the honest-with-you tic is dropped and the sentence after it stays", () => {
+  assert.equal(shapeSpokenReply("Vou ser honesto com você: não existe garantia de venda. Quer ver como funciona a reposição?"), "Não existe garantia de venda. Quer ver como funciona a reposição?");
+  assert.equal(shapeSpokenReply("Primeiro, o preço. Deixa eu ser transparente: o pacote de 25 sai a US$ 28 por lead."), "Primeiro, o preço. O pacote de 25 sai a US$ 28 por lead.");
+  assert.equal(shapeSpokenReply("Let me be honest with you: there is no sales guarantee."), "There is no sales guarantee.");
+  assert.equal(shapeSpokenReply("Vou ser honesto: sem tique, sobra nada."), "Sem tique, sobra nada.");
+  // um uso que carrega conteúdo na própria frase não é tique
+  assert.equal(shapeSpokenReply("Ser honesto custa pouco e vale muito."), "Ser honesto custa pouco e vale muito.");
+});
+
+test("the honesty tic is dropped when it stands alone, after a connector, or at the end of a sentence", () => {
+  assert.equal(shapeSpokenReply("Entendi o orçamento. Deixa eu ser direto com você. O pacote de 10 sai a US$ 30 por lead."), "Entendi o orçamento. O pacote de 10 sai a US$ 30 por lead.");
+  assert.equal(shapeSpokenReply("Agora, deixa eu ser direto com você: a reposição exige o CRM ativo."), "A reposição exige o CRM ativo.");
+  assert.equal(shapeSpokenReply("Eu confirmo isso com o time, mas deixa eu ser direto com você. O que mais importa é a sua capacidade."), "Eu confirmo isso com o time. O que mais importa é a sua capacidade.");
+});

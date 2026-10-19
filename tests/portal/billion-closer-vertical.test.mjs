@@ -7,7 +7,8 @@ const core = await import("../../apps/portal/src/lib/brain/chat-completion-core.
 const override = await import("../../apps/portal/src/lib/brain/vertical-override.ts");
 const life = await import("../../apps/portal/src/lib/brain/life-insurance.ts");
 
-const PERSONA_PROMPT_COMFORT_CAP = 14_000;
+// 14.000 para os prompts genéricos; a vertical da Billion carrega também a tabela verificada de preços, e por isso o teto dela é 14.500.
+const PERSONA_PROMPT_COMFORT_CAP = 14_500;
 
 test("the doctrine answers first, closes without requalifying, and keeps the honesty rules always on", () => {
   const pt = billion.buildBillionLeadsCore("portuguese");
@@ -20,7 +21,7 @@ test("the doctrine answers first, closes without requalifying, and keeps the hon
   }
   for (const text of [pt, en]) {
     assert.ok(!text.includes(String.fromCharCode(0x2014)), "no em dash");
-    assert.ok(text.length < 3000, `doctrine is ${text.length} chars`);
+    assert.ok(text.length < 3400, `doctrine is ${text.length} chars`);
   }
 });
 
@@ -105,4 +106,22 @@ test("the override only lifts a generic agent to the Billion vertical", () => {
   for (const bad of [undefined, "", "   ", "not json", "[1,2]", "null", "42", '{"agent-1": 7}']) {
     assert.equal(override.applyVerticalOverride("metodo_silva", "agent-1", bad), "metodo_silva", `bad input: ${bad}`);
   }
+});
+
+const { amountsIn, BILLION_ALLOWED_AMOUNTS, unknownAmounts } = await import("../../apps/portal/src/lib/brain/billion-guard.ts");
+
+test("the price card in the prompt is exactly the verified table the output guard enforces", () => {
+  for (const language of ["portuguese", "english"]) {
+    const card = billion.BILLION_PRICE_CARDS[language];
+    assert.deepEqual(unknownAmounts(card), [], `${language}: the card states an amount the guard would remove`);
+    const stated = new Set(amountsIn(card));
+    // todo preço de pacote e de plano que a closer pode citar precisa estar no cartão
+    for (const amount of [300, 700, 1250, 250, 600, 1100, 2000, 97, 197, 397, 588, 774, 1494]) {
+      assert.ok(stated.has(amount), `${language}: the card is missing ${amount}`);
+    }
+    assert.ok(card.length < 600, `${language}: card is ${card.length} chars`);
+  }
+  assert.ok(BILLION_ALLOWED_AMOUNTS.has(1250) && !BILLION_ALLOWED_AMOUNTS.has(199));
+  assert.ok(billion.buildBillionLeadsCore("portuguese").includes(billion.BILLION_PRICE_CARDS.portuguese));
+  assert.ok(billion.buildBillionLeadsCore("english").includes(billion.BILLION_PRICE_CARDS.english));
 });

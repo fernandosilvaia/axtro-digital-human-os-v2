@@ -18,6 +18,7 @@ import type { TextGenerationMessage, TextGenerationResult, TextGenerationTool, T
 import { assertGenerationFitsReservedInput, generationInputTokenUpperBound } from "../ai-budget/envelope.ts";
 import { AI_USAGE_LIMITS } from "../ai-budget/reservations.ts";
 
+import { enforceBillionLeadsGuard } from "./billion-guard.ts";
 import { buildBillionLeadsCore } from "./billion-leads.ts";
 import { buildLifeInsuranceCore, buildLifeInsuranceIdentity } from "./life-insurance.ts";
 import { shapeSpokenReply } from "./spoken-shape.ts";
@@ -662,7 +663,12 @@ export async function runBrainChatCompletion(request: BrainChatRequest, deps: Br
   const shaped = isVideo ? shapeSpokenReply(sanitized) : sanitized;
   const shortenedFlag = shaped !== sanitized ? ["reply_shortened"] : [];
   if (lifeInsuranceMode === undefined) {
-    return { reply: shaped, usage: result.usage, guardrailFlags: [...detectGuardrailRisk(shaped), ...shortenedFlag], toolCalls, contextFit };
+    // A closer da Billion Leads Pro não pode inventar preço, prazo nem ganho: a trava é de saída, não de prompt.
+    const billion = request.closerVertical === "billion_leads_sales"
+      ? enforceBillionLeadsGuard(shaped, request.spokenLanguage ?? (request.language === "english" ? "english" : "portuguese"))
+      : null;
+    const spoken = billion === null || shaped.length === 0 ? shaped : billion.reply;
+    return { reply: spoken, usage: result.usage, guardrailFlags: [...detectGuardrailRisk(spoken), ...(billion?.violations ?? []), ...shortenedFlag], toolCalls, contextFit };
   }
   // Vertical regulada: a frase que cria exposição regulatória não chega ao
   // áudio, mesmo que o modelo ignore a instrução do prompt.
