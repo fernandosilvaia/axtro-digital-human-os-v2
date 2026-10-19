@@ -45,6 +45,12 @@ Voz aprovada pelo dono em 2026-10-19: **Thayane, "Northern Brazilian accent"** (
    - O vídeo abre em nova aba, não em iframe: o CRM bloqueia câmera e iframe de terceiros por política de segurança, e afrouxar isso valeria para o app inteiro.
    - **Antes de ligar:** revisão jurídica do texto novo da política de privacidade (entrada "Axtro AI (Bia)" em `src/lib/subprocessors.ts`, pt/en/es).
 
+## Estado em produção (2026-10-19)
+
+No ar: portal (rotas do canal ligadas), função `billion_closer` do CRM e o painel no app logado (billioncrm.com). Agente "Bia" ativo no tenant separado "Billion Leads Pro", persona Tavus `pd11d8f60586`, 19 fontes ingeridas. O teste de texto ao vivo passou (preço da tabela, teste de 7 dias sem reposição, outro CRM sem reposição, admissão adulterada e revogada recusadas, pedido de parar bloqueia nova admissão por 24 horas).
+
+**Vídeo bloqueado:** o portal só abre sala de vídeo para tenant com assinatura ativa (`tenant_subscriptions`, hoje vazia para todos os tenants). Para o tenant da Billion abrir vídeo é preciso uma assinatura: pelo checkout normal da Stripe ou uma linha concedida pelo operador (decisão de cobrança do dono). Enquanto isso o painel mostra "indisponível" no vídeo e o texto funciona.
+
 ## Como disparar logo após o cadastro (especificação, a ser feita no CRM)
 
 O código do CRM mostra três pontos de entrada, do mais simples ao mais forte:
