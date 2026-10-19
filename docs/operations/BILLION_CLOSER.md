@@ -21,13 +21,24 @@ Um closer de IA que conversa com o agente que acabou de se cadastrar na Billion 
 
 **Por que a vertical existe, e por que sem migration.** A primeira avaliação ao vivo mostrou que o Método Silva genérico enrola quem já quer comprar: a closer respondia "deixa eu entender melhor o seu cenário" a "quanto custa o lead?" e a "quero comprar o de 25". Documentos não resolvem isso, porque a regra "responda primeiro" precisa estar sempre no prompt. A coluna `closer_vertical` do banco só aceita três valores, e gravar o quarto exigiria uma migration aplicada no hospedado pelo método da janela. Por isso a vertical é escolhida por `BRAIN_VERTICAL_OVERRIDES` enquanto a migration não existe. Se você preferir o caminho definitivo, a migration só precisa ampliar a regra de `agent_video_config` e as duas funções que validam o valor (0068 e 0072).
 
-## Como provisionar (decisões e ações do operador)
+## Como provisionar (checklist do operador, em ordem)
 
-1. Criar um tenant ou usar o existente, e um agente de vendas "Closer da Billion Leads Pro" com o nome que você escolher (os testes usam "Bia" só como exemplo).
-2. Ingerir a base: `railway run -- node scripts/ingest-knowledge-bulk.mjs knowledge/billion-leads-pro --dry-run`, revisar e repetir com `--apply`. Custa embeddings, algo pequeno.
-3. Escolher réplica e voz, gerar o segredo do cérebro, criar a persona na Tavus em dry-run e depois de verdade, e vincular com `closer_vertical = 'metodo_silva'`, idioma `portuguese` e falas `{portuguese, english, spanish}`. O passo a passo é o mesmo de `docs/operations/PRISCILA_LAUNCH.md`.
-4. Ligar a vertical da Billion Leads Pro nesse agente (ela carrega a tabela de preços, a trava de saída e o limitador de fala): `railway variable set --service portal 'BRAIN_VERTICAL_OVERRIDES={"<id do agente>":"billion_leads_sales"}'` e reimplantar o portal. Sem essa variável o agente roda como closer genérico, que enrola o cliente que já quer comprar.
-5. Ligar o cérebro, ativar o agente e fazer uma chamada de teste paga.
+Voz aprovada pelo dono em 2026-10-19: **Thayane, "Northern Brazilian accent"** (ElevenLabs, id `Fy0y2P2qP6NrsDcvbxmJ`). Ela é uma voz da biblioteca compartilhada: antes de usar, adicione-a em "My Voices" na conta ElevenLabs (a chave `ELEVENLABS_API_KEY` já está no Railway). Se o sotaque não ficar forte o bastante no teste, a alternativa é uma voz clonada com autorização de quem emprestar a voz.
+
+1. **Agente.** No portal, no tenant da Billion, criar o agente de vendas (nome da closer, por exemplo "Bia"). Copiar o id do agente.
+2. **Segredo do cérebro.** Gerar o segredo do cérebro do agente no portal (aparece uma vez) e guardar.
+3. **Base de conhecimento** (custa embeddings, centavos): `railway run --service portal -- node scripts/ingest-knowledge-bulk.mjs knowledge/billion-leads-pro --dry-run`, revisar e repetir com `--apply`. São 19 documentos.
+4. **Persona na Tavus.** `--list-replicas` para escolher o rosto, depois `--dry-run` e `--create` de `scripts/provision-tavus-brain-persona.mjs` com `--language=portuguese` e `ELEVENLABS_VOICE_ID=Fy0y2P2qP6NrsDcvbxmJ` no ambiente (passo a passo igual ao de `docs/operations/PRISCILA_LAUNCH.md`, passos 2 a 5).
+5. **Vínculo governado** da persona ao agente em `agent_video_config`: `tavus_persona_id`, `tavus_replica_id`, `language = 'portuguese'`, `spoken_languages = {portuguese,english,spanish}`, `closer_vertical = 'metodo_silva'` (a vertical da Billion liga no passo 6).
+6. **Variáveis no serviço `portal` do Railway** (valores secretos você gera; eu não preciso vê-los):
+   - `BRAIN_VERTICAL_OVERRIDES={"<id do agente>":"billion_leads_sales"}` (liga a doutrina no vídeo pelo caminho Tavus).
+   - `BILLION_CLOSER_AGENT_ID=<id do agente>`
+   - `BILLION_CLOSER_SERVICE_SECRET=<segredo longo aleatório>` (o mesmo valor vai para a função do CRM)
+   - `BILLION_CLOSER_ADMISSION_KEY=<chave aleatória de 48 caracteres ou mais>` (`openssl rand -base64 48`)
+   - `BILLION_CLOSER_ENABLED=true` por último, só depois do teste do passo 8.
+7. **Ativar o agente** e ligar o cérebro dele no portal.
+8. **Teste pago controlado** (você decide o momento): chamar as rotas por `curl` com os segredos, primeiro texto, depois uma sala de vídeo, e conferir `/conversas`.
+9. **CRM:** variáveis da função e do front estão na seção do painel abaixo (preenchida quando o painel do CRM terminar).
 
 ## Como disparar logo após o cadastro (especificação, a ser feita no CRM)
 
