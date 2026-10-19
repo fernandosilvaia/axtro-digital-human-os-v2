@@ -1,6 +1,6 @@
 # ADR-051: Admissão de participante vindo do CRM para a closer da Billion Leads Pro
 
-**Status:** Proposed (rascunho para revisão do dono; nada implementado)
+**Status:** Accepted for stage 1 (2026-10-19, o dono pediu a implementação); stage 2 (recibo durável, migração 0079) Proposed
 **Date:** 2026-10-19
 **Related:** ADR-038, ADR-036, ADR-050, Constitution Arts. 3, 6, 7, 9, 10, 15
 
@@ -18,6 +18,18 @@ A closer da Billion Leads Pro deve falar em vídeo com o cliente logo depois do 
 6. **Rota nova.** `POST /api/closers/billion/video-session`, que substitui o `false` fixo por uma verificação real da admissão. A rota da Raissa continua fechada.
 7. **Migração forward-only 0079** com a tabela de admissão (tenant, `crm_account_ref` com hash, idioma, versão do aviso, recibo, estado, expiração), RLS forçada, mutação só por RPC de serviço e recibos append-only. Aplicada no banco hospedado só com autorização do dono.
 8. **Etapas do funil.** O gatilho (`platform_pipeline_sync`: `trial`, `proposal`, checkout abandonado) vive no CRM e só pede admissão; o portal decide.
+
+## Implementação da etapa 1 (2026-10-19)
+
+Entregue sem migração e desligada por padrão (`BILLION_CLOSER_ENABLED`):
+
+- `POST /api/closers/billion/admission`: o backend do CRM (segredo `BILLION_CLOSER_SERVICE_SECRET`) manda conta, idioma, interesse, etapa, estados, primeiro nome e a confirmação do aviso de IA na versão vigente. Sem a confirmação não existe admissão. Devolve uma admissão assinada (HMAC-SHA256, chave `BILLION_CLOSER_ADMISSION_KEY`, validade de 2 horas) que não carrega o identificador cru da conta.
+- `POST /api/closers/billion/chat`: turno de texto com a mesma doutrina, tabela de preços, trava de saída e limitador de fala do vídeo; reserva o pior caso de custo antes do provedor.
+- `POST /api/closers/billion/video-session`: sala da Tavus no molde da Raissa; a chave de idempotência do efeito pago é a admissão, então repetir a chamada devolve a mesma sala.
+- O agente é fixado por `BILLION_CLOSER_AGENT_ID` e a vertical é forçada no servidor. Nada vindo do CRM escolhe agente, tenant ou doutrina.
+- Tetos: 6 admissões por conta por dia, 2 vídeos por conta por dia, 12 mensagens por minuto e 40 turnos por admissão, mais o teto diário de vídeo e de IA do tenant no ledger durável.
+
+**O que ficou para a etapa 2 e por que o canal não deve ser ligado com público real antes dela:** a ADR-038 pede o recibo do aviso de IA gravado de forma durável antes do canal. Na etapa 1 a admissão é sem estado, e a prova do aviso é a assinatura da admissão mais um evento de telemetria. Os limites por conta são em memória (um processo no Railway). A tabela durável, o limite por conta no banco e a revogação ficam na migração 0079, que não foi escrita nem aplicada.
 
 ## Alternatives considered
 

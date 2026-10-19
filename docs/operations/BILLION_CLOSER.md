@@ -45,7 +45,7 @@ Dados mínimos para o closer: nome, idioma, interesse (CRM ou Leads), estados de
 
 Três tipos de canal, do mais barato ao mais caro:
 
-1. **Chat de texto dentro do CRM (recomendado como primeiro passo).** Um painel "Fale com a [nome]" na tela de onboarding e no Lead Desk, ao lado do tour. Custa centavos por conversa, não usa a Tavus, usa o mesmo cérebro e a mesma base. Serve para tirar dúvida de preço, plano, reposição e integração na hora em que o cliente decide. **Lacuna achada em 2026-10-19:** hoje só a fala de vídeo carrega a doutrina da Billion e a tabela de preços. A superfície de texto do cérebro monta o prompt genérico de chat (`buildCloserChatSystemMessages`, em `chat-completion-core.ts`), sem a doutrina; só a trava de saída de preços vale nas duas superfícies. Antes de abrir o texto, o portal precisa levar a doutrina e a tabela para a superfície de texto (com respostas um pouco mais longas que as de voz) e avaliar de novo ao vivo.
+1. **Chat de texto dentro do CRM (recomendado como primeiro passo).** Um painel "Fale com a [nome]" na tela de onboarding e no Lead Desk, ao lado do tour. Custa centavos por conversa, não usa a Tavus, usa o mesmo cérebro e a mesma base. Serve para tirar dúvida de preço, plano, reposição e integração na hora em que o cliente decide. **Lacuna achada em 2026-10-19, resolvida no mesmo dia:** a superfície de texto do cérebro monta o prompt genérico de chat. O canal de texto da closer não usa essa superfície: ele roda o mesmo turno do vídeo (`runAuthenticatedBrainTurn`), com a doutrina, a tabela de preços, a trava de saída e o limitador de fala.
 2. **Vídeo com a closer embutido no CRM.** O mesmo painel ganha o botão "falar por vídeo". É o canal mais forte para fechar, e o mais caro (minutos da Tavus). Exige tudo do tipo 1 mais teto diário e por pessoa, e uma chamada de teste paga para validar o caminho de ponta a ponta.
 3. **Mensagem proativa (WhatsApp, SMS ou e-mail) para quem parou.** Cobre checkout abandonado e silêncio depois do cadastro. É o que mais converte e o que mais exige cuidado: precisa de consentimento de contato gravado no cadastro (o pedido de demonstração já pede), horário permitido, pausa imediata em "pare" e no máximo três toques com valor diferente em cada um.
 
@@ -58,7 +58,28 @@ O que precisa ser feito, em ordem:
 5. **Provisionamento da closer:** agente, persona, ingestão da base e `BRAIN_VERTICAL_OVERRIDES`, como na seção anterior.
 6. **Depois:** a ferramenta somente leitura de catálogo para o preço sempre fresco.
 
-Até lá, a closer pode ser testada nas telas de teste do portal e por uma chamada de vídeo de teste.
+Para testar sem o CRM, chame as rotas por `curl` com os segredos acima, em um ambiente com `BILLION_CLOSER_ENABLED=true`.
+
+### Canal implementado (etapa 1, desligado por padrão)
+
+As três rotas do portal existem e estão em `apps/portal/src/app/api/closers/billion/`. Ficam fechadas até `BILLION_CLOSER_ENABLED=true`. Variáveis (todas no serviço `portal` do Railway):
+
+| Variável | Para que serve |
+|---|---|
+| `BILLION_CLOSER_ENABLED` | `true` liga as três rotas. Ausente ou outro valor, tudo responde 503 |
+| `BILLION_CLOSER_SERVICE_SECRET` | segredo que o backend do CRM usa como `Authorization: Bearer`. Mínimo 16 caracteres |
+| `BILLION_CLOSER_ADMISSION_KEY` | chave de assinatura das admissões. Mínimo 32 caracteres, aleatória |
+| `BILLION_CLOSER_AGENT_ID` | id do agente da closer. O agente precisa estar ativo, e a persona Tavus configurada para o vídeo |
+
+Contrato para o painel "no canto do site" (do lado do CRM, que fala com o portal pelo servidor, nunca pelo navegador):
+
+1. O painel mostra o rótulo fixo "[nome], consultora de IA da Billion" e um botão de iniciar. O clique é a confirmação do aviso.
+2. O backend do CRM chama `POST /api/closers/billion/admission` com `{accountRef, language, interest, stage, firstName, states, disclosure: {acknowledged: true, version: "ai-label-2026-10-v1"}}` e recebe `{admission, expiresAt}`.
+3. Texto: a cada mensagem, `POST /api/closers/billion/chat` com `{admission, messages: [{role, content}]}` (até 24 mensagens, 1.500 caracteres cada, só `user` e `assistant`, a última do usuário). Resposta `{reply, degraded}`. A abertura da closer é montada pelo servidor.
+4. Vídeo: `POST /api/closers/billion/video-session` com `{admission}` e recebe `{url, conversationId}` para abrir a sala. Chamar de novo com a mesma admissão devolve a mesma sala.
+5. Erros previstos: 400 `disclosure_required`, 401 `admission_invalid` ou `admission_expired`, 429 `rate_limited` ou `conversation_limit`, 503 `closer_unavailable` ou `video_unavailable_today`.
+
+O mesmo painel serve texto e vídeo: o cliente escolhe, e as duas escolhas usam a mesma admissão, a mesma doutrina e a mesma base.
 
 **Preço sempre fresco.** O código do CRM tem duas funções públicas, `public_lead_pack_catalog` e `public_crm_catalog_v3`, que dizem o catálogo e se o checkout está aberto. A base é um retrato de 17/10/2026, e o dono mudou o preço dos pacotes em português duas vezes em três dias. O ideal é uma ferramenta somente leitura que o closer consulte antes de citar preço. Enquanto não existir, a base diz ao closer para mandar o cliente conferir o valor na tela do checkout.
 
