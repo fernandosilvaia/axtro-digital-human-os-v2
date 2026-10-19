@@ -55,3 +55,5 @@ Accepted decisions for V2. The Constitution has precedence. A change to an accep
 - [ADR-049](ADR-049-closer-quality-and-open-source-experiments.md): laboratorio por receipts, busca hibrida e adapters open source isolados, sem promocao automatica.
 
 - [ADR-050](ADR-050-brain-tool-bridge-and-regulated-closer-envelope.md): ponte de tool calling do cerebro proprio (so o nome vindo da Tavus, resultado de tool como dado rotulado, tool malformada sem travar o tenant), encaixe do contexto no teto de entrada fixado no banco, idioma falado separado, sentinela de compliance e trace sem conteudo.
+
+- [ADR-051](ADR-051-crm-participant-admission-for-billion-closer.md): rascunho (Proposed) de admissão emitida no servidor para usuários do CRM falarem em vídeo com a closer da Billion Leads Pro, com aviso de IA como rótulo permanente e recibo gravado antes do gasto.
