@@ -39,20 +39,39 @@ O código do CRM mostra três pontos de entrada, do mais simples ao mais forte:
 
 Dados mínimos para o closer: nome, idioma, interesse (CRM ou Leads), estados declarados e etapa do funil. Nunca senha, cartão nem documentos.
 
-**O canal ainda não existe.** A ADR-038 abre o vídeo da Priscila só para uma pessoa autenticada do tenant do portal. Quem se cadastra na Billion Leads Pro é cliente do CRM, não usuário deste portal, então é preciso uma admissão emitida no servidor a partir da conta do CRM, no mesmo padrão (aviso de IA e consentimento gravados antes de gastar recurso pago), e isso exige uma ADR nova. Até lá, o closer pode ser testado nas telas de teste do portal e por chamada de vídeo de teste.
+### O canal pós-cadastro: o que é, que tipos existem e o que falta
+
+"Canal" é o caminho pelo qual o cliente recém-cadastrado conversa com a closer, aberto pelo sistema da Billion logo depois do cadastro. Hoje não existe nenhum. Na Raissa há um molde que serve de exemplo do que falta: a rota `apps/portal/src/app/api/leads/video-session/route.ts` responde `503 runtime_admission_required` de propósito, porque o segredo estático do control-tower não carrega o aviso de IA e o consentimento da pessoa que será gravada. A ADR-038 proíbe criar recurso pago antes dessa admissão. A closer da Billion tem o mesmo problema, com uma diferença: quem entra é um usuário do CRM, não do portal.
+
+Três tipos de canal, do mais barato ao mais caro:
+
+1. **Chat de texto dentro do CRM (recomendado como primeiro passo).** Um painel "Fale com a [nome]" na tela de onboarding e no Lead Desk, ao lado do tour. Custa centavos por conversa, não usa a Tavus, usa o mesmo cérebro e a mesma base. Serve para tirar dúvida de preço, plano, reposição e integração na hora em que o cliente decide. **Lacuna achada em 2026-10-19:** hoje só a fala de vídeo carrega a doutrina da Billion e a tabela de preços. A superfície de texto do cérebro monta o prompt genérico de chat (`buildCloserChatSystemMessages`, em `chat-completion-core.ts`), sem a doutrina; só a trava de saída de preços vale nas duas superfícies. Antes de abrir o texto, o portal precisa levar a doutrina e a tabela para a superfície de texto (com respostas um pouco mais longas que as de voz) e avaliar de novo ao vivo.
+2. **Vídeo com a closer embutido no CRM.** O mesmo painel ganha o botão "falar por vídeo". É o canal mais forte para fechar, e o mais caro (minutos da Tavus). Exige tudo do tipo 1 mais teto diário e por pessoa, e uma chamada de teste paga para validar o caminho de ponta a ponta.
+3. **Mensagem proativa (WhatsApp, SMS ou e-mail) para quem parou.** Cobre checkout abandonado e silêncio depois do cadastro. É o que mais converte e o que mais exige cuidado: precisa de consentimento de contato gravado no cadastro (o pedido de demonstração já pede), horário permitido, pausa imediata em "pare" e no máximo três toques com valor diferente em cada um.
+
+O que precisa ser feito, em ordem:
+
+1. **Decisão do dono:** qual tipo começa (a recomendação é texto, depois vídeo, depois mensagem proativa), e o nome e a voz da closer.
+2. **ADR nova, "admissão de participante vindo do CRM".** Define como a conta do CRM vira uma admissão emitida no servidor: o backend do CRM (chamador de máquina com segredo próprio, não o segredo estático da Raissa) afirma quem é o usuário, o idioma, o interesse e a etapa do funil, e o portal grava, antes de gastar qualquer recurso pago, o aviso de IA entregue e o consentimento por finalidade. Inclui idempotência por cadastro, teto por pessoa e por dia, e chave de desligamento.
+3. **Portal (este repositório):** a migração (próxima é a 0079) com a tabela de admissão, a rota de sessão que troca `runtime_admission_required` pela verificação real, o canal de texto sobre o cérebro existente, os testes e o painel de custo. A migração só é aplicada no banco hospedado com sua autorização.
+4. **CRM (outro repositório, hoje com cópia local 561 commits atrás de `origin/main`):** o painel de conversa no onboarding, a chamada ao portal com os dados mínimos (nome, idioma, interesse, estados, etapa; nunca senha, cartão nem documento) e, para o tipo 3, o evento do `platform_pipeline_sync` nas etapas `trial`, `proposal` e checkout abandonado.
+5. **Provisionamento da closer:** agente, persona, ingestão da base e `BRAIN_VERTICAL_OVERRIDES`, como na seção anterior.
+6. **Depois:** a ferramenta somente leitura de catálogo para o preço sempre fresco.
+
+Até lá, a closer pode ser testada nas telas de teste do portal e por uma chamada de vídeo de teste.
 
 **Preço sempre fresco.** O código do CRM tem duas funções públicas, `public_lead_pack_catalog` e `public_crm_catalog_v3`, que dizem o catálogo e se o checkout está aberto. A base é um retrato de 17/10/2026, e o dono mudou o preço dos pacotes em português duas vezes em três dias. O ideal é uma ferramenta somente leitura que o closer consulte antes de citar preço. Enquanto não existir, a base diz ao closer para mandar o cliente conferir o valor na tela do checkout.
 
-## Pendências e contradições que precisam da sua decisão
+## Decisões do dono e pendências
 
-Foram achadas pelo mapeamento do código (`origin/main`, que está 561 commits à frente da cópia local do CRM). Nenhuma foi alterada.
+Foram achadas pelo mapeamento do código (`origin/main`, que está 561 commits à frente da cópia local do CRM). As decisões abaixo foram dadas em 2026-10-18 e 2026-10-19 e já estão na doutrina e na base.
 
-1. **Reposição depende do CRM? Decidido por você em 2026-10-18: sim.** A reposição exige assinatura ativa do CRM, porque só o sistema registra as tentativas e permite verificar os requisitos. O closer diz isso a quem pergunta e avisa quem pretende comprar só os leads e trabalhar em outro CRM. Falta alinhar o texto público: `llms-full.txt` e a página de leads ainda dizem que não precisa de CRM. Falta também decidir se o teste grátis de 7 dias vale como assinatura para pedir reposição (os Termos tratam do teste; o closer não promete).
-2. **A garantia de reposição está ligada?** O código diz que ela não deve ser anunciada enquanto a flag e o contrato estiverem desligados, e não achei evidência de que a flag foi ligada. O site hoje a anuncia com destaque. Confirme o estado.
-3. **O checkout V3 está aberto?** O catálogo V3 foi publicado em 16/10, mas os preços semestrais do Stripe de Pro e Team foram apagados à espera de reprovisionamento, e `ENABLE_CATALOG_V3` nasce desligada. O closer não afirma que o checkout está aberto, e passa para a equipe se a tela mostrar indisponível.
-4. **Textos do site que o closer não repete:** "Congratulations! You just earned N free days of the best and most complete CRM" (superlativo sem prova), "One closed Final Expense policy covers your Starter plan for the month" (promessa de ganho, plano antigo), e "validated consent" em termos gerais (internamente, o fluxo antigo do Meta não tem prova automática de consentimento para telefonia de IA).
-5. **Prova social.** Em 05 e 06/10, a produção tinha zero pedidos pagos, e o pacote de assets do site inclui `agentTestimonials`. O closer não cita clientes, volumes nem resultados. Confirme que qualquer depoimento exibido é real.
-6. **Termos dos leads Meta.** O código registra que os termos do Meta Lead Ads podem vedar a venda de dados de lead, e que isso precisa de parecer jurídico.
+1. **Reposição depende do CRM. Decidido: sim, assinatura paga.** O sistema é quem registra as tentativas de ligação, WhatsApp e SMS, e só assim a Billion verifica os requisitos. **O teste grátis de 7 dias não vale**, porque a regra precisa de 10 dias de tentativas registradas e o teste dura 7. O closer diz isso a quem pergunta e avisa, antes da compra, quem pretende comprar só os leads ou está no teste. **Falta alinhar o texto público e os Termos:** `llms-full.txt` e a página de leads ainda dizem que não precisa de CRM, e os Termos precisam dizer que o teste não conta. Enquanto isso, o closer segue a regra da casa e um cliente pode ver o texto antigo no site.
+2. **Flag da garantia de reposição: ligada (confirmado em 2026-10-19).** O closer pode apresentar a reposição como parte da compra, sempre como crédito em outro lead, nunca como garantia de venda.
+3. **Checkout V3: aberto (confirmado em 2026-10-19).** O closer pode tratar os planos como disponíveis. Se a tela mostrar "indisponível" ou "inscrição em breve", ele não insiste e passa para a equipe.
+4. **Depoimentos do site: reais (confirmado em 2026-10-19).** Mesmo assim o closer continua sem citar cliente, volume ou resultado, porque a base não tem o texto verificado de nenhum depoimento. Para o closer citar, alguém precisa colocar na base os depoimentos reais, com autorização de uso.
+5. **Termos dos leads Meta: aprovados pelo jurídico (confirmado em 2026-10-19).** Nada a fazer na base. Vale guardar a data e o parecer na pasta de compliance.
+6. **Textos do site que o closer não repete:** "Congratulations! You just earned N free days of the best and most complete CRM" (superlativo sem prova), "One closed Final Expense policy covers your Starter plan for the month" (promessa de ganho, plano antigo), e "validated consent" em termos gerais (internamente, o fluxo antigo do Meta não tem prova automática de consentimento para telefonia de IA).
 7. **Texto de indicação desatualizado.** `llms-full.txt` ainda fala de comissão sobre pacote de leads, que foi removida em 12/10.
 8. **Preço de consumo.** Todas as tarifas estão "em validação" e o débito pago da carteira está desligado. O closer só cita como previsto.
 9. **Domínios.** O código usa `billioncrm.com` e `billionleadspro.com` como apelidos.

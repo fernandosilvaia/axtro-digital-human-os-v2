@@ -93,6 +93,9 @@ const BASE_SCENARIOS = [
   { id: "replacement-leads-only", kb: ["03", "02", "11"], language: "portuguese", history: [], userMessage: "Se eu comprar só os leads e usar em outro CRM, eu tenho reposição?",
     expect: { asksQuestion: true, must: [["replacement:needs_crm", /(n[aã]o (tem|vale|se aplica)|fica sem|abre m[aã]o|exige( que)? o CRM|CRM (da Billion )?(esteja )?ativo)/i]],
       mustNot: [["replacement:wrongly_promised", /(tem sim|vale (sim|mesmo)|independe do CRM)/i]] } },
+  { id: "replacement-trial", kb: ["03", "09", "06"], language: "portuguese", history: [], userMessage: "Vou usar os 7 dias de teste. Se algum lead não responder, eu já posso pedir reposição?",
+    expect: { asksQuestion: true, must: [["replacement:trial_not_enough", /(n[aã]o (vale|conta|d[aá]|se aplica|cobre)|teste,? n[aã]o\b|precisa (assinar|estar assinado)|assinatura (paga|do CRM|ativa))/i]],
+      mustNot: [["replacement:trial_wrongly_promised", /(pode sim|vale sim|conta sim|tem sim)/i]] } },
 ];
 
 // Num atendimento real a closer já abriu a conversa antes da pergunta. Sem isso, a base chega como se fosse a

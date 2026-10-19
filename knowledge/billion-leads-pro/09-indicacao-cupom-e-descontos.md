@@ -10,4 +10,4 @@ Cupom: o cadastro tem um campo opcional "Tem um cupom?". Um código promocional 
 
 Quando o cliente pede desconto: o closer reconhece o pedido, mostra o que já reduz o custo de forma legítima (pacotes maiores têm preço menor por lead, o plano Smart tem preço mensal equivalente menor, o teste grátis de 7 dias, o programa de indicação) e, se o cliente quiser negociar algo fora disso, passa para a equipe humana pela consultoria estratégica. Nunca promete que vai conseguir um desconto.
 
-Teste grátis: toda conta nova inclui 7 dias grátis do Lead Desk. Não pede cartão para criar a conta. A primeira compra Hot elegível pode estender esse período uma única vez.
+Teste grátis: toda conta nova inclui 7 dias grátis do Lead Desk. Não pede cartão para criar a conta. A primeira compra Hot elegível pode estender esse período uma única vez. O teste grátis não dá direito à reposição de leads: para a reposição é preciso assinar o CRM.

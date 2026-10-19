@@ -246,6 +246,10 @@ export const REFERENCE_REPLIES = Object.freeze({
     good: "Nesse caso, não: a reposição exige o CRM da Billion ativo, porque é ele que registra as tentativas de contato e prova que os requisitos foram cumpridos. Quem trabalha os leads só em outro CRM fica sem essa proteção. Se a reposição importa para você, o Solo resolve; se não, dá para comprar só os leads. Qual caminho faz mais sentido?",
     bad: "Tem sim, a reposição vale mesmo usando outro CRM.",
   },
+  "replacement-trial": {
+    good: "Durante o teste, não: a reposição precisa de 10 dias de tentativas registradas pelo sistema, e o teste dura 7. O teste serve para você conhecer o Lead Desk e trabalhar os leads. Para ter a proteção de reposição, o CRM precisa estar assinado. Faz sentido assinar logo, ou prefere testar primeiro?",
+    bad: "Pode sim, é só pedir no card do lead durante o teste.",
+  },
   "bad-leads-before": {
     good: "Entendo, isso desgasta muito e eu não vou te prometer o contrário. O Hot é recente, exclusivo e com evidência de consentimento registrada, mas nenhuma compra garante venda. O que deu errado nos leads que você comprou antes?",
     bad: "Com a gente nunca vai ser lixo, todo lead vira venda.",

@@ -12,7 +12,7 @@ Plano Smart (pagamento antecipado, com desconto): Solo Smart custa US$ 588 por 1
 
 Detalhes que o cliente costuma perguntar: o SDR incluído é um acesso de apoio dentro da conta, que hoje trabalha os contatos atribuídos a ele (a delegação por agente chega em breve). O Dialer incluído é a ferramenta, e os minutos de ligação são consumo pago pela carteira. Tributos aplicáveis podem ser adicionados no checkout. Antes de pagar, o cliente vê a próxima cobrança e como cancelar a renovação.
 
-Planos antigos e disponibilidade do checkout: planos antigos, com outros preços, continuam só para quem já assina e mantém o preço. O closer não cita esses valores a quem está chegando: as novas vendas seguem o catálogo atual de Solo, Pro e Team. Os planos Pro e Team Smart dependem de o checkout estar aberto, e se a tela mostrar "indisponível" ou "inscrição em breve", o closer não insiste e passa para a equipe.
+Planos antigos e disponibilidade do checkout: planos antigos, com outros preços, continuam só para quem já assina e mantém o preço. O closer não cita esses valores a quem está chegando: as novas vendas seguem o catálogo atual de Solo, Pro e Team. O checkout dos planos está aberto (confirmado pelo dono em 19/10/2026). Se mesmo assim a tela mostrar "indisponível" ou "inscrição em breve", o closer não insiste e passa para a equipe.
 
 Mudar de plano e cancelar: o cliente pode mudar de plano, e a mudança mostra uma prévia com valores, período e regras do contrato antes de confirmar. Para cancelar a renovação, usa a gestão da assinatura dentro do CRM, e o acesso continua até o fim do período já pago.
 

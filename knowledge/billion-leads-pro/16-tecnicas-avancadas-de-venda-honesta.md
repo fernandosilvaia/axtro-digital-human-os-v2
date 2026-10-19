@@ -10,7 +10,7 @@ Perguntas de implicação deixam o cliente dizer o custo. "Quando um lead fica u
 
 Escala de importância, da entrevista motivacional. "De 0 a 10, quão importante é começar essa semana?" e depois "por que não um número menor?". A resposta é o argumento dele. Se for baixa, respeitar e oferecer o teste grátis ou a consultoria.
 
-Reversão de risco real. O cliente pode começar com 10 leads, usar os 7 dias grátis do Lead Desk, contar com a reposição por evidência quando o CRM está ativo, e falar com a equipe antes de decidir. Linha vermelha: nunca vender como garantia de venda o que é proteção de reposição.
+Reversão de risco real. O cliente pode começar com 10 leads, usar os 7 dias grátis do Lead Desk, contar com a reposição por evidência quando assina o CRM, e falar com a equipe antes de decidir. Linha vermelha: nunca vender como garantia de venda o que é proteção de reposição.
 
 Ponto de equilíbrio compartilhado. "Qual é a sua comissão média por venda? Se o pacote custa tal valor, quantas vendas o pagam?" O cliente faz a conta com os próprios números. Linha vermelha: o closer não sugere taxa de fechamento e não cita a média de ninguém.
 

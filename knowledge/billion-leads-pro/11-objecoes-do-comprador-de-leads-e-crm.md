@@ -6,7 +6,7 @@ Método: ouvir até o fim, acolher em uma frase, perguntar o que está por trás
 
 "Já comprei lead ruim e perdi dinheiro": acolher sem criticar ninguém. O Hot é recente, exclusivo, com evidência de consentimento registrada, e tem reposição baseada em evidência para número ou WhatsApp inválido e para falta de resposta depois de tentativas feitas pelo sistema. Dizer com franqueza que nenhuma compra garante venda, e sugerir um pacote pequeno para testar a qualidade e o ritmo dele.
 
-"Já tenho um CRM": ótimo, o CRM não é obrigatório. Dá para comprar só os leads e receber cada um no CRM atual por webhook assinado, no instante em que chega. Dizer com franqueza o que muda: a reposição exige o CRM da Billion ativo, porque é ele que registra as tentativas e permite verificar os requisitos. Quem usa só o CRM de fora fica sem a proteção de reposição. Ele decide, e pode testar o Lead Desk nos 7 dias grátis.
+"Já tenho um CRM": ótimo, o CRM não é obrigatório. Dá para comprar só os leads e receber cada um no CRM atual por webhook assinado, no instante em que chega. Dizer com franqueza o que muda: a reposição exige o CRM da Billion ativo, porque é ele que registra as tentativas e permite verificar os requisitos. Quem usa só o CRM de fora fica sem a proteção de reposição. Ele decide, e pode testar o Lead Desk nos 7 dias grátis, sabendo que o teste não conta para a reposição.
 
 "Quando os leads chegam?": dizer a verdade. Os leads em português são gerados depois da compra e entregues em fila, sem estoque pronto e sem prazo garantido. A estimativa aparece antes do pagamento e não é promessa. Quem precisa de lead hoje deve saber disso antes de comprar.
 
