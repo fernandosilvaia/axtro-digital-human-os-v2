@@ -38,7 +38,12 @@ Voz aprovada pelo dono em 2026-10-19: **Thayane, "Northern Brazilian accent"** (
    - `BILLION_CLOSER_ENABLED=true` por último, só depois do teste do passo 8.
 7. **Ativar o agente** e ligar o cérebro dele no portal.
 8. **Teste pago controlado** (você decide o momento): chamar as rotas por `curl` com os segredos, primeiro texto, depois uma sala de vídeo, e conferir `/conversas`.
-9. **CRM:** variáveis da função e do front estão na seção do painel abaixo (preenchida quando o painel do CRM terminar).
+9. **CRM** (branch local `feat/billion-closer-panel` do repositório billion-crm, commit `b4f5a31a`, worktree `Billion CRM-wt-closer`, nada enviado ao GitHub):
+   - Segredos da função no Supabase do CRM: `BILLION_CLOSER_PORTAL_URL=https://portal-production-b43e.up.railway.app` e `BILLION_CLOSER_SERVICE_SECRET` (o mesmo valor do portal).
+   - Build do front (Vercel): `VITE_BILLION_CLOSER_ENABLED=true`. Sem ele o painel não aparece.
+   - Publicar a função: `supabase functions deploy billion_closer` (JWT ligado, sem migração).
+   - O vídeo abre em nova aba, não em iframe: o CRM bloqueia câmera e iframe de terceiros por política de segurança, e afrouxar isso valeria para o app inteiro.
+   - **Antes de ligar:** revisão jurídica do texto novo da política de privacidade (entrada "Axtro AI (Bia)" em `src/lib/subprocessors.ts`, pt/en/es).
 
 ## Como disparar logo após o cadastro (especificação, a ser feita no CRM)
 
