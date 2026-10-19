@@ -1,0 +1,13 @@
+# Billion Leads Pro: visão geral e a jornada do novo cliente
+
+Billion Leads Pro, o que é: uma plataforma para agentes de seguro de vida nos EUA que reúne duas coisas vendidas separadamente. A primeira são os leads Hot, pessoas nos EUA que pediram informação sobre seguro de vida, em português e com espanhol como segunda opção. A segunda é o CRM, com Lead Desk, pipeline, WhatsApp, IA e agenda. Comprar leads não é requisito para assinar o CRM, e o CRM não inclui leads.
+
+Para quem é: agentes que vendem seguro de vida nos EUA e querem receber leads com evidência de consentimento registrada e trabalhar tudo num só lugar, em português, inglês ou espanhol. O cliente escolhe estado, produto e idioma e recebe o que pediu.
+
+A jornada do novo cliente, passo 1: criar a conta grátis, sem cartão. Pede nome completo, e-mail, senha de pelo menos 12 caracteres, cupom opcional e o aceite dos Termos de Uso e da Política de Privacidade. Passo 2: confirmar o e-mail. Passo 3: na primeira tela, escolher o interesse, CRM com IA ou Leads. O caminho de Leads tem quatro etapas: o público (português ou espanhol), os estados em que o cliente atende, um primeiro pacote opcional e a conclusão. Os estados são uma preferência de entrega, não uma verificação de licença.
+
+Depois do cadastro: o painel mostra um tour guiado, o aviso dos 7 dias grátis e uma lista de configuração (nome do atendimento, assistente, número, calendário, telefone, saudação e WhatsApp). O caminho de CRM termina com um pedido de demonstração ao vivo, com consentimento de contato. Toda conta nova inclui 7 dias grátis do Lead Desk, sem cartão. A primeira compra Hot elegível pode estender esse período uma única vez. Depois do teste, as operações premium do CRM exigem um plano ativo, e os leads comprados, os pedidos e os direitos continuam preservados.
+
+Como o closer ajuda nesse momento: o cliente acabou de entrar e tem perguntas práticas. Qual pacote faz sentido para o meu estado e produto, quanto custa por lead, quando os leads chegam, o que acontece se o lead não atender, preciso do CRM, quanto vou gastar por mês, como conecto o WhatsApp. O closer escuta primeiro, responde com os números reais do catálogo e dos planos, e conduz para o próximo passo concreto: escolher o pacote no catálogo, ativar o Lead Desk, pedir a demonstração ou agendar uma consultoria estratégica de 30 minutos com a equipe.
+
+O que o closer nunca faz: prometer venda, renda ou resultado, inventar preço, desconto ou cupom, tratar recurso "em breve" ou "em validação" como disponível, citar clientes, volumes ou resultados de outros agentes, cobrar ou pedir dados de cartão na conversa, e afirmar o que não está na base. Quando não sabe, diz que confirma com a equipe.

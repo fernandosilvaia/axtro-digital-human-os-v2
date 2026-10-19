@@ -24,6 +24,8 @@ export type ComplianceViolation =
   | "li_federal_license"
   | "li_self_underwriter"
   | "li_self_licensed"
+  | "li_claims_human"
+  | "li_cd_comparison"
   | "li_product_recommendation"
   | "li_sensitive_id_request"
   | "li_tax_guarantee"
@@ -48,6 +50,13 @@ interface Rule {
    * descreve o processo e não promete nada. Só faz sentido na aprovação.
    */
   readonly conditionalSensitive?: boolean;
+  /**
+   * Negação sem a palavra "not": "somos separados do Medicare" é a resposta
+   * certa à pergunta mais comum do público de final expense. Só vale DENTRO da
+   * afirmação casada e só como construção de negação ("separado de",
+   * "independente de"), nunca como adjetivo solto.
+   */
+  readonly denial?: RegExp;
 }
 
 // Fronteira de palavra ciente de acento: em JavaScript \\b só conhece ASCII, então
@@ -66,6 +75,7 @@ const RULES: readonly Rule[] = [
   {
     id: "li_government_affiliation",
     negationSensitive: true,
+    denial: /\b(?:separate|independent|unaffiliated|unrelated|apart|distinct|disconnected)\s+(?:from|of|to|with)\b|\b(?:separad[oa]s?|independientes?|ajen[oa]s?|desvinculad[oa]s?)\s+(?:de|del|a|al)\b|\b(?:separad[oa]s?|independentes?|desvinculad[oa]s?)\s+(?:de|do|da|dos|das)\b/i,
     patterns: [
       /\b(we('| a)re|i('| a)m|this is|i work|our team is|we work)\b[^.!?]{0,40}\b(with|from|for|part of|affiliated with|partnered with|authorized by|on behalf of)\b[^.!?]{0,20}\b(medicare|medicaid|social security|the government|a government program|the state program|veterans affairs|the va)\b/i,
       /\b(somos|soy|estoy|trabajo|trabajamos)\b[^.!?]{0,40}\b(de|del|con|para|parte de|en nombre de)\b[^.!?]{0,20}\b(medicare|medicaid|seguro social|el gobierno|gobierno|un programa del gobierno|programa del estado|asuntos de veteranos)\b/i,
@@ -118,6 +128,44 @@ const RULES: readonly Rule[] = [
       /\b[Ii](?:'m| am)\s+(?:\p{Lu}\p{Ll}+,?\s+)?(?:a|an|your)\s+(?:(?:state|fully)[- ]?)?licen[sc]ed\s+(?:insurance\s+)?(?:agent|producer|broker|advisor|adviser|consultant)\b/u,
       /\b(?:soy|estoy)\s+(?:(?:completamente|totalmente|plenamente)\s+)?licenciad[oa]\b/i,
       /\bsou\s+(?:(?:totalmente|plenamente|devidamente)\s+)?(?:licenciad[oa]|habilitad[oa])\b/i,
+    ],
+  },
+  {
+    // Leis de divulgação de IA (Califórnia, Utah, Maine) e a regra de falsa
+    // identidade da FTC miram a IA que se passa por pessoa. "Sou uma IA" é o
+    // que ela deve dizer, então a negação absolve estas frases.
+    id: "li_claims_human",
+    negationSensitive: true,
+    patterns: [
+      /\bi(?:'m| am)\s+(?:(?:really|actually|truly|just|definitely)\s+)?(?:a\s+)?(?:real|actual|live|living|flesh[- ]and[- ]blood)\s+(?:person|human|woman|man)\b/i,
+      /\bi(?:'m| am)\s+(?:(?:really|actually|truly|just)\s+)?(?:a\s+)?(?:human|person)(?![\w-])/i,
+      /\byou(?:'re| are)\s+(?:talking|speaking)\s+(?:to|with)\s+(?:a\s+)?(?:real|live|actual)\s+(?:person|human)\b/i,
+      /\bsoy\s+(?:(?:realmente|de verdad)\s+)?(?:una\s+)?(?:persona|humana?)(?![\p{L}\p{N}-])/iu,
+      /\bsou\s+(?:(?:realmente|de verdade)\s+)?(?:uma\s+)?(?:pessoa|humana?)(?![\p{L}\p{N}-])/iu,
+    ],
+  },
+  {
+    // Aqui a negação É a afirmação proibida ("I'm not a robot"), como em
+    // "não tem como perder dinheiro".
+    id: "li_claims_human",
+    negationSensitive: false,
+    patterns: [
+      /\bi(?:'m| am)\s+not\s+(?:an?\s+)?(?:ai|a\.i\.|artificial|robot|bot|chatbot|machine|computer|automated|virtual assistant|recording)(?![\w-])/i,
+      /\bno\s+soy\s+(?:un\s+|una\s+)?(?:robot|rob[oó]t|bot|chatbot|m[aá]quina|ia|inteligencia artificial|asistente virtual|grabaci[oó]n)(?![\p{L}\p{N}-])/iu,
+      /\bn[aã]o\s+sou\s+(?:um\s+|uma\s+)?(?:rob[oô]|bot|chatbot|m[aá]quina|ia|intelig[eê]ncia artificial|assistente virtual|grava[cç][aã]o)(?![\p{L}\p{N}-])/iu,
+    ],
+  },
+  {
+    // A norma de publicidade da NAIC (Model 570) proíbe comparar anuidade a um
+    // CD bancário de forma enganosa. "Não é um CD" é a frase certa.
+    id: "li_cd_comparison",
+    negationSensitive: true,
+    patterns: [
+      /\b(?:like|similar(?:\s+in\s+\w+)?\s+to|same\s+as|just\s+like|works\s+like|acts\s+like|as\s+safe\s+as|safer\s+than|better\s+than|comparable\s+to|equivalent\s+to)\s+(?:a\s+|an\s+|your\s+|the\s+)?(?:bank\s+)?(?:cds?|certificates?\s+of\s+deposit)(?![\w-])/i,
+      /\b(?:think\s+of\s+(?:it|this)\s+as|basically|essentially)\s+(?:a\s+|an\s+)?(?:bank\s+)?(?:cds?|certificates?\s+of\s+deposit)(?![\w-])/i,
+      /\bcd[- ]like\b/i,
+      /\b(?:como|similar\s+a|igual\s+que|parecid[oa]\s+a)\s+(?:un|el)\s+(?:cd|certificado\s+de\s+dep[oó]sito)(?![\p{L}\p{N}])/iu,
+      /\b(?:como|igual\s+a|parecid[oa]\s+com|semelhante\s+a)\s+(?:um|o)\s+(?:cdb|certificado\s+de\s+dep[oó]sito)(?![\p{L}\p{N}])/iu,
     ],
   },
   {
@@ -321,6 +369,7 @@ function ruleMatches(rule: Rule, sentence: string): boolean {
     const from = clauseStart(sentence, match.index);
     const scope = sentence.slice(from, match.index + match[0].length).replace(NEGATION_IDIOMS, " ");
     if (NEGATION.test(scope)) continue;
+    if (rule.denial !== undefined && rule.denial.test(scope)) continue;
     if (rule.conditionalSensitive === true && CONDITIONAL.test(sentence.slice(from, match.index))) continue;
     return true;
   }

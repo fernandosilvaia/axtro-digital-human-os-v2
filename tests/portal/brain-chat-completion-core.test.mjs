@@ -342,6 +342,17 @@ test("D-V2-180: sanitizeSpokenReply remove marcação markdown que viraria áudi
   assert.equal(core.sanitizeSpokenReply("- primeiro item\n- segundo item"), "primeiro item\nsegundo item");
 });
 
+test("sanitizeSpokenReply remove direcao de cena entre asteriscos em vez de falar a frase", () => {
+  assert.equal(core.sanitizeSpokenReply("¿Cuál sería un monto cómodo?\n\n*Espero en silencio.*"), "¿Cuál sería un monto cómodo?");
+  assert.equal(core.sanitizeSpokenReply("¿Cuál sería un monto cómodo? *Espero en silencio.*"), "¿Cuál sería un monto cómodo?");
+  assert.equal(core.sanitizeSpokenReply("*pausa*\nOi, tudo bem?"), "Oi, tudo bem?");
+  assert.equal(core.sanitizeSpokenReply("Faz sentido?\n  *sorri*  \nMe conta mais."), "Faz sentido?\n\nMe conta mais.");
+  // Ênfase no meio ou no fim sem pontuação anterior continua só perdendo os asteriscos.
+  assert.equal(core.sanitizeSpokenReply("É *muito* simples."), "É muito simples.");
+  assert.equal(core.sanitizeSpokenReply("Isso é *importante*"), "Isso é importante");
+  assert.equal(core.sanitizeSpokenReply("Isso **funciona** e é *simples*."), "Isso funciona e é simples.");
+});
+
 test("D-V2-180: runBrainChatCompletion devolve a resposta já sanitizada, e é ela que alimenta detectGuardrailRisk", async () => {
   const { deps } = fakeDeps({
     generateResult: {
@@ -375,4 +386,22 @@ test("generic vertical: the life insurance sentinel never rewrites other tenants
   const result = await core.runBrainChatCompletion({ ...BASE_REQUEST, surface: "video", language: "english" }, deps);
   assert.equal(result.reply, text);
   assert.ok(!result.guardrailFlags.some((flag) => flag.startsWith("li_")));
+});
+
+const LONG_REPLY = "Entendi o seu momento. Isso faz sentido para quem está começando. Muita gente passa por essa dúvida. Vale olhar com calma. Posso te explicar cada plano. Depois você decide no seu tempo. Qual dessas partes quer ver primeiro? Ou prefere falar do preço?";
+
+test("a video reply is cut to the spoken size, with one question, and says so in the flags", async () => {
+  const { deps } = fakeDeps({ generateResult: { text: LONG_REPLY, model: "fake/model", usage: { inputTokens: 100, outputTokens: 60 } } });
+  const result = await core.runBrainChatCompletion({ ...BASE_REQUEST, surface: "video" }, deps);
+  assert.ok(result.reply.split(/(?<=[.!?])\s+/).length <= 4, result.reply);
+  assert.equal((result.reply.match(/\?/g) ?? []).length, 1);
+  assert.match(result.reply, /Qual dessas partes quer ver primeiro, ou prefere falar do preço\?$/);
+  assert.ok(result.guardrailFlags.includes("reply_shortened"));
+});
+
+test("a text chat reply is never cut", async () => {
+  const { deps } = fakeDeps({ generateResult: { text: LONG_REPLY, model: "fake/model", usage: { inputTokens: 100, outputTokens: 60 } } });
+  const result = await core.runBrainChatCompletion({ ...BASE_REQUEST, surface: "chat" }, deps);
+  assert.equal(result.reply, LONG_REPLY);
+  assert.ok(!result.guardrailFlags.includes("reply_shortened"));
 });

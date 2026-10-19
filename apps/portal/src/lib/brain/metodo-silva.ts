@@ -33,7 +33,7 @@ export function promptLanguageFor(spoken: SpokenLanguage | undefined): BrainLang
   return spoken === "spanish" ? "english" : spoken;
 }
 
-const SPANISH_DIRECTIVE = "SPOKEN LANGUAGE: this persona speaks SPANISH. Open the call and run it in natural, warm US Hispanic Spanish, using usted by default and tú only if the person does first. These instructions are in English for precision only: every word you say is Spanish, including the AI disclosure, unless the person speaks another language, then follow them. Never mix two languages in one turn.";
+const SPANISH_DIRECTIVE = "SPOKEN LANGUAGE: this persona speaks SPANISH. Open the call and run it in natural, warm US Hispanic Spanish, using usted ALWAYS, even when the person writes informally or briefly: say \"déjeme\", \"dígame\", \"le\", \"su\", never \"déjame\", \"dime\", \"te\", \"tu\". Switch to tú only if the person addresses you as tú first. These instructions are in English for precision only: every word you say is Spanish, including the AI disclosure, unless the person speaks another language, then follow them. Never mix two languages in one turn.";
 
 export interface BrainAgentProfile {
   readonly agentName: string;
@@ -58,6 +58,13 @@ export interface BrainAgentProfile {
    * nova precise editar o motor.
    */
   readonly domainCore?: string;
+  /**
+   * Por padrão, ter `domainCore` marca a vertical como regulada (corta as fases
+   * de preço e de fechamento, que uma closer que não cota nem fecha não pode ter).
+   * Uma vertical que VENDE de verdade, como a Billion Leads Pro, traz núcleo de
+   * domínio e mantém o Método inteiro: passa `false` aqui.
+   */
+  readonly regulatedVertical?: boolean;
   /**
    * Se a persona consegue de fato chamar tools nesta conversa. O padrão (true)
    * descreve uma persona com LLM hospedado na Tavus, onde as tools de cena e de
@@ -191,12 +198,17 @@ export function buildCloserChatSystemMessages(options: {
  * tempo, e um prompt que se contradiz no momento mais caro da conversa e pior
  * que qualquer um dos dois sozinho.
  *
+ * "OBJEÇÕES" e "OBJECTIONS" saem pelo mesmo motivo das fases 4 e 5: a rotina
+ * genérica manda reancorar no custo da dor e negociar valor, e a closer
+ * regulada não cota nem fecha. A vertical traz o seu próprio motor de
+ * argumentação (`life-insurance.ts`), com as mesmas travas de honestidade.
+ *
  * "FASE 2 · DESCOBERTA PROFUNDA" sai por outro motivo: a vertical traz a
  * MESMA descoberta ja instanciada no seu mercado (no caso de Life Insurance, o
  * SILVA com idade, estado, beneficiarios e cobertura existente), entao manter a
  * generica e repetir a instrucao em versao mais fraca.
  */
-const REGULATED_OMITTED_PHASES = ["FASE 2 ·", "FASE 4 ·", "FASE 5 ·", "PHASE 2 ·", "PHASE 4 ·", "PHASE 5 ·"] as const;
+const REGULATED_OMITTED_PHASES = ["FASE 2 ·", "FASE 4 ·", "FASE 5 ·", "PHASE 2 ·", "PHASE 4 ·", "PHASE 5 ·", "OBJEÇÕES:", "OBJECTIONS:"] as const;
 
 /**
  * Cabecalho do Metodo na vertical regulada. A contagem de fases precisa bater
@@ -224,7 +236,7 @@ export function buildCloserVideoSystemPrompt(profile: BrainAgentProfile): string
   // `domainCore` so e preenchido por uma vertical regulada (hoje, Life
   // Insurance). Derivar daqui evita um segundo sinalizador que poderia ficar
   // dessincronizado do nucleo que realmente entrou no prompt.
-  const regulated = profile.domainCore !== undefined;
+  const regulated = profile.regulatedVertical ?? profile.domainCore !== undefined;
   // true (padrão): persona com LLM da Tavus, tools de cena e de negócio.
   // objeto: cérebro próprio com as tools que ele ofereceu nesta requisição.
   // false: cérebro sem tools, captura verbal e handoff honesto.

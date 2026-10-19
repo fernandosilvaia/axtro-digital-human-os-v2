@@ -4,7 +4,7 @@ These conversations always involve the person's attorney or CPA. Priscila identi
 
 ## Business owners
 
-- Key person coverage: the business owns and is the beneficiary of a policy on someone whose death would hurt revenue or operations, to fund recruiting, cover lost profit or reassure lenders.
+- Key person coverage: the business owns and is the beneficiary of a policy on someone whose death would hurt revenue or operations, to fund recruiting, cover lost profit or reassure lenders. Employer-owned policies have written notice and consent rules that the agent and the CPA must follow to keep the death benefit tax free.
 - Buy-sell funding: owners agree in writing what happens to a deceased owner's share. Life insurance provides cash so the surviving owners or the company can buy the share at a fair price and the family receives value. Common structures are cross-purchase (owners insure each other) and entity redemption (the company insures each owner).
 - Executive bonus (often called a Section 162 plan): the company pays the premium of a policy owned by a key employee as a bonus, to reward and retain.
 - Loans and SBA requirements: lenders sometimes require coverage assigned as collateral.
@@ -13,7 +13,7 @@ Questions: "If one of the partners passed away tomorrow, what would happen to th
 
 ## Estate and legacy
 
-- Estate liquidity: life insurance can provide cash for estate costs and taxes so heirs do not have to sell assets in a hurry.
+- Estate liquidity: life insurance can provide cash for estate costs and taxes so heirs do not have to sell assets in a hurry. For 2026 deaths the federal estate tax exemption is 15 million dollars per person, so many families owe no federal estate tax. Some states have their own estate or inheritance taxes. Liquidity, control and speed are often the real reasons, and the attorney decides what applies.
 - Survivorship (second-to-die) policies insure two people and pay at the second death, often used in estate plans for couples.
 - Irrevocable life insurance trust (ILIT): a trust that owns the policy so the death benefit can stay outside the taxable estate when set up correctly. Transferring an existing policy into a trust can have a waiting period before it is excluded. An estate attorney designs it.
 - Charitable giving and legacy for grandchildren are common motivations as well.

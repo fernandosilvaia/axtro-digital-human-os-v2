@@ -18,7 +18,10 @@ import type { TextGenerationMessage, TextGenerationResult, TextGenerationTool, T
 import { assertGenerationFitsReservedInput, generationInputTokenUpperBound } from "../ai-budget/envelope.ts";
 import { AI_USAGE_LIMITS } from "../ai-budget/reservations.ts";
 
+import { enforceBillionLeadsGuard } from "./billion-guard.ts";
+import { buildBillionLeadsCore } from "./billion-leads.ts";
 import { buildLifeInsuranceCore, buildLifeInsuranceIdentity } from "./life-insurance.ts";
+import { shapeSpokenReply } from "./spoken-shape.ts";
 import { brainToolDefinitions, hasBusinessTools, hasCalculatorTool, type BrainToolName } from "./brain-tools.ts";
 import { enforceLifeInsuranceCompliance } from "./compliance-sentinel.ts";
 import { buildCloserChatSystemMessages, buildCloserVideoSystemPrompt, type BrainLanguage, type SpokenLanguage } from "./metodo-silva.ts";
@@ -36,7 +39,7 @@ import { buildCloserChatSystemMessages, buildCloserVideoSystemPrompt, type Brain
  * para a doutrina generica e seguro, enquanto assumir a vertical regulada sem
  * certeza nao e.
  */
-export type CloserVertical = "metodo_silva" | "life_insurance_qualification" | "life_insurance_recruitment";
+export type CloserVertical = "metodo_silva" | "life_insurance_qualification" | "life_insurance_recruitment" | "billion_leads_sales";
 
 function lifeInsuranceModeFor(vertical: CloserVertical | undefined): "qualification" | "recruitment" | undefined {
   if (vertical === "life_insurance_qualification") return "qualification";
@@ -45,7 +48,7 @@ function lifeInsuranceModeFor(vertical: CloserVertical | undefined): "qualificat
 }
 
 export function parseCloserVertical(value: unknown): CloserVertical {
-  return value === "life_insurance_qualification" || value === "life_insurance_recruitment"
+  return value === "life_insurance_qualification" || value === "life_insurance_recruitment" || value === "billion_leads_sales"
     ? value
     : "metodo_silva";
 }
@@ -171,6 +174,12 @@ export function detectGuardrailRisk(reply: string): readonly string[] {
 const EM_DASH_PATTERN = /\s*—\s*/g;
 const MARKDOWN_BOLD_PATTERN = /\*\*([^*]+)\*\*/g;
 const MARKDOWN_ITALIC_PATTERN = /\*([^*\n]+)\*/g;
+// Direção de cena entre asteriscos ("*Espero em silêncio.*") não é fala: se só
+// tirássemos os asteriscos, a voz leria a frase. Só some o trecho que ocupa a
+// linha inteira ou fecha a resposta depois de pontuação; ênfase no meio de uma
+// frase ("o que eu *posso* fazer") continua só perdendo os asteriscos.
+const STAGE_DIRECTION_LINE_PATTERN = /(^|\n)[ \t]*\*[^*\n]{1,80}\*[ \t]*(?=\n|$)/g;
+const STAGE_DIRECTION_TAIL_PATTERN = /(?<=[.!?…])\s+\*[^*\n]{1,80}\*\s*$/;
 const MARKDOWN_HEADER_PATTERN = /^#{1,6}\s+/gm;
 const MARKDOWN_BULLET_PATTERN = /^[-*]\s+/gm;
 const TRAILING_COMMA_PATTERN = /,(\s*)$/;
@@ -188,6 +197,8 @@ const TRAILING_COMMA_PATTERN = /,(\s*)$/;
  */
 export function sanitizeSpokenReply(text: string): string {
   const withoutMarkdown = text
+    .replace(STAGE_DIRECTION_LINE_PATTERN, "$1")
+    .replace(STAGE_DIRECTION_TAIL_PATTERN, "")
     .replace(MARKDOWN_BOLD_PATTERN, "$1")
     .replace(MARKDOWN_ITALIC_PATTERN, "$1")
     .replace(MARKDOWN_HEADER_PATTERN, "")
@@ -541,7 +552,10 @@ export async function runBrainChatCompletion(request: BrainChatRequest, deps: Br
   // e nao passa por call regulada, entao mante-lo fora daqui evita duplicar a
   // doutrina em dois lugares que divergiriam com o tempo.
   const lifeInsuranceMode = lifeInsuranceModeFor(request.closerVertical);
-  const verticalComposition = lifeInsuranceMode === undefined
+  const verticalComposition = request.closerVertical === "billion_leads_sales"
+    // Vertical que vende: núcleo de domínio com o Método Silva inteiro (não regulada).
+    ? { domainCore: buildBillionLeadsCore(request.language ?? "portuguese"), regulatedVertical: false }
+    : lifeInsuranceMode === undefined
     ? {}
     : {
       identityOverride: buildLifeInsuranceIdentity({
@@ -642,19 +656,30 @@ export async function runBrainChatCompletion(request: BrainChatRequest, deps: Br
   await deps.logGenerationUsage(result.usage.inputTokens, result.usage.outputTokens, result.usage.reportedCostUsd);
   if (toolCalls.length === 0 && droppedToolCalls > 0) throw new BrainToolCallUnusableError(droppedToolCalls);
   const sanitized = sanitizeSpokenReply(result.text);
+  // O tamanho do turno é garantido aqui, não pelo prompt: a avaliação ao vivo
+  // mostrou que o modelo passa de 4 frases em mais da metade das respostas. Vale
+  // para toda fala de vídeo, porque a doutrina Silva já exige turnos curtos e
+  // uma pergunta por vez; o chat de teste (texto) não é encurtado.
+  const shaped = isVideo ? shapeSpokenReply(sanitized) : sanitized;
+  const shortenedFlag = shaped !== sanitized ? ["reply_shortened"] : [];
   if (lifeInsuranceMode === undefined) {
-    return { reply: sanitized, usage: result.usage, guardrailFlags: detectGuardrailRisk(sanitized), toolCalls, contextFit };
+    // A closer da Billion Leads Pro não pode inventar preço, prazo nem ganho: a trava é de saída, não de prompt.
+    const billion = request.closerVertical === "billion_leads_sales"
+      ? enforceBillionLeadsGuard(shaped, request.spokenLanguage ?? (request.language === "english" ? "english" : "portuguese"))
+      : null;
+    const spoken = billion === null || shaped.length === 0 ? shaped : billion.reply;
+    return { reply: spoken, usage: result.usage, guardrailFlags: [...detectGuardrailRisk(spoken), ...(billion?.violations ?? []), ...shortenedFlag], toolCalls, contextFit };
   }
   // Vertical regulada: a frase que cria exposição regulatória não chega ao
   // áudio, mesmo que o modelo ignore a instrução do prompt.
   // O recuo da sentinela sai no idioma da fala quando ela não dá para detectar.
-  const guarded = enforceLifeInsuranceCompliance(sanitized, request.spokenLanguage ?? (request.language === "english" ? "english" : "portuguese"));
+  const guarded = enforceLifeInsuranceCompliance(shaped, request.spokenLanguage ?? (request.language === "english" ? "english" : "portuguese"));
   return {
     // Resposta só de tool não tem fala: a sentinela não inventa recuo para o vazio.
     reply: sanitized.length === 0 ? "" : guarded.reply,
     contextFit,
     usage: result.usage,
-    guardrailFlags: [...detectGuardrailRisk(guarded.reply), ...guarded.violations],
+    guardrailFlags: [...detectGuardrailRisk(guarded.reply), ...guarded.violations, ...shortenedFlag],
     toolCalls,
   };
 }

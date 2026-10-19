@@ -2,6 +2,7 @@ import { after, NextRequest, NextResponse } from "next/server";
 
 import { createOpenRouterTextGenerationPort, TextGenerationError } from "@axtro/provider-openrouter";
 
+import { applyVerticalOverride } from "@/lib/brain/vertical-override";
 import { contextWasTrimmed, parseCloserVertical, type BrainKnowledgeMatch, type ContextFitReport } from "@/lib/brain/chat-completion-core";
 import { buildCompletionStream } from "@/lib/brain/completion-stream";
 import { authenticateBrainRequest, brainLanguagesFromVideoConfig, BrainHttpError, handleBrainChatRequest, type BudgetVerdict, type ResolvedBrainAgent } from "@/lib/brain/handle-chat-request";
@@ -105,7 +106,9 @@ async function resolveConfig(secretHash: string): Promise<ResolvedBrainAgent | n
   // `metodo_silva` dentro de parseCloserVertical: se a coluna ainda nao
   // existir neste banco o select inteiro falha, videoConfig vem undefined e a
   // call degrada para a doutrina generica em vez de cair.
-  const closerVertical = parseCloserVertical(videoConfig?.closer_vertical);
+  // BRAIN_VERTICAL_OVERRIDES liga a vertical `billion_leads_sales` por agente sem migration;
+  // só sobe `metodo_silva` (ver vertical-override.ts).
+  const closerVertical = applyVerticalOverride(parseCloserVertical(videoConfig?.closer_vertical), record.agent_id, process.env.BRAIN_VERTICAL_OVERRIDES);
 
   return {
     tenantId: record.tenant_id,

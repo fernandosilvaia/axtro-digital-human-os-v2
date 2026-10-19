@@ -153,7 +153,19 @@ export async function handleBrainChatRequest(
   deps: BrainRequestDeps,
 ): Promise<BrainChatHttpResult> {
   const agent = await authenticateBrainRequest(request, deps.resolveConfig);
+  return runAuthenticatedBrainTurn(agent, request, deps);
+}
 
+/**
+ * O turno depois da autenticação: teto de gasto, leitura da requisição, busca de conhecimento e
+ * geração. Separado para que um canal com autenticação própria (a admissão da closer da Billion,
+ * ADR-051) reaproveite exatamente o mesmo caminho, sem fingir um segredo de cérebro.
+ */
+export async function runAuthenticatedBrainTurn(
+  agent: ResolvedBrainAgent,
+  request: Pick<BrainChatHttpRequest, "rawMessages" | "rawTools">,
+  deps: Omit<BrainRequestDeps, "resolveConfig">,
+): Promise<BrainChatHttpResult> {
   // Teto de gasto ANTES de qualquer geração paga (auditoria 2026-08-02: o
   // endpoint não tinha teto nenhum: gasto ilimitado na chave da plataforma).
   // Falha-fechada: sem conseguir LER o orçamento, também não gera.

@@ -67,7 +67,7 @@ const hostedProfile = process.env.AXTRO_HARNESS_PROFILE === "hosted-without-gove
 // Ordem real de produção: o hospedado já tem 0060 a 0068 e a 0059 ainda vai entrar, depois
 // delas. O harness padrão sempre aplicou a 0059 antes da 0060, então esta ordem não era testada.
 const hostedOrder = process.env.AXTRO_HARNESS_PROFILE === "hosted-order";
-const HOSTED_PROFILE_SKIPPED_MIGRATIONS = new Set([59, 69, 70, 71, 72, 73, 75, 77, 78]);
+const HOSTED_PROFILE_SKIPPED_MIGRATIONS = new Set([59, 69, 70, 71, 72, 73, 75, 77, 78, 79]);
 
 // Capabilities que 0074 a 0076 entregam sem publicar e que a 0077 calcula do catálogo.
 const SCHEMA_PUBLICATION_CAPABILITIES = Object.freeze([
@@ -366,6 +366,8 @@ try {
       "0069 removed the four-argument overload that the 0056 businessActionGrants proof still names");
     assert.deepEqual(applySupabaseMigrations(databaseUrl, 78, 78), ["0078"]);
     assertBusinessActionGrantsCapabilityRepairPhase(databaseUrl);
+    assert.deepEqual(applySupabaseMigrations(databaseUrl, 79, 79), ["0079"]);
+    assertBillionCloserAdmissionsPhase(databaseUrl);
   } else {
     // Opção C do plano de integração: 0074 e 0076 sobre o schema hospedado (0058 mais 0060 a 0068,
     // sem a cadeia de governança) não mudam a versão publicada, então o portão atual segue verde.
@@ -377,10 +379,10 @@ try {
   assertMigrationReceiptLineage(databaseUrl, hostedProfile ? HOSTED_PROFILE_SKIPPED_MIGRATIONS : new Set());
 
   console.log(hostedOrder
-    ? "SUPABASE PORTAL INTEGRATION PASSED (hosted-order profile): 0059 applied after 0060-0068, then 0069-0078, same final contract"
+    ? "SUPABASE PORTAL INTEGRATION PASSED (hosted-order profile): 0059 applied after 0060-0068, then 0069-0079, same final contract"
     : hostedProfile
     ? "SUPABASE PORTAL INTEGRATION PASSED (hosted-without-governance profile): 0001-0058, 0060-0068, 0074 and 0076 over the hosted schema, published version unchanged"
-    : "SUPABASE PORTAL INTEGRATION PASSED: migrations 0001-0078 in contiguous order, immutable checksums, grants, RLS, transcripts, reservations, data governance and readiness capability");
+    : "SUPABASE PORTAL INTEGRATION PASSED: migrations 0001-0079 in contiguous order, immutable checksums, grants, RLS, transcripts, reservations, data governance and readiness capability");
 } catch (error) {
   primaryError = error;
   throw error;
@@ -656,11 +658,11 @@ function supabaseMigrationInventory() {
   const migrations = readdirSync(supabaseMigrationDirectory)
     .filter((name) => /^\d{4}_.+\.sql$/.test(name))
     .sort();
-  assert.equal(migrations.length, 78, "the harness must cover every Supabase-only migration through 0078");
+  assert.equal(migrations.length, 79, "the harness must cover every Supabase-only migration through 0079");
   assert.deepEqual(
     migrations.map((migration) => Number(migration.slice(0, 4))),
-    Array.from({ length: 78 }, (_, index) => index + 1),
-    "Supabase-only migration versions must be contiguous and unique from 0001 through 0078",
+    Array.from({ length: 79 }, (_, index) => index + 1),
+    "Supabase-only migration versions must be contiguous and unique from 0001 through 0079",
   );
   assert.equal(migrations[48], "0049_portal_text_preview_admission.sql");
   assert.equal(migrations[49], "0050_meeting_terminal_notification_claim.sql");
@@ -685,6 +687,7 @@ function supabaseMigrationInventory() {
   assert.equal(migrations[75], "0076_ai_usage_ledger_timeout_repair.sql");
   assert.equal(migrations[76], "0077_schema_capability_publication.sql");
   assert.equal(migrations[77], "0078_business_action_grants_capability_repair.sql");
+  assert.equal(migrations[78], "0079_billion_closer_admissions.sql");
   assert.equal(migrationChecksum(migrations[48]), "79b24e7fdc768a30b02d3596b71799fae484043e37561ddfcd435f46076b3100");
   assert.equal(migrationChecksum(migrations[49]), "262e033328175f704f8cfef1cafdcb0a2ef9b9aac7e4cc86f2b33890044c7224");
   return migrations;
@@ -11030,6 +11033,65 @@ function readinessGateCapabilityNames() {
   const unique = [...new Set(names)];
   assert.ok(unique.length >= 60, `the readiness gate list must be parsed in full, got ${unique.length}`);
   return unique;
+}
+
+// ADR-051 etapa 2 (0079): recibo duravel da admissao da closer da Billion. Aditiva: nao move a
+// versao publicada. Prova isolamento do papel, teto diario por conta, revogacao e a reserva de video.
+function assertBillionCloserAdmissionsPhase(databaseUrl) {
+  const service = (sql) => queryJson(databaseUrl, asRoleSql("service_role", null, sql));
+  const agent = fixture.agentAlpha;
+  const adm = (n) => `019f0000-0079-4000-8000-${String(n).padStart(12, "0")}`;
+  const hashA = "a".repeat(32);
+  const hashB = "b".repeat(32);
+  const issue = (id, hash, max = 6) => service(`SELECT public.portal_issue_billion_closer_admission_service('${id}'::uuid,'${agent}'::app.uuid_v7,'${hash}','portuguese','crm','trial','ai-label-2026-10-v1',now(),now()+interval '2 hours',${max});`).outcome;
+
+  const capabilities = service("SELECT public.portal_schema_capabilities_service();");
+  assert.equal(capabilities.version, 77, "0079 does not move the published version");
+  assert.deepEqual(readinessGateCapabilityNames().filter((name) => capabilities[name] !== true), [], "0079 keeps every readiness capability true");
+
+  for (const signature of [
+    "public.portal_issue_billion_closer_admission_service(uuid,app.uuid_v7,text,text,text,text,text,timestamptz,timestamptz,integer)",
+    "public.portal_check_billion_closer_admission_service(uuid)",
+    "public.portal_reserve_billion_closer_video_service(uuid,integer)",
+    "public.portal_revoke_billion_closer_account_service(text)",
+  ]) {
+    assert.equal(queryScalar(databaseUrl, `SELECT app.portal_service_role_only('${signature}');`), "t", `${signature} is service_role only`);
+  }
+  assert.equal(queryScalar(databaseUrl, "SELECT app.portal_table_locked_down('public.billion_closer_admissions'::regclass);"), "t", "the receipt table is locked down");
+
+  assert.equal(issue(adm(1), hashA), "issued");
+  assert.deepEqual(service(`SELECT public.portal_check_billion_closer_admission_service('${adm(1)}'::uuid);`), { valid: true, reason: "ok", agentId: agent });
+  assert.equal(service(`SELECT public.portal_check_billion_closer_admission_service('${adm(99)}'::uuid);`).reason, "not_found");
+
+  // Teto diario por conta: o quarto pedido com teto 3 e recusado, e outra conta nao e afetada.
+  assert.equal(issue(adm(2), hashA, 3), "issued");
+  assert.equal(issue(adm(3), hashA, 3), "issued");
+  assert.equal(issue(adm(4), hashA, 3), "limit");
+  assert.equal(issue(adm(5), hashB, 3), "issued");
+
+  // Video: reserva uma vez por admissao, e a conta tem teto diario de salas.
+  assert.equal(service(`SELECT public.portal_reserve_billion_closer_video_service('${adm(1)}'::uuid,1);`).outcome, "reserved");
+  assert.equal(service(`SELECT public.portal_reserve_billion_closer_video_service('${adm(1)}'::uuid,1);`).outcome, "already");
+  assert.equal(service(`SELECT public.portal_reserve_billion_closer_video_service('${adm(2)}'::uuid,1);`).outcome, "limit");
+  assert.equal(service(`SELECT public.portal_reserve_billion_closer_video_service('${adm(99)}'::uuid,1);`).outcome, "invalid");
+
+  // Revogacao: derruba as vigentes e bloqueia nova emissao por 24h.
+  assert.equal(queryScalar(databaseUrl, asRoleSql("service_role", null, `SELECT public.portal_revoke_billion_closer_account_service('${hashA}');`)), "3");
+  assert.equal(service(`SELECT public.portal_check_billion_closer_admission_service('${adm(1)}'::uuid);`).reason, "revoked");
+  assert.equal(issue(adm(6), hashA), "revoked");
+  assert.equal(service(`SELECT public.portal_reserve_billion_closer_video_service('${adm(3)}'::uuid,5);`).outcome, "invalid");
+
+  // Expirada: a admissao deixa de valer mesmo sem revogacao.
+  assertSucceeded(runSql(databaseUrl, `UPDATE public.billion_closer_admissions SET issued_at=now()-interval '3 hours', expires_at=now()-interval '1 hour' WHERE id='${adm(5)}';`), "expire a receipt for the test");
+  assert.equal(service(`SELECT public.portal_check_billion_closer_admission_service('${adm(5)}'::uuid);`).reason, "expired");
+
+  // Entrada invalida e recusada pelo banco, e a tabela nao e legivel por papeis de cliente.
+  const badHash = runSql(databaseUrl, asRoleSql("service_role", null, `SELECT public.portal_issue_billion_closer_admission_service('${adm(7)}'::uuid,'${agent}'::app.uuid_v7,'not-hex','portuguese','crm','trial','v',now(),now()+interval '1 hour',6);`));
+  assert.notEqual(badHash.status, 0, "a malformed account hash is refused by the table constraint");
+  for (const role of ["anon", "authenticated", "service_role"]) {
+    const read = runSql(databaseUrl, asRoleSql(role, null, "SELECT count(*) FROM public.billion_closer_admissions;"));
+    assert.notEqual(read.status, 0, `${role} cannot read the receipt table directly`);
+  }
 }
 
 function assertBusinessActionGrantsCapabilityRepairPhase(databaseUrl) {

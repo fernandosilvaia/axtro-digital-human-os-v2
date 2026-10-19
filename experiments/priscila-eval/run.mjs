@@ -71,10 +71,13 @@ async function liveReport() {
       },
       logGenerationUsage: async () => {},
     });
-    results.push({ id: scenario.id, failures: gradeReply(scenario, raw), raw, spoken: result.reply });
+    // `failures` mede o texto cru do modelo; `spokenFailures` mede o que de fato iria para a voz, depois do
+    // sanitizador, do limitador de frases e da sentinela.
+    results.push({ id: scenario.id, failures: gradeReply(scenario, raw), spokenFailures: gradeReply(scenario, result.reply), raw, spoken: result.reply });
   }
   const failed = results.filter((entry) => entry.failures.length > 0).length;
-  return { model, scenarios: results.length, failed, results };
+  const failedSpoken = results.filter((entry) => entry.spokenFailures.length > 0).length;
+  return { model, scenarios: results.length, failed, failedSpoken, results };
 }
 
 async function main() {
