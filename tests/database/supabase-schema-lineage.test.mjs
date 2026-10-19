@@ -9,15 +9,15 @@ async function sha256(filename) {
   return createHash("sha256").update(await readFile(new URL(filename, migrationDirectory))).digest("hex");
 }
 
-test("Supabase lineage is contiguous through v79 and immutable historical blobs keep their checksums", async () => {
+test("Supabase lineage is contiguous through v80 and immutable historical blobs keep their checksums", async () => {
   const migrations = (await readdir(migrationDirectory))
     .filter((name) => /^\d{4}_.+\.sql$/.test(name))
     .sort();
 
-  assert.equal(migrations.length, 79);
+  assert.equal(migrations.length, 80);
   assert.deepEqual(
     migrations.map((name) => Number(name.slice(0, 4))),
-    Array.from({ length: 79 }, (_, index) => index + 1),
+    Array.from({ length: 80 }, (_, index) => index + 1),
   );
   assert.equal(migrations[48], "0049_portal_text_preview_admission.sql");
   assert.equal(migrations[49], "0050_meeting_terminal_notification_claim.sql");
@@ -52,6 +52,7 @@ test("Supabase lineage is contiguous through v79 and immutable historical blobs 
   assert.equal(migrations[76], "0077_schema_capability_publication.sql");
   assert.equal(migrations[77], "0078_business_action_grants_capability_repair.sql");
   assert.equal(migrations[78], "0079_billion_closer_admissions.sql");
+  assert.equal(migrations[79], "0080_billing_exemption_for_internal_tenants.sql");
 });
 
 test("v60 resolves a proposal's slotIndex to slot_id through a read-only, service_role-only, anti-oracle lookup", async () => {
