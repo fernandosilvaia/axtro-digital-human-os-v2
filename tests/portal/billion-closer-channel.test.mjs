@@ -5,6 +5,7 @@ import { test } from "node:test";
 const adm = await import("../../apps/portal/src/lib/closers/billion-admission.ts");
 const chat = await import("../../apps/portal/src/lib/closers/billion-chat.ts");
 const handler = await import("../../apps/portal/src/lib/brain/handle-chat-request.ts");
+const store = await import("../../apps/portal/src/lib/closers/billion-store.ts");
 
 const KEY = "k".repeat(48);
 const GOOD = {
@@ -132,7 +133,7 @@ test("a budget refusal degrades to the fixed line and never calls the model", as
 });
 
 test("the three routes are closed by default and authenticate the CRM before reading the body", async () => {
-  for (const name of ["admission", "chat", "video-session"]) {
+  for (const name of ["admission", "chat", "video-session", "revoke"]) {
     const source = await readFile(new URL(`../../apps/portal/src/app/api/closers/billion/${name}/route.ts`, import.meta.url), "utf8");
     const enabled = source.indexOf("billionCloserEnabled(process.env)");
     const auth = source.indexOf("authenticateCrmCaller(");
@@ -142,4 +143,32 @@ test("the three routes are closed by default and authenticate the CRM before rea
   }
   const video = await readFile(new URL("../../apps/portal/src/app/api/closers/billion/video-session/route.ts", import.meta.url), "utf8");
   assert.ok(video.includes('paidEffectIntentKey(admission.id, "tavus:billion-closer-video")'), "one paid room per admission");
+});
+
+function fakeClient(responses) {
+  const calls = [];
+  return { calls, rpc: async (name, args) => { calls.push({ name, args }); const r = responses[name]; return typeof r === "function" ? r(args) : r; } };
+}
+
+test("the durable receipt maps database answers and closes on any failure", async () => {
+  const { admission } = issue();
+  const ok = fakeClient({ portal_issue_billion_closer_admission_service: { data: { outcome: "issued" }, error: null } });
+  assert.equal(await store.recordAdmission(ok, admission, "a-1"), "issued");
+  const sent = ok.calls[0].args;
+  assert.equal(sent.p_account_hash, admission.acct);
+  assert.equal(sent.p_disclosure_version, adm.BILLION_DISCLOSURE_VERSION);
+  assert.ok(!JSON.stringify(sent).includes("crm-account-0001"), "the raw account reference never reaches the database");
+  for (const outcome of ["limit", "revoked"]) {
+    assert.equal(await store.recordAdmission(fakeClient({ portal_issue_billion_closer_admission_service: { data: { outcome }, error: null } }), admission, "a"), outcome);
+  }
+  for (const bad of [{ data: null, error: { message: "boom" } }, { data: { outcome: "weird" }, error: null }, { data: null, error: null }]) {
+    assert.equal(await store.recordAdmission(fakeClient({ portal_issue_billion_closer_admission_service: bad }), admission, "a"), "unavailable");
+  }
+  assert.deepEqual(await store.checkAdmission(fakeClient({ portal_check_billion_closer_admission_service: { data: { valid: true, reason: "ok" }, error: null } }), "id"), { valid: true });
+  assert.deepEqual(await store.checkAdmission(fakeClient({ portal_check_billion_closer_admission_service: { data: { valid: false, reason: "revoked" }, error: null } }), "id"), { valid: false, reason: "revoked" });
+  assert.deepEqual(await store.checkAdmission(fakeClient({ portal_check_billion_closer_admission_service: { data: null, error: { message: "x" } } }), "id"), { valid: false, reason: "unavailable" });
+  assert.equal(await store.reserveVideo(fakeClient({ portal_reserve_billion_closer_video_service: { data: { outcome: "limit" }, error: null } }), "id"), "limit");
+  assert.equal(await store.reserveVideo(fakeClient({ portal_reserve_billion_closer_video_service: { data: null, error: { message: "x" } } }), "id"), "unavailable");
+  assert.equal(await store.revokeAccount(fakeClient({ portal_revoke_billion_closer_account_service: { data: 3, error: null } }), "a".repeat(32)), 3);
+  assert.equal(await store.revokeAccount(fakeClient({ portal_revoke_billion_closer_account_service: { data: null, error: { message: "x" } } }), "a".repeat(32)), null);
 });

@@ -4,10 +4,11 @@ import { createTavusVideoConversationPort, isTrustedTavusConversationUrl, VideoP
 
 import { AdmissionError, authenticateCrmCaller, verifyAdmission } from "@/lib/closers/billion-admission";
 import { admissionContext, openingGreeting } from "@/lib/closers/billion-chat";
+import { checkAdmission, reserveVideo } from "@/lib/closers/billion-store";
 import { billionCloserEnabled, resolveBillionAgent } from "@/lib/closers/billion-server";
 import { readBoundedTextBody } from "@/lib/http/read-bounded-body";
 import { isRateLimited } from "@/lib/rate-limit";
-import { ServiceRoleUnavailableError } from "@/lib/supabase/service";
+import { createServiceRoleClient, ServiceRoleUnavailableError } from "@/lib/supabase/service";
 import { logError as trackError, logEvent } from "@/lib/telemetry";
 import { beginProviderEffect, commitProviderEffectOrCompensate, compensateCommittedProviderEffect, fenceProviderFailure, isPaidEffectCommandId, markCleanupPending, paidEffectIntentKey, providerCorrelationLabel, retryReleasedProviderEffect, type ProviderEffectReservation } from "@/lib/paid-effects";
 import { prepareTavusWebhookCallback, registerTranscriptPlaceholder } from "@/lib/transcripts/register";
@@ -48,7 +49,17 @@ export async function POST(request: NextRequest): Promise<Response> {
     }
     const admission = verifyAdmission(body.admission, process.env.BILLION_CLOSER_ADMISSION_KEY);
     if (!isPaidEffectCommandId(admission.id)) return NextResponse.json({ error: "admission_invalid" }, { status: 401 });
-    if (isRateLimited(`billion-closer:video:${admission.acct}`, 24 * 60 * 60 * 1000, 2)) return NextResponse.json({ error: "rate_limited" }, { status: 429 });
+    const receipt = await checkAdmission(createServiceRoleClient(), admission.id);
+    if (!receipt.valid) {
+      return receipt.reason === "unavailable"
+        ? NextResponse.json({ error: "closer_unavailable" }, { status: 503 })
+        : NextResponse.json({ error: receipt.reason === "expired" ? "admission_expired" : "admission_invalid" }, { status: 401 });
+    }
+    // Teto diário de salas por conta, no banco. "already" segue: a idempotência devolve a mesma sala.
+    const video = await reserveVideo(createServiceRoleClient(), admission.id);
+    if (video === "limit") return NextResponse.json({ error: "rate_limited" }, { status: 429 });
+    if (video === "invalid") return NextResponse.json({ error: "admission_invalid" }, { status: 401 });
+    if (video === "unavailable") return NextResponse.json({ error: "closer_unavailable" }, { status: 503 });
 
     const agent = await resolveBillionAgent(process.env);
     if (agent === null || agent.personaId === null) return NextResponse.json({ error: "closer_unavailable" }, { status: 503 });

@@ -4,6 +4,7 @@ import { createOpenRouterTextGenerationPort, TextGenerationError } from "@axtro/
 
 import { AdmissionError, authenticateCrmCaller, verifyAdmission } from "@/lib/closers/billion-admission";
 import { billionBrainAgent, buildBrainMessages, countUserTurns, MAX_USER_TURNS_PER_ADMISSION, parseChatBody } from "@/lib/closers/billion-chat";
+import { checkAdmission } from "@/lib/closers/billion-store";
 import { billionCloserEnabled, resolveBillionAgent } from "@/lib/closers/billion-server";
 import { runAuthenticatedBrainTurn, type BudgetVerdict } from "@/lib/brain/handle-chat-request";
 import type { BrainKnowledgeMatch } from "@/lib/brain/chat-completion-core";
@@ -63,6 +64,13 @@ export async function POST(request: NextRequest): Promise<Response> {
     if (countUserTurns(parsed.messages) > MAX_USER_TURNS_PER_ADMISSION) return NextResponse.json({ error: "conversation_limit" }, { status: 429 });
     if (isRateLimited(`billion-closer:chat:${admission.id}`, 60_000, 12)) return NextResponse.json({ error: "rate_limited" }, { status: 429 });
 
+    // O recibo durável manda: admissão revogada (pedido de parar) ou sem recibo não conversa.
+    const receipt = await checkAdmission(createServiceRoleClient(), admission.id);
+    if (!receipt.valid) {
+      return receipt.reason === "unavailable"
+        ? NextResponse.json({ error: "closer_unavailable" }, { status: 503 })
+        : NextResponse.json({ error: receipt.reason === "expired" ? "admission_expired" : "admission_invalid" }, { status: 401 });
+    }
     const agent = await resolveBillionAgent(process.env);
     if (agent === null) return NextResponse.json({ error: "closer_unavailable" }, { status: 503 });
     const brainAgent = billionBrainAgent(agent, admission);
