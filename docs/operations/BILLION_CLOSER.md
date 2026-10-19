@@ -60,7 +60,7 @@ O que precisa ser feito, em ordem:
 
 Para testar sem o CRM, chame as rotas por `curl` com os segredos acima, em um ambiente com `BILLION_CLOSER_ENABLED=true`.
 
-### Canal implementado (etapa 1, desligado por padrão)
+### Canal implementado (etapas 1 e 2, desligado por padrão)
 
 As três rotas do portal existem e estão em `apps/portal/src/app/api/closers/billion/`. Ficam fechadas até `BILLION_CLOSER_ENABLED=true`. Variáveis (todas no serviço `portal` do Railway):
 
@@ -77,7 +77,8 @@ Contrato para o painel "no canto do site" (do lado do CRM, que fala com o portal
 2. O backend do CRM chama `POST /api/closers/billion/admission` com `{accountRef, language, interest, stage, firstName, states, disclosure: {acknowledged: true, version: "ai-label-2026-10-v1"}}` e recebe `{admission, expiresAt}`.
 3. Texto: a cada mensagem, `POST /api/closers/billion/chat` com `{admission, messages: [{role, content}]}` (até 24 mensagens, 1.500 caracteres cada, só `user` e `assistant`, a última do usuário). Resposta `{reply, degraded}`. A abertura da closer é montada pelo servidor.
 4. Vídeo: `POST /api/closers/billion/video-session` com `{admission}` e recebe `{url, conversationId}` para abrir a sala. Chamar de novo com a mesma admissão devolve a mesma sala.
-5. Erros previstos: 400 `disclosure_required`, 401 `admission_invalid` ou `admission_expired`, 429 `rate_limited` ou `conversation_limit`, 503 `closer_unavailable` ou `video_unavailable_today`.
+5. Pedido de parar: `POST /api/closers/billion/revoke` com `{accountRef}` revoga as admissões da pessoa e bloqueia nova emissão por 24 horas. Chamar quando ela fechar o painel com "não quero conversar".
+6. Erros previstos: 400 `disclosure_required`, 401 `admission_invalid` ou `admission_expired`, 429 `rate_limited` ou `conversation_limit`, 503 `closer_unavailable` ou `video_unavailable_today`, 403 `account_opted_out`.
 
 O mesmo painel serve texto e vídeo: o cliente escolhe, e as duas escolhas usam a mesma admissão, a mesma doutrina e a mesma base.
 

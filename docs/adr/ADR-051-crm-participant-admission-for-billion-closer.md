@@ -1,6 +1,6 @@
 # ADR-051: Admissão de participante vindo do CRM para a closer da Billion Leads Pro
 
-**Status:** Accepted for stage 1 (2026-10-19, o dono pediu a implementação); stage 2 (recibo durável, migração 0079) Proposed
+**Status:** Accepted for stage 1 (2026-10-19, o dono pediu a implementação); stage 2 (recibo durável, migração 0079) implemented and applied to the hosted database on 2026-10-19
 **Date:** 2026-10-19
 **Related:** ADR-038, ADR-036, ADR-050, Constitution Arts. 3, 6, 7, 9, 10, 15
 
@@ -29,7 +29,11 @@ Entregue sem migração e desligada por padrão (`BILLION_CLOSER_ENABLED`):
 - O agente é fixado por `BILLION_CLOSER_AGENT_ID` e a vertical é forçada no servidor. Nada vindo do CRM escolhe agente, tenant ou doutrina.
 - Tetos: 6 admissões por conta por dia, 2 vídeos por conta por dia, 12 mensagens por minuto e 40 turnos por admissão, mais o teto diário de vídeo e de IA do tenant no ledger durável.
 
-**O que ficou para a etapa 2 e por que o canal não deve ser ligado com público real antes dela:** a ADR-038 pede o recibo do aviso de IA gravado de forma durável antes do canal. Na etapa 1 a admissão é sem estado, e a prova do aviso é a assinatura da admissão mais um evento de telemetria. Os limites por conta são em memória (um processo no Railway). A tabela durável, o limite por conta no banco e a revogação ficam na migração 0079, que não foi escrita nem aplicada.
+## Etapa 2 (2026-10-19): recibo durável
+
+A migração 0079 (`portal_issue/check/reserve/revoke_billion_closer_*_service`, tabela `billion_closer_admissions`) foi aplicada no banco hospedado. A admissão só sai depois do recibo gravado; chat e vídeo conferem o recibo a cada uso; o teto de 6 admissões e de 2 salas por conta por dia vale no banco; `POST /api/closers/billion/revoke` (pedido de parar) revoga as admissões vigentes e bloqueia nova emissão por 24 horas.
+
+Decisão de governança que fica com o dono: a tabela **não tem `tenant_id`**, porque a coluna deixaria o catálogo de governança de dados incompleto e derrubaria quatro capabilities do portão de prontidão (medido no harness). O recibo é de plataforma (hash da pessoa do CRM e metadados) e apaga a si mesmo depois de 180 dias. Se o dono preferir que ele entre no catálogo de exclusão por tenant, é uma migração própria (nova linha no catálogo, recontagem exata e nova derivação da ordem de exclusão).
 
 ## Alternatives considered
 
