@@ -11252,10 +11252,25 @@ function dailyCostFixturesSql(count) {
 
 function authPreludeSql() {
   return `
-    CREATE ROLE anon NOLOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE NOINHERIT NOBYPASSRLS;
-    CREATE ROLE authenticated NOLOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE NOINHERIT NOBYPASSRLS;
-    CREATE ROLE service_role NOLOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE NOINHERIT BYPASSRLS;
-    CREATE ROLE supabase_auth_admin NOLOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE NOINHERIT BYPASSRLS;
+    -- Papeis sao do cluster, nao do banco de teste. Com um banco externo compartilhado (a CI roda os tres
+    -- perfis em sequencia no mesmo Postgres), o segundo perfil encontrava os papeis do primeiro e falhava com
+    -- "role already exists". Criar so quando falta mantem o primeiro uso identico e o segundo idempotente.
+    DO $roles$
+    BEGIN
+      IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'anon') THEN
+        CREATE ROLE anon NOLOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE NOINHERIT NOBYPASSRLS;
+      END IF;
+      IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'authenticated') THEN
+        CREATE ROLE authenticated NOLOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE NOINHERIT NOBYPASSRLS;
+      END IF;
+      IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'service_role') THEN
+        CREATE ROLE service_role NOLOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE NOINHERIT BYPASSRLS;
+      END IF;
+      IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'supabase_auth_admin') THEN
+        CREATE ROLE supabase_auth_admin NOLOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE NOINHERIT BYPASSRLS;
+      END IF;
+    END
+    $roles$;
     CREATE SCHEMA auth AUTHORIZATION postgres;
     CREATE TABLE auth.users (
       id uuid PRIMARY KEY,
