@@ -98,3 +98,15 @@ test("the honesty tic is dropped when it stands alone, after a connector, or at 
   assert.equal(shapeSpokenReply("Agora, deixa eu ser direto com você: a reposição exige o CRM ativo."), "A reposição exige o CRM ativo.");
   assert.equal(shapeSpokenReply("Eu confirmo isso com o time, mas deixa eu ser direto com você. O que mais importa é a sua capacidade."), "Eu confirmo isso com o time. O que mais importa é a sua capacidade.");
 });
+
+test("a list announcement whose items the cut removes is dropped, and one that carries its items stays", () => {
+  const announced = "No teste você conhece o Lead Desk. A reposição precisa de duas coisas. Primeiro, assinatura paga do CRM. Segundo, dez dias de tentativas registradas. Quando você assinaria?";
+  const shaped = shapeSpokenReply(announced);
+  assert.ok(!/duas coisas/.test(shaped), shaped);
+  assert.match(shaped, /assinaria\?$/);
+  const withItems = "No teste você conhece o Lead Desk. A reposição precisa de duas coisas: assinatura paga e dez dias de tentativas. Faz sentido? Quando assinaria? Hoje?";
+  assert.match(shapeSpokenReply(withItems), /duas coisas: assinatura paga/);
+  const short = "A reposição precisa de duas coisas. Qual delas você quer ver primeiro?";
+  assert.equal(shapeSpokenReply(short), short, "a short reply is never touched");
+  assert.equal(shapeSpokenReply(shapeSpokenReply(announced)), shapeSpokenReply(announced), "idempotent");
+});

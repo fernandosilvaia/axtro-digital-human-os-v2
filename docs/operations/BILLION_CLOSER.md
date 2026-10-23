@@ -45,6 +45,12 @@ Voz aprovada pelo dono em 2026-10-19: **Thayane, "Northern Brazilian accent"** (
    - O vídeo abre em nova aba, não em iframe: o CRM bloqueia câmera e iframe de terceiros por política de segurança, e afrouxar isso valeria para o app inteiro.
    - **Antes de ligar:** revisão jurídica do texto novo da política de privacidade (entrada "Axtro AI (Bia)" em `src/lib/subprocessors.ts`, pt/en/es).
 
+## Estado em produção (2026-10-19)
+
+No ar: portal (rotas do canal ligadas), função `billion_closer` do CRM e o painel no app logado (billioncrm.com). Agente "Bia" ativo no tenant separado "Billion Leads Pro", persona Tavus `pd11d8f60586`, 19 fontes ingeridas. O teste de texto ao vivo passou (preço da tabela, teste de 7 dias sem reposição, outro CRM sem reposição, admissão adulterada e revogada recusadas, pedido de parar bloqueia nova admissão por 24 horas).
+
+**Vídeo:** o portal exigia assinatura da Stripe para abrir sala. A migração 0080 (aplicada em 2026-10-19) criou a lista `portal_billing_exemptions`, e o tenant "Billion Leads Pro" está isento, sem assinatura e sem cobrança. Os tetos de segurança continuam: 20 salas por dia, 3 salas sem entrega por período, concorrência e 2 salas por conta por dia. Depois da isenção, a criação da sala chegou até a Tavus e ela respondeu **HTTP 402 (pagamento necessário)**: a conta da Tavus está sem crédito ou plano ativo. Recarregar a Tavus é ação do dono.
+
 ## Como disparar logo após o cadastro (especificação, a ser feita no CRM)
 
 O código do CRM mostra três pontos de entrada, do mais simples ao mais forte:

@@ -67,7 +67,7 @@ const hostedProfile = process.env.AXTRO_HARNESS_PROFILE === "hosted-without-gove
 // Ordem real de produção: o hospedado já tem 0060 a 0068 e a 0059 ainda vai entrar, depois
 // delas. O harness padrão sempre aplicou a 0059 antes da 0060, então esta ordem não era testada.
 const hostedOrder = process.env.AXTRO_HARNESS_PROFILE === "hosted-order";
-const HOSTED_PROFILE_SKIPPED_MIGRATIONS = new Set([59, 69, 70, 71, 72, 73, 75, 77, 78, 79]);
+const HOSTED_PROFILE_SKIPPED_MIGRATIONS = new Set([59, 69, 70, 71, 72, 73, 75, 77, 78, 79, 80]);
 
 // Capabilities que 0074 a 0076 entregam sem publicar e que a 0077 calcula do catálogo.
 const SCHEMA_PUBLICATION_CAPABILITIES = Object.freeze([
@@ -368,6 +368,8 @@ try {
     assertBusinessActionGrantsCapabilityRepairPhase(databaseUrl);
     assert.deepEqual(applySupabaseMigrations(databaseUrl, 79, 79), ["0079"]);
     assertBillionCloserAdmissionsPhase(databaseUrl);
+    assert.deepEqual(applySupabaseMigrations(databaseUrl, 80, 80), ["0080"]);
+    assertBillingExemptionPhase(databaseUrl);
   } else {
     // Opção C do plano de integração: 0074 e 0076 sobre o schema hospedado (0058 mais 0060 a 0068,
     // sem a cadeia de governança) não mudam a versão publicada, então o portão atual segue verde.
@@ -379,10 +381,10 @@ try {
   assertMigrationReceiptLineage(databaseUrl, hostedProfile ? HOSTED_PROFILE_SKIPPED_MIGRATIONS : new Set());
 
   console.log(hostedOrder
-    ? "SUPABASE PORTAL INTEGRATION PASSED (hosted-order profile): 0059 applied after 0060-0068, then 0069-0079, same final contract"
+    ? "SUPABASE PORTAL INTEGRATION PASSED (hosted-order profile): 0059 applied after 0060-0068, then 0069-0080, same final contract"
     : hostedProfile
     ? "SUPABASE PORTAL INTEGRATION PASSED (hosted-without-governance profile): 0001-0058, 0060-0068, 0074 and 0076 over the hosted schema, published version unchanged"
-    : "SUPABASE PORTAL INTEGRATION PASSED: migrations 0001-0079 in contiguous order, immutable checksums, grants, RLS, transcripts, reservations, data governance and readiness capability");
+    : "SUPABASE PORTAL INTEGRATION PASSED: migrations 0001-0080 in contiguous order, immutable checksums, grants, RLS, transcripts, reservations, data governance and readiness capability");
 } catch (error) {
   primaryError = error;
   throw error;
@@ -658,11 +660,11 @@ function supabaseMigrationInventory() {
   const migrations = readdirSync(supabaseMigrationDirectory)
     .filter((name) => /^\d{4}_.+\.sql$/.test(name))
     .sort();
-  assert.equal(migrations.length, 79, "the harness must cover every Supabase-only migration through 0079");
+  assert.equal(migrations.length, 80, "the harness must cover every Supabase-only migration through 0080");
   assert.deepEqual(
     migrations.map((migration) => Number(migration.slice(0, 4))),
-    Array.from({ length: 79 }, (_, index) => index + 1),
-    "Supabase-only migration versions must be contiguous and unique from 0001 through 0079",
+    Array.from({ length: 80 }, (_, index) => index + 1),
+    "Supabase-only migration versions must be contiguous and unique from 0001 through 0080",
   );
   assert.equal(migrations[48], "0049_portal_text_preview_admission.sql");
   assert.equal(migrations[49], "0050_meeting_terminal_notification_claim.sql");
@@ -688,6 +690,7 @@ function supabaseMigrationInventory() {
   assert.equal(migrations[76], "0077_schema_capability_publication.sql");
   assert.equal(migrations[77], "0078_business_action_grants_capability_repair.sql");
   assert.equal(migrations[78], "0079_billion_closer_admissions.sql");
+  assert.equal(migrations[79], "0080_billing_exemption_for_internal_tenants.sql");
   assert.equal(migrationChecksum(migrations[48]), "79b24e7fdc768a30b02d3596b71799fae484043e37561ddfcd435f46076b3100");
   assert.equal(migrationChecksum(migrations[49]), "262e033328175f704f8cfef1cafdcb0a2ef9b9aac7e4cc86f2b33890044c7224");
   return migrations;
@@ -11092,6 +11095,56 @@ function assertBillionCloserAdmissionsPhase(databaseUrl) {
     const read = runSql(databaseUrl, asRoleSql(role, null, "SELECT count(*) FROM public.billion_closer_admissions;"));
     assert.notEqual(read.status, 0, `${role} cannot read the receipt table directly`);
   }
+}
+
+// ADR-051 etapa 3 (0080): isencao de cobranca para tenant interno. Prova que (1) sem isencao e sem
+// assinatura a reserva continua recusada, (2) com a isencao a sala e reservada sem assinatura, (3) os
+// tetos de seguranca (salas sem entrega por periodo) continuam valendo, (4) a lista e travada e (5) o
+// isento nao ganha assinatura nem cobranca.
+function assertBillingExemptionPhase(databaseUrl) {
+  const service = (sql) => queryJson(databaseUrl, asRoleSql("service_role", null, sql));
+  // Tenant proprio da fase: sem assinatura, sem reservas e sem interferencia das outras fases.
+  const tenant = "019f0000-0080-7000-8000-0000000000a1";
+  const agent = "019f0000-0080-7000-8000-0000000000a2";
+  assertSucceeded(runSql(databaseUrl, `
+    INSERT INTO public.tenants (id, slug, legal_name, status, home_region, default_language, default_timezone)
+    VALUES ('${tenant}', 'billing-exemption-fixture', 'Billing Exemption Fixture', 'active', 'local', 'en', 'UTC');
+    INSERT INTO public.agents(tenant_id,id,name,role_type,status,disclosure_profile_id)
+    VALUES ('${tenant}','${agent}','Exemption fixture','sales','active','default');
+  `), "exemption fixture tenant and agent");
+  const id = (n) => `019f0000-0080-7000-8000-${String(n).padStart(12, "0")}`;
+  const reserve = (n) => service(reservationInvocationSql(tenant, agent, `exemption-case-${n}`, id(n), id(n + 100), "tavus"));
+
+  assert.equal(queryScalar(databaseUrl, "SELECT app.portal_table_locked_down('public.portal_billing_exemptions'::regclass);"), "t", "the exemption list is locked down");
+  assert.equal(queryScalar(databaseUrl, "SELECT app.portal_service_role_only('public.portal_begin_provider_effect_service(app.uuid_v7,app.uuid_v7,app.uuid_v7,app.uuid_v7,text,text,text,text,text,text,integer)');"), "t", "the reservation RPC stays service_role only");
+
+  const before = reserve(1);
+  assert.equal(before.outcome, "capped", "without subscription or exemption the reservation is refused");
+  assert.equal(before.status, "no_subscription");
+
+  const grant = runSql(databaseUrl, `INSERT INTO public.portal_billing_exemptions(exempt_tenant, reason) VALUES ('${tenant}', 'harness: internal tenant of the product owner');`);
+  assertSucceeded(grant, "grant the exemption as the database operator");
+  assert.equal(reserve(2).outcome, "reserved", "an exempt tenant reserves a room without a subscription");
+  assert.equal(reserve(3).outcome, "reserved");
+  assert.equal(reserve(4).outcome, "reserved");
+  const fourth = reserve(5);
+  assert.equal(fourth.outcome, "capped", "the unproven-delivery safety cap still applies to an exempt tenant");
+  assert.equal(fourth.bucket, "tavus_no_delivery_period");
+
+  assert.equal(queryScalar(databaseUrl, `SELECT count(*) FROM public.tenant_subscriptions WHERE tenant_id='${tenant}';`), "0", "no subscription row was invented");
+  assert.equal(queryScalar(databaseUrl, `SELECT count(*) FROM public.billing_usage_outbox WHERE tenant_id='${tenant}';`), "0", "no billable usage exists for an exempt tenant");
+  for (const role of ["anon", "authenticated", "service_role"]) {
+    const read = runSql(databaseUrl, asRoleSql(role, null, "SELECT count(*) FROM public.portal_billing_exemptions;"));
+    assert.notEqual(read.status, 0, `${role} cannot read or write the exemption list directly`);
+  }
+  // Limpa o que esta fase criou para nao mudar o estado das fases seguintes.
+  assertSucceeded(runSql(databaseUrl, `
+    DELETE FROM public.provider_effect_reservations WHERE tenant_id='${tenant}';
+    DELETE FROM public.cost_events WHERE tenant_id='${tenant}';
+    DELETE FROM public.portal_billing_exemptions WHERE exempt_tenant='${tenant}';
+    DELETE FROM public.agents WHERE tenant_id='${tenant}';
+    DELETE FROM public.tenants WHERE id='${tenant}';
+  `), "clean the exemption fixtures");
 }
 
 function assertBusinessActionGrantsCapabilityRepairPhase(databaseUrl) {

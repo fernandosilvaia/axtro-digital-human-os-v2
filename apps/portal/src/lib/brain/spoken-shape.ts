@@ -65,6 +65,11 @@ function stripPraiseOpener(text: string): string {
   return text;
 }
 
+// "A reposição precisa de duas coisas." anuncia uma lista que o corte depois remove: o cliente fica ouvindo a
+// promessa de um item que nunca vem (visto ao vivo em 2026-10-19). Na hora de cortar, o anúncio sem os itens sai.
+// O anúncio com os itens na mesma frase ("duas coisas: X e Y") não termina nele e fica.
+const LIST_ANNOUNCEMENT = /\b(?:duas|dois|tr[eê]s|quatro|two|three|four|dos|tres|cuatro)\s+(?:coisas|pontos|motivos|raz[oõ]es|requisitos|passos|fatores|op[cç][õo]es|things|points|reasons|requirements|steps|factors|options|cosas|puntos|razones|pasos|opciones)[.!]?$/i;
+
 // Frases que não podem ser a primeira a cair quando o corte acontece.
 const PROTECTED_SENTENCE = /(\bAI\b|\bIA\b|inteligencia artificial|inteligência artificial|licensed|licencia|licenciad|department of insurance|departamento de seguros|medicare|government|gobierno|governo|human team|equipo humano|time humano|no obligation|sin compromiso|sem compromisso)/i;
 // "Or is it...?", "Ou é...?": a segunda pergunta continua a primeira.
@@ -120,7 +125,9 @@ export function shapeSpokenReply(original: string, maxSentences: number = SPOKEN
     lastQuestion = chain.length === 1 ? chain[0] as string : mergeQuestionChain(chain);
   }
 
-  const statements = sentences.filter((sentence) => !isQuestion(sentence));
+  const allStatements = sentences.filter((sentence) => !isQuestion(sentence));
+  const withoutAnnouncements = allStatements.filter((sentence) => !LIST_ANNOUNCEMENT.test(sentence) || PROTECTED_SENTENCE.test(sentence));
+  const statements = withoutAnnouncements.length > 0 ? withoutAnnouncements : allStatements;
   const room = lastQuestion === null ? maxSentences : maxSentences - 1;
   const chosen = new Set<number>();
   statements.forEach((sentence, index) => {
