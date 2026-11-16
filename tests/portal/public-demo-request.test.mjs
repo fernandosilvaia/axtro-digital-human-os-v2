@@ -45,6 +45,12 @@ test("behind a proxy the reviewed public origin is accepted and redirects stay o
 
   assert.equal(publicDemoRedirectUrl("/demo", internal("x"), env).href, "https://portal-production-b43e.up.railway.app/demo");
   assert.equal(publicDemoRedirectUrl("/demo", internal("x"), {}).href, "http://localhost:8080/demo");
+
+  // Fake mode (local and CI e2e) keeps the browser on its own host, never on production.
+  const fake = { ...env, PORTAL_FAKE_PROVIDERS: "1" };
+  const local = new Request("http://localhost:3100/demo/start", { method: "POST", headers: { origin: "http://localhost:3100" } });
+  assert.equal(isSameOriginPublicDemoMutationRequest(local, fake), true);
+  assert.equal(publicDemoRedirectUrl("/demo", local, fake).href, "http://localhost:3100/demo");
 });
 
 test("public demo command parser accepts only bounded UTF-8 JSON", async () => {

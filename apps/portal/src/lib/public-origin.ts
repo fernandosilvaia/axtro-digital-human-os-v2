@@ -52,6 +52,21 @@ export function portalPublicOrigin(env: NodeJS.ProcessEnv = process.env): string
   return parsePortalPublicOrigin(env.PORTAL_PUBLIC_URL ?? "");
 }
 
+/**
+ * Public origin for browser redirects and Origin checks behind the Railway
+ * proxy, where `request.url` carries the internal host. Unlike
+ * `portalPublicOrigin`, fake mode returns null instead of the deterministic
+ * production origin: a local or CI browser must stay on its own host.
+ */
+export function deployedPublicOrigin(env: NodeJS.ProcessEnv = process.env): string | null {
+  if ((env.PORTAL_FAKE_PROVIDERS ?? "").trim() === "1") return null;
+  try {
+    return parsePortalPublicOrigin(env.PORTAL_PUBLIC_URL ?? "");
+  } catch {
+    return null;
+  }
+}
+
 export function isPortalPublicOriginConfigured(env: NodeJS.ProcessEnv): boolean {
   try {
     portalPublicOrigin(env);

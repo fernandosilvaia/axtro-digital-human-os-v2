@@ -21,10 +21,9 @@ const mockSources = new Map([
     }
   `],
   ["@/lib/public-origin", `
-    export function portalPublicOrigin() {
+    export function deployedPublicOrigin() {
       const state = globalThis.__authCallbackState;
-      if (state.originThrows) throw new TypeError("PORTAL_PUBLIC_URL must be an exact approved HTTPS origin");
-      return state.portalOrigin;
+      return state.originThrows ? null : state.portalOrigin;
     }
   `],
 ]);
@@ -68,7 +67,7 @@ test("auth callback keeps the open-redirect guard on next", async () => {
   }
 });
 
-test("without a configured public origin (local dev) the request origin is used", async () => {
+test("without a deployed public origin (local dev, CI fake mode) the request origin is used", async () => {
   freshState({ originThrows: true });
   assert.equal((await GET({ url: "http://localhost:3000/auth/callback" })).headers.get("location"), "http://localhost:3000/login");
 });
