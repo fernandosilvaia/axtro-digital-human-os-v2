@@ -55,19 +55,22 @@ version change and re-evaluation, without rewriting historical results.
 ## Optional Promptfoo integration
 
 Tooling is isolated development-only and exact-pinned in this directory. The
-evaluated latest Promptfoo 0.123.1 was rejected because full registry audit
-reported unpatched node-forge `GHSA-86w9-cpqp-85rv` through jks-js. Promptfoo
-0.116.7 (MIT) supports our custom ESM provider, with patched transitive pins:
+evaluated Promptfoo 0.123.1 was rejected because full registry audit reported
+unpatched node-forge `GHSA-86w9-cpqp-85rv` through jks-js. On 2026-11-16 the
+0.116.7 pin itself started failing the high-severity audit (zod, openai and the
+@adaline providers it pulls in), so the pin moved to Promptfoo 0.125.1 (MIT),
+which no longer depends on node-forge and leaves only moderate advisories.
+Patched transitive pins:
 
 | Dependency | Exact version | Reason |
 | --- | --- | --- |
-| basic-ftp | 6.2.1 | Directory parser CPU denial of service through 6.2.0 |
+| basic-ftp | 6.2.6 | Directory parser CPU denial of service and later advisories through 6.2.3 |
 | drizzle-orm | 0.45.2 | Identifier escaping SQL injection |
 | mathjs | 15.2.0 | Unsafe object property setters |
 | sharp | 0.35.5 | libvips/libheif advisories |
 | tmp | 0.2.7 | Path traversal, including bypass in 0.2.6 |
 | csv-parse | 7.0.2 | Prototype replacement via columns |
-| fast-xml-parser | 5.7.0 | XML comment/CDATA injection |
+| fast-xml-parser | 5.12.1 | XML comment/CDATA injection and later advisories through 5.11.2 |
 | uuid | 11.1.1 | Buffer bounds checks |
 | better-sqlite3 | 13.0.3 | Native Node 26 compatibility, MIT |
 
