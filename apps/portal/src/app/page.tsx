@@ -3,7 +3,12 @@ import Image from "next/image";
 import { RevealOnScroll } from "@/components/reveal-on-scroll";
 import { ScrollToHash } from "@/components/scroll-to-hash";
 import { DemoSubmitButton } from "./demo-button";
+import { isPublicDemoEnabled } from "@/lib/public-demo/server-session";
 import { absoluteUrl, createPageMetadata, SITE_NAME } from "@/lib/site";
+
+// Os convites para a demo dependem de configuração de runtime (segredo e trava
+// de borda). Renderizar por requisição evita que o build congele esse estado.
+export const dynamic = "force-dynamic";
 
 export const metadata = createPageMetadata({
   title: "Axtro Closer AI Human | Closer de IA em vídeo com controle",
@@ -54,6 +59,8 @@ const TRUST_POINTS = [
   "Registro operacional por conversa",
 ] as const;
 
+const DEMO_FAQ_QUESTION = "Como funciona a demonstração?";
+
 const FAQ_ITEMS = [
   {
     question: "O que é o Axtro Closer AI Human?",
@@ -76,13 +83,14 @@ const FAQ_ITEMS = [
       "Cada experiência usa contexto autorizado, consentimentos aplicáveis e políticas explícitas. A plataforma mantém eventos e comprovantes operacionais para que a equipe possa revisar a interação e conduzir o próximo passo com clareza.",
   },
   {
-    question: "Como funciona a demonstração?",
+    question: DEMO_FAQ_QUESTION,
     answer:
       "A demonstração usa uma simulação isolada com dados sintéticos e estado temporário por visitante. Ela não cria conta, cobrança ou chamada ao fornecedor de vídeo; recursos reais dependem da configuração, do consentimento e da aprovação da empresa.",
   },
 ] as const;
 
-const STRUCTURED_DATA = [
+function structuredData(faqItems: readonly (typeof FAQ_ITEMS)[number][]) {
+  return [
   {
     "@context": "https://schema.org",
     "@type": "Organization",
@@ -125,15 +133,19 @@ const STRUCTURED_DATA = [
   {
     "@context": "https://schema.org",
     "@type": "FAQPage",
-    mainEntity: FAQ_ITEMS.map((item) => ({
+    mainEntity: faqItems.map((item) => ({
       "@type": "Question",
       name: item.question,
       acceptedAnswer: { "@type": "Answer", text: item.answer },
     })),
   },
-];
+  ];
+}
 
 export default function LandingPage() {
+  const demoEnabled = isPublicDemoEnabled();
+  // Sem demo disponível, a pergunta sobre ela sai da página e dos dados estruturados.
+  const faqItems = demoEnabled ? FAQ_ITEMS : FAQ_ITEMS.filter((item) => item.question !== DEMO_FAQ_QUESTION);
   return (
     <div className="landing landing--closer">
       <ScrollToHash />
@@ -169,14 +181,18 @@ export default function LandingPage() {
               disclosure claro e a sua operação no controle da conversa.
             </p>
             <div className="hero-ctas hero-ctas-left">
-              <form action="/demo/start" method="post">
-                <DemoSubmitButton className="btn btn-primary btn-large">Explorar a demonstração <ArrowIcon /></DemoSubmitButton>
-              </form>
+              {demoEnabled ? (
+                <form action="/demo/start" method="post">
+                  <DemoSubmitButton className="btn btn-primary btn-large">Explorar a demonstração <ArrowIcon /></DemoSubmitButton>
+                </form>
+              ) : (
+                <a className="btn btn-primary btn-large" href="/signup">Criar minha conta <ArrowIcon /></a>
+              )}
               <a className="btn btn-ghost btn-large" href="#como-funciona">Como funciona <ChevronIcon /></a>
             </div>
             <div className="hero-proof-row" aria-label="Compromissos da demonstração">
               <span><CheckIcon /> IA sempre identificada</span>
-              <span><CheckIcon /> Dados fictícios na demo</span>
+              <span><CheckIcon /> {demoEnabled ? "Dados fictícios na demo" : "Teste antes de assinar"}</span>
               <span><CheckIcon /> Sem cartão</span>
             </div>
           </div>
@@ -315,7 +331,7 @@ export default function LandingPage() {
             </p>
           </RevealOnScroll>
           <RevealOnScroll className="faq-list">
-            {FAQ_ITEMS.map((item) => (
+            {faqItems.map((item) => (
               <details className="faq-item" key={item.question}>
                 <summary>{item.question}<span aria-hidden="true">+</span></summary>
                 <p>{item.answer}</p>
@@ -328,11 +344,21 @@ export default function LandingPage() {
           <RevealOnScroll className="closing-panel closer-closing-panel">
             <div className="closing-panel-mark"><span className="eyebrow-pulse" /> Próxima conversa</div>
             <h2>Veja como uma conversa em vídeo pode começar com mais clareza.</h2>
-            <p>Explore uma simulação isolada do Axtro Closer AI Human com dados sintéticos e sem efeitos reais.</p>
-            <form action="/demo/start" method="post">
-              <DemoSubmitButton className="btn btn-light btn-large">Abrir demonstração <ArrowIcon /></DemoSubmitButton>
-            </form>
-            <span className="closing-note">Sessão isolada, dados sintéticos, sem cadastro, sem cartão e sem fornecedor de vídeo.</span>
+            {demoEnabled ? (
+              <>
+                <p>Explore uma simulação isolada do Axtro Closer AI Human com dados sintéticos e sem efeitos reais.</p>
+                <form action="/demo/start" method="post">
+                  <DemoSubmitButton className="btn btn-light btn-large">Abrir demonstração <ArrowIcon /></DemoSubmitButton>
+                </form>
+                <span className="closing-note">Sessão isolada, dados sintéticos, sem cadastro, sem cartão e sem fornecedor de vídeo.</span>
+              </>
+            ) : (
+              <>
+                <p>Crie sua conta, configure a sua agente e teste a conversa antes de assinar um plano.</p>
+                <a className="btn btn-light btn-large" href="/signup">Criar minha conta <ArrowIcon /></a>
+                <span className="closing-note">Sem cartão para explorar a plataforma. Você escolhe o plano depois.</span>
+              </>
+            )}
           </RevealOnScroll>
         </section>
       </main>
@@ -345,7 +371,7 @@ export default function LandingPage() {
         <a href="/privacidade">Privacidade</a>
         <a href="mailto:fernando@axtroai.com">fernando@axtroai.com</a>
       </footer>
-      <script type="application/ld+json" dangerouslySetInnerHTML={{ __html: JSON.stringify(STRUCTURED_DATA) }} />
+      <script type="application/ld+json" dangerouslySetInnerHTML={{ __html: JSON.stringify(structuredData(faqItems)) }} />
     </div>
   );
 }

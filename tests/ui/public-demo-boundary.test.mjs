@@ -53,6 +53,13 @@ test("landing is static and starts the isolated demo without shared auth", () =>
   assert.equal(existsSync(join(root, "apps/portal/src/lib/actions/public-demo.ts")), false);
   assert.match(landing, /simulação isolada/i);
   assert.match(landing, /sem efeitos reais/i);
+  // Com a trava fechada, a landing troca o convite da demo por cadastro, e
+  // renderiza por requisição para o build não congelar esse estado.
+  assert.match(landing, /const demoEnabled = isPublicDemoEnabled\(\)/);
+  assert.match(landing, /export const dynamic = "force-dynamic"/);
+  assert.match(landing, /href="\/signup">Criar minha conta/);
+  const demoPage = read("apps/portal/src/app/(public-demo)/demo/page.tsx");
+  assert.match(demoPage, /status === "unavailable" \|\| !isPublicDemoEnabled\(\)/);
 });
 
 test("public demo route has a separate shell and no customer or paid-effect imports", () => {
