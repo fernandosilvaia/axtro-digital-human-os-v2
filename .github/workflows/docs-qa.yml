@@ -18,9 +18,12 @@ concurrency:
 permissions:
   contents: read
 
+# Runner fixo em ubuntu-24.04: em 2026-10-19 o ubuntu-latest passou a ser o
+# 26.04, onde o Playwright 1.57 nao tem Chromium e os jobs de e2e quebram na
+# instalacao. Subir junto com o Playwright quando ele suportar o 26.04.
 jobs:
   validate-foundation:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 10
     steps:
       - uses: actions/checkout@v4
@@ -63,7 +66,7 @@ jobs:
         run: uv run python scripts/validate_all.py
 
   build-portal:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 12
     steps:
       - uses: actions/checkout@v4
@@ -89,7 +92,7 @@ jobs:
   e2e-public-discovery:
     # Não usa sessão, conta autenticada ou segredo remoto. O HMAC determinístico
     # existe somente no processo de teste, então PRs de fork recebem o mesmo gate.
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 15
     steps:
       - uses: actions/checkout@v4
@@ -118,7 +121,7 @@ jobs:
     # visível em lint local nem no docs_qa.py). Contorno padrão: checar o
     # segredo dentro de um step (secrets É permitido em `run:`) e expor via
     # output, que aí sim pode ser lido em jobs.<job_id>.if via `needs`.
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 2
     outputs:
       has-secrets: ${{ steps.check.outputs.has-secrets }}
@@ -153,7 +156,7 @@ jobs:
     # deixando a credencial real como gate humano. PRs de fork também não
     # têm acesso aos secrets, então o skip aqui é automático e seguro.
     needs: check-e2e-secrets
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     # 20min: o webServer do Playwright agora faz `next build && next start`
     # no CI (valida o build de produção antes do deploy): o build soma
     # ~2min ao job.
@@ -192,7 +195,7 @@ jobs:
         run: pnpm run e2e
 
   validate-local-migrations:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 10
     services:
       postgres:

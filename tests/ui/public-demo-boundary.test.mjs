@@ -130,7 +130,8 @@ test("public demo mutations use dedicated bounded route handlers instead of forw
   assert.match(commandRoute, /"cache-control": "no-store, max-age=0"/);
   assert.match(endRoute, /export async function POST/);
   assert.match(endRoute, /isSameOriginPublicDemoMutationRequest/);
-  assert.match(endRoute, /NextResponse\.redirect\(new URL\("\/", request\.url\), 303\)/);
+  assert.match(endRoute, /NextResponse\.redirect\(publicDemoRedirectUrl\("\/", request\), 303\)/);
+  assert.match(startRoute, /publicDemoRedirectUrl\(/);
   assert.match(requestGuard, /PUBLIC_DEMO_MAX_COMMAND_BODY_BYTES = 1024/);
   assert.match(requestGuard, /content-length/);
   assert.match(requestGuard, /TextDecoder\("utf-8", \{ fatal: true \}\)/);

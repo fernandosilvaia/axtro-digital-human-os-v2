@@ -4,6 +4,7 @@ import test from "node:test";
 import {
   isSameOriginPublicDemoMutationRequest,
   PUBLIC_DEMO_MAX_COMMAND_BODY_BYTES,
+  publicDemoRedirectUrl,
   readBoundedPublicDemoCommand,
 } from "../../apps/portal/src/lib/public-demo/request.ts";
 
@@ -30,6 +31,26 @@ test("public demo mutation requests require an exact same-origin Origin", () => 
       headers,
     })), false, String(origin));
   }
+});
+
+test("behind a proxy the reviewed public origin is accepted and redirects stay on it", () => {
+  const env = { PORTAL_PUBLIC_URL: "https://portal-production-b43e.up.railway.app" };
+  const internal = (origin) => new Request("http://localhost:8080/demo/start", { method: "POST", headers: { origin } });
+
+  assert.equal(isSameOriginPublicDemoMutationRequest(internal("https://portal-production-b43e.up.railway.app"), env), true);
+  assert.equal(isSameOriginPublicDemoMutationRequest(internal("https://evil.example"), env), false);
+  assert.equal(isSameOriginPublicDemoMutationRequest(internal("https://closer.axtroai.com"), env), false);
+  assert.equal(isSameOriginPublicDemoMutationRequest(internal("https://portal-production-b43e.up.railway.app"), {}), false);
+  assert.equal(isSameOriginPublicDemoMutationRequest(internal("https://evil.example"), { PORTAL_PUBLIC_URL: "https://evil.example" }), false);
+
+  assert.equal(publicDemoRedirectUrl("/demo", internal("x"), env).href, "https://portal-production-b43e.up.railway.app/demo");
+  assert.equal(publicDemoRedirectUrl("/demo", internal("x"), {}).href, "http://localhost:8080/demo");
+
+  // Fake mode (local and CI e2e) keeps the browser on its own host, never on production.
+  const fake = { ...env, PORTAL_FAKE_PROVIDERS: "1" };
+  const local = new Request("http://localhost:3100/demo/start", { method: "POST", headers: { origin: "http://localhost:3100" } });
+  assert.equal(isSameOriginPublicDemoMutationRequest(local, fake), true);
+  assert.equal(publicDemoRedirectUrl("/demo", local, fake).href, "http://localhost:3100/demo");
 });
 
 test("public demo command parser accepts only bounded UTF-8 JSON", async () => {

@@ -1,15 +1,28 @@
+import { deployedPublicOrigin } from "../public-origin.ts";
+
 export const PUBLIC_DEMO_MAX_COMMAND_BODY_BYTES = 1024;
 
 const JSON_CONTENT_TYPE_PATTERN = /^application\/json(?:\s*;\s*charset=utf-8)?$/i;
 
-export function isSameOriginPublicDemoMutationRequest(request: Request): boolean {
+/**
+ * Behind the Railway proxy `request.url` carries the internal host, so the
+ * browser's Origin never matches it. The reviewed PORTAL_PUBLIC_URL is the
+ * public identity of this deployment and is accepted alongside it.
+ */
+export function isSameOriginPublicDemoMutationRequest(request: Request, env: NodeJS.ProcessEnv = process.env): boolean {
   const origin = request.headers.get("origin");
   if (origin === null) return false;
   try {
-    return new URL(origin).origin === new URL(request.url).origin;
+    const parsed = new URL(origin).origin;
+    return parsed === new URL(request.url).origin || parsed === deployedPublicOrigin(env);
   } catch {
     return false;
   }
+}
+
+/** Redirect target on the public origin, never on the internal proxy host. */
+export function publicDemoRedirectUrl(path: string, request: Request, env: NodeJS.ProcessEnv = process.env): URL {
+  return new URL(path, deployedPublicOrigin(env) ?? request.url);
 }
 
 export async function readBoundedPublicDemoCommand(request: Request): Promise<unknown> {
