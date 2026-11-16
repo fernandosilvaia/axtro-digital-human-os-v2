@@ -34,6 +34,15 @@ function demoSecret(): string | null {
     : null;
 }
 
+/**
+ * Whether a visitor can start the simulation right now: the state secret is
+ * configured and the edge rate-limit policy is attested. Pages use it to stop
+ * inviting visitors into a demo that would only answer "unavailable".
+ */
+export function isPublicDemoEnabled(): boolean {
+  return demoSecret() !== null;
+}
+
 function unavailableResult(): PortalPublicDemoActionResult {
   return Object.freeze({
     schema_version: "2.0.0",

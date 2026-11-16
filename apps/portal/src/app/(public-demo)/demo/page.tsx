@@ -1,6 +1,6 @@
 import type { Metadata } from "next";
 
-import { readPublicDemoView } from "@/lib/public-demo/server-session";
+import { isPublicDemoEnabled, readPublicDemoView } from "@/lib/public-demo/server-session";
 
 import { PublicDemoWorkspace } from "./public-demo-workspace";
 import styles from "./public-demo.module.css";
@@ -25,7 +25,9 @@ export default async function PublicDemoPage({
     return <PublicDemoWorkspace initialView={initialView} />;
   }
 
-  const unavailable = status === "unavailable";
+  // Sem a trava liberada, o visitante vê o estado real logo de cara, em vez de
+  // um botão que só responderia "indisponível" depois do clique.
+  const unavailable = status === "unavailable" || !isPublicDemoEnabled();
   return (
     <main className={styles.entryShell}>
       <section className={styles.entryPanel} aria-labelledby="demo-entry-title">
@@ -48,7 +50,7 @@ export default async function PublicDemoPage({
               <button className={styles.primaryButton} type="submit">Iniciar simulação isolada</button>
             </form>
           )}
-          <a className={styles.secondaryButton} href="/signup">Criar minha conta</a>
+          <a className={unavailable ? styles.primaryButton : styles.secondaryButton} href="/signup">Criar minha conta</a>
           <a className={styles.textLink} href="/">Voltar para a página inicial</a>
         </div>
         <dl className={styles.safetyList}>
